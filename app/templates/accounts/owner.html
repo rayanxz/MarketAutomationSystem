@@ -1,0 +1,141 @@
+{% extends "base_dash.html" %}
+{% load static %}
+
+{% block title %}إعداد المالك{% endblock %}
+
+{% block content %}
+<div class="auth-wrap auth-dark" dir="rtl" lang="ar">
+  <div class="auth-card">
+    <div class="brand-lockup">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" class="brand-icon">
+        <path d="M3 7h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zm2-4h14a2 2 0 0 1 2 2v2H3V5a2 2 0 0 1 2-2zm3 8h8v2H8v-2z" fill="currentColor"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-title">MarketPOS</div>
+        <div class="brand-sub">إعداد المالك</div>
+      </div>
+    </div>
+
+    <form method="post" class="auth-form">
+  {% csrf_token %}
+
+  {# remove the global non_field_errors block from here #}
+
+  {% for field in form %}
+    {% if field.name == 'password1' %}
+      <div class="form-field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {# intentionally NOT rendering field.errors here #}
+        {% if field.help_text %}<small class="help">{{ field.help_text }}</small>{% endif %}
+      </div>
+
+    {% elif field.name == 'password2' %}
+      <div class="form-field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+
+        {# show this field's own errors #}
+        {% for error in field.errors %}
+          <div class="error error--confirm">{{ error }}</div>
+        {% endfor %}
+
+        {# also show any form-level errors (e.g., passwords don't match) here #}
+        {% if form.non_field_errors %}
+          {% for error in form.non_field_errors %}
+            <div class="error error--confirm">{{ error }}</div>
+          {% endfor %}
+        {% endif %}
+
+        {% if field.help_text %}<small class="help">{{ field.help_text }}</small>{% endif %}
+      </div>
+
+    {% else %}
+      <div class="form-field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.help_text %}<small class="help">{{ field.help_text }}</small>{% endif %}
+        {% for error in field.errors %}
+          <div class="error">{{ error }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  <button type="submit" class="btn-primary w-full">حفظ</button>
+</form>
+
+    <div class="auth-foot">
+      <small>هذا هو الحساب الإداري الأول لمتجرك. يرجى حفظ كلمة المرور في مكان آمن.</small>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const u  = document.querySelector('input[name="username"]');
+  const p1 = document.querySelector('input[name="password1"]');
+  const p2 = document.querySelector('input[name="password2"]');
+
+  // Username: hint the allowed pattern (client-side), and focus it
+  if (u) {
+    u.setAttribute('placeholder','مثال: John Doe');
+    u.setAttribute('pattern','[A-Za-z ]{3,12}');
+    u.setAttribute('title','يسمح بحروف إنجليزية ومسافات فقط (3–12)');
+    u.autocomplete = 'username';
+    u.focus();
+  }
+
+  // Passwords: placeholders + autocomplete hints
+  if (p1) { p1.setAttribute('placeholder','••••••'); p1.autocomplete = 'new-password'; }
+  if (p2) { p2.setAttribute('placeholder','••••••'); p2.autocomplete = 'new-password'; }
+
+  // Wrap all inputs for consistent sizing (except radios/checkboxes)
+  document.querySelectorAll('.auth-form input:not([type="checkbox"]):not([type="radio"])')
+    .forEach(inp => {
+      if (!inp.parentElement.classList.contains('input-wrap')) {
+        const wrap = document.createElement('div');
+        wrap.className = 'input-wrap';
+        inp.parentNode.insertBefore(wrap, inp);
+        wrap.appendChild(inp);
+      }
+    });
+
+  // Add show/hide toggle to both password fields
+  function addToggle(field) {
+    if (!field) return;
+    const wrap = field.closest('.input-wrap');
+    if (!wrap) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-toggle';
+    btn.setAttribute('aria-label','إظهار/إخفاء كلمة المرور');
+    btn.textContent = 'إظهار';
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', () => {
+      const isText = field.type === 'text';
+      field.type = isText ? 'password' : 'text';
+      btn.textContent = isText ? 'إظهار' : 'إخفاء';
+      field.focus();
+    });
+
+    // CapsLock hint under the field
+    const hint = document.createElement('div');
+    hint.className = 'caps-hint';
+    hint.style.display = 'none';
+    hint.textContent = 'تحذير: زر الحروف الكبيرة (Caps Lock) مُفعل';
+    wrap.parentElement.appendChild(hint);
+
+    field.addEventListener('keydown', (ev) => {
+      if (ev.getModifierState && ev.getModifierState('CapsLock')) hint.style.display = 'block';
+      else hint.style.display = 'none';
+    });
+    field.addEventListener('blur', () => hint.style.display = 'none');
+  }
+
+  addToggle(p1);
+  addToggle(p2);
+});
+</script>
+{% endblock %}

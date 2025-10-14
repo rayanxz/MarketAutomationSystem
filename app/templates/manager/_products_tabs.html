@@ -1,0 +1,46 @@
+{# templates/manager/_products_tabs.html #}
+
+<style>
+/* Keep this tiny block here so it takes effect right away */
+.menu-secondary .tabs-row{
+  display:inline-flex; align-items:center; gap:12px;
+}
+.menu-secondary .btn-sec{
+  color:#fff; text-decoration:none;
+  border:1px solid #fff; border-radius:8px;
+  padding:8px 12px; font-size:14px; background:transparent;
+  transition:background .15s ease,color .15s ease,border-color .15s ease,box-shadow .15s ease;
+}
+.menu-secondary .btn-sec:hover{
+  background:#fff; color:#111; border-color:#fff;
+  box-shadow:0 2px 6px rgba(255,255,255,.2);
+}
+
+/* Dropdown */
+.menu-secondary .dd{ position:relative; }
+.menu-secondary .dd-panel{
+  position:absolute; inset-inline-start:0; top:calc(100% + 6px);
+  min-width:100%;
+  display:none; flex-direction:column; overflow:hidden;
+  background:#fff; color:#111;
+  border:1px solid #e5e7eb; border-radius:10px;
+  box-shadow:0 10px 24px rgba(0,0,0,.18);
+  z-index:1300;
+}
+.menu-secondary .dd:hover .dd-panel{ display:flex; }
+.menu-secondary .dd-panel a{
+  display:block; padding:10px 12px; color:#111; text-decoration:none;
+}
+.menu-secondary .dd-panel a:hover{ background:#f5f7ff; }
+</style>
+
+<div class="tabs-row">
+  <div class="dd">
+    <a href="{% url 'manager_collections' %}" class="btn-sec">قائمة الزمر</a>
+    <div class="dd-panel">
+      <a href="{% url 'manager_collections' %}?add=1#add">إضافة زمرة</a>
+    </div>
+  </div>
+
+  <a class="btn-sec" href="{% url 'manager_product_new' %}">إضافة منتج</a>
+</div>

@@ -1,0 +1,7 @@
+{% extends "base_dash.html" %}
+{% block title %}لوحة المدير{% endblock %}
+
+{% block menu_primary %}
+  <a href="{% url 'manager_dash' %}">الصفحة الرئيسية</a>
+  <a href="{% url 'manager_collections' %}"> ادارة المنتجات</a>
+{% endblock %}

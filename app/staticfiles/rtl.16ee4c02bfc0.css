@@ -1,0 +1,9 @@
+html[dir="rtl"] input, html[dir="rtl"] textarea { direction: ltr; text-align: right; }
+table { width:100%; border-collapse: collapse }
+th, td { padding:8px; border-bottom:1px solid #eee }
+.btn { padding:8px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer }
+.btn.primary { background:#111; color:#fff; border-color:#111 }
+.badge { padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #ddd }
+.badge.green{ background:#eaffea; border-color:#9ad19a }
+.badge.red{ background:#ffecec; border-color:#e0a1a1 }
+.badge.purple{ background:#f5ecff; border-color:#c7a7ff }

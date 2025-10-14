@@ -1,0 +1,108 @@
+﻿{% extends "base_dash.html" %}
+{% load static %}
+
+{% block title %}تسجيل الدخول{% endblock %}
+
+{% block content %}
+<div class="auth-wrap auth-dark" dir="rtl" lang="ar">
+  <div class="auth-card">
+    <div class="brand-lockup">
+      <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true" class="brand-icon">
+        <path d="M3 7h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zm2-4h14a2 2 0 0 1 2 2v2H3V5a2 2 0 0 1 2-2zm3 8h8v2H8v-2z" fill="currentColor"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-title">MarketPOS</div>
+        <div class="brand-sub">تسجيل الدخول</div>
+      </div>
+    </div>
+
+    <form method="post" class="auth-form">
+      {% csrf_token %}
+      {% if login_form.non_field_errors %}
+        <div class="form-alert">{{ login_form.non_field_errors }}</div>
+      {% endif %}
+
+      <div class="form-field">
+        <label for="{{ login_form.username.id_for_label }}">اسم المستخدم</label>
+        {{ login_form.username }}
+      </div>
+
+      <div class="form-field">
+        <label for="{{ login_form.password.id_for_label }}">كلمة المرور</label>
+        {{ login_form.password }}
+        <!-- caps hint will be injected under this field -->
+      </div>
+
+      <!-- Role picker -->
+      <div class="form-field">
+        <label>اختر الواجهة</label>
+        <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap">
+          <label><input type="radio" name="role" value="OWNER"
+            {% if selected_role == "OWNER" %}checked{% endif %}> مالك</label>
+          <label><input type="radio" name="role" value="MANAGER"
+            {% if selected_role == "MANAGER" %}checked{% endif %}> مدير</label>
+          <label><input type="radio" name="role" value="CASHIER"
+            {% if selected_role == "CASHIER" %}checked{% endif %}> كاشير</label>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary w-full">دخول</button>
+    </form>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const pw = document.querySelector('input[name="password"]');
+
+  // Add placeholder + autocomplete hint
+  if (pw) {
+    pw.setAttribute('placeholder','••••••');
+    pw.autocomplete = 'current-password';
+  }
+
+  // Wrap inputs for consistent sizing (except radios/checkboxes)
+  document.querySelectorAll('.auth-form input:not([type="checkbox"]):not([type="radio"])')
+    .forEach(inp => {
+      if (!inp.parentElement.classList.contains('input-wrap')) {
+        const wrap = document.createElement('div');
+        wrap.className = 'input-wrap';
+        inp.parentNode.insertBefore(wrap, inp);
+        wrap.appendChild(inp);
+      }
+    });
+
+  // Add show/hide toggle + caps-lock hint
+  if (pw) {
+    const wrap = pw.closest('.input-wrap');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-toggle';
+    btn.setAttribute('aria-label','إظهار/إخفاء كلمة المرور');
+    btn.textContent = 'إظهار';
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', () => {
+      const isText = pw.type === 'text';
+      pw.type = isText ? 'password' : 'text';
+      btn.textContent = isText ? 'إظهار' : 'إخفاء';
+      pw.focus();
+    });
+
+    const hint = document.createElement('div');
+    hint.className = 'caps-hint';
+    hint.style.display = 'none';
+    hint.textContent = 'تحذير: زر الحروف الكبيرة (Caps Lock) مُفعل';
+    // insert under the field container (form-field)
+    const fieldContainer = wrap.parentElement;
+    fieldContainer.appendChild(hint);
+
+    pw.addEventListener('keydown', (ev) => {
+      if (ev.getModifierState && ev.getModifierState('CapsLock')) hint.style.display = 'block';
+      else hint.style.display = 'none';
+    });
+    pw.addEventListener('blur', () => hint.style.display = 'none');
+  }
+});
+</script>
+{% endblock %}

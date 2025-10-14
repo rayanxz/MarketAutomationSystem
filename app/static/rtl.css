@@ -1,0 +1,24 @@
+/* =========================
+   MarketPOS — RTL Overrides
+   (All shared styles live in app.css)
+   ========================= */
+
+html[dir="rtl"] input { direction: ltr; text-align: right; }
+html[dir="rtl"] textarea { text-align: right; }
+
+html[dir="rtl"] ul, html[dir="rtl"] ol { padding-right: 1.25rem; padding-left: 0; }
+
+[dir="rtl"] .form-field label,
+[dir="rtl"] .help,
+[dir="rtl"] .error { text-align: right; }
+
+[dir="rtl"] .caps-hint { text-align: right; }
+
+[dir="rtl"] .brand-lockup { flex-direction: row-reverse; }
+[dir="rtl"] .brand-text { align-items: flex-end; }
+
+/* Password field: reserve space for the toggle on the LEFT in RTL */
+[dir="rtl"] .input-wrap > input {
+  padding-inline-end: 12px;   /* right side */
+  padding-inline-start: 74px; /* left side (toggle button area) */
+}

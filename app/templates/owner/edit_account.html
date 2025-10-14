@@ -1,0 +1,114 @@
+{% extends "owner/base_owner.html" %}
+{% load static %}
+
+{% block title %}تعديل حساب المالك{% endblock %}
+
+{% block menu_secondary %}
+  {% include "owner/_accounts_tabs.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="card" style="max-width:560px; margin-inline:auto;">
+  <h2 style="margin:0 0 12px;">تعديل حساب المالك</h2>
+  <p style="margin:0 0 16px; color:#555;">أدخل بياناتك الحالية ثم حدِّث الاسم أو كلمة المرور.</p>
+
+  <form method="post" class="auth-form" autocomplete="off">
+    {% csrf_token %}
+
+    <div class="form-field">
+      <label for="{{ form.current_username.id_for_label }}">{{ form.current_username.label }}</label>
+      <div class="input-wrap">
+        {{ form.current_username }}
+      </div>
+      {% for e in form.current_username.errors %}<div class="error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="form-field">
+      <label for="{{ form.current_password.id_for_label }}">{{ form.current_password.label }}</label>
+      <div class="input-wrap">
+        {{ form.current_password }}
+      </div>
+      {% for e in form.current_password.errors %}<div class="error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <hr style="margin:12px 0; border:none; border-top:1px solid #eee;">
+
+    <div class="form-field">
+      <label for="{{ form.new_username.id_for_label }}">{{ form.new_username.label }}</label>
+      <div class="input-wrap">
+        {{ form.new_username }}
+      </div>
+      <small class="help">يمكن تركه فارغًا إذا كنت لا ترغب بتغييره.</small>
+      {% for e in form.new_username.errors %}<div class="error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="form-field">
+      <label for="{{ form.new_password1.id_for_label }}">{{ form.new_password1.label }}</label>
+      <div class="input-wrap">
+        {{ form.new_password1 }}
+      </div>
+      {% for e in form.new_password1.errors %}<div class="error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="form-field">
+      <label for="{{ form.new_password2.id_for_label }}">{{ form.new_password2.label }}</label>
+      <div class="input-wrap">
+        {{ form.new_password2 }}
+      </div>
+
+      {% for e in form.new_password2.errors %}<div class="error error--confirm">{{ e }}</div>{% endfor %}
+
+      {% if form.non_field_errors %}
+        {% for e in form.non_field_errors %}
+          <div class="error error--confirm">{{ e }}</div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <button type="submit" class="btn-primary w-full">حفظ</button>
+  </form>
+</section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const curPw = document.querySelector('input[name="current_password"]');
+  const newPw1 = document.querySelector('input[name="new_password1"]');
+  const newPw2 = document.querySelector('input[name="new_password2"]');
+
+  function addToggle(field) {
+    if (!field) return;
+    const wrap = field.closest('.input-wrap');
+    if (!wrap) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-toggle';
+    btn.setAttribute('aria-label', 'إظهار/إخفاء كلمة المرور');
+    btn.textContent = 'إظهار';
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', () => {
+      const isText = field.type === 'text';
+      field.type = isText ? 'password' : 'text';
+      btn.textContent = isText ? 'إظهار' : 'إخفاء';
+      field.focus();
+    });
+
+    const hint = document.createElement('div');
+    hint.className = 'caps-hint';
+    hint.style.display = 'none';
+    hint.textContent = 'تحذير: زر الحروف الكبيرة (Caps Lock) مُفعل';
+    wrap.parentElement.appendChild(hint);
+
+    field.addEventListener('keydown', (ev) => {
+      if (ev.getModifierState && ev.getModifierState('CapsLock')) hint.style.display = 'block';
+      else hint.style.display = 'none';
+    });
+    field.addEventListener('blur', () => hint.style.display = 'none');
+  }
+
+  addToggle(curPw);
+  addToggle(newPw1);
+  addToggle(newPw2);
+});
+</script>
+{% endblock %}

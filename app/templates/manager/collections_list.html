@@ -1,0 +1,344 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}زمر المنتجات{% endblock %}
+
+{% block menu_secondary %}
+  {% include "manager/_products_tabs.html" %}
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .collections-wrap{ display:grid; gap:16px; grid-template-columns: 1fr; }
+
+  .newbox{
+    background:#0f1424; color:#fff; border-radius:12px; padding:16px;
+    box-shadow:0 4px 16px rgba(0,0,0,.08);
+  }
+  .newbox.is-hidden{ display:none; }
+  .newbox h3{ margin:0 0 10px; font-size:16px; }
+  .row{ display:flex; gap:8px; align-items:center; }
+  .row .input{ height:42px; }
+  .row .btn-primary{ height:42px; }
+  .hint{ color:#cbd5e1; font-size:12px; margin-top:6px; }
+
+  .list{ background:#fff; border-radius:12px; padding:8px; box-shadow:0 4px 16px rgba(0,0,0,.08); }
+  .item{ display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; }
+  .item:hover{ background:#f7f8fb; }
+  .ico{ width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; background:#0f1424; color:#fff; font-size:13px; flex:0 0 auto; }
+  .name{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .code{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:#64748b; }
+
+  .mgr-products{ display:grid; grid-template-columns: 4fr 1fr; gap:0; background:#fff; border-radius:12px; box-shadow:var(--card-shadow); }
+  .pane{ padding:16px; }
+  .pane-left{ border-inline-end:1px solid #e5e7eb; }
+  .pane-right{ position:relative; }
+
+  .browser-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .crumb{ font-size:13px; color:#334155; background:#f1f5f9; padding:6px 10px; border-radius:999px; }
+  .level-label{ font-weight:700; }
+  .back-btn{ border:1px solid #e5e7eb; background:#f8fafc; border-radius:8px; padding:6px 10px; cursor:pointer; }
+  .back-btn[disabled]{ opacity:.5; cursor:not-allowed; }
+
+  #browserList .item{ cursor:pointer; }
+  #browserList .icon{ width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; background:#0f1424; color:#fff; }
+  .item.active{ background:#fff7cc; }
+
+  .pager{ display:flex; gap:8px; align-items:center; padding:10px 0 6px; }
+  .pg-btn{ padding:6px 10px; border-radius:8px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
+  .pg-btn:hover{ background:#eef2ff; }
+  .pg-input input{ width:70px; height:32px; text-align:center; }
+
+  .pane-title{ margin:6px 0 12px; }
+  .search-box .modes{ display:flex; flex-direction:column; gap:6px; margin:10px 0; font-size:14px; }
+  .suggestions{ list-style:none; margin:6px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:10px; background:#fff; box-shadow:0 10px 24px rgba(0,0,0,.08); }
+  .suggestions[hidden]{ display:none; }
+  .suggestions li{ padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .suggestions li:hover, .suggestions li.active{ background:#eef2ff; }
+  .suggestions .s-code{ font-family: ui-monospace, Menlo, monospace; color:#64748b; }
+  .suggestions .s-path{ color:#6b7280; font-size:12px; margin-inline-start:auto; }
+
+  /* Context menu (minimal) */
+  #ctx{
+    position:fixed; inset:auto auto 0 0;
+    display:none; flex-direction:column;
+    width:180px; background:#fff; border:1px solid #e5e7eb; border-radius:10px;
+    box-shadow:0 10px 24px rgba(0,0,0,.18); z-index:5000;
+    transform: translate(var(--x,0), var(--y,0));
+  }
+  #ctx.show{ display:flex; }
+  #ctx button{
+    display:block; padding:10px 12px; text-align:start; background:#fff; border:0; cursor:pointer;
+  }
+  #ctx button:hover{ background:#eef2ff; }
+  #ctx hr{ margin:4px 0; border:0; border-top:1px solid #e5e7eb; }
+
+  /* Modals */
+  .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,.45); z-index: 4000; }
+  .modal-backdrop.show{ display:flex; }
+  .modal{ width:100%; max-width:480px; background:#fff; border-radius:12px; box-shadow: 0 20px 60px rgba(0,0,0,.25); overflow:hidden; }
+  .modal-h{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:#0b1220; color:#fff; }
+  .modal-x{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,.35); border-radius:8px; width:32px; height:28px; cursor:pointer; }
+  .modal-body{ padding:14px; }
+  .modal-f{ display:flex; gap:8px; justify-content:flex-start; margin-top:10px; }
+  .btn-danger{ background:#ef4444; color:#fff; border:1px solid #ef4444; padding:8px 12px; border-radius:8px; cursor:pointer; }
+  .btn-danger:hover{ background:#dc2626; border-color:#dc2626; }
+
+  /* tiny progress bar */
+  .progress{ height:8px; background:#eef2ff; border-radius:999px; overflow:hidden; }
+  .progress > i{ display:block; height:100%; width:0%; background:#0ea5e9; transition:width .25s ease; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mgr-products">
+
+  <!-- LEFT -->
+  <section class="pane pane-left">
+    <div class="collections-wrap">
+
+      <!-- Add new collection -->
+      <section id="add" class="newbox{% if not show_add %} is-hidden{% endif %}">
+        <h3>إضافة زمرة جديدة</h3>
+        <form method="post" class="row" autocomplete="off">
+          {% csrf_token %}
+          {{ form.name }}
+          <button type="submit" class="btn-primary">إنشاء</button>
+        </form>
+        {% if form.non_field_errors %}
+          {% for e in form.non_field_errors %}<div class="error">{{ e }}</div>{% endfor %}
+        {% endif %}
+        {% if form.errors.name %}
+          {% for e in form.errors.name %}<div class="error">{{ e }}</div>{% endfor %}
+        {% endif %}
+        <div class="hint">سيتم رفض الاسم إذا كان مكررًا (بدون حساسية حالة).</div>
+        <script>
+          document.addEventListener('DOMContentLoaded', () => {
+            const box = document.getElementById('add');
+            if (!box.classList.contains('is-hidden')) {
+              const inp = box.querySelector('input[name="name"]');
+              if (inp) { inp.focus(); inp.select(); }
+            }
+          });
+        </script>
+      </section>
+
+      <!-- Dynamic browser pane -->
+      <section class="list" id="browserPane">
+        <div class="browser-head">
+          <div class="crumb" id="crumb">/</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="level-label" id="levelLabel">الزُمَر</span>
+            <button class="back-btn" id="btnBack" type="button" disabled>رجوع</button>
+          </div>
+        </div>
+
+        <div id="browserList" class="list-collections"><!-- injected by JS --></div>
+
+        <!-- Pager -->
+        <footer class="pager" id="pager">
+          <button class="pg-btn" data-go="1">&lt;1&gt;</button>
+          <button class="pg-btn" data-go="2">&lt;2&gt;</button>
+          <button class="pg-btn" data-go="3">&lt;3&gt;</button>
+          <span class="pg-input">&lt;<input id="pgJump" type="number" min="1" value="1" />&gt;</span>
+          <button class="pg-btn" data-go="last">&lt;الأخيرة&gt;</button>
+        </footer>
+      </section>
+
+    </div>
+  </section>
+
+  <!-- RIGHT -->
+  <aside class="pane pane-right">
+    <h3 class="pane-title">البحث عن منتج</h3>
+
+    <div class="search-box" id="searchBox">
+      <input id="q" class="input" type="text" placeholder="اكتب هنا..." autocomplete="off" />
+      <div class="modes">
+        <label><input type="radio" name="mode" value="barcode" checked> عن طريق قارئ الباركود</label>
+        <label><input type="radio" name="mode" value="id"> عن طريق الكود</label>
+        <label><input type="radio" name="mode" value="code"> عن طريق الرمز</label>
+        <label><input type="radio" name="mode" value="name"> عن طريق الاسم</label>
+      </div>
+
+      <ul class="suggestions" id="suggestions" hidden></ul>
+      <div class="hint muted">اكتب حرفًا أو أكثر لإظهار اقتراحات. في وضع الباركود سيتم البحث مباشرة.</div>
+      <div class="error" id="searchErr" hidden></div>
+    </div>
+  </aside>
+</div>
+
+<!-- Context menu (only used for collection rows) -->
+
+
+<!-- Rename modal -->
+<div class="modal-backdrop" id="modalRename">
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="renameH">
+    <header class="modal-h">
+      <h3 id="renameH">إعادة تسمية الزمرة</h3>
+      <button class="modal-x" data-close>×</button>
+    </header>
+    <div class="modal-body">
+      <div class="field">
+        <label for="rename_name">الاسم الجديد</label>
+        <input class="input" type="text" id="rename_name" name="name" placeholder="اسم جديد">
+      </div>
+      <footer class="modal-f">
+        <button type="button" class="btn-primary" id="btnRenameSave">حفظ</button>
+        <button type="button" class="btn" data-close>إلغاء</button>
+      </footer>
+    </div>
+  </section>
+</div>
+
+<!-- Delete modal -->
+<div class="modal-backdrop" id="modalDelete">
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="delH">
+    <header class="modal-h">
+      <h3 id="delH">حذف الزمرة</h3>
+      <button class="modal-x" data-close>×</button>
+    </header>
+    <div class="modal-body">
+      <p class="muted" id="delMsg">هل تريد حذف الزمرة؟ سيؤدي ذلك إلى حذف كل المجموعات الأب والمنتجات داخلها.</p>
+      <div class="progress" style="margin-top:10px;" hidden id="delProgress"><i></i></div>
+      <footer class="modal-f">
+        <button type="button" class="btn-danger" id="btnDelConfirm">تأكيد الحذف</button>
+        <button type="button" class="btn" data-close>إلغاء</button>
+      </footer>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{% static 'js/manager_browser.js' %}"></script>
+<script src="{% static 'js/manager_search.js' %}"></script>
+
+<script>
+(() => {
+  document.addEventListener('DOMContentLoaded', () => {
+    function getCookie(name) {
+      const v = document.cookie.split('; ').find(row => row.startsWith(name + '='));
+      return v ? decodeURIComponent(v.split('=')[1]) : '';
+    }
+    const csrf = getCookie('csrftoken');
+
+    const list        = document.getElementById('browserList');
+    const menu        = document.getElementById('ctx'); // from base template
+    const modalRename = document.getElementById('modalRename');
+    const rnInput     = document.getElementById('rename_name');
+    const rnSave      = document.getElementById('btnRenameSave');
+
+    const modalDelete = document.getElementById('modalDelete');
+    const delMsg      = document.getElementById('delMsg');
+    const delProgress = document.getElementById('delProgress');
+    const delBar      = delProgress.querySelector('i');
+    const delConfirm  = document.getElementById('btnDelConfirm');
+
+    if (!list || !menu) return;
+
+    let current = { id: null, name: '' };
+
+    const hideMenu = () => {
+      menu.classList.remove('show');
+      menu.setAttribute('aria-hidden', 'true');
+    };
+    const showMenuAt = (x, y) => {
+      const pad = 8, w = 200, h = 96;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const fx = Math.min(Math.max(x, pad), vw - w - pad);
+      const fy = Math.min(Math.max(y, pad), vh - h - pad);
+      menu.style.setProperty('--x', fx + 'px');
+      menu.style.setProperty('--y', fy + 'px');
+      // two actions
+      menu.innerHTML = `
+        <button type="button" data-act="col:rename">إعادة تسمية</button>
+        <button type="button" data-act="col:delete">حذف الزمرة</button>
+      `;
+      menu.classList.add('show');
+      menu.setAttribute('aria-hidden', 'false');
+    };
+
+    function openRename(id, name){
+      current = { id, name };
+      rnInput.value = name || '';
+      modalRename.classList.add('show');
+      setTimeout(()=> rnInput.focus(), 10);
+    }
+    function openDelete(id, name){
+      current = { id, name };
+      delMsg.textContent = `سيتم حذف الزمرة «${name}» وكل المجموعات الأب والمنتجات داخلها. هل أنت متأكد؟`;
+      delProgress.hidden = true; delBar.style.width = '0%';
+      modalDelete.classList.add('show');
+    }
+
+    // 🔥 Single handler: block native menu everywhere in the list,
+    // show our menu ONLY when right-clicking a collection row.
+    list.addEventListener('contextmenu', (e) => {
+      const row = e.target.closest('#browserList .item');
+      if (!row) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+
+      const isCollection = row.getAttribute('data-context') === 'collection';
+      if (!isCollection) { hideMenu(); return; }
+
+      current.id   = parseInt(row.getAttribute('data-ctx-id'), 10);
+      current.name = row.getAttribute('data-ctx-name') || '';
+      showMenuAt(e.clientX, e.clientY);
+    }, true);
+
+    // Menu actions
+    menu.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const act = btn.getAttribute('data-act');
+      hideMenu();
+      if (act === 'col:rename') return openRename(current.id, current.name);
+      if (act === 'col:delete') return openDelete(current.id, current.name);
+    });
+
+    // Dismiss
+    document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
+    window.addEventListener('scroll', hideMenu, { passive: true });
+    window.addEventListener('resize', hideMenu, { passive: true });
+
+    // Close modals
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => {
+      document.querySelectorAll('.modal-backdrop.show').forEach(m => m.classList.remove('show'));
+    }));
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('click', (e)=>{
+      if (e.target === m) m.classList.remove('show');
+    }));
+
+    // Rename save
+    rnSave.addEventListener('click', async () => {
+      const name = (rnInput.value || '').trim();
+      if (!name) return rnInput.focus();
+      const url = `{% url 'collection_rename' 0 %}`.replace('/0/', `/${current.id}/`);
+      const form = new FormData();
+      form.append('name', name);
+      form.append('csrfmiddlewaretoken', csrf);
+      await fetch(url, { method:'POST', body: form, headers:{'X-Requested-With':'fetch'} }).catch(()=>{});
+      location.reload();
+    });
+
+    // Cascade delete
+    delConfirm.addEventListener('click', async () => {
+      delProgress.hidden = false; delBar.style.width = '20%';
+      await fetch(`/manager/products/api/collections/${current.id}/stats/`, { headers:{'Accept':'application/json'} }).catch(()=>{});
+      delBar.style.width = '60%';
+      await fetch(`/manager/products/api/collections/${current.id}/cascade_delete/`, {
+        method:'POST', headers:{ 'X-CSRFToken': csrf, 'Accept':'application/json' }
+      }).catch(()=>{});
+      delBar.style.width = '100%';
+      location.href = `{% url 'manager_collections' %}`;
+    });
+  });
+})();
+</script>
+{% endblock %}
+
+

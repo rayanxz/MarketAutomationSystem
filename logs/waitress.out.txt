@@ -1,0 +1,2 @@
+Using settings: marketpos.settings
+Import base path: C:\MarketAutomationSystem\scripts\app

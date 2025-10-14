@@ -1,0 +1,22 @@
+/* Top bar */
+.topbar{
+  background:#111; color:#fff;
+  display:flex; align-items:center;
+  /* This guarantees brand on FAR RIGHT, menu to its left */
+  flex-direction: row-reverse;     /* <- key */
+  justify-content: flex-start;     /* start = right when row-reverse */
+  gap: 10px;
+  padding:10px 14px; position:sticky; top:0; z-index:1000;
+}
+
+.brand{ font-weight:700; letter-spacing:.5px; }
+
+.menu{ display:flex; gap:8px; }
+.menu a{
+  color:#fff; text-decoration:none;
+  border:1px solid #fff; border-radius:6px;
+  padding:6px 10px; font-size:14px;
+}
+.menu a:hover{ background:#fff; color:#111; }
+
+.page{ padding:16px; }

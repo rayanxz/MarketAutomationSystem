@@ -1,0 +1,103 @@
+{% load static %}
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}لوحة التحكم{% endblock %}</title>
+
+  <link rel="stylesheet" href="{% static 'app.css' %}">
+  <link rel="stylesheet" href="{% static 'rtl.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body
+  data-url-api-collection-products="{% url 'api_collection_products' 0 %}"
+  data-url-api-search="{% url 'api_product_search' %}"
+>
+
+  <!-- Header now has TWO ROWS: primary + secondary -->
+  <header class="topbar">
+    <!-- Row 1: brand + primary menu + session -->
+    <div class="topbar-row">
+      <div class="brand">MarketPOS</div>
+
+      {% with name=request.resolver_match.url_name %}
+      <nav class="menu menu-primary" aria-label="القائمة العامة">
+        {% if name != 'login' and name != 'owner_setup' %}
+          {% block menu_primary %}{% block menu_items %}{% endblock %}{% endblock %}
+        {% endif %}
+      </nav>
+      {% endwith %}
+
+      <div class="session">
+        {% if request.user.is_authenticated %}
+          <div class="user-chip">
+            <strong>{{ request.user.username }}</strong>
+            <small>
+              {% if request.user.account_profile %}
+                {{ request.user.account_profile.get_role_display }}
+              {% elif request.user.is_superuser %}
+                مالك
+              {% elif request.user.is_staff %}
+                مدير
+              {% else %}
+                كاشير
+              {% endif %}
+            </small>
+          </div>
+          <form action="{% url 'logout' %}" method="post" style="margin:0">
+            {% csrf_token %}
+            <button type="submit" class="btn logout-btn">تسجيل الخروج</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Row 2: ALWAYS RENDERED secondary/context menu -->
+    <nav class="menu menu-secondary" aria-label="قائمة القسم">
+      {% with name=request.resolver_match.url_name %}
+        {% if name != 'login' and name != 'owner_setup' %}
+          {% block menu_secondary %}
+            <span class="chip chip--placeholder">قائمة القسم</span>
+          {% endblock %}
+        {% endif %}
+      {% endwith %}
+    </nav>
+  </header>
+
+  {% if messages %}
+    <div class="messages page" role="status" aria-live="polite">
+      {% for m in messages %}
+        <div class="message {{ m.tags }}">{{ m }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <main class="viewport-center">
+    <div class="center-box">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  {% block extra_scripts %}{% endblock %}
+
+<style>
+  .ctx-menu{position:fixed;transform:translate(var(--x,0),var(--y,0));
+    background:#111827;color:#fff;border-radius:10px;padding:6px;min-width:180px;
+    box-shadow:0 12px 30px rgba(0,0,0,.3);display:none;z-index:4000;font-size:14px}
+  .ctx-menu.show{display:block}
+  .ctx-menu button{display:block;width:100%;text-align:start;padding:8px 10px;
+    background:transparent;border:0;color:#e5e7eb;border-radius:8px;cursor:pointer}
+  .ctx-menu button:hover{background:#1f2937}
+</style>
+
+<div id="ctx" class="ctx-menu" role="menu" aria-hidden="true">
+  <!-- default items; you can replace dynamically -->
+  <button data-act="refresh">تحديث</button>
+</div>
+
+
+
+
+</body>
+</html>

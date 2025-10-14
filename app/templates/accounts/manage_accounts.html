@@ -1,0 +1,145 @@
+{% extends "owner/base_owner.html" %}
+{% load static %}
+
+{% block title %}إنشاء حساب جديد{% endblock %}
+
+{# Secondary (contextual) menu stays the same #}
+{% block menu_secondary %}
+  {% include "owner/_accounts_tabs.html" %}
+{% endblock %}
+
+{% block content %}
+<section class="card"
+         style="max-width:720px; margin:24px auto; padding:24px; border-radius:14px;">
+  <header style="margin-bottom:16px;">
+    <h2 style="margin:0 0 6px; font-size:22px;">إنشاء حساب جديد</h2>
+    <p style="margin:0; color:#6b7280; font-size:14px;">
+      أدخل بيانات المالك للتأكيد، ثم بيانات المستخدم الجديد.
+    </p>
+  </header>
+
+  {# show form-level (non field) errors prominently #}
+  {% if create_form.non_field_errors %}
+    <div style="background:#fdecea; color:#b42318; border:1px solid #f2b8b5; padding:10px 12px; border-radius:10px; margin-bottom:12px;">
+      {% for e in create_form.non_field_errors %}{{ e }}<br>{% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" class="auth-form" autocomplete="off" novalidate style="display:flex; flex-direction:column; gap:14px;">
+    {% csrf_token %}
+
+    <!-- Owner re-auth -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div class="form-field">
+        <label for="{{ create_form.owner_username.id_for_label }}">اسم مالك النظام</label>
+        <div class="input-wrap">
+          {{ create_form.owner_username }}
+        </div>
+        {% for e in create_form.owner_username.errors %}<div class="error">{{ e }}</div>{% endfor %}
+      </div>
+
+      <div class="form-field">
+        <label for="{{ create_form.owner_password.id_for_label }}">كلمة مرور المالك</label>
+        <div class="input-wrap">
+          {{ create_form.owner_password }}
+        </div>
+        {% for e in create_form.owner_password.errors %}<div class="error">{{ e }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <hr style="border:none; border-top:1px solid #eee; margin:4px 0 8px;">
+
+    <!-- New account fields -->
+    <div class="form-field">
+      <label for="{{ create_form.new_username.id_for_label }}">اسم المستخدم الجديد</label>
+      <div class="input-wrap">
+        {{ create_form.new_username }}
+      </div>
+      {% for e in create_form.new_username.errors %}<div class="error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div class="form-field">
+        <label for="{{ create_form.new_password1.id_for_label }}">كلمة المرور الجديدة</label>
+        <div class="input-wrap">
+          {{ create_form.new_password1 }}
+        </div>
+        {% for e in create_form.new_password1.errors %}<div class="error">{{ e }}</div>{% endfor %}
+      </div>
+
+      <div class="form-field">
+        <label for="{{ create_form.new_password2.id_for_label }}">تأكيد كلمة المرور</label>
+        <div class="input-wrap">
+          {{ create_form.new_password2 }}
+        </div>
+        {% for e in create_form.new_password2.errors %}<div class="error error--confirm">{{ e }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="form-field" style="max-width:340px;">
+      <label for="{{ create_form.role.id_for_label }}">الدور</label>
+      {{ create_form.role }}
+      {% for e in create_form.role.errors %}<div class="error">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-start;">
+      <button type="submit" class="btn-primary">إنشاء الحساب</button>
+      <a href="{% url 'owner_dash' %}" class="btn" style="text-decoration:none;">إلغاء</a>
+    </div>
+  </form>
+</section>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // hints & toggles
+  const fields = {
+    owner_password: document.querySelector('input[name="owner_password"]'),
+    new_pw1: document.querySelector('input[name="new_password1"]'),
+    new_pw2: document.querySelector('input[name="new_password2"]'),
+    new_username: document.querySelector('input[name="new_username"]')
+  };
+
+  if (fields.new_username) {
+    fields.new_username.setAttribute('placeholder', 'مثال: John Doe');
+    fields.new_username.setAttribute('pattern','[A-Za-z ]{3,12}');
+    fields.new_username.setAttribute('title','يسمح بحروف إنجليزية ومسافات فقط (3–12)');
+  }
+  [fields.owner_password, fields.new_pw1, fields.new_pw2].forEach(inp => {
+    if (!inp) return;
+    inp.setAttribute('placeholder','••••••');
+    inp.autocomplete = 'new-password';
+    addToggle(inp);
+  });
+
+  function addToggle(field){
+    const wrap = field.closest('.input-wrap');
+    if (!wrap) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-toggle';
+    btn.textContent = 'إظهار';
+    btn.setAttribute('aria-label','إظهار/إخفاء كلمة المرور');
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', () => {
+      const asText = field.type === 'password';
+      field.type = asText ? 'text' : 'password';
+      btn.textContent = asText ? 'إخفاء' : 'إظهار';
+      field.focus();
+    });
+
+    const hint = document.createElement('div');
+    hint.className = 'caps-hint';
+    hint.style.display = 'none';
+    hint.textContent = 'تحذير: زر الحروف الكبيرة (Caps Lock) مُفعل';
+    wrap.parentElement.appendChild(hint);
+
+    field.addEventListener('keydown', (ev) => {
+      if (ev.getModifierState && ev.getModifierState('CapsLock')) hint.style.display = 'block';
+      else hint.style.display = 'none';
+    });
+    field.addEventListener('blur', () => hint.style.display = 'none');
+  }
+});
+</script>
+{% endblock %}

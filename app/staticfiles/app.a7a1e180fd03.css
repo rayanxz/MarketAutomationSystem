@@ -1,0 +1,21 @@
+/* Top bar */
+.topbar {
+  background: #111; color: #fff;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; position: sticky; top: 0; z-index: 1000;
+}
+
+/* Brand */
+.topbar .brand { font-weight: 700; letter-spacing: .5px; }
+
+/* Buttons */
+.topbar .menu { display: flex; gap: 8px; }
+.topbar .menu a {
+  color: #fff; text-decoration: none;
+  border: 1px solid #fff; border-radius: 6px;
+  padding: 6px 10px; font-size: 14px;
+}
+.topbar .menu a:hover { background:#fff; color:#111; }
+
+/* Page container (space below fixed bar) */
+.page { padding: 16px; }

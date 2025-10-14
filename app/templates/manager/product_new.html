@@ -1,0 +1,342 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}{% if editing %}تعديل منتج{% else %}إضافة منتج{% endif %}{% endblock %}
+
+{% block menu_secondary %}
+  {% include "manager/_products_tabs.html" %}
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .pn-wrap{ display:grid; grid-template-columns: 3fr 2fr; gap:16px; }
+  @media (max-width: 920px){ .pn-wrap{ grid-template-columns:1fr; } }
+
+  .card{ background:#fff; border-radius:12px; box-shadow:var(--card-shadow); padding:16px; }
+  .card h3{ margin:0 0 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .card h3 .muted{ font-size:13px; color:#6b7280; font-weight:400; }
+
+  .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  .field label{ font-weight:600; }
+  .row-2{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+
+  .stack{ display:flex; flex-direction:column; gap:6px; }
+
+  .inline-input{ display:flex; align-items:center; gap:8px; }
+  .inline-input .input{ flex:1 1 auto; direction:ltr; }
+  .del-btn{
+    background:#f3f4f6; border:1px solid #e5e7eb; color:#111;
+    border-radius:8px; padding:6px 10px; font-size:13px; cursor:pointer;
+  }
+  .del-btn:hover{ background:#fee2e2; border-color:#fecaca; }
+
+  .btn-muted{ background:#f3f4f6; border:1px solid #e5e7eb; border-radius:8px; padding:6px 10px; font-size:13px; }
+  .btn-muted:hover{ background:#eef2ff; }
+
+  .help{ color:#6b7280; font-size:12px; }
+  .err{ color:#b42318; font-size:12px; }
+
+  /* Autocomplete */
+  .ac-list{ list-style:none; margin:4px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 20px rgba(0,0,0,.08); }
+  .ac-list[hidden]{ display:none; }
+  .ac-list li{ padding:8px 10px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .ac-list li:hover, .ac-list li.active { background:#eef2ff; }
+  .code{ font-family: ui-monospace, Menlo, monospace; color:#64748b; margin-inline-start:auto; }
+
+  .actions-row{ display:flex; gap:10px; align-items:center; justify-content:flex-end; margin-top:-4px; }
+  .btn-danger{ background:#ef4444; color:#fff; border:1px solid #dc2626; border-radius:8px; padding:8px 12px; }
+  .btn-danger:hover{ filter:brightness(.95); }
+  .btn-secondary{ background:#f3f4f6; color:#111; border:1px solid #e5e7eb; border-radius:8px; padding:8px 12px; }
+  .btn-secondary:hover{ background:#eef2ff; }
+  .w-full{ width:100%; }
+
+  /* Modal */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal{ width:min(520px, 92vw); background:#fff; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,.25); padding:20px; }
+  .modal h4{ margin:0 0 10px; }
+  .modal p{ margin:0 0 16px; color:#374151; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; }
+  .btn-light{ background:#f3f4f6; color:#111; border:1px solid #e5e7eb; border-radius:8px; padding:8px 12px; }
+  .btn-light:hover{ background:#eef2ff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="browser-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div class="crumb" style="font-size:13px;color:#334155;background:#f1f5f9;padding:6px 10px;border-radius:999px;">
+      {% if editing and product %}
+        {{ product.set.collection.name }}/{{ product.set.name }}/
+      {% else %}
+        /
+      {% endif %}
+    </div>
+    <div>
+      {% if editing and product %}
+        <a class="back-btn" style="border:1px solid #e5e7eb;background:#f8fafc;border-radius:8px;padding:6px 10px;"
+           href="{% url 'manager_collections' %}?cid={{ product.set.collection.id }}&sid={{ product.set.id }}&cname={{ product.set.collection.name|urlencode }}&sname={{ product.set.name|urlencode }}">رجوع</a>
+      {% else %}
+        <a class="back-btn" style="border:1px solid #e5e7eb;background:#f8fafc;border-radius:8px;padding:6px 10px;"
+           href="{% url 'manager_collections' %}">رجوع</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <form method="post"
+        class="pn-wrap"
+        autocomplete="off"
+        action="{% if editing and product %}{% url 'manager_product_edit' product.id %}{% else %}{% url 'manager_product_new' %}{% endif %}">
+    {% csrf_token %}
+
+    <!-- Left: product essentials -->
+    <section class="card">
+      <h3>
+        {% if editing %}تعديل منتج{% else %}بيانات المنتج{% endif %}
+        {% if editing and product %}
+          <span class="muted">الكود: {{ product.display_code }} — {{ product.name }}</span>
+        {% endif %}
+      </h3>
+
+      <div class="field">
+        <label>اسم الزمرة</label>
+        <input id="ac-col"
+               name="collection_name"
+               class="input"
+               placeholder="اكتب اسم الزمرة"
+               value="{{ form.collection_name.value|default:'' }}">
+        <ul class="ac-list" id="ac-col-list" hidden></ul>
+        {% if form.errors.collection_name %}<div class="err">{{ form.errors.collection_name.0 }}</div>{% endif %}
+      </div>
+
+      <div class="field">
+        <label>اسم المجموعة الأب</label>
+        <input id="ac-set"
+               name="set_name"
+               class="input"
+               placeholder="اكتب اسم المجموعة الأب"
+               value="{{ form.set_name.value|default:'' }}">
+        <ul class="ac-list" id="ac-set-list" hidden></ul>
+        <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+          <input type="checkbox" name="create_parent" {% if form.create_parent.value %}checked{% endif %}>
+          إنشاء مجموعة أب جديدة
+        </label>
+      </div>
+
+      <div class="field">
+        <label>اسم المنتج</label>
+        {{ form.name }}
+        {% if form.errors.name %}<div class="err">{{ form.errors.name.0 }}</div>{% endif %}
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label>الوحدة الأولى</label>
+          {{ form.unit_primary }}
+        </div>
+        <div class="field">
+          <label>الوحدة الثانية </label>
+          {{ form.unit_secondary }}
+        </div>
+      </div>
+
+      <div class="field">
+        <label>عامل التحويل</label>
+        {{ form.conversion_factor }}
+        <div class="help">عدد الوحدات الأولى في واحدة ثانية (مثال: 1000 غرام في 1 ليتر). مطلوب عند تحديد وحدة ثانية.</div>
+        {% if form.errors.conversion_factor %}<div class="err">{{ form.errors.conversion_factor.0 }}</div>{% endif %}
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label>الكلفة</label>
+          {{ form.cost }}
+        </div>
+        <div class="field">
+          <label>السعر</label>
+          {{ form.price }}
+        </div>
+      </div>
+
+      <div class="field">
+        <label>ملاحظات</label>
+        {{ form.notes }}
+      </div>
+    </section>
+
+    <!-- Right: IDs & barcodes -->
+    <section class="card">
+      <h3>
+        المعرّفات والباركود
+        {% if editing %}<span class="muted">يمكن تعديل الحقول أدناه</span>{% endif %}
+      </h3>
+
+      <!-- Unit IDs -->
+      <div class="row-2">
+        <div class="field">
+          <label>معرّفات الوحدة الأولى</label>
+          <div id="u1-ids" class="stack" data-ensure-one data-name="unit_primary_ids[]" data-placeholder="ID...">
+            {% if editing and product %}
+              {% for uid in product.unit_ids.all %}
+                {% if uid.unit_index == 1 %}
+                  <div class="inline-input">
+                    <input name="unit_primary_ids[]" class="input" placeholder="ID..." dir="ltr" value="{{ uid.value }}">
+                    <button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          </div>
+          <button type="button" class="btn-muted" onclick="addFieldWithDelete('u1-ids','unit_primary_ids[]','ID...')">+ إضافة</button>
+        </div>
+
+        <div class="field">
+          <label>معرّفات الوحدة الثانية</label>
+          <div id="u2-ids" class="stack" data-ensure-one data-name="unit_secondary_ids[]" data-placeholder="ID...">
+            {% if editing and product %}
+              {% for uid in product.unit_ids.all %}
+                {% if uid.unit_index == 2 %}
+                  <div class="inline-input">
+                    <input name="unit_secondary_ids[]" class="input" placeholder="ID..." dir="ltr" value="{{ uid.value }}">
+                    <button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          </div>
+          <button type="button" class="btn-muted" onclick="addFieldWithDelete('u2-ids','unit_secondary_ids[]','ID...')">+ إضافة</button>
+        </div>
+      </div>
+
+      <hr>
+
+      <!-- Barcodes -->
+      <div class="row-2">
+        <div class="field">
+          <label>باركودات الوحدة الأولى</label>
+          <div id="u1-barcodes" class="stack" data-ensure-one data-name="barcodes_u1[]" data-placeholder="Barcode...">
+            {% if editing and product %}
+              {% for bc in product.barcodes.all %}
+                {% if bc.unit_index == 1 %}
+                  <div class="inline-input">
+                    <input name="barcodes_u1[]" class="input" dir="ltr" placeholder="Barcode..." value="{{ bc.barcode }}">
+                    <button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          </div>
+          <button type="button" class="btn-muted" onclick="addFieldWithDelete('u1-barcodes','barcodes_u1[]','Barcode...')">+ إضافة</button>
+        </div>
+
+        <div class="field">
+          <label>باركودات الوحدة الثانية</label>
+          <div id="u2-barcodes" class="stack" data-ensure-one data-name="barcodes_u2[]" data-placeholder="Barcode...">
+            {% if editing and product %}
+              {% for bc in product.barcodes.all %}
+                {% if bc.unit_index == 2 %}
+                  <div class="inline-input">
+                    <input name="barcodes_u2[]" class="input" dir="ltr" placeholder="Barcode..." value="{{ bc.barcode }}">
+                    <button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          </div>
+          <button type="button" class="btn-muted" onclick="addFieldWithDelete('u2-barcodes','barcodes_u2[]','Barcode...')">+ إضافة</button>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:12px;">
+        <button class="btn-primary w-full" type="submit">
+          {% if editing %}حفظ التعديلات{% else %}حفظ المنتج{% endif %}
+        </button>
+      </div>
+
+      {% if editing and product %}
+      <div class="actions-row">
+        <a class="btn-secondary" href="{% url 'manager_collections' %}">رجوع</a>
+        <button type="button" class="btn-danger" onclick="openDeleteModal()">حذف المنتج</button>
+      </div>
+      {% endif %}
+    </section>
+  </form>
+</div>
+
+{% if editing and product %}
+  <div id="delete-modal" class="modal-backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
+      <h4 id="delTitle">تأكيد الحذف</h4>
+      <p>هل أنت متأكد من حذف المنتج «{{ product.name }}»؟ لا يمكن التراجع عن هذه العملية.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-light" onclick="closeDeleteModal()">إلغاء</button>
+        <form method="post" action="{% url 'manager_product_delete' product.id %}">
+          {% csrf_token %}
+          <button type="submit" class="btn-danger">تأكيد الحذف</button>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/product_new.js' %}"></script>
+  <script>
+    // Enable/disable Set AC based on Collection input
+    (function(){
+      const col = document.getElementById('ac-col');
+      const set = document.getElementById('ac-set');
+      if (col && set){
+        const toggle = () => { set.disabled = !(col.value || '').trim().length; };
+        toggle();
+        col.addEventListener('input', toggle);
+      }
+    })();
+
+    // Add input row WITH a delete button — used for both Unit IDs and Barcodes (added rows only)
+    function addFieldWithDelete(containerId, name, placeholder){
+      const wrap = document.getElementById(containerId);
+      const row = document.createElement('div');
+      row.className = 'inline-input';
+
+      const input = document.createElement('input');
+      input.className = 'input';
+      input.name = name;
+      input.dir = 'ltr';
+      input.placeholder = placeholder || '';
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'del-btn';
+      del.textContent = 'حذف';
+      del.addEventListener('click', function(){
+        wrap.removeChild(row);
+      });
+
+      row.appendChild(input);
+      row.appendChild(del);
+      wrap.appendChild(row);
+    }
+
+    // Ensure each stack has at least one input row (covers empty DB lists)
+    (function ensureOneRow(){
+      document.querySelectorAll('[data-ensure-one]').forEach(stack => {
+        if (!stack.querySelector('.inline-input')) {
+          const name = stack.dataset.name || '';
+          const ph   = stack.dataset.placeholder || '';
+          const id   = stack.id;
+          if (id && name) addFieldWithDelete(id, name, ph);
+        }
+      });
+    })();
+
+    function openDeleteModal(){
+      const el = document.getElementById('delete-modal');
+      if (el) el.style.display = 'flex';
+    }
+    function closeDeleteModal(){
+      const el = document.getElementById('delete-modal');
+      if (el) el.style.display = 'none';
+    }
+  </script>
+{% endblock %}

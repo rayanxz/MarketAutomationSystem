@@ -1,0 +1,26 @@
+/* Top bar */
+.topbar{
+  background:#111; color:#fff;
+  display:flex; align-items:center;
+  /* In RTL, flex-start is right—so keep start, not end */
+  justify-content:flex-start;
+  padding:10px 14px; position:sticky; top:0; z-index:1000;
+}
+
+/* Brand at the far right; menu sits immediately to its left */
+.brand{ font-weight:700; letter-spacing:.5px; }
+
+/* Push the menu away from the right edge towards the left */
+.menu{
+  display:flex; gap:8px;
+  margin-inline-start:auto; /* RTL-friendly “push left” */
+}
+
+.menu a{
+  color:#fff; text-decoration:none;
+  border:1px solid #fff; border-radius:6px;
+  padding:6px 10px; font-size:14px;
+}
+.menu a:hover{ background:#fff; color:#111; }
+
+.page{ padding:16px; }

@@ -1,0 +1,58 @@
+# catalog/urls.py
+from django.urls import path
+from catalog.browser_api import api_browser_collections, api_browser_sets, api_browser_products
+# add near other APIs
+from catalog.views import api_collection_stats, api_collection_cascade_delete
+
+
+from catalog.views import (
+    # Pages
+    manager_collections,
+    manager_product_new,
+    manager_product_edit,
+    collection_rename,
+    collection_delete,
+    manager_product_delete,
+
+    # JSON APIs (two-pane + search + autocompletes)
+    api_collection_products,
+    api_product_search,
+    api_collections_ac,
+    api_sets_ac,
+    api_sets_create,
+)
+
+urlpatterns = [
+    # Manager products main (two-pane)
+    path("manager/products/", manager_collections, name="manager_collections"),
+
+    # Collections management
+    path("manager/products/collections/<int:pk>/rename/", collection_rename, name="collection_rename"),
+    path("manager/products/collections/<int:pk>/delete/", collection_delete, name="collection_delete"),
+
+    # Product create / edit
+    path("manager/products/new/", manager_product_new, name="manager_product_new"),
+    path("manager/products/edit/<int:pk>/", manager_product_edit, name="manager_product_edit"),
+    path("manager/products/<int:pk>/edit/", manager_product_edit, name="manager_product_edit"),
+
+    # Two-pane JSON APIs
+    path("manager/products/api/collections/<int:cid>/products/", api_collection_products, name="api_collection_products"),
+    path("manager/products/api/search/", api_product_search, name="api_product_search"),
+
+    # Autocomplete + parent set create
+    path("manager/products/api/ac/collections/", api_collections_ac, name="api_collections_ac"),
+    path("manager/products/api/ac/sets/",        api_sets_ac,        name="api_sets_ac"),
+    path("manager/products/api/sets/create/",    api_sets_create,    name="api_sets_create"),
+    path("manager/products/delete/<int:pk>/", manager_product_delete, name="manager_product_delete"),
+
+    path("manager/products/api/browser/collections/", api_browser_collections, name="api_browser_collections"),
+    path("manager/products/api/browser/sets/",        api_browser_sets,        name="api_browser_sets"),
+    path("manager/products/api/browser/products/",    api_browser_products,    name="api_browser_products"),
+
+    path("manager/products/api/collections/<int:pk>/stats/",           api_collection_stats,           name="api_collection_stats"),
+    path("manager/products/api/collections/<int:pk>/cascade_delete/",  api_collection_cascade_delete,  name="api_collection_cascade_delete"),
+
+
+    
+
+]

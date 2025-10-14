@@ -1,0 +1,270 @@
+# Market Automation System — Feasibility / Requirements / Design (v2)
+
+> **Strategy:** Two releases  
+> • **Early Version (EV):** minimal, fast-to-ship base (this scope is binding).  
+> • **Improved Version (IV):** enhancements after EV is delivered to client.  
+> Single UI in Arabic/RTL; **Manager** features require elevated access.
+
+---
+
+## 1) Feasibility (v2)
+
+### Vision
+Offline Arabic POS/Back-Office for small supermarkets on **Windows 7/10/11** ( 64-bit build), replacing costly systems with a flexible, evolvable platform.
+
+### Objectives
+
+- Arabic/RTL UI; clean structure; near-zero operational errors.
+- **Offline-first** with local SQLite; simple PDF printing.
+- **Flexibility:** modular design to add features continuously.
+- **Single UI:** Cashier view + Manager view (role-gated).
+- **Accounts hierarchy:** Main → Manager → Cashier. Manager features are role-gated; Cashier cannot access Manager pages.
+
+### Constraints & Risks
+- Tight EV timeline → prioritize core flows; defer heavy analytics to IV.
+- Perfect accuracy is aspirational—mitigate via validation + audit.
+- Backup is **local/offline** (no internet required).
+- Anti-copy requirement implies **installer + machine-bound license**.
+- Local authentication only (offline). Protect Main account .
+
+---
+
+## 2) Requirements (v2)
+
+### A) Functional — **Early Version (EV) scope**
+
+### **EV-F0 Accounts & Roles (ADD before EV-F1)**
+- On first run after install, the app requires creating a **Main** account (name + password).
+- **Main** can create/disable **Manager** and **Cashier** accounts and reset their passwords.
+- **Manager** can access both Manager and Cashier features.
+- **Cashier** can access POS/Cashier features only; Manager pages/actions are blocked.
+- Login screen at startup .
+- Passwords stored **hashed** (PBKDF2).
+- Passwords: minimum 6 characters; Main can reset Manager/Cashier passwords.
+
+**EV-F1 Money Box (Cash Ledger)**
+- Track **inflows** (sales, debt recovery) and **outflows** (purchases, refunds, provider payments).  
+- Auto entries created by Sales/Purchases/Debt actions.  
+- Manager can view daily balance & simple summary.
+
+**EV-F2 Item Card (Catalog & Packaging Collections)**
+- Fields: `name`, `manager_id (manual)`, `barcode`, `cost`, `price`, `collection`, `conversion_rate`, *(opt)* `image`, `expiry_date`, *(opt)* `cashier_discount_limit`.
+- **Collections with conversion** (e.g., Carton → Box → Pack) and **auto stock conversion** (add 5 boxes ⇒ 50 packs).
+
+**EV-F3 Bills**
+- **Cashier bills (Sales):** lines = item, qty, unit price, line total; **paid/unpaid/partial**; sale date.  
+- **Manager bills (Purchases):** mirror layout for now (supplier optional later).  
+- Editable until closed by Manager.
+
+**EV-F4 Debts**
+- **Customer debts** (from unpaid/partial sales).  
+- **Provider debts** (from unpaid purchases).  
+- Record **recover** / **cancel** operations (money box updated accordingly).
+
+**EV-F5 Add/Edit Products (Manager)**
+- CRUD core fields; enforce unique barcode/manager_id; conversion setup.
+
+**EV-F6 Import Excel (Manager)**
+- Upload template `.xlsx` → **dry-run** → upsert by `barcode` or `manager_id`.  
+- Report row errors; commit transactionally.
+
+**EV-F7 Export Reports (Manager)**
+- **Sales summary (date range)**, **Item list**, **Debts list**, **Money box summary** → PDF/Excel.
+
+**EV-F8 Add Customer Bills (Cashier)**
+- Bills list + “New Bill”. Add by **scan barcode** or search (name/id/barcode).  
+- Enter qty, mark paid/unpaid per line or per bill; save.
+
+**EV-F9 Backups**
+- Manual “Create Backup Now”; scheduled daily backup at configurable time; local `backups/`.
+
+**EV-F10 Anti-copy / Licensing**
+- App runs **only if installed** by original installer and **license matches machine** (registry + `%ProgramData%` signed license).
+
+### **EV-F11 Access Control (EDIT to reference accounts)**
+- “Access control is enforced via **Accounts & Roles (EV-F0)**. Cashier cannot open Manager pages; Manager can open both.”
+
+**EV-F12 Availability filter**
+- Cashier search shows **in-stock** items; Manager sees **all**.
+
+---
+
+### B) Functional — **Improved Version (IV) candidates**
+- Suppliers & purchase documents (doc no., supplier ledger, expiry tracking at batch level).
+- Weighted moving average cost; margin reporting.
+- Low-stock / expiry-soon alerts; daily close.  
+- User accounts & roles, audit expansion.  
+- Advanced reports & dashboards.
+
+---
+
+### C) Non-Functional
+- Arabic (`LANG=ar`, `dir="rtl"`); numeric inputs LTR for readability.
+- Performance: add item to bill ≤150ms; render receipt ≤2s on i5/4GB.
+- Reliability: transactional writes; crash-safe after commit.
+- Packaging: **Installer**, embedded Python 3.8 (64 bits build); later x86 build if needed .
+- Logging + audit for key actions; easy error tracing.
+- Flexible modular architecture to add features without rewrites.
+- **Security:** hashed passwords (PBKDF2), per-request **role checks**, minimal audit of logins and user create/disable actions.
+---
+
+## 3) Design (v2)
+
+### 3.1 Architecture
+- **Django 4.2 (Python 3.8 64 bits)**, SQLite; waitress on `127.0.0.1`.  
+- Templates + **HTMX** for snappy UI.  
+- **PDF only** (ReportLab)—no ESC/POS.  
+- **Installer** with **license check** (machine-bound).
+
+### 3.2 Blocks (with Purpose / Responsibilities / Inputs / Outputs / Dependencies + Subsystems)
+
+#### B1. App Shell & Installer Guard
+- **Purpose:** Start server/UI; ensure licensed install.  
+- **Resp:** Launch waitress; open kiosk/native window; check registry + `%ProgramData%\license.dat`; create folders.  
+- **In:** launcher, registry key, license file. **Out:** running app / error.  
+- **Deps:** Windows, registry, file system.
+- **Subsystems:**  
+  - **Launcher** (`start.bat`/EXE)  
+  - **Install Marker Check** (registry + license verify)  
+  - **First-Run Setup** (paths: `data/`, `backups/`, `logs/`)
+
+#### B2. Accounts & Roles
+- **Purpose:** Secure access with Main/Manager/Cashier hierarchy.
+- **Responsibilities:** First-run **Main** account wizard; login/logout; create/disable Manager/Cashier; password changes; role enforcement on routes/actions.
+- **Inputs:** Credentials; user admin forms.
+- **Outputs:** Authenticated sessions; user records; permission decisions.
+- **Dependencies:** Django auth, password hashing, middleware, (minimal) audit.
+- **Subsystems:**  
+  - First-Run Wizard (blocking until Main is created)  
+  - Auth Views (login/logout, lock/unlock)  
+  - User Admin (Main-only)  
+  - Role Guards (decorators/middleware)
+
+#### B3. Presentation (Arabic/RTL)
+- **Purpose:** Clean Arabic UX.  
+- **Resp:** Base layout, RTL CSS, components, status colors, toasts; HTMX partials.  
+- **In:** view context, user actions. **Out:** HTML/CSS/JS.  
+- **Deps:** Django templates, staticfiles.  
+- **Subsystems:** Base (`base_ar.html`), Components, **RTL theme**, **HTMX partials**.
+
+#### B4. Item Catalog & Collections
+- **Purpose:** Master data & unit conversions.  
+- **Resp:** CRUD items; **collection hierarchy** & **conversion rates**; stock representation per smallest unit.  
+- **In:** item forms/import rows. **Out:** items/units/converted stock.  
+- **Deps:** Persistence; reports.
+- **Subsystems:**  
+  - **Item Service** (validation, uniqueness)  
+  - **Collection/Conversion** (normalize to base unit, e.g., “pack”)  
+  - **Images (opt)**
+
+#### B5. Bills — Sales & Purchases
+- **Purpose:** Record transactions.  
+- **Resp:** Create/edit bills; line qty/price; mark **paid/unpaid/partial**; persist.  
+- **In:** scan/search, qty, pay flags. **Out:** bill + lines.  
+- **Deps:** Catalog (price), Money Box, Debts, Printing (receipt/report).  
+- **Subsystems:**  
+  - **Cart/Bill Draft** (session)  
+  - **Bill Commit** (transaction)  
+  - **Edit/Close** (manager-only)
+
+#### B6. Money Box (Ledger)
+- **Purpose:** Central cash ledger.  
+- **Resp:** Auto entries: sales inflow, purchase outflow, debt recover/cancel; running balance by day.  
+- **In:** events from B4/B6. **Out:** ledger rows, daily totals.  
+- **Deps:** Bills, Debts.
+- **Subsystems:** **Ledger Engine** (append entries), **Summary** (date range).
+
+#### B7. Debts (Customers / Providers)
+- **Purpose:** Track receivables/payables.  
+- **Resp:** Create debts from unpaid/partial bills; record recovery/cancel; sync Money Box.  
+- **In:** bill status changes; manager actions. **Out:** debt records, ledger entries.  
+- **Deps:** Bills, Money Box.
+- **Subsystems:** **Debt Model**, **Recovery/Cancel Handlers**.
+
+#### B8. Import / Export
+- **Purpose:** Bulk ops.  
+- **Resp:** Excel **dry-run** then upsert; export CSV/PDF (sales summary, items, debts, money box).  
+- **In:** `.xlsx` upload, filter params. **Out:** items updated; files.  
+- **Deps:** openpyxl, ReportLab.  
+- **Subsystems:** **Template**, **Parser/Validator**, **Upsert Txn**, **Exporters**.
+
+#### B9. Printing (PDF only)
+- **Purpose:** Printable receipts/reports.  
+- **Resp:** Generate **Arabic** PDFs (58/80mm style for receipts; A4 for reports).  
+- **In:** sale/report data. **Out:** PDF bytes.  
+- **Deps:** ReportLab + Arabic fonts.  
+- **Subsystems:** **Receipt PDF**, **Report PDF**, **Font Embedder**.
+
+#### B10. Backup & Restore
+- **Purpose:** Local data safety.  
+- **Resp:** Manual backup; daily scheduled copy; restore wizard (manager only).  
+- **In:** admin command/time trigger. **Out:** `backups/*.db`, restored DB.  
+- **Deps:** FS.  
+- **Subsystems:** **Backup Job**, **Retention (keep N)**, **Restore UI**.
+
+#### B11. Error Handling & Logging
+- **Purpose:** Predictable failures & diagnostics.  
+- **Resp:** Validate inputs; return friendly errors; write rotating logs.  
+- **In:** bad inputs/exceptions. **Out:** messages/log lines.  
+- **Deps:** Logging, middleware.  
+- **Subsystems:** **Validators**, **Exception Middleware**, **Rotating Logs**.
+
+#### B12. Data Access & Persistence
+- **Purpose:** Models & transactions.  
+- **Resp:** SQLite models; atomic commits.  
+- **In:** service calls. **Out:** durable state.  
+- **Deps:** Django ORM.  
+- **Subsystems:** **Models**, **Txn Utils**, **Report Queries**.
+
+---
+
+### 3.3 Data Model (EV initial)
+
+- **User**: `id, username UNIQUE, password_hash, role {MAIN|MANAGER|CASHIER}, is_active, created_at`
+- **Item**: `id, name, manager_id, barcode, cost, price, collection_id, base_unit, image?, expiry_date?, cashier_discount_limit?, is_active`  
+- **Collection**: `id, name, parent_id?, conversion_to_child (e.g., 1 box = 10 packs)`  
+- **Stock**: `item_id (FK), qty_base_unit` *(stock tracked in smallest/base unit)*  
+- **Bill** (generic: sales/purchases): `id, user_id (FK User), type {SALE|PURCHASE}, ts, status {PAID|UNPAID|PARTIAL}, note`
+- **BillLine**: `id, bill_id, item_id, qty, unit_price, line_total`  
+- **Debt**: `id, side {CUSTOMER|PROVIDER}, bill_id, amount, status {OPEN|RECOVERED|CANCELLED}, ts`  
+- **MoneyEntry**: `id, ts, kind {INFLOW|OUTFLOW}, source {SALE|PURCHASE|DEBT_RECOVERY|DEBT_CANCEL}, ref_id, amount`  
+- **ImportJob**: `id, ts, filename, inserted, updated, errors_json`  
+- **Settings**: `key, value`  
+- **InstallMarker** (checked, not user-edit): registry + `%ProgramData%\license.dat` (signed).
+
+---
+
+### 3.4 EV Screen Outline
+
+- **Login (تسجيل الدخول):** username/password .
+- **Accounts (حسابات) — Main only:** create/disable Manager/Cashier, reset passwords.
+
+- **Cashier**: Bills list → New Bill (scan/search, qty, mark paid/unpaid, save); quick receipt PDF.  
+- **Manager**: Dashboard (Money box today; open debts); Items (CRUD); Import; Reports (Sales summary, Items, Debts, Money box); Backups; Bills (edit/close).
+
+---
+
+### 3.5 Directory Structure (initial)
+
+MarketPOS/
+├─ app/
+│  ├─ manage.py
+│  ├─ marketpos/ # settings/urls/wsgi
+│  ├─ accounts/  # users, auth views, role guards, first-run wizard
+│  ├─ catalog/   # items, collections, stock
+│  ├─ billing/   # bills (sales/purchases), lines
+│  ├─ ledger/    # money box
+│  ├─ debts/     # receivables/payables
+│  ├─ io/        # import/export (xlsx/csv/pdf)
+│  ├─ printing/  # reportlab helpers, Arabic fonts
+│  ├─ backups/   # backup/restore
+│  ├─ core/      # utils, validators, middleware, licensing check
+│  ├─ templates/ # base_ar.html + pages/partials
+│  └─ static/
+├─ data/         # pos.db
+├─ backups/      # *.db
+├─ logs/         # app.log
+├─ installer/    # installer & license tools
+├─ assets/       # icon.ico, fonts
+├─ start_pos.bat
+└─ requirements-win10.txt

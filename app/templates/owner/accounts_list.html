@@ -1,0 +1,268 @@
+{% extends "owner/base_owner.html" %}
+{% load static %}
+
+{% block title %}قائمة الحسابات{% endblock %}
+
+{% block menu_secondary %}
+  {% include "owner/_accounts_tabs.html" %}
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* --- scoped styles for this page only --- */
+  .grid-accounts{
+    display:grid; gap:16px;
+    grid-template-columns: 1fr 1fr 320px; /* cashiers | managers | owner box */
+    align-items:start;
+  }
+  .card-title{ margin:0 0 12px; font-size:18px; }
+  .muted{ color:#777; }
+
+  .tbl{ width:100%; border-collapse:collapse; }
+  .tbl th, .tbl td{ padding:8px 10px; border-bottom:1px solid #eee; }
+  .td-actions{ text-align:center; white-space:nowrap; }
+
+  .btn-icon{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:36px; height:32px; border-radius:8px; border:1px solid transparent;
+    cursor:pointer; margin-inline:2px; font-size:16px; line-height:1;
+    transition:transform .05s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn-icon:hover{ transform:translateY(1px); }
+  .btn-edit{ background:#10b98114; color:#047857; border-color:#10b98155; }   /* green */
+  .btn-edit:hover{ background:#10b98122; }
+  .btn-delete{ background:#ef444414; color:#b91c1c; border-color:#ef444466; } /* red */
+  .btn-delete:hover{ background:#ef444422; }
+
+  /* Modals */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.45);
+    display:none; align-items:center; justify-content:center; z-index:3000;
+    padding:16px;
+  }
+  .modal-backdrop.show{ display:flex; }
+  .modal{
+    background:#fff; color:#111; border-radius:12px; width:100%; max-width:520px;
+    box-shadow:0 18px 60px rgba(0,0,0,.25); overflow:hidden;
+  }
+  .modal-h{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 14px; border-bottom:1px solid #eee;
+  }
+  .modal-h h3{ margin:0; font-size:16px; }
+  .modal-x{
+    border:1px solid #eee; border-radius:8px; background:#fff; width:32px; height:28px; cursor:pointer;
+  }
+  .modal-body{ padding:14px; }
+  .modal-f{ display:flex; gap:8px; justify-content:flex-start; margin-top:10px; }
+  .btn-danger{ background:#b91c1c; color:#fff; border:1px solid #991b1b; }
+  .btn-danger:hover{ background:#991b1b; }
+
+  .field{ display:flex; flex-direction:column; align-items:flex-end; margin-bottom:10px; }
+  .field label{ font-size:14px; font-weight:600; margin-bottom:6px; }
+  .input{ width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="grid-accounts">
+
+    {# RIGHT: Cashiers #}
+    <section class="card">
+      <h2 class="card-title">حسابات الكاشير</h2>
+      {% if cashiers %}
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="text-align:right;">اسم المستخدم</th>
+            <th style="text-align:right;">تاريخ الإنشاء</th>
+            <th style="width:104px; text-align:center;">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in cashiers %}
+          <tr data-uid="{{ p.user.id }}" data-username="{{ p.user.username }}" data-role="{{ p.get_role_display }}">
+            <td>{{ p.user.username }}</td>
+            <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
+            <td class="td-actions">
+              <button class="btn-icon btn-edit" title="تعديل"
+                      data-open="edit"
+                      data-uid="{{ p.user.id }}"
+                      data-username="{{ p.user.username }}">✏️</button>
+              <button class="btn-icon btn-delete" title="حذف"
+                      data-open="delete"
+                      data-uid="{{ p.user.id }}"
+                      data-username="{{ p.user.username }}">✖</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="muted">لا توجد حسابات كاشير بعد.</p>
+      {% endif %}
+    </section>
+
+    {# MIDDLE: Managers #}
+    <section class="card">
+      <h2 class="card-title">حسابات المدير</h2>
+      {% if managers %}
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="text-align:right;">اسم المستخدم</th>
+            <th style="text-align:right;">تاريخ الإنشاء</th>
+            <th style="width:104px; text-align:center;">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in managers %}
+          <tr data-uid="{{ p.user.id }}" data-username="{{ p.user.username }}" data-role="{{ p.get_role_display }}">
+            <td>{{ p.user.username }}</td>
+            <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
+            <td class="td-actions">
+              <button class="btn-icon btn-edit" title="تعديل"
+                      data-open="edit"
+                      data-uid="{{ p.user.id }}"
+                      data-username="{{ p.user.username }}">✏️</button>
+              <button class="btn-icon btn-delete" title="حذف"
+                      data-open="delete"
+                      data-uid="{{ p.user.id }}"
+                      data-username="{{ p.user.username }}">✖</button>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="muted">لا توجد حسابات مدير بعد.</p>
+      {% endif %}
+    </section>
+
+    {# LEFT: Owner box (info) #}
+    <aside class="card ownerbox">
+      <h2 class="card-title">المالك</h2>
+      {% if owner_profile %}
+        <div class="owner-info">
+          <div><strong>اسم المستخدم:</strong> {{ owner_profile.user.username }}</div>
+          <div><strong>الدور:</strong> {{ owner_profile.get_role_display }}</div>
+          <div><strong>أُنشئ في:</strong> {{ owner_profile.created_at|date:"Y-m-d H:i" }}</div>
+        </div>
+      {% else %}
+        <p class="muted">—</p>
+      {% endif %}
+    </aside>
+
+  </div>
+</div>
+
+{# ---------- MODALS ---------- #}
+
+{# EDIT modal #}
+<div class="modal-backdrop" data-modal="edit">
+  <section class="modal">
+    <header class="modal-h">
+      <h3>تعديل الحساب</h3>
+      <button class="modal-x" data-close>×</button>
+    </header>
+
+    <form method="post" action="{% url 'accounts_list' %}" id="editForm" class="modal-body">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="edit">
+      <input type="hidden" name="user_id" id="edit_uid">
+
+      <div class="field">
+        <label>اسم المستخدم الحالي</label>
+        <input class="input" id="edit_current_username" type="text" readonly>
+      </div>
+
+      <div class="field">
+        <label for="edit_new_username">اسم المستخدم الجديد (اختياري)</label>
+        <input class="input" name="new_username" id="edit_new_username" type="text" placeholder="بدون تغيير">
+      </div>
+
+      <div class="field">
+        <label for="edit_new_password1">كلمة المرور الجديدة (اختياري)</label>
+        <input class="input" name="new_password1" id="edit_new_password1" type="password" placeholder="••••••">
+      </div>
+
+      <div class="field">
+        <label for="edit_new_password2">تأكيد كلمة المرور الجديدة</label>
+        <input class="input" name="new_password2" id="edit_new_password2" type="password" placeholder="••••••">
+      </div>
+
+      <footer class="modal-f">
+        <button type="submit" class="btn-primary">حفظ</button>
+        <button type="button" class="btn" data-close>إلغاء</button>
+      </footer>
+    </form>
+  </section>
+</div>
+
+{# DELETE modal #}
+<div class="modal-backdrop" data-modal="delete">
+  <section class="modal">
+    <header class="modal-h">
+      <h3>حذف الحساب</h3>
+      <button class="modal-x" data-close>×</button>
+    </header>
+
+    <form method="post" action="{% url 'accounts_list' %}" id="deleteForm" class="modal-body">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="user_id" id="del_uid">
+
+      <p>هل أنت متأكد أنك تريد حذف الحساب <strong id="del_username">—</strong>؟</p>
+
+      <footer class="modal-f">
+        <button type="submit" class="btn btn-danger">حذف</button>
+        <button type="button" class="btn" data-close>إلغاء</button>
+      </footer>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function(){
+  // Open EDIT modal
+  document.querySelectorAll('[data-open="edit"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid   = btn.getAttribute('data-uid');
+      const uname = btn.getAttribute('data-username');
+      document.querySelector('#edit_uid').value = uid;
+      document.querySelector('#edit_current_username').value = uname;
+      document.querySelector('#edit_new_username').value = '';
+      document.querySelector('#edit_new_password1').value = '';
+      document.querySelector('#edit_new_password2').value = '';
+      document.querySelector('.modal-backdrop[data-modal="edit"]').classList.add('show');
+    });
+  });
+
+  // Open DELETE modal
+  document.querySelectorAll('[data-open="delete"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid   = btn.getAttribute('data-uid');
+      const uname = btn.getAttribute('data-username');
+      document.querySelector('#del_uid').value = uid;
+      document.querySelector('#del_username').textContent = uname;
+      document.querySelector('.modal-backdrop[data-modal="delete"]').classList.add('show');
+    });
+  });
+
+  // Close modals (buttons with data-close)
+  document.querySelectorAll('[data-close]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.modal-backdrop.show').forEach(m => m.classList.remove('show'));
+    });
+  });
+
+  // Click outside to close
+  document.querySelectorAll('.modal-backdrop').forEach(m => {
+    m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('show'); });
+  });
+})();
+</script>
+{% endblock %}

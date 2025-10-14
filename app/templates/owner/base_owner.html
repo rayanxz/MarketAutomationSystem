@@ -1,0 +1,9 @@
+{% extends "base_dash.html" %}
+{% block title %}لوحة المالك{% endblock %}
+
+{# UPPER, global menu for Owner #}
+{% block menu_primary %}
+  <a href="{% url 'accounts' %}">إدارة الحسابات</a>
+  <a href="{% url 'owner_dash' %}">الصفحة الرئيسية</a>
+  {# ... add more owner-global items here ... #}
+{% endblock %}
