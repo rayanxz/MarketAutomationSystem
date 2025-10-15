@@ -1,29 +1,86 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.py[cod]
+*.so
 *.egg-info/
-dist/
+.eggs/
 build/
+dist/
+*.manifest
+*.spec
 
+# Bytecode/cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Coverage / testing
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# =========================
 # Django
-*.log
-staticfiles/
-media/
+# =========================
+# Local databases
 db.sqlite3
+*.sqlite3
+*.sqlite3-journal
+*.db
+*.db-journal
+app/data/pos.db
 
+# Logs
+*.log
+logs/
+
+# Collected static & user uploads
+staticfiles/
+staticfiles-*/
+media/
+media-*/
+
+# Local settings (if you ever add them)
+local_settings.py
+
+# =========================
 # Envs & secrets
+# =========================
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Virtual envs
+# Virtual environments
 .venv/
 venv/
+ENV/
+env/
+
+# =========================
+# Editors / IDEs
+# =========================
+.vscode/
+.idea/
+*.iml
+*.sublime-*
+.vscode-test/
+
+# =========================
+# OS cruft
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Misc temp files
+# =========================
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
