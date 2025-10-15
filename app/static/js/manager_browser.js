@@ -31,6 +31,10 @@
 
   const el = (t,c,txt)=>{ const e=document.createElement(t); if(c) e.className=c; if(txt!=null) e.textContent=txt; return e; };
 
+  function publishContext(){
+    document.dispatchEvent(new CustomEvent('mgr:context', { detail: { level, col, set } }));
+  }
+
   function setCrumb(){
     if (!crumb) return;
     crumb.textContent =
@@ -172,6 +176,8 @@
     }catch(e){
       list.innerHTML = `<div class="item muted">تعذّر تحميل العناصر.</div>`;
     }
+
+    publishContext(); // << notify actions bar
   }
 
   if (back){
@@ -180,7 +186,7 @@
         level = 'sets'; page = 1; hlProd = null; load(); return;
       }
       if (level === 'sets') {
-        level = 'collections'; page = 1; set = null; col = null; hlSet = null; load();
+        level = 'collections'; page = 1; set = null; col = null; hlSet = null; load(); return;
       }
     });
   }

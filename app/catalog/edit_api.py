@@ -32,55 +32,65 @@ def edit_apply_batch(request):
     """
     import json
     try:
-      payload = json.loads(request.body.decode("utf-8") or "{}")
-      ops = payload.get("ops") or []
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+        ops = payload.get("ops") or []
     except Exception:
-      return JsonResponse({"ok": False, "error": "bad json"}, status=400)
+        return JsonResponse({"ok": False, "error": "bad json"}, status=400)
 
     try:
-      with transaction.atomic():
-        for op in ops:
-          kind = op.get("op")
-          typ  = op.get("type")
-          _id  = int(op.get("id"))
+        with transaction.atomic():
+            for op in ops:
+                kind = op.get("op")
+                typ  = op.get("type")
+                _id  = int(op.get("id"))
 
-          if kind == "rename":
-            name = (op.get("name") or "").strip()
-            if not name:
-              continue
-            if typ == "collection":
-              c = ProductCollection.objects.filter(id=_id).first()
-              if c: c.name = name; c.save(update_fields=["name"])
-            elif typ == "set":
-              s = ProductSet.objects.filter(id=_id).first()
-              if s: s.name = name; s.save(update_fields=["name"])
+                if kind == "rename":
+                    name = (op.get("name") or "").strip()
+                    if not name:
+                        continue
+                    if typ == "collection":
+                        c = ProductCollection.objects.filter(id=_id).first()
+                        if c:
+                            c.name = name
+                            c.save(update_fields=["name"])
+                    elif typ == "set":
+                        s = ProductSet.objects.filter(id=_id).first()
+                        if s:
+                            s.name = name
+                            s.save(update_fields=["name"])
 
-          elif kind == "adjust":
-            field = op.get("field")  # "price" | "cost"
-            mode  = op.get("mode")   # "percent" | "absolute"
-            sign  = op.get("sign")   # "+" | "-"
-            delta = Decimal(str(op.get("delta") or 0))
-            if field not in ("price","cost") or delta <= 0:
-              continue
-            qs = _scope_qs(typ, _id)
-            if mode == "percent":
-              # price = price * (1 +/- p/100)
-              factor = Decimal("1.0") + (delta/Decimal("100.0")) * (Decimal("1") if sign=="+" else Decimal("-1"))
-              qs.update(**{field: F(field) * factor})
-            else:
-              # price = price +/- delta
-              if sign == "+":
-                qs.update(**{field: F(field) + delta})
-              else:
-                qs.update(**{field: F(field) - delta})
+                elif kind == "adjust":
+                    field = op.get("field")  # "price" | "cost"
+                    mode  = op.get("mode")   # "percent" | "absolute"
+                    sign  = op.get("sign")   # "+" | "-"
+                    try:
+                        delta = Decimal(str(op.get("delta") or 0))
+                    except Exception:
+                        delta = Decimal("0")
+                    if field not in ("price","cost") or delta <= 0:
+                        continue
+                    qs = _scope_qs(typ, _id)
+                    if mode == "percent":
+                        factor = Decimal("1.0") + (delta/Decimal("100.0")) * (Decimal("1") if sign=="+" else Decimal("-1"))
+                        qs.update(**{field: F(field) * factor})
+                    else:
+                        if sign == "+":
+                            qs.update(**{field: F(field) + delta})
+                        else:
+                            qs.update(**{field: F(field) - delta})
 
-          elif kind == "delete":
-            if typ == "collection":
-              ProductCollection.objects.filter(id=_id).delete()
-            elif typ == "set":
-              ProductSet.objects.filter(id=_id).delete()
+                elif kind == "delete":
+                    if typ == "collection":
+                        # Cascade: products -> sets -> collection
+                        Product.objects.filter(set__collection_id=_id).delete()
+                        ProductSet.objects.filter(collection_id=_id).delete()
+                        ProductCollection.objects.filter(id=_id).delete()
+                    elif typ == "set":
+                        # Cascade: products -> set
+                        Product.objects.filter(set_id=_id).delete()
+                        ProductSet.objects.filter(id=_id).delete()
 
-    except Exception as e:
-      return JsonResponse({"ok": False, "error": "apply failed"}, status=500)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "apply failed"}, status=500)
 
     return JsonResponse({"ok": True})

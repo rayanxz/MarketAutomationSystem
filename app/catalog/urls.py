@@ -1,9 +1,7 @@
 # catalog/urls.py
 from django.urls import path
 from catalog.browser_api import api_browser_collections, api_browser_sets, api_browser_products
-# add near other APIs
 from catalog.views import api_collection_stats, api_collection_cascade_delete
-
 
 from catalog.views import (
     # Pages
@@ -11,7 +9,7 @@ from catalog.views import (
     manager_product_new,
     manager_product_edit,
     collection_rename,
-    collection_delete,
+    collection_delete,   # (kept; not used by the new UI)
     manager_product_delete,
 
     # JSON APIs (two-pane + search + autocompletes)
@@ -22,11 +20,13 @@ from catalog.views import (
     api_sets_create,
 )
 
+from catalog.edit_api import edit_apply_batch  # NEW
+
 urlpatterns = [
     # Manager products main (two-pane)
     path("manager/products/", manager_collections, name="manager_collections"),
 
-    # Collections management
+    # Collections management (legacy endpoints still available)
     path("manager/products/collections/<int:pk>/rename/", collection_rename, name="collection_rename"),
     path("manager/products/collections/<int:pk>/delete/", collection_delete, name="collection_delete"),
 
@@ -43,16 +43,19 @@ urlpatterns = [
     path("manager/products/api/ac/collections/", api_collections_ac, name="api_collections_ac"),
     path("manager/products/api/ac/sets/",        api_sets_ac,        name="api_sets_ac"),
     path("manager/products/api/sets/create/",    api_sets_create,    name="api_sets_create"),
+
+    # Product delete
     path("manager/products/delete/<int:pk>/", manager_product_delete, name="manager_product_delete"),
 
+    # Hierarchy browser APIs
     path("manager/products/api/browser/collections/", api_browser_collections, name="api_browser_collections"),
     path("manager/products/api/browser/sets/",        api_browser_sets,        name="api_browser_sets"),
     path("manager/products/api/browser/products/",    api_browser_products,    name="api_browser_products"),
 
+    # Collection stats + cascade delete
     path("manager/products/api/collections/<int:pk>/stats/",           api_collection_stats,           name="api_collection_stats"),
     path("manager/products/api/collections/<int:pk>/cascade_delete/",  api_collection_cascade_delete,  name="api_collection_cascade_delete"),
 
-
-    
-
+    # Batch editor (rename / adjust / delete) for set or collection
+    path("manager/products/api/edit/apply/", edit_apply_batch, name="edit_apply_batch"),
 ]

@@ -40,6 +40,21 @@
   .back-btn{ border:1px solid #e5e7eb; background:#f8fafc; border-radius:8px; padding:6px 10px; cursor:pointer; }
   .back-btn[disabled]{ opacity:.5; cursor:not-allowed; }
 
+  /* Actions bar under the head */
+  .actions-bar{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    margin:6px 0 10px;
+  }
+  .btn-soft{
+    background:#f3f4f6; color:#111; border:1px solid #e5e7eb; border-radius:8px; padding:8px 12px; cursor:pointer;
+  }
+  .btn-soft:hover{ background:#eef2ff; }
+  .btn-danger{ background:#ef4444; color:#fff; border:1px solid #dc2626; border-radius:8px; padding:8px 12px; cursor:pointer; }
+  .btn-danger:hover{ filter:brightness(.95); }
+  .btn-primary{ display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 14px; border-radius:10px; border:1px solid var(--brand); background:var(--brand); color:#fff; font-weight:600; font-size:14px; text-decoration:none; cursor:pointer; }
+  .btn-primary:hover{ background:var(--brand-2); border-color:var(--brand-2); }
+  .btn-disabled{ opacity:.6; cursor:not-allowed; }
+
   #browserList .item{ cursor:pointer; }
   #browserList .icon{ width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; background:#0f1424; color:#fff; }
   .item.active{ background:#fff7cc; }
@@ -58,33 +73,21 @@
   .suggestions .s-code{ font-family: ui-monospace, Menlo, monospace; color:#64748b; }
   .suggestions .s-path{ color:#6b7280; font-size:12px; margin-inline-start:auto; }
 
-  /* Context menu (minimal) */
-  #ctx{
-    position:fixed; inset:auto auto 0 0;
-    display:none; flex-direction:column;
-    width:180px; background:#fff; border:1px solid #e5e7eb; border-radius:10px;
-    box-shadow:0 10px 24px rgba(0,0,0,.18); z-index:5000;
-    transform: translate(var(--x,0), var(--y,0));
-  }
-  #ctx.show{ display:flex; }
-  #ctx button{
-    display:block; padding:10px 12px; text-align:start; background:#fff; border:0; cursor:pointer;
-  }
-  #ctx button:hover{ background:#eef2ff; }
-  #ctx hr{ margin:4px 0; border:0; border-top:1px solid #e5e7eb; }
-
-  /* Modals */
+  /* Modals (shared) */
   .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,.45); z-index: 4000; }
   .modal-backdrop.show{ display:flex; }
-  .modal{ width:100%; max-width:480px; background:#fff; border-radius:12px; box-shadow: 0 20px 60px rgba(0,0,0,.25); overflow:hidden; }
+  .modal{ width:min(520px, 92vw); background:#fff; border-radius:12px; box-shadow: 0 20px 60px rgba(0,0,0,.25); overflow:hidden; }
   .modal-h{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:#0b1220; color:#fff; }
-  .modal-x{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,.35); border-radius:8px; width:32px; height:28px; cursor:pointer; }
   .modal-body{ padding:14px; }
-  .modal-f{ display:flex; gap:8px; justify-content:flex-start; margin-top:10px; }
-  .btn-danger{ background:#ef4444; color:#fff; border:1px solid #ef4444; padding:8px 12px; border-radius:8px; cursor:pointer; }
-  .btn-danger:hover{ background:#dc2626; border-color:#dc2626; }
+  .modal-x{ background:transparent; color:#fff; border:1px solid rgba(255,255,255,.35); border-radius:8px; width:32px; height:28px; cursor:pointer; }
+  .modal-f{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
 
-  /* tiny progress bar */
+  .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
+  .input{ width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:14px; }
+  .select{ width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:14px; background:#fff; }
+  .help{ color:#6b7280; font-size:12px; }
+  .muted{ color:#666; }
+
   .progress{ height:8px; background:#eef2ff; border-radius:999px; overflow:hidden; }
   .progress > i{ display:block; height:100%; width:0%; background:#0ea5e9; transition:width .25s ease; }
 </style>
@@ -92,7 +95,6 @@
 
 {% block content %}
 <div class="mgr-products">
-
   <!-- LEFT -->
   <section class="pane pane-left">
     <div class="collections-wrap">
@@ -133,7 +135,26 @@
           </div>
         </div>
 
-        <div id="browserList" class="list-collections"><!-- injected by JS --></div>
+        <!-- Contextual Actions (auto-switch based on current level) -->
+        <div class="actions-bar">
+          <!-- For Collections level (you clicked a collection -> now at sets level) -->
+          <div id="actionsCol" hidden>
+            <button type="button" class="btn-soft" id="btnColRename">إعادة تسمية الزمرة</button>
+            <button type="button" class="btn-danger" id="btnColDelete">حذف الزمرة (شامل العناصر)</button>
+            <button type="button" class="btn-soft btn-disabled" id="btnColImport" title="قريباً">استيراد ملف Excel</button>
+          </div>
+
+          <!-- For Sets level (you clicked a set -> now at products level) -->
+          <div id="actionsSet" hidden>
+            <button type="button" class="btn-soft" id="btnSetRename">إعادة تسمية المجموعة الأب</button>
+            <button type="button" class="btn-danger" id="btnSetDelete">حذف المجموعة الأب (شامل العناصر)</button>
+            <button type="button" class="btn-soft" id="btnSetBatch">تعديل جماعي لأسعار/كُلف المنتجات</button>
+            <button type="button" class="btn-soft btn-disabled" id="btnSetImport" title="قريباً">استيراد ملف Excel</button>
+          </div>
+        </div>
+
+        <!-- manager_browser.js injects rows here -->
+        <div id="browserList" class="list-collections"></div>
 
         <!-- Pager -->
         <footer class="pager" id="pager">
@@ -168,14 +189,13 @@
   </aside>
 </div>
 
-<!-- Context menu (only used for collection rows) -->
+<!-- ===== Modals ===== -->
 
-
-<!-- Rename modal -->
+<!-- Rename (collection or set, dynamic) -->
 <div class="modal-backdrop" id="modalRename">
   <section class="modal" role="dialog" aria-modal="true" aria-labelledby="renameH">
     <header class="modal-h">
-      <h3 id="renameH">إعادة تسمية الزمرة</h3>
+      <h3 id="renameH">إعادة تسمية</h3>
       <button class="modal-x" data-close>×</button>
     </header>
     <div class="modal-body">
@@ -183,160 +203,269 @@
         <label for="rename_name">الاسم الجديد</label>
         <input class="input" type="text" id="rename_name" name="name" placeholder="اسم جديد">
       </div>
-      <footer class="modal-f">
+      <div class="modal-f">
         <button type="button" class="btn-primary" id="btnRenameSave">حفظ</button>
-        <button type="button" class="btn" data-close>إلغاء</button>
-      </footer>
+        <button type="button" class="btn-soft" data-close>إلغاء</button>
+      </div>
     </div>
   </section>
 </div>
 
-<!-- Delete modal -->
+<!-- Delete confirm (collection or set, dynamic) -->
 <div class="modal-backdrop" id="modalDelete">
   <section class="modal" role="dialog" aria-modal="true" aria-labelledby="delH">
     <header class="modal-h">
-      <h3 id="delH">حذف الزمرة</h3>
+      <h3 id="delH">تأكيد الحذف</h3>
       <button class="modal-x" data-close>×</button>
     </header>
     <div class="modal-body">
-      <p class="muted" id="delMsg">هل تريد حذف الزمرة؟ سيؤدي ذلك إلى حذف كل المجموعات الأب والمنتجات داخلها.</p>
-      <div class="progress" style="margin-top:10px;" hidden id="delProgress"><i></i></div>
-      <footer class="modal-f">
+      <p class="muted" id="delMsg">سيتم الحذف.</p>
+      <div class="progress" style="margin-top:10px;" id="delProgress" hidden><i></i></div>
+      <div class="modal-f">
         <button type="button" class="btn-danger" id="btnDelConfirm">تأكيد الحذف</button>
-        <button type="button" class="btn" data-close>إلغاء</button>
-      </footer>
+        <button type="button" class="btn-soft" data-close>إلغاء</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Batch edit (set only) -->
+<div class="modal-backdrop" id="modalBatch">
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="batchH">
+    <header class="modal-h">
+      <h3 id="batchH">تعديل جماعي لأسعار/كُلف المنتجات (المجموعة الأب)</h3>
+      <button class="modal-x" data-close>×</button>
+    </header>
+    <div class="modal-body">
+      <div class="field">
+        <label for="batch_field">الحقل</label>
+        <select id="batch_field" class="select">
+          <option value="price">السعر</option>
+          <option value="cost">الكلفة</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="batch_mode">الطريقة</label>
+        <select id="batch_mode" class="select">
+          <option value="absolute">قيمة رقمية</option>
+          <option value="percent">نسبة مئوية%</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="batch_sign">الاتجاه</label>
+        <select id="batch_sign" class="select">
+          <option value="+">زيادة</option>
+          <option value="-">تنقيص</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="batch_value">القيمة</label>
+        <input id="batch_value" type="number" step="0.01" min="0" class="input" placeholder="مثال: 5 أو 10%">
+        <div class="help">ستُطبَّق على كل المنتجات ضمن المجموعة الأب المحددة.</div>
+      </div>
+      <div class="modal-f">
+        <button type="button" class="btn-primary" id="btnBatchApply">تطبيق</button>
+        <button type="button" class="btn-soft" data-close>إلغاء</button>
+      </div>
     </div>
   </section>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{% static 'js/manager_browser.js' %}"></script>
-<script src="{% static 'js/manager_search.js' %}"></script>
-
-<script>
-(() => {
-  document.addEventListener('DOMContentLoaded', () => {
+  <script src="{% static 'js/manager_browser.js' %}"></script>
+  <script src="{% static 'js/manager_search.js' %}"></script>
+  <script>
+  (function(){
+    // CSRF
     function getCookie(name) {
       const v = document.cookie.split('; ').find(row => row.startsWith(name + '='));
       return v ? decodeURIComponent(v.split('=')[1]) : '';
     }
     const csrf = getCookie('csrftoken');
 
-    const list        = document.getElementById('browserList');
-    const menu        = document.getElementById('ctx'); // from base template
+    // Elements
+    const actionsCol = document.getElementById('actionsCol');
+    const actionsSet = document.getElementById('actionsSet');
+
     const modalRename = document.getElementById('modalRename');
     const rnInput     = document.getElementById('rename_name');
     const rnSave      = document.getElementById('btnRenameSave');
 
     const modalDelete = document.getElementById('modalDelete');
     const delMsg      = document.getElementById('delMsg');
-    const delProgress = document.getElementById('delProgress');
-    const delBar      = delProgress.querySelector('i');
+    const delProg     = document.getElementById('delProgress');
+    const delBar      = delProg.querySelector('i');
     const delConfirm  = document.getElementById('btnDelConfirm');
 
-    if (!list || !menu) return;
+    const modalBatch  = document.getElementById('modalBatch');
+    const bField = document.getElementById('batch_field');
+    const bMode  = document.getElementById('batch_mode');
+    const bSign  = document.getElementById('batch_sign');
+    const bValue = document.getElementById('batch_value');
+    const bApply = document.getElementById('btnBatchApply');
 
-    let current = { id: null, name: '' };
+    // Buttons
+    const btnColRename = document.getElementById('btnColRename');
+    const btnColDelete = document.getElementById('btnColDelete');
+    const btnColImport = document.getElementById('btnColImport');
 
-    const hideMenu = () => {
-      menu.classList.remove('show');
-      menu.setAttribute('aria-hidden', 'true');
-    };
-    const showMenuAt = (x, y) => {
-      const pad = 8, w = 200, h = 96;
-      const vw = window.innerWidth, vh = window.innerHeight;
-      const fx = Math.min(Math.max(x, pad), vw - w - pad);
-      const fy = Math.min(Math.max(y, pad), vh - h - pad);
-      menu.style.setProperty('--x', fx + 'px');
-      menu.style.setProperty('--y', fy + 'px');
-      // two actions
-      menu.innerHTML = `
-        <button type="button" data-act="col:rename">إعادة تسمية</button>
-        <button type="button" data-act="col:delete">حذف الزمرة</button>
-      `;
-      menu.classList.add('show');
-      menu.setAttribute('aria-hidden', 'false');
-    };
+    const btnSetRename = document.getElementById('btnSetRename');
+    const btnSetDelete = document.getElementById('btnSetDelete');
+    const btnSetBatch  = document.getElementById('btnSetBatch');
+    const btnSetImport = document.getElementById('btnSetImport');
 
-    function openRename(id, name){
-      current = { id, name };
-      rnInput.value = name || '';
-      modalRename.classList.add('show');
-      setTimeout(()=> rnInput.focus(), 10);
-    }
-    function openDelete(id, name){
-      current = { id, name };
-      delMsg.textContent = `سيتم حذف الزمرة «${name}» وكل المجموعات الأب والمنتجات داخلها. هل أنت متأكد؟`;
-      delProgress.hidden = true; delBar.style.width = '0%';
-      modalDelete.classList.add('show');
-    }
+    // Current context (published by manager_browser.js)
+    let ctx = { level:'collections', col:null, set:null };
 
-    // 🔥 Single handler: block native menu everywhere in the list,
-    // show our menu ONLY when right-clicking a collection row.
-    list.addEventListener('contextmenu', (e) => {
-      const row = e.target.closest('#browserList .item');
-      if (!row) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+    function show(el){ el && (el.hidden = false); }
+    function hide(el){ el && (el.hidden = true); }
 
-      const isCollection = row.getAttribute('data-context') === 'collection';
-      if (!isCollection) { hideMenu(); return; }
+    function openModal(el){ el && el.classList.add('show'); }
+    function closeModal(el){ el && el.classList.remove('show'); }
+    function closeAll(){ [modalRename, modalDelete, modalBatch].forEach(closeModal); }
 
-      current.id   = parseInt(row.getAttribute('data-ctx-id'), 10);
-      current.name = row.getAttribute('data-ctx-name') || '';
-      showMenuAt(e.clientX, e.clientY);
-    }, true);
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', closeAll));
+    document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('click', e => {
+      if (e.target === m) closeModal(m);
+    }));
 
-    // Menu actions
-    menu.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-act]');
-      if (!btn) return;
-      const act = btn.getAttribute('data-act');
-      hideMenu();
-      if (act === 'col:rename') return openRename(current.id, current.name);
-      if (act === 'col:delete') return openDelete(current.id, current.name);
+    // React to context changes from the browser pane
+    document.addEventListener('mgr:context', (ev) => {
+      ctx = ev.detail || ctx;
+      // When viewing SETS -> collection actions
+      if (ctx.level === 'sets' && ctx.col) { show(actionsCol); hide(actionsSet); }
+      // When viewing PRODUCTS -> set actions
+      else if (ctx.level === 'products' && ctx.col && ctx.set) { hide(actionsCol); show(actionsSet); }
+      else { hide(actionsCol); hide(actionsSet); }
     });
 
-    // Dismiss
-    document.addEventListener('click', (e) => { if (!menu.contains(e.target)) hideMenu(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
-    window.addEventListener('scroll', hideMenu, { passive: true });
-    window.addEventListener('resize', hideMenu, { passive: true });
+    // ----- Collection actions -----
+    btnColRename && btnColRename.addEventListener('click', () => {
+      if (!ctx.col) return;
+      rnInput.value = ctx.col.name || '';
+      document.getElementById('renameH').textContent = 'إعادة تسمية الزمرة';
+      rnSave.dataset.mode = 'collection';
+      openModal(modalRename);
+      setTimeout(() => rnInput.focus(), 50);
+    });
 
-    // Close modals
-    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => {
-      document.querySelectorAll('.modal-backdrop.show').forEach(m => m.classList.remove('show'));
-    }));
-    document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('click', (e)=>{
-      if (e.target === m) m.classList.remove('show');
-    }));
-
-    // Rename save
-    rnSave.addEventListener('click', async () => {
+    rnSave && rnSave.addEventListener('click', async () => {
       const name = (rnInput.value || '').trim();
       if (!name) return rnInput.focus();
-      const url = `{% url 'collection_rename' 0 %}`.replace('/0/', `/${current.id}/`);
-      const form = new FormData();
-      form.append('name', name);
-      form.append('csrfmiddlewaretoken', csrf);
-      await fetch(url, { method:'POST', body: form, headers:{'X-Requested-With':'fetch'} }).catch(()=>{});
+      if (rnSave.dataset.mode === 'collection' && ctx.col){
+        const url = `{% url 'collection_rename' 0 %}`.replace('/0/', `/${ctx.col.id}/`);
+        const form = new FormData();
+        form.append('name', name);
+        form.append('csrfmiddlewaretoken', csrf);
+        await fetch(url, { method:'POST', body: form, headers:{'X-Requested-With':'fetch'} }).catch(()=>{});
+        location.reload();
+      } else if (rnSave.dataset.mode === 'set' && ctx.set){
+        await fetch('/manager/products/api/edit/apply/', {
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRFToken':csrf,'Accept':'application/json'},
+          body: JSON.stringify({ ops: [{ op:'rename', type:'set', id: ctx.set.id, name }] })
+        }).catch(()=>{});
+        location.reload();
+      }
+    });
+
+    btnColDelete && btnColDelete.addEventListener('click', () => {
+      if (!ctx.col) return;
+      document.getElementById('delH').textContent = 'حذف الزمرة';
+      delMsg.textContent = `سيتم حذف الزمرة «${ctx.col.name || ''}» مع جميع المجموعات الأب والمنتجات داخلها. هل أنت متأكد؟`;
+      delProg.hidden = true; delBar.style.width = '0%';
+      delConfirm.dataset.mode = 'collection';
+      openModal(modalDelete);
+      // fetch stats to show user (optional progress)
+      (async () => {
+        try {
+          delProg.hidden = false; delBar.style.width = '25%';
+          const r = await fetch(`/manager/products/api/collections/${ctx.col.id}/stats/`, { headers:{'Accept':'application/json'} });
+          delBar.style.width = '60%';
+          const data = r.ok ? await r.json() : null;
+          if (data && data.ok && data.counts){
+            delMsg.textContent += `\n(مجموعات: ${data.counts.sets} — منتجات: ${data.counts.products})`;
+          }
+          delBar.style.width = '80%';
+        } catch(e){}
+      })();
+    });
+
+    delConfirm && delConfirm.addEventListener('click', async () => {
+      if (delConfirm.dataset.mode === 'collection' && ctx.col){
+        delProg.hidden = false; delBar.style.width = '30%';
+        await fetch(`/manager/products/api/collections/${ctx.col.id}/cascade_delete/`, {
+          method:'POST', headers:{ 'X-CSRFToken': csrf, 'Accept':'application/json' }
+        }).catch(()=>{});
+        delBar.style.width = '100%';
+        window.location.href = `{% url 'manager_collections' %}`;
+      } else if (delConfirm.dataset.mode === 'set' && ctx.set){
+        delProg.hidden = false; delBar.style.width = '40%';
+        await fetch('/manager/products/api/edit/apply/', {
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRFToken':csrf,'Accept':'application/json'},
+          body: JSON.stringify({ ops: [{ op:'delete', type:'set', id: ctx.set.id }] })
+        }).catch(()=>{});
+        delBar.style.width = '100%';
+        // go back to sets level
+        const u = new URL('{% url "manager_collections" %}', window.location.origin);
+        if (ctx.col) {
+          u.searchParams.set('cid', ctx.col.id);
+          u.searchParams.set('cname', ctx.col.name || '');
+        }
+        window.location.href = u.toString();
+      }
+    });
+
+    btnColImport && btnColImport.addEventListener('click', () => {
+      alert('استيراد Excel: قريباً. (سيتم إدراج المنتجات داخل الزمرة المحددة)');
+    });
+
+    // ----- Set actions -----
+    btnSetRename && btnSetRename.addEventListener('click', () => {
+      if (!ctx.set) return;
+      rnInput.value = ctx.set.name || '';
+      document.getElementById('renameH').textContent = 'إعادة تسمية المجموعة الأب';
+      rnSave.dataset.mode = 'set';
+      openModal(modalRename);
+      setTimeout(() => rnInput.focus(), 50);
+    });
+
+    btnSetDelete && btnSetDelete.addEventListener('click', () => {
+      if (!ctx.set) return;
+      document.getElementById('delH').textContent = 'حذف المجموعة الأب';
+      delMsg.textContent = `سيتم حذف المجموعة الأب «${ctx.set.name || ''}» وكل المنتجات داخلها. هل أنت متأكد؟`;
+      delProg.hidden = true; delBar.style.width = '0%';
+      delConfirm.dataset.mode = 'set';
+      openModal(modalDelete);
+    });
+
+    btnSetBatch && btnSetBatch.addEventListener('click', () => {
+      if (!ctx.set) return;
+      bField.value='price'; bMode.value='absolute'; bSign.value='+'; bValue.value='';
+      openModal(modalBatch);
+      setTimeout(()=> bValue.focus(), 50);
+    });
+
+    bApply && bApply.addEventListener('click', async () => {
+      const field = bField.value;           // price|cost
+      const mode  = bMode.value;            // absolute|percent
+      const sign  = bSign.value;            // +|-
+      const val   = parseFloat(bValue.value);
+      if (!ctx.set || !field || !mode || !sign || !(val > 0)) { bValue.focus(); return; }
+      await fetch('/manager/products/api/edit/apply/', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRFToken':csrf,'Accept':'application/json'},
+        body: JSON.stringify({ ops: [{ op:'adjust', type:'set', id: ctx.set.id, field, mode, sign, delta: val }] })
+      }).catch(()=>{});
       location.reload();
     });
 
-    // Cascade delete
-    delConfirm.addEventListener('click', async () => {
-      delProgress.hidden = false; delBar.style.width = '20%';
-      await fetch(`/manager/products/api/collections/${current.id}/stats/`, { headers:{'Accept':'application/json'} }).catch(()=>{});
-      delBar.style.width = '60%';
-      await fetch(`/manager/products/api/collections/${current.id}/cascade_delete/`, {
-        method:'POST', headers:{ 'X-CSRFToken': csrf, 'Accept':'application/json' }
-      }).catch(()=>{});
-      delBar.style.width = '100%';
-      location.href = `{% url 'manager_collections' %}`;
+    btnSetImport && btnSetImport.addEventListener('click', () => {
+      alert('استيراد Excel: قريباً. (سيتم إدراج المنتجات داخل المجموعة الأب المحددة)');
     });
-  });
-})();
-</script>
+
+  })();
+  </script>
 {% endblock %}
