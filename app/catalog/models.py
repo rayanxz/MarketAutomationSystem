@@ -119,6 +119,8 @@ class Product(models.Model):
 
     # Global-unique name
     name = models.CharField(max_length=128, unique=True)
+    stock_qty = models.DecimalField(max_digits=14, decimal_places=3, default=0, help_text="Current stock in primary unit; may be negative.")
+
 
     # Hierarchy: Product -> Set (@xxx) -> Collection (#xxx)
     set = models.ForeignKey(ProductSet, on_delete=models.PROTECT, related_name="products")

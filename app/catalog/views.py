@@ -235,6 +235,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
 
     def fmt(p: Product) -> dict:
         return {
+            "type": "product",
             "id": p.id,
             "code": f"{p.product_number:03d}",
             "name": p.name,
@@ -243,9 +244,21 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             "set_name": p.set.name,
             "col_code": p.set.collection.code,
             "col_id": p.set.collection_id,
-            "col_name": p.set.collection.name,  # NEW
+            "col_name": p.set.collection.name,
             "page": _page_for_product_in_collection(p),
-        }
+
+            # pricing
+            "cost": str(p.cost),
+            "price": str(p.price),
+
+            # unit info (codes + human labels)
+            "unit_primary": p.unit_primary,
+            "unit_primary_label": p.get_unit_primary_display(),
+            "unit_secondary": p.unit_secondary or "",
+            "unit_secondary_label": p.get_unit_secondary_display() if p.unit_secondary else "",
+            "conversion_factor": str(p.conversion_factor or ""),
+    }
+
 
 
     if not q:
@@ -259,12 +272,28 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 .filter(barcode=q)
                 .first()
             )
-            items = [fmt(pb.product)] if pb else []
+            if pb:
+                item = fmt(pb.product)
+                item["matched_unit"] = int(pb.unit_index)  # 1 or 2
+                items = [item]
+            else:
+                items = []
+
 
         elif mode == "name":
-            # mixed: collections + sets + products
             max_total = 8
 
+            # Products FIRST (so slicing never drops them)
+            prods = (
+                Product.objects
+                .select_related("set__collection")
+                .filter(name__icontains=q)
+                .order_by("name")[:max_total]
+            )
+            prod_items = [fmt(p) for p in prods]   # keeps cost, price, units, cf
+
+            # Collections / Sets are useful for the manager search page,
+            # but billing UI filters to type='product' anyway.
             cols = (
                 ProductCollection.objects
                 .filter(name__icontains=q)
@@ -295,36 +324,24 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 "col_name": s.collection.name,
             } for s in sets]
 
-            prods = (
-                Product.objects
-                .select_related("set__collection")
-                .filter(name__icontains=q)
-                .order_by("name")[:max_total]
-            )
-            prod_items = [{
-                "type": "product",
-                "id": p.id,
-                "code": f"{p.product_number:03d}",
-                "name": p.name,
-                "set_id": p.set_id,
-                "set_code": p.set.code,
-                "set_name": p.set.name,
-                "col_code": p.set.collection.code,
-                "col_id": p.set.collection_id,
-                "col_name":p.set.collection.name,
-                "page": _page_for_product_in_collection(p),
-            } for p in prods]
+            # Put PRODUCTS first, then the rest; then slice.
+            items = (prod_items + col_items + set_items)[:max_total]
 
-            items = (col_items + set_items + prod_items)[:max_total]
 
         elif mode == "id":
-            qs = (
-                Product.objects
-                .select_related("set__collection")
-                .filter(unit_ids__value__iexact=q)
-                .order_by("name")[:5]
+            uid = (
+                ProductUnitId.objects
+                .select_related("product__set__collection")
+                .filter(value__iexact=q)
+                .first()
             )
-            items = [fmt(p) for p in qs]
+            if uid:
+                item = fmt(uid.product)
+                item["matched_unit"] = int(uid.unit_index)  # 1 or 2
+                items = [item]
+            else:
+                items = []
+
 
         elif mode == "code":
             items = []

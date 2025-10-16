@@ -1,0 +1,15 @@
+{% extends "manager/base_manager.html" %}
+{% block title %}قائمة الديون{% endblock %}
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة الديون</a>
+    <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+  </div>
+{% endblock %}
+{% block content %}
+  <div class="card" style="padding:16px;background:#fff;border-radius:12px;box-shadow:var(--card-shadow);">
+    سيتم عرض الديون هنا قريباً.
+  </div>
+{% endblock %}

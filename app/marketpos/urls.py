@@ -33,5 +33,8 @@ urlpatterns = [
     path("accounts/staff/<int:user_id>/delete/", acc_views.staff_delete, name="staff_delete"),
     path("", include("catalog.urls")),
 
+    path("manager/billing/", include("billing.urls")),
+
+
 
 ]

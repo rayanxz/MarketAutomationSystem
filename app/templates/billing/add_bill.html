@@ -1,0 +1,145 @@
+{% extends "manager/base_manager.html" %}
+
+{% load static %}
+
+{% block title %}إضافة فاتورة{% endblock %}
+
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة الديون</a>
+    <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+  </div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .bill-wrap{ display:grid; grid-template-rows:auto auto 1fr auto; gap:12px; }
+  .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
+  .card h4{ margin:0 0 8px; }
+
+  /* Autocomplete */
+  .ac{ position:relative; }
+  .ac input{ width:100%; height:42px; }
+  .ac-list{
+    position:absolute; inset-inline-start:0; top:calc(100% + 6px);
+    background:#fff; border:1px solid #e5e7eb; border-radius:10px;
+    box-shadow:0 10px 24px rgba(0,0,0,.12);
+    list-style:none; margin:0; padding:6px;
+    width:min(520px,92vw);
+    z-index:9999; /* make sure it floats above everything */
+  }
+  .ac-list[hidden]{ display:none; }
+  .ac-list li{ padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .ac-list li:hover, .ac-list li.active{ background:#eef2ff; }
+
+  /* ensure suggestions aren’t clipped */
+  .search-box{ position:relative; overflow:visible; }
+
+  /* Items table */
+  .items{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); display:flex; flex-direction:column; }
+  table.bill{ width:100%; border-collapse:collapse; }
+  table.bill th, table.bill td{ border-bottom:1px solid #eef2f7; padding:8px; }
+  table.bill thead th{ background:#f8fafc; position:sticky; top:0; z-index:1; }
+  .pname{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Footer */
+  .bill-foot{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+  .foot-right{ display:flex; gap:10px; }
+  .foot-left{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
+  .total-box{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#f8fafc; margin-bottom:10px;
+  }
+  .total-amt{ font-size:24px; font-weight:800; }
+
+  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
+  .btn:hover{ background:#eef2ff; }
+  .btn-primary{ border-color:var(--brand); background:var(--brand); color:#fff; }
+  .btn-primary:hover{ filter:brightness(.95); }
+  .btn-danger{ background:#ef4444; color:#fff; border:1px solid #ef4444; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bill-wrap">
+
+  <!-- 1) Provider -->
+  <section class="card">
+    <h4>اسم المورد</h4>
+    <div class="ac">
+      <input id="provInput" class="input" placeholder="ابحث عن مورد... (إن لم يكن موجوداً سيتم إنشاؤه)">
+      <ul id="provList" class="ac-list" hidden></ul>
+    </div>
+  </section>
+
+  <!-- 2) Product search -->
+  <section class="card">
+    <h4>إضافة منتج إلى الفاتورة</h4>
+    <div style="display:grid; grid-template-columns: 1fr auto; gap:8px;">
+      <div class="search-box" id="prodSearchBox">
+        <input id="prodQ" class="input" type="text" placeholder="اكتب هنا..." autocomplete="off" />
+        <div class="modes" style="display:flex; gap:12px; margin-top:6px;">
+          <label><input type="radio" name="prodMode" value="name" checked> بالاسم</label>
+          <label><input type="radio" name="prodMode" value="code"> بالكود</label>
+          <label><input type="radio" name="prodMode" value="id"> بالمعرّف</label>
+          <label><input type="radio" name="prodMode" value="barcode"> بالباركود</label>
+        </div>
+        <ul id="prodSug" class="ac-list" hidden></ul>
+      </div>
+      <button id="btnAddProd" class="btn">إضافة</button>
+    </div>
+  </section>
+
+  <!-- 3) Items table -->
+  <section class="items" style="min-height:48vh;">
+    <table id="billTable" class="bill">
+      <thead>
+        <tr>
+          <th style="width:30%;">المنتج</th>
+          <th>الكلفة/و١</th>
+          <th>السعر/و١</th>
+          <th style="width:18%;">الكمية</th>
+          <th>الكلفة الإجمالية</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="billBody"><!-- rows injected by JS --></tbody>
+    </table>
+  </section>
+
+  <!-- 4) Footer -->
+  <section class="bill-foot">
+    <div class="foot-right">
+      <button id="btnSave" class="btn btn-primary">حفظ</button>
+      <a id="btnCancel" class="btn" href="{% url 'billing_list' %}">إلغاء</a>
+    </div>
+
+    <div class="foot-left">
+      <div class="total-box">
+        <div class="muted">إجمالي الفاتورة</div>
+        <div id="billTotalBox" class="total-amt">0.00</div>
+      </div>
+
+      <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+        <label><input type="radio" name="pay" value="paid"   id="payPaid"> مدفوعة بالكامل</label>
+        <label><input type="radio" name="pay" value="unpaid" id="payUnpaid" checked> غير مدفوعة</label>
+        <label><input type="radio" name="pay" value="partial" id="payPartial"> مدفوعة جزئياً</label>
+        <input id="paidAmount" class="input" style="width:160px;" placeholder="المبلغ المدفوع (للجزئي)" disabled>
+      </div>
+
+      <div class="muted" style="margin-top:8px;">(لاحقاً: سيتم ترحيل المتبقي إلى قائمة الديون)</div>
+
+      <div style="margin-top:10px;">
+        <button class="btn" id="btnImportExcel" title="غير مفعّل حالياً">استيراد ملف Excel</button>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <!-- ensure the product JS binds after DOM; defer is important -->
+  <script src="{% static 'js/billing_add_bill.js' %}" defer></script>
+{% endblock %}
