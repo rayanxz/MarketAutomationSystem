@@ -1,7 +1,8 @@
 # app/billing/views.py
 from __future__ import annotations
-from decimal import Decimal, InvalidOperation
+
 import json
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.db import transaction
 from django.db.models.functions import Lower
@@ -14,6 +15,11 @@ from catalog.views import role_required
 from catalog.models import Product
 from billing.models import Provider, Bill, BillItem
 
+from django.db.models import Sum, F, Q, Value
+from django.db.models.functions import Coalesce
+from django.db.models import DecimalField
+from django.utils import timezone
+
 
 # ---------- Pages ----------
 
@@ -21,17 +27,21 @@ from billing.models import Provider, Bill, BillItem
 def billing_home(request: HttpRequest) -> HttpResponse:
     return redirect("billing_list")
 
+
 @role_required(AccountProfile.Role.MANAGER)
 def bills_list(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/bills_list.html")
+
 
 @role_required(AccountProfile.Role.MANAGER)
 def add_bill(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/add_bill.html")
 
+
 @role_required(AccountProfile.Role.MANAGER)
 def debts_list(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/debts_list.html")
+
 
 @role_required(AccountProfile.Role.MANAGER)
 def providers_list(request: HttpRequest) -> HttpResponse:
@@ -40,110 +50,306 @@ def providers_list(request: HttpRequest) -> HttpResponse:
 
 # ---------- Utilities ----------
 
+_DEC0 = Decimal("0")
+_DEC3 = Decimal("0.001")
+_DEC4 = Decimal("0.0001")
+
 def _to_decimal(val, default: str = "0") -> Decimal:
+    """
+    Convert inputs to Decimal. Accepts "12,34" and "12.34".
+    Returns Decimal(default) if invalid.
+    """
     if val is None:
         val = default
     if isinstance(val, (int, float, Decimal)):
         return Decimal(str(val))
-    s = str(val).strip().replace(",", ".") or default
+    s = (str(val).strip().replace(",", ".") or default)
     try:
         return Decimal(s)
     except (InvalidOperation, ValueError):
         return Decimal(default)
 
+def _q3(x: Decimal) -> Decimal:
+    # Quantize to 3 decimals (qty/line totals)
+    return (x or _DEC0).quantize(_DEC3, rounding=ROUND_HALF_UP)
 
-# ---------- APIs ----------
+def _q4(x: Decimal) -> Decimal:
+    # Quantize to 4 decimals (unit costs/prices)
+    return (x or _DEC0).quantize(_DEC4, rounding=ROUND_HALF_UP)
 
+def _err(message: str, status: int = 400) -> JsonResponse:
+    return JsonResponse({"ok": False, "error": message}, status=status)
+
+
+# ---------- APIs (providers) ----------
+
+# ===========================================
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
-def api_providers_ac(request: HttpRequest) -> JsonResponse:
+def api_providers_list(request: HttpRequest) -> JsonResponse:
+    """
+    GET:
+      q               : name icontains
+      page_size       : default 30 (max 100)
+      cursor          : id__lt keyset
+      include_all=1   : if provided, show all providers (except deleted)
+                        otherwise show only providers with activity (>=1 bill OR >=1 unpaid/partial)
+    Always excludes soft-deleted providers (is_active=False).
+    """
+    # Base: exclude deleted
+    qs = Provider.objects.filter(is_active=True).order_by("-id")
+
     q = (request.GET.get("q") or "").strip()
-    if not q:
-        return JsonResponse({"ok": True, "items": []})
-    items = (
-        Provider.objects
-        .filter(name__icontains=q)
-        .order_by(Lower("name"))
-        .values("id", "name")[:8]
+    if q:
+        qs = qs.filter(name__icontains=q)
+
+    cursor = request.GET.get("cursor")
+    if cursor:
+        try:
+            qs = qs.filter(id__lt=int(cursor))
+        except ValueError:
+            pass
+
+    try:
+        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
+    except ValueError:
+        page_size = 30
+
+    include_all = (request.GET.get("include_all") == "1")
+
+    # Annotate activity counts and debt
+    debt_expr = Coalesce(
+        Sum(
+            (F("bills__total") - F("bills__paid_amount")),
+            filter=Q(bills__status__in=[Bill.Status.UNPAID, Bill.Status.PARTIAL]),
+            output_field=DecimalField(max_digits=14, decimal_places=3),
+        ),
+        Value(0, output_field=DecimalField(max_digits=14, decimal_places=3))
     )
-    return JsonResponse({"ok": True, "items": list(items)})
+    qs = qs.annotate(
+        bills_count=Coalesce(Sum(Value(1), filter=Q(bills__id__isnull=False)), Value(0)),
+        unpaid_bills_count=Coalesce(Sum(Value(1), filter=Q(bills__status__in=[Bill.Status.UNPAID, Bill.Status.PARTIAL])), Value(0)),
+        total_debt=debt_expr,
+    ).only("id", "name", "phone", "is_active")
+
+    if not include_all:
+        # Show only providers with activity
+        qs = qs.filter(Q(bills_count__gt=0) | Q(unpaid_bills_count__gt=0))
+
+    items = list(qs[:page_size])
+
+    def row(p: Provider):
+        return {
+            "id": p.id,
+            "name": p.name,
+            "phone": p.phone or "",
+            "is_active": True,  # by construction
+            "bills_count": int(p.bills_count or 0),
+            "unpaid_bills_count": int(p.unpaid_bills_count or 0),
+            "total_debt": str(getattr(p, "total_debt", 0) or 0),
+        }
+
+    next_cursor = items[-1].id if items else None
+    return JsonResponse({"ok": True, "items": [row(p) for p in items], "next_cursor": next_cursor})
+
 
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def api_bill_save(request: HttpRequest) -> JsonResponse:
+def api_provider_create(request: HttpRequest) -> JsonResponse:
     """
-    JSON body:
-    {
-      "provider": {"id": 12} OR {"name": "ACME"},
-      "items": [
-        {
-          "product_id": 1,
-          "unit_index": 1|2,
-          "qty_raw": "2.5",
-          "cost": "12.3",     # per primary unit
-          "price": "15.0",    # per primary unit
-          "total_cost": "30"  # optional override
-        }, ...
-      ],
-      "pay": {"status": "paid"|"unpaid"|"partial", "paid_amount": "0"}
-    }
+    Body: { "name": "...", "phone": "", "notes": "" }
+    Name must be unique among active providers (case-insensitive).
     """
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
     except Exception:
         return JsonResponse({"ok": False, "error": "bad json"}, status=400)
 
+    name = (payload.get("name") or "").strip()
+    phone = (payload.get("phone") or "").strip()
+    notes = (payload.get("notes") or "").strip()
+
+    if not name:
+        return JsonResponse({"ok": False, "error": "name required"}, status=400)
+
+    # Enforce uniqueness among active
+    if Provider.objects.filter(is_active=True, name__iexact=name).exists():
+        return JsonResponse({"ok": False, "error": "الاسم موجود مسبقا"}, status=409)
+
+    p = Provider.objects.create(name=name, phone=phone, notes=notes, is_active=True)
+    return JsonResponse({"ok": True, "provider": {"id": p.id, "name": p.name}})
+
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def api_provider_delete(request: HttpRequest, pid: int) -> JsonResponse:
+    """
+    Archive provider (soft delete) if there are no unpaid/partial bills.
+    Bills remain intact and keep their provider FK.
+    Archived providers are excluded from autocomplete and lists by default.
+    """
+    try:
+        p = Provider.objects.get(pk=pid)
+    except Provider.DoesNotExist:
+        return JsonResponse({"ok": False, "error": "not found"}, status=404)
+
+    # Disallow if any debts remain (unpaid/partial bills)
+    has_debts = Bill.objects.filter(provider=p, status__in=[Bill.Status.UNPAID, Bill.Status.PARTIAL]).exists()
+    if has_debts:
+        return JsonResponse({"ok": False, "error": "cannot delete: unpaid debts exist"}, status=400)
+
+    if not p.is_active:
+        return JsonResponse({"ok": True})  # already archived
+
+    p.is_active = False
+    p.deleted_at = timezone.now()
+    p.save(update_fields=["is_active", "deleted_at"])
+    return JsonResponse({"ok": True})
+#============================================
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_providers_ac(request: HttpRequest) -> JsonResponse:
+    """
+    Autocomplete for providers (ACTIVE ONLY).
+    GET ?q=...
+    """
+    q = (request.GET.get("q") or "").strip()
+    if not q:
+        return JsonResponse({"ok": True, "items": []})
+    items = (
+        Provider.objects
+        .filter(is_active=True, name__icontains=q)
+        .order_by(Lower("name"))
+        .values("id", "name")[:8]
+    )
+    return JsonResponse({"ok": True, "items": list(items)})
+
+
+# ---------- APIs (bills) ----------
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def api_bill_save(request: HttpRequest) -> JsonResponse:
+    """
+    Create a Bill with BillItems and update stock.
+    - Provider MUST be existing (provider.id required).
+    - Optional manual serial (positive int, unique).
+    - Does NOT overwrite Product cost/price unless update_product_defaults=true.
+
+    JSON body:
+    {
+      "serial": 1234,        # optional, positive integer, unique
+      "provider": {"id": 12},
+      "items": [
+        {
+          "product_id": 1,
+          "unit_index": 1|2,
+          "qty_raw": "2.5",
+          "cost": "12.3",     # per PRIMARY unit
+          "price": "15.0",    # per PRIMARY unit (snapshot only)
+          "total_cost": "30"  # optional override for line_total
+        }, ...
+      ],
+      "pay": {"status": "paid"|"unpaid"|"partial", "paid_amount": "0"},
+      "update_product_defaults": false
+    }
+    """
+    # Parse payload
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _err("bad json", 400)
+
     prov_in = payload.get("provider") or {}
     items_in = payload.get("items") or []
     pay_in = payload.get("pay") or {}
+    update_defaults = bool(payload.get("update_product_defaults") or False)
 
     if not items_in:
-        return JsonResponse({"ok": False, "error": "no items"}, status=400)
+        return _err("no items", 400)
 
-    # Provider: resolve by id or CI name, create if new
-    provider = None
+    # Provider: require existing by id
     pid = prov_in.get("id")
-    pname = (prov_in.get("name") or "").strip()
-    if pid:
-        provider = Provider.objects.filter(id=pid).first()
+    if not pid:
+        return _err("provider must be selected from list", 400)
+    provider = Provider.objects.filter(id=pid).first()
     if not provider:
-        if not pname:
-            return JsonResponse({"ok": False, "error": "provider required"}, status=400)
-        provider = Provider.objects.filter(name__iexact=pname).first() or Provider.objects.create(name=pname)
+        return _err("provider not found", 404)
+
+    # Optional manual serial
+    serial_in = payload.get("serial")
+    serial_val = None
+    if serial_in not in (None, ""):
+        try:
+            serial_val = int(serial_in)
+            if serial_val <= 0:
+                return _err("serial must be a positive number", 400)
+        except (TypeError, ValueError):
+            return _err("serial must be numbers only", 400)
+        if Bill.objects.filter(serial=serial_val).exists():
+            return _err("serial already exists", 409)
 
     # Payment
     status_raw = (pay_in.get("status") or "unpaid").lower()
     if status_raw not in {"paid", "unpaid", "partial"}:
         status_raw = "unpaid"
-    paid_amount = _to_decimal(pay_in.get("paid_amount"), "0")
+    paid_amount = _q3(_to_decimal(pay_in.get("paid_amount"), "0"))
 
+    # Save atomically
     try:
         with transaction.atomic():
-            bill = Bill(provider=provider, status=status_raw, paid_amount=paid_amount, total=Decimal("0"))
+            bill = Bill(provider=provider, status=status_raw, paid_amount=paid_amount, total=_DEC0)
+            if serial_val is not None:
+                bill.serial = serial_val  # honor user-provided serial if valid/unique
             bill.save()  # assigns serial if empty
 
-            grand = Decimal("0")
+            grand = _DEC0
 
-            for row in items_in:
-                prod_id = int(row.get("product_id"))
+            for idx, row in enumerate(items_in, start=1):
+                # Validate row payload
+                try:
+                    prod_id = int(row.get("product_id"))
+                except (TypeError, ValueError):
+                    return _err(f"invalid product_id at row {idx}", 400)
+
                 unit_idx = int(row.get("unit_index") or 1)
-                qty_raw = _to_decimal(row.get("qty_raw"))
-                cost_u1 = _to_decimal(row.get("cost"))
-                price_u1 = _to_decimal(row.get("price"))
+                if unit_idx not in (1, 2):
+                    unit_idx = 1
+
+                qty_raw = _to_decimal(row.get("qty_raw"), "0")
+                if qty_raw <= _DEC0:
+                    return _err(f"qty must be > 0 at row {idx}", 400)
+
+                cost_u1 = _to_decimal(row.get("cost"), "0")
+                price_u1 = _to_decimal(row.get("price"), "0")
+                if cost_u1 < _DEC0 or price_u1 < _DEC0:
+                    return _err(f"negative cost/price not allowed at row {idx}", 400)
+
                 total_override = row.get("total_cost")
                 total_override = _to_decimal(total_override, "0") if total_override not in (None, "") else None
 
+                # Lock product for stock update
                 product = get_object_or_404(Product.objects.select_for_update(), pk=prod_id)
 
-                # Convert to primary qty if needed
+                # Convert to PRIMARY units if user picked secondary
                 qty_primary = qty_raw
-                if unit_idx == 2 and product.conversion_factor:
-                    qty_primary = qty_raw * Decimal(product.conversion_factor)
+                cf = getattr(product, "conversion_factor", None)
+                if unit_idx == 2 and cf:
+                    qty_primary = qty_raw * Decimal(str(cf))
 
-                line_total = total_override if (total_override is not None and total_override > 0) else (cost_u1 * qty_primary)
+                # Quantize
+                qty_primary = _q3(qty_primary)
+                cost_u1 = _q4(cost_u1)
+                price_u1 = _q4(price_u1)
 
-                # Persist item
+                # Compute line total
+                if total_override is not None and total_override > _DEC0:
+                    line_total = _q3(total_override)
+                else:
+                    line_total = _q3(cost_u1 * qty_primary)
+
+                # Persist BillItem (snapshot pricing)
                 BillItem.objects.create(
                     bill=bill,
                     product=product,
@@ -154,15 +360,25 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                     line_total=line_total,
                 )
 
-                # Update product live fields
-                product.cost = cost_u1
-                product.price = price_u1
-                product.stock_qty = (product.stock_qty or Decimal("0")) + qty_primary
-                product.save(update_fields=["cost", "price", "stock_qty", "updated_at"])
+                # Update stock only
+                product.stock_qty = (getattr(product, "stock_qty", None) or _DEC0) + qty_primary
+                update_fields = ["stock_qty"]
+                if hasattr(product, "updated_at"):
+                    from django.utils import timezone as _tz
+                    product.updated_at = _tz.now()
+                    update_fields.append("updated_at")
+                if update_defaults:
+                    if hasattr(product, "cost"):
+                        product.cost = cost_u1
+                        update_fields.append("cost")
+                    if hasattr(product, "price"):
+                        product.price = price_u1
+                        update_fields.append("price")
+                product.save(update_fields=list(dict.fromkeys(update_fields)))
 
                 grand += line_total
 
-            bill.total = grand
+            bill.total = _q3(grand)
             bill.save(update_fields=["total"])
 
             return JsonResponse({
@@ -172,7 +388,134 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                     "serial": bill.serial,
                     "total": str(bill.total),
                     "provider": {"id": provider.id, "name": provider.name},
+                    "status": bill.status,
+                    "paid_amount": str(bill.paid_amount),
+                    "created_at": bill.created_at.isoformat(),
                 }
             })
     except Exception:
-        return JsonResponse({"ok": False, "error": "save failed"}, status=500)
+        return _err("save failed", 500)
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_bills_list(request: HttpRequest) -> JsonResponse:
+    """
+    Keyset-paginated list with filters.
+    GET params:
+      cursor     : last seen bill id (for keyset pagination, descending by id)
+      page_size  : default 30 (max 100)
+      q          : provider name icontains
+      serial     : exact bill serial (int)
+      id         : exact bill id (int)
+      date_from  : YYYY-MM-DD
+      date_to    : YYYY-MM-DD (inclusive)
+      status     : paid|unpaid|partial
+    """
+    qs = (
+        Bill.objects
+        .select_related("provider")
+        .order_by("-id")
+        .only("id", "serial", "total", "status", "created_at", "provider__id", "provider__name")
+    )
+
+    q = (request.GET.get("q") or "").strip()
+    if q:
+        qs = qs.filter(provider__name__icontains=q)
+
+    serial = request.GET.get("serial")
+    if serial:
+        try:
+            qs = qs.filter(serial=int(serial))
+        except ValueError:
+            return JsonResponse({"ok": True, "items": [], "next_cursor": None})
+
+    bill_id = request.GET.get("id")
+    if bill_id:
+        try:
+            qs = qs.filter(id=int(bill_id))
+        except ValueError:
+            return JsonResponse({"ok": True, "items": [], "next_cursor": None})
+
+    status = (request.GET.get("status") or "").lower()
+    if status in {"paid", "unpaid", "partial"}:
+        qs = qs.filter(status=status)
+
+    date_from = (request.GET.get("date_from") or "").strip()
+    date_to = (request.GET.get("date_to") or "").strip()
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    cursor = request.GET.get("cursor")
+    if cursor:
+        try:
+            qs = qs.filter(id__lt=int(cursor))
+        except ValueError:
+            pass
+
+    try:
+        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
+    except ValueError:
+        page_size = 30
+
+    items = list(qs[:page_size])
+
+    def _row(b: Bill):
+        return {
+            "id": b.id,
+            "serial": b.serial,
+            "provider": {"id": b.provider_id, "name": b.provider.name if b.provider_id else ""},
+            "total": str(b.total),
+            "status": b.status,
+            "created_at": b.created_at.isoformat(),
+        }
+
+    next_cursor = items[-1].id if items else None
+    return JsonResponse({"ok": True, "items": [_row(b) for b in items], "next_cursor": next_cursor})
+
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
+    """
+    Delete a bill and roll stock back by the same quantities added when the bill was saved.
+    Does NOT touch Product.cost/price.
+    """
+    try:
+        with transaction.atomic():
+            bill = (
+                Bill.objects.select_for_update()
+                .select_related("provider")
+                .prefetch_related("items")
+                .get(pk=bill_id)
+            )
+
+            # Lock all affected products
+            product_ids = list(bill.items.values_list("product_id", flat=True))
+            products_by_id = {
+                p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids)
+            }
+
+            # Roll stock back
+            for it in bill.items.all():
+                p = products_by_id.get(it.product_id)
+                if not p:
+                    continue
+                current = getattr(p, "stock_qty", Decimal("0"))
+                p.stock_qty = current - (it.qty_primary or Decimal("0"))
+                update_fields = ["stock_qty"]
+                if hasattr(p, "updated_at"):
+                    from django.utils import timezone as _tz
+                    p.updated_at = _tz.now()
+                    update_fields.append("updated_at")
+                p.save(update_fields=update_fields)
+
+            bill.delete()  # cascades BillItem rows
+            return JsonResponse({"ok": True})
+
+    except Bill.DoesNotExist:
+        return JsonResponse({"ok": False, "error": "not found"}, status=404)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "delete failed"}, status=500)

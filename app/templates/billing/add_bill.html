@@ -1,5 +1,4 @@
 {% extends "manager/base_manager.html" %}
-
 {% load static %}
 
 {% block title %}إضافة فاتورة{% endblock %}
@@ -15,9 +14,12 @@
 
 {% block extra_head %}
 <style>
-  .bill-wrap{ display:grid; grid-template-rows:auto auto 1fr auto; gap:12px; }
+  .bill-wrap{ display:grid; grid-template-rows:auto auto auto 1fr auto; gap:12px; }
   .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
   .card h4{ margin:0 0 8px; }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .input, .select{ width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
+  .field{ flex:1 1 220px; min-width:220px; }
 
   /* Autocomplete */
   .ac{ position:relative; }
@@ -27,15 +29,11 @@
     background:#fff; border:1px solid #e5e7eb; border-radius:10px;
     box-shadow:0 10px 24px rgba(0,0,0,.12);
     list-style:none; margin:0; padding:6px;
-    width:min(520px,92vw);
-    z-index:9999; /* make sure it floats above everything */
+    width:min(520px,92vw); z-index:9999;
   }
   .ac-list[hidden]{ display:none; }
   .ac-list li{ padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; gap:8px; align-items:center; }
   .ac-list li:hover, .ac-list li.active{ background:#eef2ff; }
-
-  /* ensure suggestions aren’t clipped */
-  .search-box{ position:relative; overflow:visible; }
 
   /* Items table */
   .items{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); display:flex; flex-direction:column; }
@@ -59,22 +57,35 @@
   .btn-primary{ border-color:var(--brand); background:var(--brand); color:#fff; }
   .btn-primary:hover{ filter:brightness(.95); }
   .btn-danger{ background:#ef4444; color:#fff; border:1px solid #ef4444; }
+  .muted{ color:#6b7280; font-size:12px; }
+  .err{ color:#b10000; font-size:12px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="bill-wrap">
+<div class="bill-wrap" dir="rtl">
 
-  <!-- 1) Provider -->
+  <!-- 0) Bill number (optional manual serial) + Provider -->
   <section class="card">
-    <h4>اسم المورد</h4>
-    <div class="ac">
-      <input id="provInput" class="input" placeholder="ابحث عن مورد... (إن لم يكن موجوداً سيتم إنشاؤه)">
-      <ul id="provList" class="ac-list" hidden></ul>
+    <h4>بيانات الفاتورة</h4>
+    <div class="row">
+      <div class="field" style="max-width:220px;">
+        <label class="muted">معرف الفاتورة (اختياري)</label>
+        <input id="billSerial" class="input" inputmode="numeric" pattern="\\d*" placeholder="أرقام فقط">
+        <div id="serialErr" class="err" hidden></div>
+      </div>
+
+      <div class="field ac">
+        <label class="muted">اسم المورد </label>
+        <input id="provInput" class="input" placeholder="ابحث عن مورد..." autocomplete="off">
+        <ul id="provList" class="ac-list" hidden></ul>
+        <input type="hidden" id="provId">
+        <div id="provErr" class="err" hidden></div>
+      </div>
     </div>
   </section>
 
-  <!-- 2) Product search -->
+  <!-- 1) Product search -->
   <section class="card">
     <h4>إضافة منتج إلى الفاتورة</h4>
     <div style="display:grid; grid-template-columns: 1fr auto; gap:8px;">
@@ -92,7 +103,7 @@
     </div>
   </section>
 
-  <!-- 3) Items table -->
+  <!-- 2) Items table -->
   <section class="items" style="min-height:48vh;">
     <table id="billTable" class="bill">
       <thead>
@@ -109,11 +120,12 @@
     </table>
   </section>
 
-  <!-- 4) Footer -->
+  <!-- 3) Footer -->
   <section class="bill-foot">
     <div class="foot-right">
       <button id="btnSave" class="btn btn-primary">حفظ</button>
       <a id="btnCancel" class="btn" href="{% url 'billing_list' %}">إلغاء</a>
+      <div id="saveErr" class="err" style="align-self:center;" hidden></div>
     </div>
 
     <div class="foot-left">
@@ -130,16 +142,18 @@
       </div>
 
       <div class="muted" style="margin-top:8px;">(لاحقاً: سيتم ترحيل المتبقي إلى قائمة الديون)</div>
-
-      <div style="margin-top:10px;">
-        <button class="btn" id="btnImportExcel" title="غير مفعّل حالياً">استيراد ملف Excel</button>
-      </div>
     </div>
   </section>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-  <!-- ensure the product JS binds after DOM; defer is important -->
+  <script>
+    // Provider AC endpoint + Save endpoint URLs
+    window.__BILLING__ = {
+      providersAcUrl: "{% url 'billing_api_providers_ac' %}",
+      saveBillUrl: "{% url 'billing_api_bill_save' %}",
+    };
+  </script>
   <script src="{% static 'js/billing_add_bill.js' %}" defer></script>
 {% endblock %}
