@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.db import transaction
 from django.db.models.functions import Lower
-from django.http import JsonResponse, HttpRequest, HttpResponse
+from django.http import JsonResponse, HttpRequest, HttpResponse , HttpResponseBadRequest
 from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 
@@ -15,9 +15,13 @@ from catalog.views import role_required
 from catalog.models import Product
 from billing.models import Provider, Bill, BillItem
 
-from django.db.models import Sum, F, Q, Value
+from django.db.models import (
+    Sum, F, Q, Value,
+    DecimalField, IntegerField, Case, When, ExpressionWrapper
+)
 from django.db.models.functions import Coalesce
-from django.db.models import DecimalField
+
+
 from django.utils import timezone
 
 
@@ -46,6 +50,11 @@ def debts_list(request: HttpRequest) -> HttpResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def providers_list(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/providers_list.html")
+
+@role_required(AccountProfile.Role.MANAGER)
+def debts_page(request: HttpRequest) -> HttpResponse:
+    # Renders the global debts page (filters + list rendered by JS via API)
+    return render(request, "billing/debts_list.html")
 
 
 # ---------- Utilities ----------
@@ -475,6 +484,162 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     next_cursor = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [_row(b) for b in items], "next_cursor": next_cursor})
 
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_debts_list(request: HttpRequest) -> JsonResponse:
+    """
+    FAST keyset-paginated debts list (bills) with filters.
+    Params:
+      cursor     : last seen bill id (keyset pagination, id__lt)
+      page_size  : default 30 (max 100)
+      q          : provider name icontains
+      serial     : exact serial (int)
+      id         : exact bill id (int)
+      date_from  : YYYY-MM-DD
+      date_to    : YYYY-MM-DD
+      status     : paid|unpaid|partial
+    Default ordering: unpaid → partial → paid, then newest first.
+    """
+    qs = (
+        Bill.objects
+        .select_related("provider")
+            .annotate(
+        # make all numeric math explicitly Decimal(…, 3)
+                paid_amount_co=Coalesce(
+                    F("paid_amount"),
+                    Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
+                    output_field=DecimalField(max_digits=14, decimal_places=3),
+                ),
+                remaining=ExpressionWrapper(
+                    F("total") - Coalesce(
+                        F("paid_amount"),
+                        Value(0, output_field=DecimalField(max_digits=14, decimal_places=3))
+                    ),
+                    output_field=DecimalField(max_digits=14, decimal_places=3),
+                ),
+             )
+
+        .only("id", "serial", "total", "paid_amount", "status", "created_at", "provider__id", "provider__name")
+    )
+
+    # Filters
+    q = (request.GET.get("q") or "").strip()
+    if q:
+        qs = qs.filter(provider__name__icontains=q)
+
+    serial = request.GET.get("serial")
+    if serial not in (None, ""):
+        try:
+            qs = qs.filter(serial=int(serial))
+        except ValueError:
+            return JsonResponse({"ok": True, "items": [], "next_cursor": None})
+
+    bill_id = request.GET.get("id")
+    if bill_id not in (None, ""):
+        try:
+            qs = qs.filter(id=int(bill_id))
+        except ValueError:
+            return JsonResponse({"ok": True, "items": [], "next_cursor": None})
+
+    status = (request.GET.get("status") or "").lower()
+    if status in {"paid", "unpaid", "partial"}:
+        qs = qs.filter(status=status)
+
+    date_from = (request.GET.get("date_from") or "").strip()
+    date_to = (request.GET.get("date_to") or "").strip()
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    # Cursor pagination
+    cursor = request.GET.get("cursor")
+    if cursor not in (None, ""):
+        try:
+            qs = qs.filter(id__lt=int(cursor))
+        except ValueError:
+            pass
+
+    try:
+        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
+    except ValueError:
+        page_size = 30
+
+    # Order: unpaid → partial → paid, then newest first
+    status_weight = Case(
+        When(status=Bill.Status.UNPAID, then=Value(0)),
+        When(status=Bill.Status.PARTIAL, then=Value(1)),
+        When(status=Bill.Status.PAID,   then=Value(2)),
+        default=Value(3),
+        output_field=IntegerField(),
+    )
+    qs = qs.order_by(status_weight, "-created_at", "-id")
+
+    items = list(qs[:page_size])
+
+    def _row(b: Bill):
+        remaining = (b.total or Decimal("0")) - (b.paid_amount or Decimal("0"))
+        return {
+            "id": b.id,
+            "serial": b.serial,
+            "provider": {"id": b.provider_id, "name": b.provider.name if b.provider_id else ""},
+            "total": str(b.total),
+            "paid_amount": str(b.paid_amount),
+            "remaining": str(remaining),
+            "status": b.status,
+            "created_at": b.created_at.isoformat(),
+        }
+
+    next_cursor = items[-1].id if items else None
+    return JsonResponse({"ok": True, "items": [_row(b) for b in items], "next_cursor": next_cursor})
+
+@transaction.atomic
+def pay_debt_full(request: HttpRequest, bill_id: int):
+    """Mark the bill as fully paid."""
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    bill = get_object_or_404(Bill.objects.select_for_update(), pk=bill_id)
+    remaining = (bill.total or Decimal("0")) - (bill.paid_amount or Decimal("0"))
+    if remaining <= 0:
+        return JsonResponse({"ok": False, "error": "Bill already fully paid."}, status=400)
+
+    bill.paid_amount = bill.total
+    bill.status = Bill.Status.PAID
+    bill.save(update_fields=["paid_amount", "status"])
+
+    return JsonResponse({"ok": True, "remaining": "0"})
+
+
+@transaction.atomic
+def pay_debt_batch(request: HttpRequest, bill_id: int):
+    """Apply a partial payment amount to the bill."""
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    bill = get_object_or_404(Bill.objects.select_for_update(), pk=bill_id)
+
+    amount_str = (request.POST.get("amount") or "").strip()
+    try:
+        amount = Decimal(amount_str)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Enter a positive amount."}, status=400)
+
+    if amount <= 0:
+        return JsonResponse({"ok": False, "error": "Enter a positive amount."}, status=400)
+
+    remaining = (bill.total or Decimal("0")) - (bill.paid_amount or Decimal("0"))
+    if amount > remaining:
+        return JsonResponse({"ok": False, "error": "Amount exceeds remaining debt."}, status=400)
+
+    bill.paid_amount = (bill.paid_amount or Decimal("0")) + amount
+    bill.status = (Bill.Status.PAID
+                   if bill.paid_amount >= (bill.total or Decimal("0"))
+                   else Bill.Status.PARTIAL)
+    bill.save(update_fields=["paid_amount", "status"])
+
+    new_remaining = (bill.total or Decimal("0")) - (bill.paid_amount or Decimal("0"))
+    return JsonResponse({"ok": True, "remaining": str(new_remaining)})
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
