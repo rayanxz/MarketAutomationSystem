@@ -154,6 +154,8 @@
       providersAcUrl: "{% url 'billing_api_providers_ac' %}",
       saveBillUrl: "{% url 'billing_api_bill_save' %}",
     };
+    document.body.dataset.urlApiSearch = "{% url 'billing_api_products_search' %}";
+
   </script>
   <script src="{% static 'js/billing_add_bill.js' %}" defer></script>
 {% endblock %}

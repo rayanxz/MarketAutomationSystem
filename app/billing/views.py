@@ -235,6 +235,77 @@ def api_providers_ac(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "items": list(items)})
 
 
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_products_search(request: HttpRequest) -> JsonResponse:
+    """
+    Search products for Add Bill page.
+    GET params:
+      q=...          : query string
+      mode=name|code|id|barcode  (default: name)
+    Returns:
+      { ok: true, items: [ {type:'product', id, name, code, cost, price,
+                            unit_primary_label, unit_secondary_label,
+                            unit_secondary, conversion_factor, matched_unit } ] }
+    """
+    q = (request.GET.get("q") or "").strip()
+    mode = (request.GET.get("mode") or "name").lower()
+    if not q:
+        return JsonResponse({"ok": True, "items": []})
+
+    qs = Product.objects.all()
+
+    # ---- filtering by mode ----
+    try:
+        if mode == "id":
+            qs = qs.filter(id=int(q))
+        elif mode == "code":
+            # if you have Product.code; otherwise this will just return none
+            qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
+        elif mode == "barcode":
+            # works if you have related barcodes as Product.barcodes (ProductBarcode.code)
+            try:
+                qs = qs.filter(Q(barcodes__code__icontains=q) | Q(name__icontains=q))
+            except Exception:
+                qs = qs.filter(name__icontains=q)
+        else:
+            # name (default)
+            qs = qs.filter(name__icontains=q)
+    except ValueError:
+        # invalid int for id mode
+        return JsonResponse({"ok": True, "items": []})
+
+    qs = qs.order_by(Lower("name")).distinct()[:20]
+
+    items = []
+    for p in qs:
+        # Collect fields defensively (some may not exist on your model)
+        get = lambda attr, default=None: getattr(p, attr, default)
+        items.append({
+            "type": "product",
+            "id": p.id,
+            "name": get("name", ""),
+            "code": get("code", "") or "",
+            "cost": str(get("cost", 0) or 0),
+            "price": str(get("price", 0) or 0),
+            "unit_primary_label": get("unit_primary_label", "الوحدة الأولى"),
+            "unit_secondary_label": get("unit_secondary_label", "الوحدة الثانية"),
+            # presence of secondary unit (truthy string helps your JS)
+            "unit_secondary": get("unit_secondary_label", None),
+            "conversion_factor": get("conversion_factor", None),
+            # if barcode search matched a specific unit you can refine this;
+            # default to primary so your JS can lock select if needed
+            "matched_unit": 1 if mode in {"barcode", "id"} else None,
+            # optional breadcrumbs (collection/set) if you have them
+            "col_name": get("col_name", None),
+            "col_code": get("col_code", None),
+            "set_name": get("set_name", None),
+            "set_code": get("set_code", None),
+        })
+
+    return JsonResponse({"ok": True, "items": items})
+
+
 # ---------- APIs (bills) ----------
 
 @require_POST

@@ -16,6 +16,7 @@ urlpatterns = [
     # APIs (bills)
     path("api/bill/save/", v.api_bill_save, name="billing_api_bill_save"),
     path("api/bills", v.api_bills_list, name="billing_api_bills_list"),
+    path("api/products/search/", v.api_products_search, name="billing_api_products_search"),
     path("api/bills/<int:bill_id>/delete", v.api_bill_delete, name="billing_api_bill_delete"),
 
     # APIs (providers)
