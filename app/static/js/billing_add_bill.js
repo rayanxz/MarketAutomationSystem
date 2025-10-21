@@ -1,16 +1,133 @@
 // static/js/billing_add_bill.js
 (() => {
-  // ====== Provider AC (must select existing) ======
+  "use strict";
+
+  // ====== DOM ======
+  // Provider AC
   const provInput = document.getElementById("provInput");
   const provList  = document.getElementById("provList");
   const provIdEl  = document.getElementById("provId");
   const provErr   = document.getElementById("provErr");
+
+  // Bill serial / errors
   const serialEl  = document.getElementById("billSerial");
   const serialErr = document.getElementById("serialErr");
   const saveErr   = document.getElementById("saveErr");
+  const autoSerialBadge = document.getElementById("billAutoSerial");
 
-  const API_PROV = (window.__BILLING__?.providersAcUrl || "/manager/billing/api/providers/ac/").replace(/\/+$/,"/");
+  // Product search + table
+  const q        = document.getElementById("prodQ");
+  const sug      = document.getElementById("prodSug");
+  const btnAdd   = document.getElementById("btnAddProd");
+  const tbody    = document.getElementById("billBody");
+  const totalBox = document.getElementById("billTotalBox");
 
+  // Pay widgets
+  const paidInput = document.getElementById("paidAmount");
+  const payRadios = document.querySelectorAll('input[name="pay"]');
+
+  // ====== URLs / Config ======
+  const BILLING   = window.__BILLING__ || {};
+  const API_PROV  = (BILLING.providersAcUrl || "/manager/billing/api/providers/ac/").replace(/\/+$/,"/");
+  const API_SEARCH= (document.body?.dataset?.urlApiSearch || BILLING.searchUrl || "/manager/billing/api/products/search/").replace(/\/+$/,"/");
+  const SAVE_URL  = (BILLING.saveBillUrl || "/manager/billing/api/bill/save/").replace(/\/+$/,"/");
+  const LIST_URL  = (BILLING.listUrl || document.body?.dataset?.urlList || "/manager/billing/").replace(/\/+$/,"/");
+
+   const apiModeFor = (m) => (m || "name");
+
+  // ====== Utils ======
+  const debounce = (fn, ms=180)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
+  const num  = v => { const n = parseFloat(String(v ?? "").trim().replace(",", ".")); return Number.isFinite(n) ? n : 0; };
+  const fmt2 = v => (Number(v || 0)).toFixed(2);
+
+  const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
+
+  function normalize(items){
+    return (items || []).filter(looksLikeProduct).map(p => ({
+      id: p.id,
+      name: p.name,
+      // backend returns product_number as 'code'
+      code: p.code || p.prod_code || "",
+      col_name: p.col_name || p.col || "",
+      col_code: p.col_code || "",
+      set_name: p.set_name || "",
+      set_code: p.set_code || "",
+      unit_primary_label: p.unit_primary_label || p.u1_label || "الوحدة الأولى",
+      unit_secondary_label: p.unit_secondary_label || p.u2_label || "الوحدة الثانية",
+      unit_secondary: p.unit_secondary,
+      conversion_factor: p.conversion_factor || p.cf || 0,
+      matched_unit: p.matched_unit || null,
+      cost: p.cost ?? "",
+      price: p.price ?? ""
+    }));
+  }
+
+  // ====== Product search (API) ======
+  async function fetchSearch(params){
+    try{
+      const u = new URL(API_SEARCH, window.location.origin);
+      const modeParam = params.mode ? apiModeFor(params.mode) : null;
+      if (params.q != null)   u.searchParams.set("q", String(params.q));
+      if (modeParam)          u.searchParams.set("mode", modeParam);
+      const r = await fetch(u.toString(), { headers: { "Accept": "application/json" } });
+      if (!r.ok) return { ok:false, items:[] };
+      const d = await r.json();
+      return { ok: !!d.ok, items: normalize(d.items) };
+    }catch(err){
+      console.warn("[billing] fetchSearch failed", err);
+      return { ok:false, items:[] };
+    }
+  }
+
+    // STRICT: query only the selected mode (no fallbacks).
+  async function searchCascade(query, mode){
+    const triedIds = new Set();
+    const out = [];
+    const pushUnique = (arr)=> (arr || []).forEach(it => {
+      if (it && it.id != null && !triedIds.has(it.id)) { triedIds.add(it.id); out.push(it); }
+    });
+
+    const start = apiModeFor(mode);
+    const order = [start]; // only the picked mode
+
+    for (const m of order){
+
+      const res1 = await fetchSearch({ q: query, mode: m });
+      if (res1.ok) pushUnique(res1.items);
+
+      if (out.length > 0) break;
+    }
+    return out;
+  }
+  async function refreshAutoSerial(){
+  if (!autoSerialBadge) return;
+  try{
+    const r = await fetch(BILLING.nextSerialUrl || "/manager/billing/api/bill/next-serial/", {
+      headers: { "Accept": "application/json" }
+    });
+    const d = await r.json();
+    if (d?.ok && d.next_serial != null){
+      const n = String(d.next_serial).padStart(3, "0");
+      autoSerialBadge.textContent = n;
+      autoSerialBadge.setAttribute("data-serial", String(d.next_serial));
+    }
+  }catch{/* silent */}
+}
+refreshAutoSerial();
+
+  // ====== ARIA helper ======
+  function enhanceListAsListbox(ul){
+    if (!ul) return;
+    ul.setAttribute("role","listbox");
+    ul.querySelectorAll("li").forEach(li=>{
+      li.setAttribute("role","option");
+      li.setAttribute("tabindex","-1");
+    });
+  }
+
+  // ======================================================================
+  // PROVIDER AUTOCOMPLETE
+  // ======================================================================
   let provItems = [];
   let provActive = -1;
 
@@ -29,16 +146,17 @@
   }
 
   async function provSearch(){
-    const q = (provInput.value || "").trim();
+    const val = (provInput?.value || "").trim();
     provIdEl.value = ""; // typing clears selection
-    if (!q) { clearProvList(); return; }
+    if (!val) { clearProvList(); return; }
     try{
-      const r = await fetch(`${API_PROV}?q=${encodeURIComponent(q)}`, {headers:{"Accept":"application/json"}});
+      const r = await fetch(`${API_PROV}?q=${encodeURIComponent(val)}`, {headers:{"Accept":"application/json"}});
       const d = await r.json();
       const items = (d && d.ok) ? (d.items || []) : [];
       provItems = items;
       if (!items.length){ clearProvList(); return; }
       provList.innerHTML = items.map((it,i)=>`<li data-i="${i}">${it.name}</li>`).join("");
+      enhanceListAsListbox(provList);
       provList.hidden = false;
       setProvActive(0);
       Array.from(provList.querySelectorAll("li")).forEach((li,i)=>{
@@ -54,10 +172,37 @@
     clearProvList();
     provErr.hidden = true;
   }
+   async function validateProviderExact(){
+   const val = (provInput?.value || "").trim();
+   if (!val){ provErr.hidden = true; return; }
+   // If user has already picked from the list, we're good.
+   if ((provIdEl.value || "").trim()) { provErr.hidden = true; return; }
+   try{
+     const r = await fetch(`${API_PROV}?q=${encodeURIComponent(val)}`, {headers:{"Accept":"application/json"}});
+     const d = await r.json();
+     const items = (d && d.ok) ? (d.items || []) : [];
+     const match = items.find(it => (it.name || "").trim().toLowerCase() === val.toLowerCase());
+     if (match){
+       pickProv(match); // auto-resolve to the exact one
+       return;
+     }
+     // No exact active provider by that name:
+     provErr.textContent = "لا يوجد مورد بهذا الاسم.";
+     provErr.hidden = false;
+   }catch{
+     // If the check fails, don't block — the save button will still guard via provId
+   }
+ }
 
   provInput?.addEventListener("input", debounce(provSearch, 180));
   provInput?.addEventListener("focus", provSearch);
-  provInput?.addEventListener("blur", () => setTimeout(clearProvList, 120));
+   provInput?.addEventListener("blur", () => {
+   setTimeout(() => {
+     clearProvList();
+     validateProviderExact();
+   }, 120);
+ });
+  provInput?.addEventListener("input", () => { provErr.hidden = true; });
   provInput?.addEventListener("keydown", (e)=>{
     const hasList = !provList.hidden && provList.querySelectorAll("li").length > 0;
     if (e.key === "Escape"){ clearProvList(); return; }
@@ -67,115 +212,151 @@
     else if (e.key==="Enter"){ e.preventDefault(); const it = provItems[provActive>=0?provActive:0]; if (it) pickProv(it); }
   });
 
-  // ====== Product search / table (your original, trimmed where not needed) ======
-  const q        = document.getElementById("prodQ");
-  const sug      = document.getElementById("prodSug");
-  const btnAdd   = document.getElementById("btnAddProd");
-  const tbody    = document.getElementById("billBody");
-  const totalBox = document.getElementById("billTotalBox");
-  const API_SEARCH = (document.body.dataset.urlApiSearch || "/manager/products/api/search/").replace(/\/+$/, "/");
-
+  // ======================================================================
+  // PRODUCT SEARCH + SUGGESTIONS + ROW BUILDER
+  // ======================================================================
   let mode = "name";
   document.querySelectorAll('input[name="prodMode"]').forEach(r => {
     if (r.checked) mode = r.value;
-    r.addEventListener("change", () => { mode = r.value; clearSug(); q.focus(); });
+    r.addEventListener("change", () => { mode = r.value; clearSug(); q?.focus(); });
   });
 
-  const debounceTimer = (fn, ms=180)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms);} };
-  const debounce = debounceTimer;
-  const num = v => { const n = parseFloat(String(v ?? "").trim().replace(",", ".")); return Number.isFinite(n) ? n : 0; };
-  const fmt2 = v => (Number(v || 0)).toFixed(2);
-  const onlyProducts = items => (items || []).filter(x => (x.type ?? "product") === "product");
+  let lastItems = [];
+  let activeIndex = -1;
 
-  let lastItems = []; let activeIndex = -1;
-  function clearSug(){ sug.hidden=true; sug.innerHTML=""; lastItems=[]; activeIndex=-1; }
-  function setActive(i){ const lis=[...sug.querySelectorAll("li")]; if(!lis.length){ activeIndex=-1; return;}
-    activeIndex=((i%lis.length)+lis.length)%lis.length; lis.forEach((li,idx)=>li.classList.toggle("active", idx===activeIndex)); }
+  // Position the suggestion list right under the input
+  const placeSug = ()=>{
+    if (!q || !sug) return;
+    const r = q.getBoundingClientRect();
+    const s = sug.style;
+    s.position = "fixed";     // detach from parents
+    s.left     = `${r.left}px`;
+    s.top      = `${r.bottom + 4}px`;
+    s.width    = `${r.width}px`;
+    s.maxHeight= "280px";
+    s.overflow = "auto";
+    s.zIndex   = "4000";
+    s.right    = "auto";
+    s.display  = "block";
+    sug.hidden = false;
+  };
 
-  function renderSug(items){
-    const prods = onlyProducts(items);
-    if (!prods.length){ clearSug(); return; }
-    let html = "";
-    prods.slice(0,8).forEach((p,i)=>{
-      const path = `${p.col_name || p.col_code || ""}${(p.set_name || p.set_code) ? " · " + (p.set_name || p.set_code) : ""}`;
-      html += `<li data-i="${i}"><span>📦</span><span>${p.name}</span><span style="margin-inline-start:auto;color:#6b7280;font-size:12px;">${path} — ${p.code || ""}</span></li>`;
-    });
-    sug.innerHTML = html; sug.hidden = false; setActive(0);
-    [...sug.querySelectorAll("li")].forEach((li,i)=>{
-      li.addEventListener("mouseenter", ()=> setActive(i));
-      li.addEventListener("mousedown", e=>{ e.preventDefault(); const it=onlyProducts(lastItems)[i]; if(it) pick(it); });
-    });
+  // Fully hide + reset styles to avoid sticky UI
+  function clearSug(){
+    if (!sug) return;
+    sug.hidden = true;
+    sug.innerHTML = "";
+    sug.style.display = "";
+    sug.style.position = "";
+    sug.style.left = "";
+    sug.style.top = "";
+    sug.style.width = "";
+    sug.style.maxHeight = "";
+    sug.style.overflow = "";
+    sug.style.zIndex = "";
+    lastItems = [];
+    activeIndex = -1;
   }
 
-  const doSearch = async ()=>{
-    const val = (q.value || "").trim(); if(!val){ clearSug(); return; }
-    const url = `${API_SEARCH}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}`;
-    const r = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!r.ok) { clearSug(); return; }
-    const d = await r.json();
-    if (!d.ok) { clearSug(); return; }
-    lastItems = d.items || [];
-    if (mode==="barcode"){ clearSug(); return; }
-    renderSug(lastItems);
+  function setActive(i){
+    const lis = [...(sug?.querySelectorAll("li") || [])];
+    if (!lis.length){ activeIndex=-1; return; }
+    activeIndex = ((i % lis.length) + lis.length) % lis.length;
+    lis.forEach((li, idx)=> li.classList.toggle("active", idx===activeIndex));
+  }
+
+  function renderSug(items){
+    if (!sug) { console.warn("[billing] #prodSug not found"); return; }
+    if (!items.length){ clearSug(); return; }
+
+    let html = "";
+    items.slice(0,8).forEach((p,i)=>{
+      const pathBits = [];
+      const col = p.col_name || p.col_code; if (col) pathBits.push(col);
+      const set = p.set_name || p.set_code; if (set) pathBits.push(set);
+      const meta = [pathBits.join(" · "), p.code].filter(Boolean).join(" — ");
+      html += `
+        <li data-i="${i}">
+          <span>📦</span>
+          <span>${p.name}</span>
+          <span style="margin-inline-start:auto;color:#6b7280;font-size:12px;">${meta}</span>
+        </li>`;
+    });
+
+    sug.innerHTML = html;
+    enhanceListAsListbox(sug);
+    setActive(0);
+
+    [...sug.querySelectorAll("li")].forEach((li,i)=>{
+      li.addEventListener("mouseenter", ()=> setActive(i));
+      li.addEventListener("mousedown", e=>{ e.preventDefault(); const it=lastItems[i]; if(it) pick(it); });
+    });
+
+    placeSug(); // pin after render
+  }
+
+    const doSearch = async ()=>{
+      const val = (q?.value || "").trim();
+      if (!val) { clearSug(); return; }   // hide if empty, no recursion
+      try{
+        const items = await searchCascade(val, mode);
+        lastItems = items;
+        renderSug(lastItems);
+    }catch{
+      clearSug();
+    }
   };
-  const onType = debounce(doSearch,180);
+  const onType = debounce(doSearch, 180);
 
   q?.addEventListener("input", onType);
-  q?.addEventListener("focus", onType);
-  q?.addEventListener("blur", ()=> setTimeout(clearSug,120));
+  q?.addEventListener("focus", ()=>{
+    const val = (q?.value || "").trim();
+    if (val) onType(); else clearSug();
+  });
+  q?.addEventListener("blur", ()=> setTimeout(clearSug, 120));
+
+  // Keep it pinned while visible
+  window.addEventListener("resize", ()=> { if (!sug?.hidden) placeSug(); });
+  window.addEventListener("scroll", ()=> { if (!sug?.hidden) placeSug(); }, { passive:true });
+
   q?.addEventListener("keydown", async (e)=>{
     if (e.key==="Escape"){ clearSug(); return; }
-    const hasList = !sug.hidden && sug.querySelectorAll("li").length>0;
-
-    if (mode==="barcode"){
-      if (e.key==="Enter"){
-        e.preventDefault();
-        const val=(q.value||"").trim(); if(!val) return;
-        const r=await fetch(`${API_SEARCH}?mode=barcode&q=${encodeURIComponent(val)}`, {headers: {"Accept":"application/json"}});
-        const d=r.ok?await r.json():{ok:false};
-        const it=d.ok?onlyProducts(d.items)[0]:null;
-        if (it) pick(it);
-      }
-      return;
-    }
+    const hasList = !!(sug && !sug.hidden && sug.querySelectorAll("li").length>0);
 
     if (hasList && (e.key==="Tab" || e.key==="ArrowDown" || e.key==="ArrowUp")){
       e.preventDefault();
-      const delta = (e.key==="ArrowDown" || (!e.shiftKey && e.key==="Tab")) ? 1 : -1 ;
+      const delta = (e.key==="ArrowDown" || (!e.shiftKey && e.key==="Tab")) ? 1 : -1;
       setActive(activeIndex + delta);
       return;
     }
+
     if (e.key==="Enter"){
       e.preventDefault();
-      const val=(q.value||"").trim(); if(!val) return;
+      const val=(q?.value||"").trim(); if(!val) { clearSug(); return; }
       if (hasList && activeIndex>=0){
-        const it=onlyProducts(lastItems)[activeIndex]; if (it) pick(it); return;
+        const it=lastItems[activeIndex]; if (it) { pick(it); return; }
       }
-      const r=await fetch(`${API_SEARCH}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}`, {headers: {"Accept":"application/json"}});
-      const d=r.ok?await r.json():{ok:false};
-      const it=d.ok?onlyProducts(d.items)[0]:null;
-      if (it) pick(it);
+      const items = await searchCascade(val, mode);
+      if (items.length) pick(items[0]); else clearSug();
     }
   });
 
-  document.getElementById("btnAddProd")?.addEventListener("click", async ()=>{
-    const li = sug.querySelector("li");
-    if (li && !sug.hidden){
+  btnAdd?.addEventListener("click", async ()=>{
+    if (sug && !sug.hidden){
       const idx = activeIndex>=0?activeIndex:0;
-      const it = onlyProducts(lastItems)[idx];
+      const it = lastItems[idx];
       if (it){ pick(it); return; }
     }
-    const val=(q.value||"").trim(); if(!val) return;
-    const r=await fetch(`${API_SEARCH}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}`, {headers: {"Accept":"application/json"}});
-    const d=r.ok?await r.json():{ok:false};
-    const it=d.ok?onlyProducts(d.items)[0]:null;
-    if (it) pick(it);
+    const val=(q?.value||"").trim(); if(!val) { clearSug(); return; }
+    const items = await searchCascade(val, mode);
+    if (items.length) pick(items[0]); else clearSug();
   });
 
   function pick(prod){
-    clearSug(); q.value="";
-    const exists = tbody.querySelector(`tr[data-pid="${prod.id}"]`);
+    clearSug(); if (q) q.value="";
+    const exists = tbody?.querySelector(`tr[data-pid="${prod.id}"]`);
     if (exists){ exists.querySelector('input[name="qty[]"]')?.focus(); return; }
+
     const hasU2 = !!(prod.unit_secondary && String(prod.unit_secondary).trim().length);
     const cf    = prod.conversion_factor ? String(prod.conversion_factor) : "";
     const isSingleUnit = (mode==="id" || mode==="barcode") && prod.matched_unit;
@@ -189,6 +370,7 @@
     const tr = document.createElement("tr");
     tr.dataset.pid = String(prod.id);
     tr.dataset.cf = cf;
+
     tr.innerHTML = `
       <td class="pname">${prod.name}</td>
       <td><input name="cost[]" class="input" type="number" step="0.01" value="${prod.cost ?? ""}"></td>
@@ -206,10 +388,12 @@
       <td style="text-align:center;"><button type="button" class="btn-danger btn-del">✕</button></td>
       <input type="hidden" name="product_id[]" value="${prod.id}">
     `;
-    tr.querySelector(".btn-del").addEventListener("click", ()=>{ tr.remove(); recalcBillTotal(); });
+
+    tr.querySelector(".btn-del")?.addEventListener("click", ()=>{ tr.remove(); recalcBillTotal(); });
     tr.addEventListener("input", handleRowChange);
     tr.addEventListener("change", handleRowChange);
-    tbody.appendChild(tr);
+
+    tbody?.appendChild(tr);
     tr.querySelector('input[name="qty[]"]')?.focus();
     recalcBillTotal();
   }
@@ -221,7 +405,7 @@
 
   function recalcBillTotal(){
     let total = 0;
-    tbody.querySelectorAll("tr").forEach(tr=>{
+    tbody?.querySelectorAll("tr").forEach(tr=>{
       const qty = num(tr.querySelector('input[name="qty[]"]')?.value);
       const cost = num(tr.querySelector('input[name="cost[]"]')?.value);
       const overrideRaw = tr.querySelector('input[name="total_cost[]"]')?.value ?? "";
@@ -232,42 +416,41 @@
       else line = qty * cost * (isU2 ? (cf || 1) : 1);
       if (Number.isFinite(line)) total += line;
     });
-    totalBox.textContent = fmt2(total);
+    if (totalBox) totalBox.textContent = fmt2(total);
   }
 
-  // Pay controls
-  (() => {
-    const paidInput = document.getElementById("paidAmount");
-    const radios = document.querySelectorAll('input[name="pay"]');
-    function syncPayUI(){
-      const sel = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
-      if (sel === "partial") paidInput.disabled = false;
-      else { paidInput.value=""; paidInput.disabled = true; }
-    }
-    radios.forEach(r=> r.addEventListener("change", syncPayUI));
-    syncPayUI();
-  })();
+  // ======================================================================
+  // PAY controls
+  // ======================================================================
+  function syncPayUI(){
+    const sel = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
+    if (!paidInput) return;
+    if (sel === "partial") paidInput.disabled = false;
+    else { paidInput.value=""; paidInput.disabled = true; }
+  }
+  payRadios.forEach(r=> r.addEventListener("change", syncPayUI));
+  syncPayUI();
 
-  // ====== Save handler ======
-  const SAVE_URL = (window.__BILLING__?.saveBillUrl || "/manager/billing/api/bill/save/").replace(/\/+$/,"/");
-
+  // ======================================================================
+  // SAVE handler
+  // ======================================================================
   document.getElementById("btnSave")?.addEventListener("click", async ()=>{
     saveErr.hidden = true; serialErr.hidden = true; provErr.hidden = true;
 
     const pid = (provIdEl.value || "").trim();
-    if (!pid){ provErr.textContent = "الرجاء اختيار مورد من القائمة."; provErr.hidden = false; provInput.focus(); return; }
+    if (!pid){ provErr.textContent = "الرجاء اختيار مورد من القائمة."; provErr.hidden = false; provInput?.focus(); return; }
 
     // Optional manual serial (digits only)
     const serialRaw = (serialEl?.value || "").trim();
     let serial = null;
     if (serialRaw){
-      if (!/^\d+$/.test(serialRaw)){ serialErr.textContent = "أرقام فقط."; serialErr.hidden = false; serialEl.focus(); return; }
+      if (!/^\d+$/.test(serialRaw)){ serialErr.textContent = "أرقام فقط."; serialErr.hidden = false; serialEl?.focus(); return; }
       serial = parseInt(serialRaw, 10);
-      if (!Number.isFinite(serial) || serial <= 0){ serialErr.textContent = "رقم غير صالح."; serialErr.hidden = false; serialEl.focus(); return; }
+      if (!Number.isFinite(serial) || serial <= 0){ serialErr.textContent = "رقم غير صالح."; serialErr.hidden = false; serialEl?.focus(); return; }
     }
 
     // Build items
-    const rows = [...tbody.querySelectorAll("tr")];
+    const rows = [...(tbody?.querySelectorAll("tr") || [])];
     if (!rows.length){ saveErr.textContent = "أضف منتجاً واحداً على الأقل."; saveErr.hidden = false; return; }
 
     const items = rows.map(tr=>{
@@ -284,7 +467,7 @@
 
     // Pay
     const status = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
-    const paid_amount = document.getElementById("paidAmount").value || "0";
+    const paid_amount = (paidInput?.value || "0");
 
     const payload = {
       provider: { id: parseInt(pid, 10) },           // ONLY existing providers
@@ -302,13 +485,12 @@
       const data = await res.json();
       if (!data.ok){
         const msg = data.error || "فشل الحفظ";
-        if (msg.includes("serial")) serialErr.hidden = false, serialErr.textContent = msg;
-        else saveErr.hidden = false, saveErr.textContent = msg;
+        if (msg.toLowerCase().includes("serial")) { serialErr.hidden = false; serialErr.textContent = msg; }
+        else { saveErr.hidden = false; saveErr.textContent = msg; }
         return;
       }
-      // success → go back to list
-      window.location.href = "{% url 'billing_list' %}";
-    }catch(e){
+      window.location.href = LIST_URL; // success
+    }catch{
       saveErr.hidden = false; saveErr.textContent = "فشل الاتصال بالخادم.";
     }
   });
@@ -317,7 +499,4 @@
     const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : '';
   }
-
-  // small util
-  function debounce(fn, ms=180){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms);} }
 })();

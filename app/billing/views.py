@@ -9,6 +9,7 @@ from django.db.models.functions import Lower
 from django.http import JsonResponse, HttpRequest, HttpResponse , HttpResponseBadRequest
 from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
+from django.core.exceptions import FieldError
 
 from accounts.models import AccountProfile
 from catalog.views import role_required
@@ -235,76 +236,114 @@ def api_providers_ac(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "items": list(items)})
 
 
+# add near the other @require_GET APIs
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
-def api_products_search(request: HttpRequest) -> JsonResponse:
+def api_bill_next_serial(request: HttpRequest) -> JsonResponse:
     """
-    Search products for Add Bill page.
-    GET params:
-      q=...          : query string
-      mode=name|code|id|barcode  (default: name)
-    Returns:
-      { ok: true, items: [ {type:'product', id, name, code, cost, price,
-                            unit_primary_label, unit_secondary_label,
-                            unit_secondary, conversion_factor, matched_unit } ] }
+    Returns the next bill serial WITHOUT reserving it.
+    This is purely informational; the actual serial is assigned on save().
+    """
+    last = (
+        Bill.objects
+        .order_by("-serial")
+        .values_list("serial", flat=True)
+        .first()
+    )
+    nxt = 1 if last in (None, 0) else int(last) + 1
+    return JsonResponse({"ok": True, "next_serial": nxt})
+
+
+@require_GET
+def api_products_search(request):
+    """
+    GET /manager/billing/api/products/search/?q=...&mode=name|code|barcode|id
+    - name:        name icontains
+    - code:        product_number icontains   (your Product has 'product_number', not 'code')
+    - barcode:     exact/iexact match against ProductBarcode.* (field name can be 'code' or 'barcode')
+    - id:          numeric id match
     """
     q = (request.GET.get("q") or "").strip()
-    mode = (request.GET.get("mode") or "name").lower()
+    mode = (request.GET.get("mode") or "name").lower().strip()
+
     if not q:
         return JsonResponse({"ok": True, "items": []})
 
-    qs = Product.objects.all()
+    # Pull related for display (set + its collection, if you have that FK chain)
+    qs = (
+        Product.objects
+        .select_related("set", "set__collection")
+        .prefetch_related("barcodes", "unit_ids")
+        .all()
+    )
 
-    # ---- filtering by mode ----
-    try:
-        if mode == "id":
-            qs = qs.filter(id=int(q))
-        elif mode == "code":
-            # if you have Product.code; otherwise this will just return none
-            qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
-        elif mode == "barcode":
-            # works if you have related barcodes as Product.barcodes (ProductBarcode.code)
-            try:
-                qs = qs.filter(Q(barcodes__code__icontains=q) | Q(name__icontains=q))
-            except Exception:
-                qs = qs.filter(name__icontains=q)
-        else:
-            # name (default)
-            qs = qs.filter(name__icontains=q)
-    except ValueError:
-        # invalid int for id mode
-        return JsonResponse({"ok": True, "items": []})
+    def filter_barcode(queryset, value):
+        """Try both common field names on ProductBarcode without crashing."""
+        try:
+            return queryset.filter(Q(barcodes__code__iexact=value))
+        except FieldError:
+            # If ProductBarcode uses 'barcode' instead of 'code'
+            return queryset.filter(Q(barcodes__barcode__iexact=value))
 
-    qs = qs.order_by(Lower("name")).distinct()[:20]
+    # Apply filter by mode
+    if mode == "id":
+        # Search by unit IDs (either unit 1 or 2). Exact, case-insensitive.
+        qs = qs.filter(unit_ids__value__iexact=q)
 
+    elif mode == "barcode":
+        qs = filter_barcode(qs, q)
+
+    elif mode == "code":
+        # Your model calls it 'product_number'
+        qs = qs.filter(product_number__icontains=q)
+
+    else:
+        # name (default) — also accept product_number here to be helpful
+        qs = qs.filter(Q(name__icontains=q) | Q(product_number__icontains=q))
+
+    # Limit results
+    qs = qs.order_by("name")[:20]
+
+    # Serializer matching what the JS renders
     items = []
     for p in qs:
-        # Collect fields defensively (some may not exist on your model)
-        get = lambda attr, default=None: getattr(p, attr, default)
+        col = getattr(getattr(p, "set", None), "collection", None)
+        setobj = getattr(p, "set", None)
+        matched_unit = None
+        if mode == "id":
+            # which unit_id matched?
+            for uid in getattr(p, "unit_ids", []).all():
+                if uid.value.lower() == q.lower():
+                    matched_unit = int(uid.unit_index)
+                    break
+        elif mode == "barcode":
+            # if you want to lock the unit for a barcode hit, too
+            for b in getattr(p, "barcodes", []).all():
+                val = getattr(b, "barcode", None) or getattr(b, "code", None)
+                if (val or "").lower() == q.lower():
+                    matched_unit = int(b.unit_index)
+                    break
+
         items.append({
-            "type": "product",
             "id": p.id,
-            "name": get("name", ""),
-            "code": get("code", "") or "",
-            "cost": str(get("cost", 0) or 0),
-            "price": str(get("price", 0) or 0),
-            "unit_primary_label": get("unit_primary_label", "الوحدة الأولى"),
-            "unit_secondary_label": get("unit_secondary_label", "الوحدة الثانية"),
-            # presence of secondary unit (truthy string helps your JS)
-            "unit_secondary": get("unit_secondary_label", None),
-            "conversion_factor": get("conversion_factor", None),
-            # if barcode search matched a specific unit you can refine this;
-            # default to primary so your JS can lock select if needed
-            "matched_unit": 1 if mode in {"barcode", "id"} else None,
-            # optional breadcrumbs (collection/set) if you have them
-            "col_name": get("col_name", None),
-            "col_code": get("col_code", None),
-            "set_name": get("set_name", None),
-            "set_code": get("set_code", None),
+            "name": p.name,
+            # Frontend expects 'code' (we’ll put product_number here)
+            "code": getattr(p, "product_number", "") or "",
+            "col_name": getattr(col, "name", "") or "",
+            "col_code": getattr(col, "code", "") or "",
+            "set_name": getattr(setobj, "name", "") or "",
+            "set_code": getattr(setobj, "code", "") or "",
+            "unit_primary_label": p.get_unit_primary_display() or "الوحدة الأولى",
+            "unit_secondary_label": (p.get_unit_secondary_display() if p.unit_secondary else "") or "الوحدة الثانية",
+            "unit_secondary": getattr(p, "unit_secondary", "") or "",
+            "conversion_factor": getattr(p, "conversion_factor", 0) or 0,
+            # Keep these in case you want to prefill price/cost in the row
+            "price": getattr(p, "price", None),
+            "cost": getattr(p, "cost", None),
+            "matched_unit": matched_unit,  # 1 or 2 (lets the UI lock/select the right unit)
         })
 
     return JsonResponse({"ok": True, "items": items})
-
 
 # ---------- APIs (bills) ----------
 
