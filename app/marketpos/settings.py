@@ -36,7 +36,6 @@ INSTALLED_APPS = [
 
 # ---- Middleware / WSGI / URLs
 MIDDLEWARE = [
-    "marketpos.middleware.OwnerProvisioningMiddleware",
     "django.middleware.security.SecurityMiddleware",
     'whitenoise.middleware.WhiteNoiseMiddleware',
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -45,6 +44,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "core.middleware.RequireLoginMiddleware",
 ]
 ROOT_URLCONF = "marketpos.urls"
 WSGI_APPLICATION = "marketpos.wsgi.application"
@@ -87,6 +87,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # ---- Misc
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "owner_dash"
-LOGOUT_REDIRECT_URL = "login"
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/login/"
+
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_SAVE_EVERY_REQUEST = False

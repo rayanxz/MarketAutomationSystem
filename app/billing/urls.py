@@ -3,12 +3,11 @@ from django.urls import path
 from billing import views as v
 
 urlpatterns = [
-    # Pages
     path("", v.billing_home, name="billing_home"),
     path("add/", v.add_bill, name="billing_add"),
     path("list/", v.bills_list, name="billing_list"),
     path("providers/", v.providers_list, name="billing_providers"),
-    path("debts/", v.debts_page, name="billing_debts"),                # Debts page
+    path("debts/", v.debts_page, name="billing_debts"),
 
     # APIs (debts)
     path("api/debts", v.api_debts_list, name="billing_api_debts_list"),
@@ -26,7 +25,7 @@ urlpatterns = [
     path("api/providers/create", v.api_provider_create, name="billing_api_provider_create"),
     path("api/providers/<int:pid>/delete", v.api_provider_delete, name="billing_api_provider_delete"),
 
-    # Payments (used by debts page)
+    # Payments
     path("bills/<int:bill_id>/pay-full/", v.pay_debt_full, name="pay_debt_full"),
     path("bills/<int:bill_id>/pay-batch/", v.pay_debt_batch, name="pay_debt_batch"),
 ]
