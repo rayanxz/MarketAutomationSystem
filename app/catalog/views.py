@@ -5,13 +5,9 @@ from functools import wraps
 from math import ceil
 from typing import Iterable
 
-from django.views.decorators.http import require_GET, require_POST
-from django.db import transaction
-
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.db.models.functions import Lower
 from django.http import (
     HttpRequest,
@@ -154,6 +150,13 @@ def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method != "POST":
         return _go("manager_collections")
     col = get_object_or_404(ProductCollection, pk=pk)
+
+    # Block if any products exist (active or not)
+    if Product.objects.filter(set__collection=col).exists():
+        messages.error(request, "لا يمكن حذف الزمرة لوجود منتجات ضمنها.")
+        return _go("manager_collections", "edit=1")
+
+    ProductSet.objects.filter(collection=col).delete()
     col.delete()
     messages.success(request, "تم حذف الزمرة.")
     return _go("manager_collections", "edit=1")
@@ -165,7 +168,7 @@ def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
 def _products_qs_for_collection(cid: int):
     return (
         Product.objects
-        .filter(set__collection_id=cid)
+        .filter(set__collection_id=cid, is_active=True)
         .select_related("set", "set__collection")
         .order_by("product_number")
     )
@@ -269,7 +272,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             pb = (
                 ProductBarcode.objects
                 .select_related("product__set__collection")
-                .filter(barcode=q)
+                .filter(barcode=q , product__is_active=True)
                 .first()
             )
             if pb:
@@ -287,7 +290,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             prods = (
                 Product.objects
                 .select_related("set__collection")
-                .filter(name__icontains=q)
+                .filter(name__icontains=q , is_active=True)
                 .order_by("name")[:max_total]
             )
             prod_items = [fmt(p) for p in prods]   # keeps cost, price, units, cf
@@ -332,7 +335,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             uid = (
                 ProductUnitId.objects
                 .select_related("product__set__collection")
-                .filter(value__iexact=q)
+                .filter(value__iexact=q , product__is_active=True)
                 .first()
             )
             if uid:
@@ -350,7 +353,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             if q.isdigit():
                 p = (
                     Product.objects.select_related("set__collection")
-                    .filter(product_number=int(q))
+                    .filter(product_number=int(q), is_active=True)
                     .first()
                 )
                 if p:
@@ -378,7 +381,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 if st:
                     p = (
                         Product.objects.select_related("set__collection")
-                        .filter(set=st)
+                        .filter(set=st, is_active=True )
                         .order_by("product_number")
                         .first()
                     )
@@ -406,7 +409,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                                 pn = int(parts[2])
                                 p = (
                                     Product.objects.select_related("set__collection")
-                                    .filter(product_number=pn, set=st)
+                                    .filter(product_number=pn, set=st, is_active=True)
                                     .first()
                                 )
                                 if p:
@@ -483,11 +486,17 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 u1_ids = _post_list(request, "unit_primary_ids")
                 u2_ids = _post_list(request, "unit_secondary_ids")
 
-                # Pre-check global uniqueness (nice UX; DB enforces too)
-                for val in u1_ids + u2_ids:
-                    if ProductUnitId.objects.filter(value=val).exists():
-                        messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
-                        raise IntegrityError("duplicate unit id")
+                all_ids = list(dict.fromkeys(u1_ids + u2_ids))
+                if all_ids:
+                    existing_ids = set(
+                        ProductUnitId.objects
+                        .filter(value__in=all_ids)
+                        .values_list("value", flat=True)
+                    )
+                    for val in all_ids:
+                        if val in existing_ids:
+                            messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
+                            raise IntegrityError("duplicate unit id")
 
                 for val in u1_ids:
                     ProductUnitId.objects.create(
@@ -499,18 +508,24 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     )
 
                 # ---- Barcodes (lists or textarea fallback) ----
-                bar_u1 = _post_list(request, "barcodes_u1")
-                bar_u2 = _post_list(request, "barcodes_u2")
-                if not bar_u1:
-                    bar_u1 = ProductCreateForm.parse_barcodes(form.cleaned_data.get("barcodes_u1", ""))
-                if not bar_u2:
-                    bar_u2 = ProductCreateForm.parse_barcodes(form.cleaned_data.get("barcodes_u2", ""))
+                bar_u1 = _post_list(request, "barcodes_u1") or ProductCreateForm.parse_barcodes(
+                form.cleaned_data.get("barcodes_u1", "")
+                )
+                bar_u2 = _post_list(request, "barcodes_u2") or ProductCreateForm.parse_barcodes(
+                    form.cleaned_data.get("barcodes_u2", "")
+                )
 
-                # Pre-check duplicates
-                for bc in bar_u1 + bar_u2:
-                    if ProductBarcode.objects.filter(barcode=bc).exists():
-                        messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
-                        raise IntegrityError("duplicate barcode")
+                all_bcs = list(dict.fromkeys(bar_u1 + bar_u2))
+                if all_bcs:
+                    existing_bcs = set(
+                        ProductBarcode.objects
+                        .filter(barcode__in=all_bcs)
+                        .values_list("barcode", flat=True)
+                    )
+                    for bc in all_bcs:
+                        if bc in existing_bcs:
+                            messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
+                            raise IntegrityError("duplicate barcode")
 
                 for bc in bar_u1:
                     ProductBarcode.objects.create(
@@ -561,11 +576,15 @@ def manager_product_delete(request: HttpRequest, pk: int) -> HttpResponse:
     p = get_object_or_404(Product, pk=pk)
     name = p.name
     try:
-        # CASCADE takes care of ProductBarcode & ProductUnitId
-        p.delete()
-        messages.success(request, f"تم حذف المنتج «{name}».")
+        # Soft-delete for safety (future billing references will require this)
+        if p.is_active:
+            p.is_active = False
+            p.save(update_fields=["is_active"])
+            messages.success(request, f"تمت أرشفة المنتج «{name}».")
+        else:
+            messages.info(request, f"المنتج «{name}» مؤرشف مسبقاً.")
     except Exception:
-        messages.error(request, "تعذّر حذف المنتج.")
+        messages.error(request, "تعذّر أرشفة المنتج.")
     return redirect("manager_collections")
 
 
@@ -742,18 +761,18 @@ def api_collection_stats(request: HttpRequest, pk: int) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_collection_cascade_delete(request: HttpRequest, pk: int) -> JsonResponse:
     col = get_object_or_404(ProductCollection, pk=pk)
+    # Safety: if any products exist (active or not), block destructive delete
+    from catalog.models import ProductSet, Product  # local import to avoid cycles
+    prod_exists = Product.objects.filter(set__collection=col).exists()
+    if prod_exists:
+        return JsonResponse({"ok": False, "error": "collection has products; deletion blocked"}, status=409)
     try:
         with transaction.atomic():
-            # 1) delete products (this cascades to barcodes/unit_ids due to FK CASCADE)
-            Product.objects.filter(set__collection=col).delete()
-            # 2) delete sets
             ProductSet.objects.filter(collection=col).delete()
-            # 3) delete collection itself
             col.delete()
     except Exception:
         return JsonResponse({"ok": False, "error": "delete failed"}, status=500)
     return JsonResponse({"ok": True})
-
 
 
 @require_GET

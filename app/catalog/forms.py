@@ -52,10 +52,10 @@ class CollectionCreateForm(forms.ModelForm):
 class ProductCreateForm(forms.Form):
     """
     Used for both create & edit.
-    Pass `instance=Product(...)` when editing so name uniqueness excludes self.
+    Pass `instance=Product(...)` or `exclude_pk=<id>` so CI name/barcode checks ignore self on edit.
     """
 
-    # ------------- ctor: allow instance/exclude_pk for CI name check -------------
+    # ---------- ctor: allow instance/exclude_pk for CI checks ----------
     def __init__(
         self,
         *args,
@@ -64,9 +64,7 @@ class ProductCreateForm(forms.Form):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self._exclude_pk = exclude_pk if exclude_pk is not None else (
-            instance.pk if instance else None
-        )
+        self._exclude_pk = exclude_pk if exclude_pk is not None else (instance.pk if instance else None)
 
         # Tiny UX touches
         self.fields["collection_name"].widget.attrs.setdefault("class", "input")
@@ -78,12 +76,12 @@ class ProductCreateForm(forms.Form):
         self.fields["notes"].widget.attrs.setdefault("class", "input")
         self.fields["notes"].widget.attrs.setdefault("dir", "rtl")
 
+        # Match decimal_places=4 so browsers don't fight the user
         for n in ("cost", "price", "conversion_factor", "stock_qty"):
             if n in self.fields:
                 self.fields[n].widget.attrs.setdefault("class", "input")
-                # numeric inputs
                 if n in ("cost", "price", "conversion_factor"):
-                    self.fields[n].widget.attrs.setdefault("step", "0.01")
+                    self.fields[n].widget.attrs.setdefault("step", "0.0001")
 
     # ---------- Hierarchy ----------
     collection_name = forms.CharField(label="اسم الزمرة", max_length=64)
@@ -160,11 +158,24 @@ class ProductCreateForm(forms.Form):
         if u2 and u1 == u2:
             self.add_error("unit_secondary", "لا يجوز أن تكون الوحدة الثانية مطابقة للأولى.")
 
-        # Friendly duplicate barcode check (DB unique remains the source of truth)
-        for field in ("barcodes_u1", "barcodes_u2"):
-            for bc in self.parse_barcodes(cleaned.get(field)):
-                if ProductBarcode.objects.filter(barcode=bc).exists():
-                    self.add_error(field, f"الباركود {bc} مستخدم مسبقاً.")
+        # --- Friendly duplicate barcode check (bulk + ignore self when editing) ---
+        field_barcodes_u1 = self.parse_barcodes(cleaned.get("barcodes_u1"))
+        field_barcodes_u2 = self.parse_barcodes(cleaned.get("barcodes_u2"))
+        all_barcodes: List[str] = list(dict.fromkeys(field_barcodes_u1 + field_barcodes_u2))
+
+        if all_barcodes:
+            qs = ProductBarcode.objects.filter(barcode__in=all_barcodes)
+            if self._exclude_pk:
+                qs = qs.exclude(product_id=self._exclude_pk)
+            taken = set(qs.values_list("barcode", flat=True))
+
+            if taken:
+                offending_u1 = [bc for bc in field_barcodes_u1 if bc in taken]
+                offending_u2 = [bc for bc in field_barcodes_u2 if bc in taken]
+                if offending_u1:
+                    self.add_error("barcodes_u1", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u1)}")
+                if offending_u2:
+                    self.add_error("barcodes_u2", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u2)}")
 
         # Price vs cost (optional business rule)
         cost = cleaned.get("cost")

@@ -143,25 +143,24 @@
   }
 
   function bindPager(){
-    pgBtns.forEach((b,i)=>{
-      const go = b.dataset.go;
-      b.textContent = (go==='last') ? '<الأخيرة>' : `<${i+1}>`;
-      b.onclick = () => {
-        const last = totalPages;
-        page = (go==='last') ? last : Math.max(1, Math.min(last, parseInt(go,10)));
-        load();
-      };
-    });
-    if (pgJump){
-      pgJump.value = page;
-      pgJump.onchange = () => {
-        const last = totalPages;
-        const v = parseInt(pgJump.value || '1', 10);
-        page = Math.max(1, Math.min(last, v));
-        load();
-      };
-    }
+  pgBtns.forEach((b)=>{
+    const go = b.dataset.go; // "1", "2", ..., "last"
+    b.onclick = () => {
+      const last = totalPages;
+      page = (go==='last') ? last : Math.max(1, Math.min(last, parseInt(go,10)));
+      load();
+    };
+  });
+  if (pgJump){
+    pgJump.value = String(page);
+    pgJump.onchange = () => {
+      const last = totalPages;
+      const v = parseInt(pgJump.value || '1', 10);
+      page = Math.max(1, Math.min(last, v));
+      load();
+    };
   }
+}
 
   async function load(){
     setCrumb();

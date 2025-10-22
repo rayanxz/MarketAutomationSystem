@@ -116,11 +116,16 @@ class Product(models.Model):
     product_number = models.PositiveIntegerField(
         unique=True, db_index=True, blank=True, null=True
     )
+    is_active = models.BooleanField(default=True, db_index=True)
 
-    # Global-unique name
-    name = models.CharField(max_length=128, unique=True)
-    stock_qty = models.DecimalField(max_digits=14, decimal_places=3, default=0, help_text="Current stock in primary unit; may be negative.")
+    # Name (case-insensitive unique enforced via DB constraint below)
+    name = models.CharField(max_length=128)
 
+    # Inventory
+    stock_qty = models.DecimalField(
+        max_digits=14, decimal_places=3, default=0,
+        help_text="Current stock in primary unit; may be negative."
+    )
 
     # Hierarchy: Product -> Set (@xxx) -> Collection (#xxx)
     set = models.ForeignKey(ProductSet, on_delete=models.PROTECT, related_name="products")
@@ -149,6 +154,13 @@ class Product(models.Model):
     )
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"),
+                name="uq_product_name_ci",
+                violation_error_message="اسم المنتج موجود مسبقاً (بدون حساسية حالة الأحرف).",
+            ),
+        ]
         indexes = [
             models.Index(Lower("name"), name="ix_product_name_ci"),
             models.Index(fields=["set"]),
@@ -176,6 +188,9 @@ class Product(models.Model):
                 raise ValidationError(
                     {"conversion_factor": "Required and must be > 0 when second unit is set."}
                 )
+            # Prevent setting the same unit as primary/secondary
+            if self.unit_primary == self.unit_secondary:
+                raise ValidationError({"unit_secondary": "لا يجوز أن تكون الوحدة الثانية مطابقة للأولى."})
         else:
             # when there is no second unit, wipe optional factor
             self.conversion_factor = None
@@ -252,8 +267,9 @@ class ProductBarcode(models.Model):
             models.Index(fields=["product"]),
             models.Index(fields=["unit_index"]),
         ]
-        unique_together = [("product", "unit_index", "barcode")]
 
     def __str__(self):
-        u = "U1" if self.unit_index == 1 else "U2"
+        u = "U1" if self.unit_index == self.UnitIndex.PRIMARY else "U2"
         return f"{self.barcode} ({u} — {self.product.display_code})"
+    
+
