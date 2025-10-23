@@ -1,4 +1,6 @@
 {% extends "manager/base_manager.html" %}
+{% load static %}
+
 {% block title %}قائمة الفواتير{% endblock %}
 
 {% block menu_secondary %}
@@ -10,305 +12,120 @@
   </div>
 {% endblock %}
 
-{% block content %}
+{% block extra_head %}
 <style>
-  .ka-card { padding:16px; background:#fff; border-radius:12px; box-shadow:var(--card-shadow); }
-  .toolbar { display:flex; gap:8px; align-items:end; flex-wrap:wrap; }
-  .input, .select { width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; }
-  .btn { padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:#f8f8f8; cursor:pointer; }
-  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .btn.danger { background:#ffefef; border-color:#e9b5b5; color:#b10000; }
-  .table-wrap { overflow:auto; border:1px solid var(--border); border-radius:12px; }
-  table { width:100%; border-collapse:collapse; }
-  thead th { position:sticky; top:0; background:#fafafa; border-bottom:1px solid var(--border); font-weight:600; }
-  td, th { padding:10px 12px; border-bottom:1px solid #eee; text-align:right; white-space:nowrap; }
-  .muted { color:#666; }
-  .right { text-align:right; }
-  .left { text-align:left; }
-  .center { text-align:center; }
-  .status { padding:2px 8px; border-radius:999px; font-size:12px; display:inline-block; }
+  .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
+  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+  .field{ min-width:160px; flex:1 1 160px; }
+  .input, .select { width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
+  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
+  .btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
+  .btn.danger{ background:#ffefef; border-color:#e9b5b5; color:#b10000; }
+  .muted{ color:#6b7280; font-size:12px; }
+
+  .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
+  table{ width:100%; border-collapse:collapse; }
+  thead th{ position:sticky; top:0; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
+  th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
+
+  .status{ padding:2px 8px; border-radius:999px; font-size:12px; display:inline-block; }
   .status.unpaid  { background:#fff2f2; color:#b10000; }
   .status.partial { background:#fff8e6; color:#9a5b00; }
   .status.paid    { background:#eaffea; color:#146b1f; }
-  .grow { flex:1 1 180px; min-width:180px; }
-  .sml { width:130px; }
-  .md  { width:200px; }
-  .end { margin-inline-start:auto; }
-  .centered { display:flex; justify-content:center; align-items:center; gap:8px; padding:12px 0; }
-  .hidden { display:none; }
-  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:60; display:none; }
-  .modal { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:70; display:none; }
-  .modal .box { background:#fff; padding:16px; border-radius:12px; width:min(520px,90vw); box-shadow:var(--card-shadow); }
-  .modal header { font-weight:700; margin-bottom:8px; }
-  .modal footer { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
-</style>
 
-<div class="ka-card" dir="rtl">
-  <h2 style="margin:0 0 12px 0;">قائمة الفواتير</h2>
+  /* Modal */
+  .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:2000; }
+  .modal.open{ display:flex; }
+  .modal .box{ background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:0 10px 30px rgba(0,0,0,.2); }
+  .modal header{ font-weight:700; margin-bottom:6px; }
+  .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+</style>
+<script>
+  window.__BILLING__ = {
+    billsListUrl: "{% url 'billing_api_bills_list' %}",
+    billDeleteBase: "{% url 'billing_api_bill_delete' 0 %}".replace(/0\/?$/,"")
+  };
+</script>
+<script defer src="{% static 'js/billing_bills.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="card" dir="rtl">
+  <h2 style="margin:0 0 12px;">قائمة الفواتير</h2>
 
   <!-- Filters -->
-  <form id="filters" class="toolbar" autocomplete="off">
-    <div class="grow">
-      <label class="muted">المورد</label>
-      <input class="input" name="q" placeholder="اسم المورد ...">
-    </div>
-    <div class="sml">
-      <label class="muted">رقم الفاتورة</label>
-      <input class="input" name="serial" inputmode="numeric" placeholder="مثال: 1024">
-    </div>
-    <div class="sml">
-      <label class="muted">ID</label>
-      <input class="input" name="id" inputmode="numeric" placeholder="مثال: 321">
-    </div>
-    <div class="md">
-      <label class="muted">من تاريخ</label>
-      <input class="input" type="date" name="date_from">
-    </div>
-    <div class="md">
-      <label class="muted">إلى تاريخ</label>
-      <input class="input" type="date" name="date_to">
-    </div>
-    <div class="sml">
-      <label class="muted">الحالة</label>
-      <select class="select" name="status">
-        <option value="">الكل</option>
-        <option value="paid">مدفوعة</option>
-        <option value="partial">مدفوعة جزئياً</option>
-        <option value="unpaid">غير مدفوعة</option>
-      </select>
-    </div>
-    <div class="end">
-      <button class="btn primary" type="submit">بحث</button>
-      <button class="btn" type="button" id="resetBtn">إعادة ضبط</button>
-    </div>
-  </form>
+  <div class="card" style="margin:0 0 12px;">
+    <form id="filters" class="row" autocomplete="off">
+      <div class="field">
+        <label class="muted">اسم المورد</label>
+        <input class="input" name="q" id="fQ" placeholder="ابحث بالاسم">
+      </div>
+      <div class="field" style="max-width:160px;">
+        <label class="muted">سيريال الفاتورة</label>
+        <input class="input" name="serial" id="fSerial" inputmode="numeric" placeholder="مثال: 1024">
+      </div>
+      <div class="field" style="max-width:160px;">
+        <label class="muted">ID الفاتورة</label>
+        <input class="input" name="id" id="fId" inputmode="numeric" placeholder="مثال: 321">
+      </div>
+      <div class="field" style="max-width:180px;">
+        <label class="muted">من تاريخ</label>
+        <input class="input" type="date" name="date_from" id="fFrom">
+      </div>
+      <div class="field" style="max-width:180px;">
+        <label class="muted">إلى تاريخ</label>
+        <input class="input" type="date" name="date_to" id="fTo">
+      </div>
+      <div class="field" style="max-width:200px;">
+        <label class="muted">الحالة</label>
+        <select class="select" name="status" id="fStatus">
+          <option value="">الكل</option>
+          <option value="paid">مدفوعة</option>
+          <option value="partial">مدفوعة جزئياً</option>
+          <option value="unpaid">غير مدفوعة</option>
+        </select>
+      </div>
+      <button class="btn" id="btnSearch" type="submit">بحث</button>
+      <a class="btn" id="btnReset" href=".">إعادة تعيين</a>
+    </form>
+  </div>
 
   <!-- Table -->
-  <div class="table-wrap" style="margin-top:12px;">
+  <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th class="right" style="width:90px;">ID</th>
-          <th class="right" style="width:110px;">Serial</th>
-          <th class="right">المورد</th>
-          <th class="right" style="width:140px;">المجموع</th>
-          <th class="center" style="width:120px;">الحالة</th>
-          <th class="right" style="width:190px;">التاريخ</th>
-          <th class="left"  style="width:120px;"></th>
+          <th style="width:80px;">ID</th>
+          <th style="width:120px;">سيريال</th>
+          <th>المورد</th>
+          <th style="width:160px;">الإجمالي</th>
+          <th style="width:160px;">الحالة</th>
+          <th style="width:220px;">التاريخ</th>
+          <th style="width:180px;" class="left">إجراءات</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
 
-  <!-- Paging -->
-  <div class="centered">
-    <button class="btn" id="loadMore">عرض المزيد</button>
-    <span id="endMsg" class="muted hidden">لا مزيد من النتائج</span>
+  <div style="display:flex; justify-content:center; gap:8px; margin-top:12px;">
+    <button id="loadMore" class="btn">عرض المزيد</button>
+    <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
   </div>
   <div id="sentinel" style="height:1px;"></div>
 </div>
 
 <!-- Delete modal -->
-<div class="modal-backdrop" id="backdrop"></div>
-<div class="modal" id="delModal" role="dialog" aria-modal="true" aria-hidden="true">
-  <div class="box" role="document">
+<div id="modal-del" class="modal" aria-hidden="true">
+  <div class="box">
     <header>تأكيد الحذف</header>
     <div class="body">
       هل تريد حذف الفاتورة <b id="delLabel"></b>؟ سيجري إنقاص المخزون تلقائياً.
     </div>
     <footer>
-      <button class="btn" id="cancelDel">إلغاء</button>
-      <button class="btn danger" id="confirmDel">حذف</button>
+      <button class="btn" data-close>إلغاء</button>
+      <button class="btn danger" data-confirm>حذف</button>
     </footer>
   </div>
 </div>
-
-<script>
-(() => {
-  const API_LIST = "{% url 'billing_api_bills_list' %}";
-  const API_DELETE_BASE = "{% url 'billing_api_bill_delete' 0 %}".replace(/0\/?$/, ""); // /.../api/bills/<id>/delete
-
-  const rowsEl = document.getElementById('rows');
-  const form = document.getElementById('filters');
-  const loadBtn = document.getElementById('loadMore');
-  const endMsg = document.getElementById('endMsg');
-  const sentinel = document.getElementById('sentinel');
-  const resetBtn = document.getElementById('resetBtn');
-
-  const backdrop = document.getElementById('backdrop');
-  const modal = document.getElementById('delModal');
-  const delLabel = document.getElementById('delLabel');
-  const cancelDelBtn = document.getElementById('cancelDel');
-  const confirmDelBtn = document.getElementById('confirmDel');
-
-  let cursor = null, loading = false, done = false, pendingDeleteId = null;
-  let observer = null, debounceTimer = null;
-
-  // Prefill filters from URL (?q=..., ?serial=..., etc.)
-  (function prefillFromUrl(){
-  const form = document.getElementById('filters');
-  if (!form) return;
-  const params = new URLSearchParams(location.search);
-  const map = { q:'q', serial:'serial', id:'id', date_from:'date_from', date_to:'date_to', status:'status' };
-  let changed = false;
-  for (const [k, field] of Object.entries(map)) {
-    const v = params.get(k);
-    if (v && form.elements[field]) { form.elements[field].value = v; changed = true; }
-  }
-  if (changed) {
-    // trigger a fresh load with those values
-    if (typeof load === 'function') load(true);
-    else document.getElementById('filters').dispatchEvent(new Event('submit', {cancelable:true}));
-  }
-})();
-
-  function qs(obj) { const p = new URLSearchParams(obj); return p.toString(); }
-
-  function readFilters(includeCursor=true) {
-    const fd = new FormData(form);
-    const obj = {};
-    for (const [k,v] of fd.entries()) if (v) obj[k]=v;
-    obj.page_size = 30;
-    if (includeCursor && cursor) obj.cursor = cursor;
-    return obj;
-  }
-
-  function numberFmt(x) {
-    const n = Number(x);
-    if (!Number.isFinite(n)) return x;
-    return new Intl.NumberFormat().format(n);
-  }
-
-  function statusPill(s) {
-    const cls = s==="paid" ? "paid" : (s==="partial" ? "partial" : "unpaid");
-    const label = s==="paid" ? "مدفوعة" : (s==="partial" ? "مدفوعة جزئياً" : "غير مدفوعة");
-    return `<span class="status ${cls}">${label}</span>`;
-  }
-
-  function rowHtml(b) {
-    const dt = new Date(b.created_at).toLocaleString();
-    return `
-      <tr data-id="${b.id}">
-        <td class="right">${b.id}</td>
-        <td class="right">${b.serial ?? ""}</td>
-        <td class="right">${b.provider?.name ?? ""}</td>
-        <td class="right">${numberFmt(b.total)}</td>
-        <td class="center">${statusPill(b.status)}</td>
-        <td class="right">${dt}</td>
-        <td class="left">
-          <button class="btn danger" data-del="${b.id}" data-label="${b.serial ?? b.id}">حذف</button>
-        </td>
-      </tr>
-    `;
-  }
-
-  async function load(reset=false) {
-    if (loading || (done && !reset)) return;
-    loading = true;
-    loadBtn.disabled = true; endMsg.classList.add('hidden');
-
-    if (reset) { rowsEl.innerHTML = ""; cursor = null; done = false; }
-
-    const params = readFilters(!reset);
-    try {
-      const res = await fetch(`${API_LIST}?${qs(params)}`, { headers: {'Accept':'application/json'} });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'error');
-
-      const frag = document.createDocumentFragment();
-      for (const b of data.items) {
-        const tmp = document.createElement('tbody');
-        tmp.innerHTML = rowHtml(b);
-        frag.appendChild(tmp.firstElementChild);
-      }
-      rowsEl.appendChild(frag);
-
-      cursor = data.next_cursor;
-      done = !cursor;
-
-      loadBtn.style.display = done ? 'none' : 'inline-block';
-      if (done && (rowsEl.children.length > 0)) endMsg.classList.remove('hidden');
-    } catch (e) {
-      console.error(e);
-      alert('فشل التحميل');
-    } finally {
-      loading = false;
-      loadBtn.disabled = false;
-    }
-  }
-
-  function debounce(fn, ms) {
-    return (...args) => { clearTimeout(debounceTimer); debounceTimer = setTimeout(() => fn(...args), ms); };
-  }
-
-  form.addEventListener('submit', (e) => { e.preventDefault(); load(true); });
-  for (const el of form.querySelectorAll('input,select')) {
-    el.addEventListener('input', debounce(() => load(true), 300));
-    el.addEventListener('change', () => load(true));
-  }
-  resetBtn.addEventListener('click', () => { form.reset(); load(true); });
-
-  loadBtn.addEventListener('click', () => load(false));
-
-  // Optional Infinite Scroll
-  const sentinel = document.getElementById('sentinel');
-  if ('IntersectionObserver' in window) {
-    const observer = new IntersectionObserver((entries) => {
-      for (const en of entries) if (en.isIntersecting) load(false);
-    });
-    observer.observe(sentinel);
-  }
-
-  // Delete flow (modal)
-  function openModal(id, label) {
-    pendingDeleteId = id;
-    document.getElementById('delLabel').textContent = `#${label}`;
-    document.getElementById('backdrop').style.display = 'block';
-    document.getElementById('delModal').style.display = 'flex';
-  }
-  function closeModal() {
-    pendingDeleteId = null;
-    document.getElementById('backdrop').style.display = 'none';
-    document.getElementById('delModal').style.display = 'none';
-  }
-
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-del]');
-    if (btn) openModal(parseInt(btn.dataset.del), btn.dataset.label);
-  });
-
-  document.getElementById('cancelDel').addEventListener('click', closeModal);
-  document.getElementById('backdrop').addEventListener('click', closeModal);
-
-  document.getElementById('confirmDel').addEventListener('click', async () => {
-    if (!pendingDeleteId) return;
-    const confirmBtn = document.getElementById('confirmDel');
-    confirmBtn.disabled = true;
-    try {
-      const url = `${API_DELETE_BASE}/${pendingDeleteId}/delete`;
-      const res = await fetch(url, { method: 'POST', headers: {'X-CSRFToken': getCsrf()} });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'delete failed');
-
-      const tr = rowsEl.querySelector(`tr[data-id="${pendingDeleteId}"]`);
-      if (tr) tr.remove();
-      closeModal();
-    } catch (e) {
-      console.error(e);
-      alert('فشل الحذف');
-    } finally {
-      confirmBtn.disabled = false;
-    }
-  });
-
-  function getCsrf() {
-    const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : '';
-  }
-
-  // initial load
-  load(true);
-})();
-</script>
 {% endblock %}
