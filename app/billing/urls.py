@@ -1,6 +1,7 @@
 # app/billing/urls.py
 from django.urls import path
 from billing import views as v
+from . import views as V
 
 urlpatterns = [
     path("", v.billing_home, name="billing_home"),
@@ -28,4 +29,16 @@ urlpatterns = [
     # Payments
     path("bills/<int:bill_id>/pay-full/", v.pay_debt_full, name="pay_debt_full"),
     path("bills/<int:bill_id>/pay-batch/", v.pay_debt_batch, name="pay_debt_batch"),
+    path("bills/<int:bill_id>/", v.bill_view, name="billing_bill_view"),
+
+
+    path("returns/", V.providers_returns_page, name="billing_returns"),
+    path("returns/list/", V.providers_returns_list_page, name="billing_returns_list"),
+
+
+    path("api/returns/save/", V.api_return_save, name="billing_api_return_save"),
+    path("api/returns/list/", V.api_returns_list, name="billing_api_returns_list"),
+    path("api/returns/next-serial/", V.api_return_next_serial, name="billing_api_return_next_serial"),
+    path("returns/<int:ret_id>/collect-full/", V.collect_return_full, name="billing_collect_full"),
+    path("returns/<int:ret_id>/collect-batch/", V.collect_return_batch, name="billing_collect_batch"),
 ]

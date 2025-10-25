@@ -10,8 +10,11 @@
     <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
     <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة الديون</a>
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+    <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
+    <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
   </div>
 {% endblock %}
+
 
 {% block extra_head %}
 <style>
@@ -49,6 +52,8 @@
   <h2 style="margin:0 0 12px;">قائمة الديون</h2>
 
   <!-- Filters -->
+  
+
   <div class="card" style="margin:0 0 12px;">
     <div class="row">
       <div class="field">
@@ -73,6 +78,13 @@
       </div>
       <div class="field" style="max-width:200px;">
         <label class="muted">الحالة</label>
+          <div class="field" style="max-width:220px;">
+            <label class="muted">نوع الديون</label>
+             <select id="fRole" class="select" required>
+              <option value="debtor">مديونية على المتجر (لصالح الموردين)</option>
+              <option value="creditor">مديونية على الموردين (لصالح المتجر)</option>
+            </select>
+          </div>
         <select id="fStatus" class="select">
           <option value="">الكل (الافتراضي: غير مدفوعة ← جزئية ← مدفوعة)</option>
           <option value="unpaid">غير مدفوعة</option>

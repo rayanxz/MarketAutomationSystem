@@ -1,0 +1,133 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}تفاصيل الفاتورة{% endblock %}
+
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة الديون</a>
+    <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+    <a class="btn-sec" href="{% url 'billing_returns' %}">مرتجعات الموردين</a>
+  </div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* reuse Add Bill look */
+  .bill-wrap{ display:grid; grid-template-rows:auto auto 1fr auto; gap:12px; }
+  .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .field{ flex:1 1 220px; min-width:220px; }
+  .badge{ display:inline-block; padding:10px 12px; border:1px dashed #c7cad1; border-radius:10px; background:#f8fafc; }
+  .muted{ color:#6b7280; font-size:12px; }
+  .pill{ padding:4px 10px; border-radius:999px; font-weight:700; font-size:12px; }
+  .pill.unpaid{ background:#fff2f2; color:#b10000; }
+  .pill.partial{ background:#fff8e6; color:#9a5b00; }
+  .pill.paid{ background:#eaffea; color:#146b1f; }
+
+  .items{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
+  table.bill{ width:100%; border-collapse:collapse; }
+  table.bill th, table.bill td{ border-bottom:1px solid #eef2f7; padding:8px; vertical-align:middle; }
+  table.bill thead th{ background:#f8fafc; position:sticky; top:0; z-index:1; }
+  .pname{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .total-box{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#f8fafc; margin-bottom:10px;
+  }
+  .total-amt{ font-size:24px; font-weight:800; }
+  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
+  .btn:hover{ background:#eef2ff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bill-wrap" dir="rtl">
+
+  <!-- Header: serial/id/provider -->
+  <section class="card">
+    <h4 style="margin:0 0 8px;">بيانات الفاتورة</h4>
+    <div class="row">
+      <div class="field" style="max-width:200px;">
+        <label class="muted">سيريال (آلي)</label>
+        <div class="badge">{{ bill.serial|default:"—" }}</div>
+      </div>
+      <div class="field" style="max-width:160px;">
+        <label class="muted">ID</label>
+        <div class="badge">{{ bill.id }}</div>
+      </div>
+      <div class="field">
+        <label class="muted">المورد</label>
+        <div class="badge">{{ bill.provider.name }}</div>
+      </div>
+      <div class="field" style="max-width:220px;">
+        <label class="muted">تاريخ الإنشاء</label>
+        <div class="badge">{{ bill.created_at }}</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Items table (no inputs, just values saved at creation time) -->
+  <section class="items" style="min-height:40vh;">
+    <table class="bill">
+      <thead>
+        <tr>
+          <th style="width:30%;">المنتج</th>
+          <th>الكلفة/و١</th>
+          <th>السعر/و١</th>
+          <th style="width:18%;">الكمية (محولة لو١)</th>
+          <th>الكلفة الإجمالية</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in bill.items.all %}
+          <tr>
+            <td class="pname">{{ it.product.name }}</td>
+            <td>{{ it.cost }}</td>
+            <td>{{ it.price }}</td>
+            <td>{{ it.qty_primary }}{% if it.unit_index == 2 %} (و٢ → و١){% endif %}</td>
+            <td>{{ it.line_total }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" style="text-align:center; color:#6b7280;">لا توجد عناصر</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Footer: totals + payment info -->
+  <section class="card">
+    <div class="total-box">
+      <div class="muted">الإجمالي</div>
+      <div class="total-amt">{{ bill.total }}</div>
+    </div>
+
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+      <div>
+        <div>
+            <div class="muted">حالة الدفع عند الإنشاء</div>
+            <span class="pill {{ bill.initial_status }}">{{ bill.get_initial_status_display }}</span>
+            <small class="muted">— المدفوع عند الإنشاء: {{ bill.initial_paid_amount }}</small>
+        </div>
+
+      <div>
+        <div class="muted">الوضع الحالي</div>
+        <span class="pill {{ bill.status }}">{{ bill.get_status_display }}</span>
+        <small class="muted">— المدفوع الآن: {{ bill.paid_amount }} / المتبقي: {{ bill.remaining }}</small>
+      </div>
+    </div>
+
+    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+      <a class="btn" href="{% url 'billing_list' %}">رجوع</a>
+
+      {% if has_debt_now %}
+        <!-- Opens debts page filtered by this serial -->
+        <a class="btn" href="{% url 'billing_debts' %}?serial={{ bill.serial|default:'' }}">معلومات الدين</a>
+      {% endif %}
+    </div>
+  </section>
+
+</div>
+{% endblock %}

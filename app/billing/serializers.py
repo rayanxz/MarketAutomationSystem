@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Dict, Any
 from billing.models import Provider, Bill
+from .models import ProviderReturn
 
 def provider_row(p: Provider) -> Dict[str, Any]:
     return {
@@ -29,4 +30,16 @@ def bill_row(b: Bill) -> Dict[str, Any]:
         "paid_amount": str(b.paid_amount),
         "remaining": str(remaining_val),
         "created_at": b.created_at.isoformat(),
+    }
+
+def return_row(r: ProviderReturn) -> dict[str, Any]:
+    return {
+        "id": r.id,
+        "serial": r.serial,
+        "provider": {"id": r.provider_id, "name": r.provider.name},
+        "total": str(r.total),
+        "paid_amount": str(r.paid_amount),
+        "remaining": str(r.remaining),
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
     }

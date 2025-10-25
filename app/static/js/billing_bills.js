@@ -33,6 +33,7 @@
   }
   function row(b){
     const dt = new Date(b.created_at).toLocaleString();
+    const viewUrl = `${window.__BILLING__.billViewBase}${b.id}/`;
     return `
       <tr data-id="${b.id}">
         <td>${b.id}</td>
@@ -42,6 +43,7 @@
         <td>${pill(b.status)}</td>
         <td>${dt}</td>
         <td class="left">
+          <a class="btn" href="${viewUrl}">عرض</a>
           <button class="btn danger" data-del="${b.id}" data-label="${b.serial ?? b.id}">حذف</button>
         </td>
       </tr>

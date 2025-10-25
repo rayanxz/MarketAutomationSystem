@@ -1,7 +1,7 @@
 {% extends "manager/base_manager.html" %}
 {% load static %}
 
-{% block title %}قائمة الفواتير{% endblock %}
+{% block title %}قائمة مرتجعات الموردين{% endblock %}
 
 {% block menu_secondary %}
   <div class="tabs-row">
@@ -14,6 +14,7 @@
   </div>
 {% endblock %}
 
+
 {% block extra_head %}
 <style>
   .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
@@ -22,7 +23,6 @@
   .input, .select { width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
   .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
   .btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
-  .btn.danger{ background:#ffefef; border-color:#e9b5b5; color:#b10000; }
   .muted{ color:#6b7280; font-size:12px; }
 
   .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
@@ -34,27 +34,18 @@
   .status.unpaid  { background:#fff2f2; color:#b10000; }
   .status.partial { background:#fff8e6; color:#9a5b00; }
   .status.paid    { background:#eaffea; color:#146b1f; }
-
-  /* Modal */
-  .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:2000; }
-  .modal.open{ display:flex; }
-  .modal .box{ background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:0 10px 30px rgba(0,0,0,.2); }
-  .modal header{ font-weight:700; margin-bottom:6px; }
-  .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
 </style>
 <script>
-  window.__BILLING__ = {
-    billsListUrl: "{% url 'billing_api_bills_list' %}",
-    billDeleteBase: "{% url 'billing_api_bill_delete' 0 %}".replace(/0\/?$/,""),
-    billViewBase: "{% url 'billing_bill_view' 0 %}".replace(/0\/?$/,"")
+  window.__RETURNS__ = {
+    listUrl: "{% url 'billing_api_returns_list' %}"
   };
 </script>
-<script defer src="{% static 'js/billing_bills.js' %}"></script>
+<script defer src="{% static 'js/billing_returns_list.js' %}"></script>
 {% endblock %}
 
 {% block content %}
 <div class="card" dir="rtl">
-  <h2 style="margin:0 0 12px;">قائمة الفواتير</h2>
+  <h2 style="margin:0 0 12px;">قائمة مرتجعات الموردين</h2>
 
   <!-- Filters -->
   <div class="card" style="margin:0 0 12px;">
@@ -64,11 +55,11 @@
         <input class="input" name="q" id="fQ" placeholder="ابحث بالاسم">
       </div>
       <div class="field" style="max-width:160px;">
-        <label class="muted">سيريال الفاتورة</label>
+        <label class="muted">سيريال المرتجع</label>
         <input class="input" name="serial" id="fSerial" inputmode="numeric" placeholder="مثال: 1024">
       </div>
       <div class="field" style="max-width:160px;">
-        <label class="muted">ID الفاتورة</label>
+        <label class="muted">ID المرتجع</label>
         <input class="input" name="id" id="fId" inputmode="numeric" placeholder="مثال: 321">
       </div>
       <div class="field" style="max-width:180px;">
@@ -79,13 +70,13 @@
         <label class="muted">إلى تاريخ</label>
         <input class="input" type="date" name="date_to" id="fTo">
       </div>
-      <div class="field" style="max-width:200px;">
+      <div class="field" style="max-width:220px;">
         <label class="muted">الحالة</label>
         <select class="select" name="status" id="fStatus">
           <option value="">الكل</option>
-          <option value="paid">مدفوعة</option>
-          <option value="partial">مدفوعة جزئياً</option>
-          <option value="unpaid">غير مدفوعة</option>
+          <option value="paid">مدفوعة من المورد</option>
+          <option value="partial">مدفوعة جزئياً من المورد</option>
+          <option value="unpaid">غير مدفوعة من المورد</option>
         </select>
       </div>
       <button class="btn" id="btnSearch" type="submit">بحث</button>
@@ -98,13 +89,12 @@
     <table>
       <thead>
         <tr>
-          <th style="width:80px;">ID</th>
-          <th style="width:120px;">سيريال</th>
+          <th style="width:120px;">السيريال</th>
           <th>المورد</th>
           <th style="width:160px;">الإجمالي</th>
           <th style="width:160px;">الحالة</th>
           <th style="width:220px;">التاريخ</th>
-          <th style="width:180px;" class="left">إجراءات</th>
+          <th style="width:200px;" class="left">إجراءات</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
@@ -116,19 +106,5 @@
     <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
   </div>
   <div id="sentinel" style="height:1px;"></div>
-</div>
-
-<!-- Delete modal -->
-<div id="modal-del" class="modal" aria-hidden="true">
-  <div class="box">
-    <header>تأكيد الحذف</header>
-    <div class="body">
-      هل تريد حذف الفاتورة <b id="delLabel"></b>؟ سيجري إنقاص المخزون تلقائياً.
-    </div>
-    <footer>
-      <button class="btn" data-close>إلغاء</button>
-      <button class="btn danger" data-confirm>حذف</button>
-    </footer>
-  </div>
 </div>
 {% endblock %}

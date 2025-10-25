@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Optional, Tuple
 from django.db.models import Q, F, Value, DecimalField, IntegerField, Case, When , Count , Sum
 from django.db.models.functions import Coalesce, Lower
-from billing.models import Provider, Bill
+from billing.models import Provider, Bill , ProviderReturn
 
 # ---------- Providers ----------
 def providers_qs_base():
@@ -123,3 +123,22 @@ def debts_list(q, serial, bill_id, status, date_from, date_to, cursor, page_size
 def next_bill_serial() -> int:
     last = Bill.objects.order_by("-serial").values_list("serial", flat=True).first()
     return 1 if (last in (None, 0)) else int(last) + 1
+
+
+def next_return_serial() -> int:
+    last = ProviderReturn.objects.order_by("-serial").values_list("serial", flat=True).first() or 0
+    return (int(last) + 1) if int(last) > 0 else 1
+
+def returns_base():
+    return ProviderReturn.objects.select_related("provider")
+
+def returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, page_size):
+    qs = returns_base()
+    if q: qs = qs.filter(provider__name__icontains=q)
+    if serial: qs = qs.filter(serial=serial)
+    if rid: qs = qs.filter(id=rid)
+    if status in {"paid","partial","unpaid"}: qs = qs.filter(status=status)
+    if date_from: qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:   qs = qs.filter(created_at__date__lte=date_to)
+    if cursor: qs = qs.filter(id__lt=cursor)
+    return qs.order_by("-id")[:page_size]

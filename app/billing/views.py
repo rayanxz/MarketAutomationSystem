@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal, InvalidOperation
 
-from django.http import JsonResponse, HttpRequest, HttpResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 from django.utils import timezone
@@ -13,12 +13,16 @@ from django.db.models import Q  # needed for products search filters
 from accounts.models import AccountProfile
 from catalog.views import role_required
 from catalog.models import Product
-from billing.models import Provider, Bill
+from billing.models import Provider, Bill , ProviderReturn
 
 from . import selectors as S
 from . import services as SV
 from .serializers import provider_row, bill_row
+from .serializers import return_row
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ---------- Page views ----------
 
@@ -258,6 +262,7 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
 
     try:
         bill = SV.create_bill(
+            actor=request.user,
             provider_id=int(pid),
             serial=serial,
             status=status,
@@ -319,12 +324,35 @@ def api_debts_list(request: HttpRequest) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
     try:
-        SV.delete_bill(bill_id)
+        SV.delete_bill(actor=request.user , bill_id=bill_id)
         return JsonResponse({"ok": True})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
     except Exception:
         return _bad("delete failed", 500)
+
+
+
+@role_required(AccountProfile.Role.MANAGER)
+def bill_view(request: HttpRequest, bill_id: int) -> HttpResponse:
+    bill = (
+        Bill.objects
+        .select_related("provider")
+        .prefetch_related("items", "items__product")
+        .get(pk=bill_id)
+    )
+
+    # “creation-time” payment info (see models change below)
+    created_status = getattr(bill, "initial_status", bill.status)
+    created_paid   = getattr(bill, "initial_paid_amount", bill.paid_amount)
+
+    ctx = {
+        "bill": bill,
+        "created_status": created_status,
+        "created_paid": created_paid,
+        "has_debt_now": bill.remaining > 0,
+    }
+    return render(request, "billing/bill_view.html", ctx)
 
 
 # ---------- Payments ----------
@@ -333,7 +361,7 @@ def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def pay_debt_full(request: HttpRequest, bill_id: int) -> JsonResponse:
     try:
-        SV.pay_full(bill_id)
+        SV.pay_full(actor=request.user , bill_id = bill_id)
         return JsonResponse({"ok": True, "remaining": "0"})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
@@ -350,9 +378,120 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
     if amount <= 0:
         return _bad("Enter a positive amount.")
     try:
-        bill = SV.pay_partial(bill_id, amount)
+        bill = SV.pay_partial(actor=request.user, bill_id = bill_id,amount = amount)
         return JsonResponse({"ok": True, "remaining": str(bill.remaining)})
     except ValueError as ve:
         return _bad(str(ve))
     except Bill.DoesNotExist:
+        return _bad("not found", 404)
+
+
+# -----------returns---------------
+@role_required(AccountProfile.Role.MANAGER)
+def providers_returns_page(request: HttpRequest) -> HttpResponse:
+    return render(request, "billing/providers_returns.html")
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_return_next_serial(request: HttpRequest) -> JsonResponse:
+    return JsonResponse({"ok": True, "next_serial": S.next_return_serial()})
+
+# app/billing/views.py
+# app/billing/views.py
+import logging
+logger = logging.getLogger(__name__)
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def api_return_save(request: HttpRequest) -> JsonResponse:
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _bad("bad json")
+
+    items = payload.get("items") or []
+    if not items: return _bad("no items")
+
+    provider = payload.get("provider") or {}
+    pid = provider.get("id")
+    if not pid: return _bad("provider must be selected from list")
+
+    pay = payload.get("pay") or {}
+    status = (pay.get("status") or "unpaid").lower()
+    if status not in {"paid","unpaid","partial"}: status = "unpaid"
+    paid_amount = _dec(pay.get("paid_amount"), "0")
+
+    try:
+        pret = SV.create_return(
+            actor=request.user,
+            provider_id=int(pid),
+            status=status,
+            paid_amount=paid_amount,
+            items=items,
+        )
+        return JsonResponse({"ok": True, "ret": return_row(pret)})
+    except ValueError as ve:
+        return _bad(str(ve))
+    except Product.DoesNotExist:
+        return _bad("product not found", 404)
+    except Exception as e:
+        logger.exception("api_return_save failed")
+        # TEMP: reveal exact failure to the UI so we can fix fast.
+        return _bad(f"save failed: {e.__class__.__name__}: {e}", 500)
+
+
+
+# app/billing/views.py
+
+@role_required(AccountProfile.Role.MANAGER)
+def providers_returns_list_page(request: HttpRequest) -> HttpResponse:
+    return render(request, "billing/providers_returns_list.html")
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_returns_list(request: HttpRequest) -> JsonResponse:
+    q = (request.GET.get("q") or "").strip()
+    serial = request.GET.get("serial")
+    rid = request.GET.get("id")
+    date_from = (request.GET.get("date_from") or "").strip()
+    date_to = (request.GET.get("date_to") or "").strip()
+    status = (request.GET.get("status") or "").lower()
+    cursor = request.GET.get("cursor")
+    try:
+        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
+    except ValueError:
+        page_size = 30
+
+    qs = S.returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, page_size)
+    items = list(qs)
+    nxt = items[-1].id if items else None
+    return JsonResponse({"ok": True, "items": [return_row(r) for r in items], "next_cursor": nxt})
+
+# Payments (collections) for provider debts-to-store:
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
+    try:
+        SV.collect_full(actor=request.user, return_id=ret_id)
+        return JsonResponse({"ok": True, "remaining": "0"})
+    except ProviderReturn.DoesNotExist:
+        return _bad("not found", 404)
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
+    amount_raw = (request.POST.get("amount") or "").strip()
+    try:
+        amount = Decimal(amount_raw)
+    except Exception:
+        return _bad("Enter a positive amount.")
+    if amount <= 0:
+        return _bad("Enter a positive amount.")
+    try:
+        pret = SV.collect_partial(actor=request.user, return_id=ret_id, amount=amount)
+        return JsonResponse({"ok": True, "remaining": str(pret.remaining)})
+    except ValueError as ve:
+        return _bad(str(ve))
+    except ProviderReturn.DoesNotExist:
         return _bad("not found", 404)

@@ -11,6 +11,8 @@ from .models import (
     CashSession, CashDrawerEvent
 )
 from .choices import DC
+from decimal import Decimal, ROUND_HALF_UP
+
 
 @dataclass(frozen=True)
 class LineSpec:
@@ -61,6 +63,114 @@ def post_journal(*, actor, session: Optional[CashSession], lines: list[LineSpec]
         )
     return entry
 
+
+# === Provider Returns (new) ===============================================
+
+def post_provider_return(
+    *,
+    actor,
+    total_minor: int,
+    paid_minor: int,
+    provider_id: int,
+    source=("billing", "ProviderReturn", ""),
+    inventory_account_code="INVENTORY",
+    receivable_account_code="PROVIDER_RECEIVABLE",
+    cash_account_code="SAFE",
+):
+    """
+    Provider return (store sends goods back to provider).
+      Cr INVENTORY .................. total
+      Dr SAFE (cash received now) ... paid
+      Dr PROVIDER_RECEIVABLE ........ total - paid
+    """
+    if total_minor <= 0:
+        raise ValidationError("total_minor must be > 0")
+
+    debit_recv = max(total_minor - max(paid_minor, 0), 0)
+    debit_cash = max(min(paid_minor, total_minor), 0)
+
+    lines = [LineSpec(inventory_account_code, DC.CREDIT, total_minor)]
+    if debit_cash:
+        lines.append(LineSpec(cash_account_code, DC.DEBIT, debit_cash))
+    if debit_recv:
+        lines.append(LineSpec(receivable_account_code, DC.DEBIT, debit_recv))
+
+    app, model, sid = source
+    return post_journal(
+        actor=actor, session=None, lines=lines,
+        memo=f"Provider return #{provider_id}",
+        source_app=app, source_model=model, source_id=str(sid),
+        idempotency_key=f"{app}:{model}:{sid}:provider_return:v1"
+    )
+
+
+def post_provider_return_reversal(
+    *,
+    actor,
+    total_minor: int,
+    paid_minor: int,
+    provider_id: int,
+    source=("billing", "ProviderReturn", ""),
+    inventory_account_code="INVENTORY",
+    receivable_account_code="PROVIDER_RECEIVABLE",
+    cash_account_code="SAFE",
+):
+    """
+    Reverse provider return:
+      Dr INVENTORY .................. total
+      Cr SAFE (reverse cash) ........ paid
+      Cr PROVIDER_RECEIVABLE ........ total - paid
+    """
+    if total_minor <= 0:
+        return None
+
+    credit_recv = max(total_minor - max(paid_minor, 0), 0)
+    credit_cash = max(min(paid_minor, total_minor), 0)
+
+    lines = [LineSpec(inventory_account_code, DC.DEBIT, total_minor)]
+    if credit_cash:
+        lines.append(LineSpec(cash_account_code, DC.CREDIT, credit_cash))
+    if credit_recv:
+        lines.append(LineSpec(receivable_account_code, DC.CREDIT, credit_recv))
+
+    app, model, sid = source
+    return post_journal(
+        actor=actor, session=None, lines=lines,
+        memo=f"Reversal of provider return #{provider_id}",
+        source_app=app, source_model=model, source_id=str(sid),
+        idempotency_key=f"{app}:{model}:{sid}:provider_return:reverse:v1"
+    )
+
+
+def collect_from_provider(
+    *,
+    actor,
+    amount_minor: int,
+    provider_id: int,
+    cash_account_code="SAFE",
+    receivable_account_code="PROVIDER_RECEIVABLE",
+    source=("billing", "ProviderReturn", ""),
+):
+    """
+    Provider pays outstanding receivable for prior returns.
+      Dr SAFE ........................ amount
+      Cr PROVIDER_RECEIVABLE ......... amount
+    """
+    if amount_minor <= 0:
+        raise ValidationError("amount must be positive")
+
+    lines = [
+        LineSpec(cash_account_code, DC.DEBIT, amount_minor),
+        LineSpec(receivable_account_code, DC.CREDIT, amount_minor),
+    ]
+    app, model, sid = source
+    return post_journal(
+        actor=actor, session=None, lines=lines,
+        memo=f"Collection from provider #{provider_id}",
+        source_app=app, source_model=model, source_id=str(sid),
+        idempotency_key=f"{app}:{model}:{sid}:provider_collect:{amount_minor}:v1"
+    )
+
 # ---- Convenience wrappers ----
 
 def post_opening_float(*, actor, session: CashSession):
@@ -98,6 +208,12 @@ def post_cash_out(*, actor, session: CashSession, amount_minor: int, note: str =
     CashDrawerEvent.objects.create(entry=entry, kind="CASH_OUT", register=session.register,
                                    amount_minor=amount_minor, note=note)
     return entry
+
+def to_minor(amount: Decimal, places: int = 3) -> int:
+    if amount is None:
+        return 0
+    q = Decimal(10) ** -places
+    return int((amount.quantize(q, rounding=ROUND_HALF_UP) * (10 ** places)).to_integral_value())
 
 def post_safe_drop(*, actor, session: CashSession, amount_minor: int, safe_account_code="SAFE", note: str = ""):
     lines = [
@@ -195,6 +311,84 @@ def post_over_short(*, actor, session: CashSession, diff_minor: int):
                         memo="Over/Short adjustment",
                         source_app="ledger", source_model="CashSession", source_id=str(session.id),
                         idempotency_key=f"session:{session.id}:over_short")
+
+def post_purchase(*, actor, total_minor: int, paid_minor: int, provider_id: int,
+                  source=("billing","Bill",""), inventory_account_code="INVENTORY",
+                  payable_account_code="PROVIDER_PAYABLE", cash_account_code="SAFE"):
+    """
+    Purchase from provider.
+      Dr INVENTORY .................. total
+        Cr SAFE (or cash source) .... paid
+        Cr PROVIDER_PAYABLE ......... total - paid
+    """
+    if total_minor <= 0:
+        raise ValidationError("total_minor must be > 0")
+
+    credit_payable = max(total_minor - max(paid_minor, 0), 0)
+    credit_cash    = max(min(paid_minor, total_minor), 0)
+
+    lines = [ LineSpec(inventory_account_code, DC.DEBIT, total_minor) ]
+    if credit_cash:
+        lines.append(LineSpec(cash_account_code, DC.CREDIT, credit_cash))
+    if credit_payable:
+        lines.append(LineSpec(payable_account_code, DC.CREDIT, credit_payable))
+
+    app, model, sid = source
+    return post_journal(
+        actor=actor, session=None, lines=lines, memo=f"Provider purchase #{provider_id}",
+        source_app=app, source_model=model, source_id=str(sid),
+        idempotency_key=f"{app}:{model}:{sid}:purchase:v1"
+    )
+
+def post_purchase_reversal(*, actor, total_minor: int, paid_minor: int, provider_id: int,
+                           source=("billing","Bill",""), inventory_account_code="INVENTORY",
+                           payable_account_code="PROVIDER_PAYABLE", cash_account_code="SAFE"):
+    """
+    Reverse the above:
+      Cr INVENTORY .................. total
+      Dr SAFE ....................... paid
+      Dr PROVIDER_PAYABLE ........... total - paid
+    """
+    if total_minor <= 0:
+        return None
+    debit_payable = max(total_minor - max(paid_minor, 0), 0)
+    debit_cash    = max(min(paid_minor, total_minor), 0)
+
+    lines = [ LineSpec(inventory_account_code, DC.CREDIT, total_minor) ]
+    if debit_cash:
+        lines.append(LineSpec(cash_account_code, DC.DEBIT, debit_cash))
+    if debit_payable:
+        lines.append(LineSpec(payable_account_code, DC.DEBIT, debit_payable))
+
+    app, model, sid = source
+    return post_journal(
+        actor=actor, session=None, lines=lines, memo=f"Reversal of provider purchase #{provider_id}",
+        source_app=app, source_model=model, source_id=str(sid),
+        idempotency_key=f"{app}:{model}:{sid}:purchase:reverse:v1"
+    )
+
+def post_provider_payment_from_safe(*, actor, amount_minor: int, provider_id: int,
+                                    cash_account_code="SAFE", payable_account_code="PROVIDER_PAYABLE",
+                                    source=("billing","Bill","")):
+    """
+    Pay a provider from the SAFE (manager vault):
+      Dr PROVIDER_PAYABLE ........... amount
+        Cr SAFE ..................... amount
+    """
+    if amount_minor <= 0:
+        raise ValidationError("amount must be positive")
+
+    lines = [
+        LineSpec(payable_account_code, DC.DEBIT, amount_minor),
+        LineSpec(cash_account_code, DC.CREDIT, amount_minor),
+    ]
+    app, model, sid = source
+    return post_journal(
+        actor=actor, session=None, lines=lines, memo=f"Provider payment from SAFE #{provider_id}",
+        source_app=app, source_model=model, source_id=str(sid),
+        idempotency_key=f"{app}:{model}:{sid}:providerpay:safe:{amount_minor}"
+    )
+
 
 
 def expected_cash_for_session(session: CashSession) -> int:
