@@ -1,12 +1,19 @@
 # app/billing/selectors.py
 from __future__ import annotations
-from decimal import Decimal
-from typing import Optional, Tuple
-from django.db.models import Q, F, Value, DecimalField, IntegerField, Case, When , Count , Sum
+from typing import Optional
+
+from django.db.models import (
+    Q, F, Value, DecimalField, IntegerField, Count, Sum, Case, When
+)
 from django.db.models.functions import Coalesce, Lower
-from billing.models import Provider, Bill , ProviderReturn
+
+from billing.models import (
+    Provider, Bill, ProviderReturn,
+    DebtorEntry, CreditorEntry
+)
 
 # ---------- Providers ----------
+
 def providers_qs_base():
     # active providers only, order newest first by id (for keyset)
     return Provider.objects.filter(is_active=True).order_by("-id")
@@ -18,30 +25,31 @@ def providers_search(q: str):
     return qs
 
 def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_size: int):
-    # start from base
     base = providers_qs_base()
     if q:
         base = base.filter(name__icontains=q)
 
-    debt_expr = Coalesce(
-        Sum(
-            F("bills__total") - F("bills__paid_amount"),
-            filter=Q(bills__status__in=[Bill.Status.UNPAID, Bill.Status.PARTIAL]),
-            output_field=DecimalField(max_digits=14, decimal_places=3),
-        ),
-        Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
-        output_field=DecimalField(max_digits=14, decimal_places=3),
-    )
-
+    # Stats based on subledger:
+    # - bills_count: total bills
+    # - unpaid_bills_count: open debtor entries (one per bill)
+    # - total_debt: sum remaining of open debtor entries
     qs = (
         base
         .annotate(
             bills_count=Coalesce(Count("bills", distinct=True), Value(0)),
             unpaid_bills_count=Coalesce(
-                Count("bills", filter=Q(bills__status__in=[Bill.Status.UNPAID, Bill.Status.PARTIAL]), distinct=True),
+                Count("debtor_entries", filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN), distinct=True),
                 Value(0),
             ),
-            total_debt=debt_expr,
+            total_debt=Coalesce(
+                Sum(
+                    F("debtor_entries__total") - F("debtor_entries__paid_amount"),
+                    filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN),
+                    output_field=DecimalField(max_digits=14, decimal_places=3),
+                ),
+                Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
+                output_field=DecimalField(max_digits=14, decimal_places=3),
+            ),
         )
         .only("id", "name", "phone", "is_active")
     )
@@ -63,12 +71,13 @@ def providers_ac(q: str):
         .values("id", "name")[:8]
     )
 
-# ---------- Bills ----------
+# ---------- Bills (commercial docs) ----------
+
 def bills_base():
+    # Note: no status/paid_amount fields anymore; these are properties resolved from DebtorEntry.
     return (
         Bill.objects.select_related("provider")
-        .only("id", "serial", "total", "status", "paid_amount", "created_at",
-              "provider__id", "provider__name")
+        .only("id", "serial", "total", "created_at", "provider__id", "provider__name")
     )
 
 def bills_list_filters(qs, q, serial, bill_id, status, date_from, date_to, cursor, page_size):
@@ -84,8 +93,7 @@ def bills_list_filters(qs, q, serial, bill_id, status, date_from, date_to, curso
             qs = qs.filter(id=int(bill_id))
         except ValueError:
             return qs.none()
-    if status in {"paid", "unpaid", "partial"}:
-        qs = qs.filter(status=status)
+    # status is filtered at the view level using Bill.status property (Python), to avoid complex subqueries
     if date_from:
         qs = qs.filter(created_at__date__gte=date_from)
     if date_to:
@@ -95,35 +103,51 @@ def bills_list_filters(qs, q, serial, bill_id, status, date_from, date_to, curso
             qs = qs.filter(id__lt=int(cursor))
         except ValueError:
             pass
-    # IMPORTANT: no order_by or slicing here — callers will do it
     return qs
 
-def debts_list(q, serial, bill_id, status, date_from, date_to, cursor, page_size):
-    qs = bills_base().annotate(
-        remaining_calc=Coalesce(
-            F("total") - Coalesce(F("paid_amount"),
-                                  Value(0, output_field=DecimalField(max_digits=14, decimal_places=3))),
-            Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
+# ---------- Debtor/Creditor (sub-ledgers) ----------
+
+def debtors_list(q: str, status: str, cursor: Optional[int], page_size: int):
+    qs = (
+        DebtorEntry.objects
+        .select_related("provider")
+        .order_by("-id")
+    )
+    if q:
+        qs = qs.filter(
+            Q(provider__name__icontains=q) |
+            Q(source_model__icontains=q) |
+            Q(source_id__icontains=q)
         )
-    )
-
-    qs = bills_list_filters(qs, q, serial, bill_id, status, date_from, date_to, cursor, page_size)
-
-    status_weight = Case(
-        When(status=Bill.Status.UNPAID, then=Value(0)),
-        When(status=Bill.Status.PARTIAL, then=Value(1)),
-        When(status=Bill.Status.PAID,   then=Value(2)),
-        default=Value(3),
-        output_field=IntegerField(),
-    )
-    qs = qs.order_by(status_weight, "-created_at", "-id")
+    if status in {"open", "closed"}:
+        qs = qs.filter(status=status)
+    if cursor:
+        qs = qs.filter(id__lt=cursor)
     return qs[:page_size]
 
+def creditors_list(q: str, status: str, cursor: Optional[int], page_size: int):
+    qs = (
+        CreditorEntry.objects
+        .select_related("provider")
+        .order_by("-id")
+    )
+    if q:
+        qs = qs.filter(
+            Q(provider__name__icontains=q) |
+            Q(source_model__icontains=q) |
+            Q(source_id__icontains=q)
+        )
+    if status in {"open", "closed"}:
+        qs = qs.filter(status=status)
+    if cursor:
+        qs = qs.filter(id__lt=cursor)
+    return qs[:page_size]
+
+# ---------- Serials & returns ----------
 
 def next_bill_serial() -> int:
     last = Bill.objects.order_by("-serial").values_list("serial", flat=True).first()
     return 1 if (last in (None, 0)) else int(last) + 1
-
 
 def next_return_serial() -> int:
     last = ProviderReturn.objects.order_by("-serial").values_list("serial", flat=True).first() or 0
@@ -134,11 +158,17 @@ def returns_base():
 
 def returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, page_size):
     qs = returns_base()
-    if q: qs = qs.filter(provider__name__icontains=q)
-    if serial: qs = qs.filter(serial=serial)
-    if rid: qs = qs.filter(id=rid)
-    if status in {"paid","partial","unpaid"}: qs = qs.filter(status=status)
-    if date_from: qs = qs.filter(created_at__date__gte=date_from)
-    if date_to:   qs = qs.filter(created_at__date__lte=date_to)
-    if cursor: qs = qs.filter(id__lt=cursor)
+    if q:
+        qs = qs.filter(provider__name__icontains=q)
+    if serial:
+        qs = qs.filter(serial=serial)
+    if rid:
+        qs = qs.filter(id=rid)
+    # status is a property now; filter in the view at Python level
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if cursor:
+        qs = qs.filter(id__lt=cursor)
     return qs.order_by("-id")[:page_size]

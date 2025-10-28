@@ -26,8 +26,9 @@
     return `<span class="status ${cls}">${label}</span>`;
   };
   const row = (r) => {
-    const dt = r.created_at ? new Date(r.created_at).toLocaleString() : "";
-    return `
+  const dt = r.created_at ? new Date(r.created_at).toLocaleString() : "";
+  const viewUrl = (window.__RETURNS__?.viewBase || "").replace(/\/$/, "") + r.id + "/";
+  return `
       <tr data-id="${r.id}">
         <td>${r.serial ?? ""}</td>
         <td>${r.provider?.name ?? ""}</td>
@@ -35,12 +36,12 @@
         <td>${pill(r.status)}</td>
         <td>${dt}</td>
         <td class="left">
-          <button class="btn" disabled title="قريباً">عرض</button>
+          <a class="btn" href="${viewUrl}">عرض</a>
           <button class="btn" disabled title="قريباً">تحصيل</button>
         </td>
       </tr>
     `;
-  };
+};
 
   function readFilters(includeCursor=true){
     const fd = new FormData(form);

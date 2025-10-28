@@ -1,7 +1,8 @@
+{# app/templates/billing/creditors_list.html #}
 {% extends "manager/base_manager.html" %}
 {% load static %}
 
-{% block title %}قائمة الفواتير{% endblock %}
+{% block title %}قائمة الدائن{% endblock %}
 
 {% block menu_secondary %}
   <div class="tabs-row">
@@ -23,7 +24,6 @@
   .input, .select { width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
   .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
   .btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
-  .btn.danger{ background:#ffefef; border-color:#e9b5b5; color:#b10000; }
   .muted{ color:#6b7280; font-size:12px; }
 
   .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
@@ -31,10 +31,10 @@
   thead th{ position:sticky; top:0; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
   th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
 
-  .status{ padding:2px 8px; border-radius:999px; font-size:12px; display:inline-block; }
-  .status.unpaid  { background:#fff2f2; color:#b10000; }
-  .status.partial { background:#fff8e6; color:#9a5b00; }
-  .status.paid    { background:#eaffea; color:#146b1f; }
+  /* status highlighting */
+  tr.is-unpaid{ background:#fee2e2; }   /* light red */
+  tr.is-partial{ background:#f3e8ff; }  /* light purple */
+  tr.is-paid{ background:#dcfce7; }     /* light green */
 
   /* Modal */
   .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:2000; }
@@ -42,59 +42,51 @@
   .modal .box{ background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:0 10px 30px rgba(0,0,0,.2); }
   .modal header{ font-weight:700; margin-bottom:6px; }
   .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .modal .input{ width:100%; }
 </style>
-<script>
-  window.__BILLING__ = {
-    billsListUrl: "{% url 'billing_api_bills_list' %}",
-    billDeleteBase: "{% url 'billing_api_bill_delete' 0 %}".replace(/0\/?$/,""),
-    billViewBase: "{% url 'billing_bill_view' 0 %}".replace(/0\/?$/,"")
-  };
-</script>
-<script defer src="{% static 'js/billing_bills.js' %}"></script>
+<script defer src="{% static 'js/billing_creditors.js' %}"></script>
 {% endblock %}
 
 {% block content %}
 <div class="card" dir="rtl">
-  <h2 style="margin:0 0 12px;">قائمة الفواتير</h2>
+  <h2 style="margin:0 0 12px;">قائمة الدائن</h2>
 
-  <!-- Filters -->
   <div class="card" style="margin:0 0 12px;">
-    <form id="filters" class="row" autocomplete="off">
+    <div class="row">
       <div class="field">
         <label class="muted">اسم المورد</label>
-        <input class="input" name="q" id="fQ" placeholder="ابحث بالاسم">
+        <input id="fQ" class="input" placeholder="ابحث بالاسم">
       </div>
       <div class="field" style="max-width:160px;">
-        <label class="muted">سيريال الفاتورة</label>
-        <input class="input" name="serial" id="fSerial" inputmode="numeric" placeholder="مثال: 1024">
+        <label class="muted">سيريال المرتجع</label>
+        <input id="fSerial" class="input" placeholder="رقم السيريال">
       </div>
       <div class="field" style="max-width:160px;">
-        <label class="muted">ID الفاتورة</label>
-        <input class="input" name="id" id="fId" inputmode="numeric" placeholder="مثال: 321">
+        <label class="muted">ID المرتجع</label>
+        <input id="fId" class="input" placeholder="رقم المرتجع">
       </div>
       <div class="field" style="max-width:180px;">
         <label class="muted">من تاريخ</label>
-        <input class="input" type="date" name="date_from" id="fFrom">
+        <input id="fFrom" type="date" class="input">
       </div>
       <div class="field" style="max-width:180px;">
         <label class="muted">إلى تاريخ</label>
-        <input class="input" type="date" name="date_to" id="fTo">
+        <input id="fTo" type="date" class="input">
       </div>
       <div class="field" style="max-width:200px;">
         <label class="muted">الحالة</label>
-        <select class="select" name="status" id="fStatus">
-          <option value="">الكل</option>
-          <option value="paid">مدفوعة</option>
-          <option value="partial">مدفوعة جزئياً</option>
+        <select id="fStatus" class="select">
+          <option value="">الكل (الافتراضي: غير مدفوعة ← جزئية ← مدفوعة)</option>
           <option value="unpaid">غير مدفوعة</option>
+          <option value="partial">مدفوعة جزئياً</option>
+          <option value="paid">مدفوعة</option>
         </select>
       </div>
-      <button class="btn" id="btnSearch" type="submit">بحث</button>
-      <a class="btn" id="btnReset" href=".">إعادة تعيين</a>
-    </form>
+      <button id="btnSearch" class="btn">بحث</button>
+      <a id="btnReset" class="btn" href=".">إعادة تعيين</a>
+    </div>
   </div>
 
-  <!-- Table -->
   <div class="table-wrap">
     <table>
       <thead>
@@ -103,9 +95,10 @@
           <th style="width:120px;">سيريال</th>
           <th>المورد</th>
           <th style="width:160px;">الإجمالي</th>
+          <th style="width:160px;">المدفوع</th>
+          <th style="width:160px;">المتبقي</th>
           <th style="width:160px;">الحالة</th>
-          <th style="width:220px;">التاريخ</th>
-          <th style="width:180px;" class="left">إجراءات</th>
+          <th style="width:260px;" class="left">إجراءات</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
@@ -116,19 +109,31 @@
     <button id="loadMore" class="btn">عرض المزيد</button>
     <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
   </div>
-  <div id="sentinel" style="height:1px;"></div>
 </div>
 
-<!-- Delete modal -->
-<div id="modal-del" class="modal" aria-hidden="true">
+<!-- Modal texts are for collection -->
+<div id="modal-full" class="modal" aria-hidden="true">
   <div class="box">
-    <header>تأكيد الحذف</header>
+    <header>تأكيد التحصيل الكامل</header>
+    <div id="full-text">هل أنت متأكد من التحصيل الكامل؟</div>
+    <footer>
+      <button class="btn" data-close>إلغاء</button>
+      <button class="btn primary" data-confirm>تأكيد</button>
+    </footer>
+  </div>
+</div>
+
+<div id="modal-batch" class="modal" aria-hidden="true">
+  <div class="box">
+    <header>إدخال تحصيل</header>
     <div class="body">
-      هل تريد حذف الفاتورة <b id="delLabel"></b>؟ سيجري إنقاص المخزون تلقائياً.
+      <p id="batch-text" style="margin:0 0 8px;"></p>
+      <input id="batch-amount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+      <small id="batch-hint" class="muted"></small>
     </div>
     <footer>
       <button class="btn" data-close>إلغاء</button>
-      <button class="btn danger" data-confirm>حذف</button>
+      <button class="btn primary" data-confirm>تأكيد</button>
     </footer>
   </div>
 </div>

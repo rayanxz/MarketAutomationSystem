@@ -8,10 +8,14 @@ urlpatterns = [
     path("add/", v.add_bill, name="billing_add"),
     path("list/", v.bills_list, name="billing_list"),
     path("providers/", v.providers_list, name="billing_providers"),
-    path("debts/", v.debts_page, name="billing_debts"),
 
-    # APIs (debts)
+
+    path("debts/", v.debts_page, name="billing_debts"),           # قائمة المدين (store owes providers)
+    path("creditors/", v.creditors_page, name="billing_creditors"),# قائمة الدائن (providers owe store)
+
+    # APIs (debts/creditors)
     path("api/debts", v.api_debts_list, name="billing_api_debts_list"),
+    path("api/creditors", v.api_creditors_list, name="billing_api_creditors_list"),
 
     # APIs (bills)
     path("api/bill/save/", v.api_bill_save, name="billing_api_bill_save"),
@@ -26,18 +30,17 @@ urlpatterns = [
     path("api/providers/create", v.api_provider_create, name="billing_api_provider_create"),
     path("api/providers/<int:pid>/delete", v.api_provider_delete, name="billing_api_provider_delete"),
 
-    # Payments
+    # Payments (payables)
     path("bills/<int:bill_id>/pay-full/", v.pay_debt_full, name="pay_debt_full"),
     path("bills/<int:bill_id>/pay-batch/", v.pay_debt_batch, name="pay_debt_batch"),
     path("bills/<int:bill_id>/", v.bill_view, name="billing_bill_view"),
 
-
+    # Provider returns (receivables)
     path("returns/", V.providers_returns_page, name="billing_returns"),
     path("returns/list/", V.providers_returns_list_page, name="billing_returns_list"),
-
-
     path("api/returns/save/", V.api_return_save, name="billing_api_return_save"),
     path("api/returns/list/", V.api_returns_list, name="billing_api_returns_list"),
+    path("returns/<int:ret_id>/", V.return_view, name="billing_return_view"),
     path("api/returns/next-serial/", V.api_return_next_serial, name="billing_api_return_next_serial"),
     path("returns/<int:ret_id>/collect-full/", V.collect_return_full, name="billing_collect_full"),
     path("returns/<int:ret_id>/collect-batch/", V.collect_return_batch, name="billing_collect_batch"),

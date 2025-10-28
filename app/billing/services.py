@@ -8,10 +8,14 @@ from typing import Iterable, Dict, Any
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from billing.models import Provider, Bill, BillItem, ProviderReturn, ProviderReturnItem
+from billing.models import (
+    Provider, Bill, BillItem,
+    ProviderReturn, ProviderReturnItem,
+    DebtorEntry, DebtorPayment,
+    CreditorEntry, CreditorReceipt,
+)
 from catalog.models import Product
 from ledger import services as LSV
-
 
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
@@ -55,7 +59,7 @@ def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) ->
 
 
 # =======================================================================
-# Bills
+# Bills  (commercial doc) + Debtor subledger (payables)
 # =======================================================================
 
 @transaction.atomic
@@ -70,27 +74,21 @@ def create_bill(
     update_product_defaults: bool = False,
 ) -> Bill:
     """
-    Create a bill, increase stock, and post purchase to the ledger:
+    Create a bill, increase stock, post GL (purchase), and create DebtorEntry:
       Dr INVENTORY (total) / Cr SAFE (paid) / Cr PROVIDER_PAYABLE (remaining)
-
-    We also capture creation-time payment snapshot:
-      - bill.initial_status
-      - bill.initial_paid_amount
-
-    Payment logic is server-side authoritative (see _resolve_paid_amount).
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
 
-    # Create an empty shell to assign an auto/explicit serial first
-    bill = Bill(provider=provider, status=status, paid_amount=DEC0, total=DEC0)
+    # Persist a shell bill first to get PK/serial
+    bill = Bill(provider=provider, total=DEC0)
     if serial is not None:
         bill.serial = serial
-    bill.save()  # persist early to get PK/serial
+    bill.save()
 
     grand = DEC0
 
-    # Lock involved products once
+    # Lock products once
     prod_ids = [int(it["product_id"]) for it in items]
     products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
 
@@ -108,14 +106,12 @@ def create_bill(
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
-        # Convert quantity to primary units if the selected unit was u2
         qty_primary = qty_raw
         cf = getattr(product, "conversion_factor", None)
         if unit_idx == 2 and cf:
             qty_primary = qty_raw * Decimal(str(cf))
         qty_primary = q3(qty_primary)
 
-        # If a total override exists and > 0 use it, otherwise qty * cost_u1
         line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
 
         BillItem.objects.create(
@@ -128,7 +124,7 @@ def create_bill(
             line_total=line_total,
         )
 
-        # Stock increase (purchases)
+        # Stock increase
         product.stock_qty = (product.stock_qty or DEC0) + qty_primary
         update_fields = ["stock_qty"]
 
@@ -148,30 +144,27 @@ def create_bill(
         product.save(update_fields=list(dict.fromkeys(update_fields)))
         grand += line_total
 
-    # Totals and payment state (authoritative)
+    # Totals
     bill.total = q3(grand)
+    bill.save(update_fields=["total"])
+
+    # Debtor entry (source of truth for payable)
     final_paid = _resolve_paid_amount(status, intended_paid, bill.total)
-    bill.paid_amount = final_paid
+    debtor, _ = DebtorEntry.objects.update_or_create(
+        provider=provider,
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+        defaults={
+            "total": q3(bill.total),
+            "paid_amount": q3(final_paid),
+            "status": DebtorEntry.Status.CLOSED if q3(bill.total - final_paid) <= DEC0 else DebtorEntry.Status.OPEN,
+        },
+    )
 
-    if bill.paid_amount >= bill.total:
-        bill.status = Bill.Status.PAID
-    elif bill.paid_amount > DEC0:
-        bill.status = Bill.Status.PARTIAL
-    else:
-        bill.status = Bill.Status.UNPAID
-
-    # Creation-time snapshot
-    bill.initial_status = bill.status
-    bill.initial_paid_amount = bill.paid_amount
-
-    bill.save(update_fields=[
-        "total", "paid_amount", "status",
-        "initial_status", "initial_paid_amount"
-    ])
-
-    # Ledger: Provider purchase via SAFE
+    # GL posting
     total_minor = minor3(bill.total)
-    paid_minor = minor3(bill.paid_amount or DEC0)
+    paid_minor = minor3(final_paid)
     LSV.post_purchase(
         actor=actor,
         total_minor=total_minor,
@@ -185,12 +178,19 @@ def create_bill(
 @transaction.atomic
 def delete_bill(*, actor, bill_id: int) -> None:
     """
-    Reverse stock and post reversal:
+    Reverse stock and post GL reversal:
       Cr INVENTORY / Dr SAFE (paid) / Dr PROVIDER_PAYABLE (remaining)
+    Only allowed if no DebtorPayment exists for the associated entry.
     """
     bill = Bill.objects.select_for_update().prefetch_related("items").get(pk=bill_id)
 
-    # Lock related products once
+    debtor = DebtorEntry.objects.select_for_update().filter(
+        source_app="billing", source_model="Bill", source_id=str(bill.id)
+    ).first()
+    if debtor and debtor.payments.exists():
+        raise ValueError("Cannot delete a bill with recorded debtor payments. Reverse payments first.")
+
+    # Reverse stock
     prod_ids = list(bill.items.values_list("product_id", flat=True))
     products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
 
@@ -206,32 +206,42 @@ def delete_bill(*, actor, bill_id: int) -> None:
             fields.append("updated_at")
         p.save(update_fields=fields)
 
-    # Ledger reversal
+    # GL reversal
+    paid_amt = debtor.paid_amount if debtor else DEC0
     LSV.post_purchase_reversal(
         actor=actor,
         total_minor=minor3(bill.total or DEC0),
-        paid_minor=minor3(bill.paid_amount or DEC0),
+        paid_minor=minor3(paid_amt),
         provider_id=bill.provider_id,
         source=("billing", "Bill", bill.id),
     )
 
+    if debtor:
+        debtor.delete()
     bill.delete()
 
 
 @transaction.atomic
 def pay_full(*, actor, bill_id: int) -> Bill:
     """
-    Mark a bill as fully paid and post SAFE payment against PROVIDER_PAYABLE.
+    Pay the remaining balance against DebtorEntry and post GL:
+      Dr PROVIDER_PAYABLE / Cr SAFE (in our GL design this is implemented via LSV helper)
     """
     bill = Bill.objects.select_for_update().get(pk=bill_id)
-    if bill.remaining <= 0:
+    debtor = DebtorEntry.objects.select_for_update().get(
+        source_app="billing", source_model="Bill", source_id=str(bill.id)
+    )
+    if debtor.remaining <= 0:
         return bill
 
-    pay_amt = bill.remaining  # capture before mutation
-    bill.paid_amount = bill.total
-    bill.status = Bill.Status.PAID
-    bill.save(update_fields=["paid_amount", "status"])
+    pay_amt = debtor.remaining  # capture
+    # Update subledger
+    DebtorPayment.objects.create(entry=debtor, amount=q3(pay_amt))
+    debtor.paid_amount = q3((debtor.paid_amount or DEC0) + pay_amt)
+    debtor.status = DebtorEntry.Status.CLOSED if debtor.remaining <= DEC0 else DebtorEntry.Status.OPEN
+    debtor.save(update_fields=["paid_amount", "status"])
 
+    # GL
     LSV.post_provider_payment_from_safe(
         actor=actor,
         amount_minor=minor3(pay_amt),
@@ -244,22 +254,27 @@ def pay_full(*, actor, bill_id: int) -> Bill:
 @transaction.atomic
 def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
     """
-    Increase paid_amount, update status, and post SAFE payment for 'amount'.
+    Pay a partial amount against DebtorEntry and post GL.
     """
-    if amount <= 0:
+    amt = q3(amount or DEC0)
+    if amt <= 0:
         raise ValueError("amount must be positive")
 
     bill = Bill.objects.select_for_update().get(pk=bill_id)
-    if amount > bill.remaining:
+    debtor = DebtorEntry.objects.select_for_update().get(
+        source_app="billing", source_model="Bill", source_id=str(bill.id)
+    )
+    if amt > debtor.remaining:
         raise ValueError("amount exceeds remaining")
 
-    bill.paid_amount = (bill.paid_amount or DEC0) + amount
-    bill.status = Bill.Status.PAID if bill.paid_amount >= bill.total else Bill.Status.PARTIAL
-    bill.save(update_fields=["paid_amount", "status"])
+    DebtorPayment.objects.create(entry=debtor, amount=amt)
+    debtor.paid_amount = q3((debtor.paid_amount or DEC0) + amt)
+    debtor.status = DebtorEntry.Status.CLOSED if debtor.remaining <= DEC0 else DebtorEntry.Status.OPEN
+    debtor.save(update_fields=["paid_amount", "status"])
 
     LSV.post_provider_payment_from_safe(
         actor=actor,
-        amount_minor=minor3(amount),
+        amount_minor=minor3(amt),
         provider_id=bill.provider_id,
         source=("billing", "Bill", bill.id),
     )
@@ -267,7 +282,7 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
 
 
 # =======================================================================
-# Provider Returns
+# Provider Returns (commercial doc) + Creditor subledger (receivables)
 # =======================================================================
 
 @transaction.atomic
@@ -276,19 +291,24 @@ def create_return(
     actor,
     provider_id: int,
     status: str,
-    paid_amount: Decimal,
+    paid_amount: Decimal,   # "collected" at creation time
     items: Iterable[Dict[str, Any]],
 ) -> ProviderReturn:
     """
-    Create a provider return, decrease stock, and post return to the ledger:
+    Create a provider return, decrease stock, post GL (return), and create CreditorEntry:
       Cr INVENTORY (total) / Dr SAFE (paid) / Dr PROVIDER_RECEIVABLE (remaining)
-    (Provider owes the store when not fully paid.)
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
 
-    pret = ProviderReturn(provider=provider, status=status, paid_amount=DEC0, total=DEC0)
+    pret = ProviderReturn(provider=provider, total=DEC0)
     pret.save()
+
+    # We'll fill total later, but we can already store intended paid info
+    final_collected = _resolve_paid_amount(status, intended_paid, DEC0)
+    pret.initial_paid = intended_paid
+    pret.initial_status = (status or "unpaid").lower()
+    pret.save(update_fields=["initial_paid", "initial_status"])
 
     grand = DEC0
 
@@ -326,7 +346,7 @@ def create_return(
             line_total=line_total,
         )
 
-        # Stock decrease (return to provider)
+        # Stock decrease
         product.stock_qty = (product.stock_qty or DEC0) - qty_primary
         update_fields = ["stock_qty"]
         if hasattr(product, "updated_at"):
@@ -337,23 +357,27 @@ def create_return(
 
         grand += line_total
 
-    # Totals and payment state (authoritative)
+    # Totals
     pret.total = q3(grand)
-    final_paid = _resolve_paid_amount(status, intended_paid, pret.total)
-    pret.paid_amount = final_paid
+    pret.save(update_fields=["total"])
 
-    if pret.paid_amount >= pret.total:
-        pret.status = ProviderReturn.Status.PAID
-    elif pret.paid_amount > DEC0:
-        pret.status = ProviderReturn.Status.PARTIAL
-    else:
-        pret.status = ProviderReturn.Status.UNPAID
+    # Creditor entry (source of truth for receivable)
+    final_collected = _resolve_paid_amount(status, intended_paid, pret.total)
+    cred, _ = CreditorEntry.objects.update_or_create(
+        provider=provider,
+        source_app="billing",
+        source_model="ProviderReturn",
+        source_id=str(pret.id),
+        defaults={
+            "total": q3(pret.total),
+            "collected": q3(final_collected),
+            "status": CreditorEntry.Status.CLOSED if q3(pret.total - final_collected) <= DEC0 else CreditorEntry.Status.OPEN,
+        },
+    )
 
-    pret.save(update_fields=["total", "paid_amount", "status"])
-
-    # Ledger: Provider return via SAFE
+    # GL posting
     total_minor = minor3(pret.total)
-    paid_minor = minor3(pret.paid_amount or DEC0)
+    paid_minor = minor3(final_collected)
     LSV.post_provider_return(
         actor=actor,
         total_minor=total_minor,
@@ -369,9 +393,17 @@ def delete_return(*, actor, return_id: int) -> None:
     """
     Reverse a provider return:
       Dr INVENTORY / Cr SAFE (paid) / Cr PROVIDER_RECEIVABLE (remaining)
+    Only allowed if no CreditorReceipt exists for the associated entry.
     """
     pret = ProviderReturn.objects.select_for_update().prefetch_related("items").get(pk=return_id)
 
+    cred = CreditorEntry.objects.select_for_update().filter(
+        source_app="billing", source_model="ProviderReturn", source_id=str(pret.id)
+    ).first()
+    if cred and cred.receipts.exists():
+        raise ValueError("Cannot delete a provider return with recorded receipts. Reverse receipts first.")
+
+    # Reverse stock
     prod_ids = list(pret.items.values_list("product_id", flat=True))
     products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
 
@@ -379,7 +411,6 @@ def delete_return(*, actor, return_id: int) -> None:
         p = products.get(it.product_id)
         if not p:
             continue
-        # add stock back
         p.stock_qty = (p.stock_qty or DEC0) + (it.qty_primary or DEC0)
         fields = ["stock_qty"]
         if hasattr(p, "updated_at"):
@@ -388,31 +419,39 @@ def delete_return(*, actor, return_id: int) -> None:
             fields.append("updated_at")
         p.save(update_fields=fields)
 
+    # GL reversal
+    collected_amt = cred.collected if cred else DEC0
     LSV.post_provider_return_reversal(
         actor=actor,
         total_minor=minor3(pret.total or DEC0),
-        paid_minor=minor3(pret.paid_amount or DEC0),
+        paid_minor=minor3(collected_amt),
         provider_id=pret.provider_id,
         source=("billing", "ProviderReturn", pret.id),
     )
 
+    if cred:
+        cred.delete()
     pret.delete()
 
 
 @transaction.atomic
 def collect_full(*, actor, return_id: int) -> ProviderReturn:
     """
-    Provider pays the store the remaining balance for a return.
+    Provider pays the remaining balance (receivable) against CreditorEntry and post GL:
       Dr SAFE / Cr PROVIDER_RECEIVABLE
     """
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
-    if pret.remaining <= 0:
+    cred = CreditorEntry.objects.select_for_update().get(
+        source_app="billing", source_model="ProviderReturn", source_id=str(pret.id)
+    )
+    if cred.remaining <= 0:
         return pret
 
-    amt = pret.remaining
-    pret.paid_amount = pret.total
-    pret.status = ProviderReturn.Status.PAID
-    pret.save(update_fields=["paid_amount", "status"])
+    amt = cred.remaining
+    CreditorReceipt.objects.create(entry=cred, amount=q3(amt))
+    cred.collected = q3((cred.collected or DEC0) + amt)
+    cred.status = CreditorEntry.Status.CLOSED if cred.remaining <= DEC0 else CreditorEntry.Status.OPEN
+    cred.save(update_fields=["collected", "status"])
 
     LSV.collect_from_provider(
         actor=actor,
@@ -428,20 +467,25 @@ def collect_partial(*, actor, return_id: int, amount: Decimal) -> ProviderReturn
     """
     Partial collection on provider receivable.
     """
-    if amount <= 0:
+    amt = q3(amount or DEC0)
+    if amt <= 0:
         raise ValueError("amount must be positive")
 
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
-    if amount > pret.remaining:
+    cred = CreditorEntry.objects.select_for_update().get(
+        source_app="billing", source_model="ProviderReturn", source_id=str(pret.id)
+    )
+    if amt > cred.remaining:
         raise ValueError("amount exceeds remaining")
 
-    pret.paid_amount = (pret.paid_amount or DEC0) + amount
-    pret.status = ProviderReturn.Status.PAID if pret.paid_amount >= pret.total else ProviderReturn.Status.PARTIAL
-    pret.save(update_fields=["paid_amount", "status"])
+    CreditorReceipt.objects.create(entry=cred, amount=amt)
+    cred.collected = q3((cred.collected or DEC0) + amt)
+    cred.status = CreditorEntry.Status.CLOSED if cred.remaining <= DEC0 else CreditorEntry.Status.OPEN
+    cred.save(update_fields=["collected", "status"])
 
     LSV.collect_from_provider(
         actor=actor,
-        amount_minor=minor3(amount),
+        amount_minor=minor3(amt),
         provider_id=pret.provider_id,
         source=("billing", "ProviderReturn", pret.id),
     )

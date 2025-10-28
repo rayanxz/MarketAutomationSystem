@@ -1,16 +1,26 @@
 # app/billing/models.py
 from __future__ import annotations
 from decimal import Decimal
+
 from django.core.validators import MinValueValidator
 from django.db import models, transaction, IntegrityError
 from django.db.models.functions import Lower
 from django.db.models import Q
+from django.utils import timezone
 
 from catalog.models import Product
+
+DEC0 = Decimal("0.000")
+
+
+# =========================
+# Provider
+# =========================
 
 class ActiveProviderManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(is_active=True)
+
 
 class Provider(models.Model):
     name = models.CharField(max_length=128, unique=False, db_index=True)
@@ -36,37 +46,59 @@ class Provider(models.Model):
     def __str__(self) -> str:
         return self.name
 
-class Bill(models.Model):
-    class Status(models.TextChoices):
-        PAID = "paid", "مدفوعة بالكامل"
-        UNPAID = "unpaid", "غير مدفوعة"
-        PARTIAL = "partial", "مدفوعة جزئياً"
-    initial_status = models.CharField(max_length=10, choices=Status.choices, default=Status.UNPAID)
-    initial_paid_amount = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),validators=[MinValueValidator(0)])
 
-                                          
+# =========================
+# Commercial document: Bill
+# =========================
+
+class Bill(models.Model):
+    # NOTE: Debt state (paid/remaining/status) lives in DebtorEntry now.
     serial = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="bills")
 
-    total = models.DecimalField(max_digits=14, decimal_places=3,
-                                default=Decimal("0.000"), validators=[MinValueValidator(0)])
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.UNPAID)
-    paid_amount = models.DecimalField(max_digits=14, decimal_places=3,
-                                      default=Decimal("0.000"), validators=[MinValueValidator(0)])
+    total = models.DecimalField(
+        max_digits=14, decimal_places=3, default=Decimal("0.000"),
+        validators=[MinValueValidator(0)]
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-id"]
         constraints = [
             models.CheckConstraint(check=Q(total__gte=0), name="bill_total_non_negative"),
-            models.CheckConstraint(check=Q(paid_amount__gte=0), name="bill_paid_non_negative"),
-            models.CheckConstraint(check=Q(paid_amount__lte=models.F("total")),
-                                   name="bill_paid_le_total"),
         ]
+
+    # --------- Compatibility helpers (Python-level only) ---------
+    class Status(models.TextChoices):
+        PAID = "paid", "مدفوعة بالكامل"
+        UNPAID = "unpaid", "غير مدفوعة"
+        PARTIAL = "partial", "مدفوعة جزئياً"
+
+    @property
+    def debtor_entry(self) -> "DebtorEntry | None":
+        return DebtorEntry.objects.filter(
+            source_app="billing", source_model="Bill", source_id=str(self.id)
+        ).first()
+
+    @property
+    def paid_amount(self) -> Decimal:
+        d = self.debtor_entry
+        return (d.paid_amount if d else DEC0) or DEC0
 
     @property
     def remaining(self) -> Decimal:
-        return (self.total or Decimal("0")) - (self.paid_amount or Decimal("0"))
+        d = self.debtor_entry
+        return (d.remaining if d else (self.total or DEC0)) or DEC0
+
+    @property
+    def status(self) -> str:
+        d = self.debtor_entry
+        if not d:
+            return Bill.Status.UNPAID
+        return (Bill.Status.PAID
+                if d.remaining <= 0
+                else Bill.Status.PARTIAL if d.paid_amount and d.paid_amount > 0
+                else Bill.Status.UNPAID)
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
@@ -95,6 +127,7 @@ class Bill(models.Model):
             self.assign_serial_if_needed()
         super().save(*args, **kwargs)
 
+
 class BillItem(models.Model):
     class UnitIndex(models.IntegerChoices):
         PRIMARY = 1, "الوحدة الأولى"
@@ -114,37 +147,70 @@ class BillItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.name} x {self.qty_primary} (#{self.bill.serial or self.bill_id})"
-    
 
-# === NEW: ProviderReturn models ===
+
+# ================================
+# Commercial document: Return to Provider
+# ================================
+
 class ProviderReturn(models.Model):
-    class Status(models.TextChoices):
-        PAID = "paid", "مدفوعة بالكامل"
-        UNPAID = "unpaid", "غير مدفوعة"
-        PARTIAL = "partial", "مدفوعة جزئياً"
-
+    # NOTE: Debt state (collected/remaining/status) lives in CreditorEntry now.
     serial = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="returns")
 
-    total = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                validators=[MinValueValidator(0)])
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.UNPAID)
-    paid_amount = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                      validators=[MinValueValidator(0)])
+    total = models.DecimalField(
+        max_digits=14, decimal_places=3, default=Decimal("0.000"),
+        validators=[MinValueValidator(0)]
+    )
+    initial_paid = models.DecimalField(
+        max_digits=14, decimal_places=3, default=Decimal("0.000"),
+        validators=[MinValueValidator(0)]
+    )
+    initial_status = models.CharField(
+        max_length=8, choices=Bill.Status.choices, default=Bill.Status.UNPAID
+    )
+
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-id"]
         constraints = [
             models.CheckConstraint(check=Q(total__gte=0), name="pret_total_non_negative"),
-            models.CheckConstraint(check=Q(paid_amount__gte=0), name="pret_paid_non_negative"),
-            models.CheckConstraint(check=Q(paid_amount__lte=models.F("total")),
-                                   name="pret_paid_le_total"),
         ]
+
+    # --------- Compatibility helpers (Python-level only) ---------
+    class Status(models.TextChoices):
+        PAID = "paid", "مدفوعة بالكامل"
+        UNPAID = "unpaid", "غير مدفوعة"
+        PARTIAL = "partial", "مدفوعة جزئياً"
+
+    @property
+    def creditor_entry(self) -> "CreditorEntry | None":
+        return CreditorEntry.objects.filter(
+            source_app="billing", source_model="ProviderReturn", source_id=str(self.id)
+        ).first()
+
+    @property
+    def paid_amount(self) -> Decimal:
+        # historical name for "collected"
+        c = self.creditor_entry
+        return (c.collected if c else DEC0) or DEC0
 
     @property
     def remaining(self) -> Decimal:
-        return (self.total or Decimal("0")) - (self.paid_amount or Decimal("0"))
+        c = self.creditor_entry
+        return (c.remaining if c else (self.total or DEC0)) or DEC0
+
+    @property
+    def status(self) -> str:
+        c = self.creditor_entry
+        if not c:
+            return ProviderReturn.Status.UNPAID
+        return (ProviderReturn.Status.PAID
+                if c.remaining <= 0
+                else ProviderReturn.Status.PARTIAL if c.collected and c.collected > 0
+                else ProviderReturn.Status.UNPAID)
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
@@ -193,3 +259,114 @@ class ProviderReturnItem(models.Model):
     def __str__(self) -> str:
         return f"{self.product.name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
 
+
+# =====================================
+# NEW: Debtor / Creditor Sub-Ledgers
+# =====================================
+
+class DebtorEntry(models.Model):
+    """What the store owes a provider (payables) per source doc (Bill)."""
+    class Status(models.TextChoices):
+        OPEN   = "open", "مفتوحة"
+        CLOSED = "closed", "مغلقة"
+
+    provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="debtor_entries")
+    source_app   = models.CharField(max_length=64)    # "billing"
+    source_model = models.CharField(max_length=64)    # "Bill"
+    source_id    = models.CharField(max_length=64)    # bill id as str
+    created_at   = models.DateTimeField(default=timezone.now)
+
+    total        = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                       validators=[MinValueValidator(0)])
+    paid_amount  = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                       validators=[MinValueValidator(0)])
+    status       = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["provider_id"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["source_app","source_model","source_id"], name="uniq_debtor_by_source"),
+            models.CheckConstraint(check=Q(total__gte=0), name="debtor_total_ge0"),
+            models.CheckConstraint(check=Q(paid_amount__gte=0), name="debtor_paid_ge0"),
+            models.CheckConstraint(check=Q(paid_amount__lte=models.F("total")), name="debtor_paid_le_total"),
+        ]
+
+    @property
+    def remaining(self) -> Decimal:
+        return (self.total or DEC0) - (self.paid_amount or DEC0)
+
+    def __str__(self) -> str:
+        return f"Debtor #{self.id} → {self.provider.name} ({self.remaining} remaining)"
+
+
+class DebtorPayment(models.Model):
+    entry       = models.ForeignKey(DebtorEntry, on_delete=models.CASCADE, related_name="payments")
+    created_at  = models.DateTimeField(default=timezone.now)
+    amount      = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
+    journal_entry_id = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["entry_id"]), models.Index(fields=["created_at"])]
+        constraints = [
+            models.CheckConstraint(check=Q(amount__gt=0), name="debtor_payment_amount_pos"),
+        ]
+
+    def __str__(self): return f"DebtorPayment {self.amount} on entry {self.entry_id}"
+
+
+class CreditorEntry(models.Model):
+    """What the provider owes the store (receivables) per source doc (ProviderReturn)."""
+    class Status(models.TextChoices):
+        OPEN   = "open", "مفتوحة"
+        CLOSED = "closed", "مغلقة"
+
+    provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="creditor_entries")
+    source_app   = models.CharField(max_length=64)    # "billing"
+    source_model = models.CharField(max_length=64)    # "ProviderReturn"
+    source_id    = models.CharField(max_length=64)    # return id as str
+    created_at   = models.DateTimeField(default=timezone.now)
+
+    total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                      validators=[MinValueValidator(0)])
+    collected   = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                      validators=[MinValueValidator(0)])
+    status      = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["provider_id"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["source_app","source_model","source_id"], name="uniq_creditor_by_source"),
+            models.CheckConstraint(check=Q(total__gte=0), name="creditor_total_ge0"),
+            models.CheckConstraint(check=Q(collected__gte=0), name="creditor_coll_ge0"),
+            models.CheckConstraint(check=Q(collected__lte=models.F("total")), name="creditor_coll_le_total"),
+        ]
+
+    @property
+    def remaining(self) -> Decimal:
+        return (self.total or DEC0) - (self.collected or DEC0)
+
+    def __str__(self) -> str:
+        return f"Creditor #{self.id} ← {self.provider.name} ({self.remaining} remaining)"
+
+
+class CreditorReceipt(models.Model):
+    entry       = models.ForeignKey(CreditorEntry, on_delete=models.CASCADE, related_name="receipts")
+    created_at  = models.DateTimeField(default=timezone.now)
+    amount      = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
+    journal_entry_id = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["entry_id"]), models.Index(fields=["created_at"])]
+        constraints = [
+            models.CheckConstraint(check=Q(amount__gt=0), name="creditor_receipt_amount_pos"),
+        ]
+
+    def __str__(self): return f"CreditorReceipt {self.amount} on entry {self.entry_id}"

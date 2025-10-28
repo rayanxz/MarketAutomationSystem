@@ -13,15 +13,16 @@ from django.db.models import Q  # needed for products search filters
 from accounts.models import AccountProfile
 from catalog.views import role_required
 from catalog.models import Product
-from billing.models import Provider, Bill , ProviderReturn
+from billing.models import (
+    Provider, Bill, ProviderReturn,
+    DebtorEntry, CreditorEntry,
+)
 
 from . import selectors as S
 from . import services as SV
-from .serializers import provider_row, bill_row
-from .serializers import return_row
+from .serializers import provider_row, bill_row, debtor_row, creditor_row, return_row
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 # ---------- Page views ----------
@@ -55,6 +56,32 @@ def providers_list(request: HttpRequest) -> HttpResponse:
 def debts_page(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/debts_list.html")
 
+@role_required(AccountProfile.Role.MANAGER)
+def creditors_page(request: HttpRequest) -> HttpResponse:
+    # قائمة الدائن (providers owe store)
+    return render(request, "billing/creditors_list.html")
+
+
+@role_required(AccountProfile.Role.MANAGER)
+def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
+    """Read-only details page for a ProviderReturn."""
+    pret = (
+        ProviderReturn.objects
+        .select_related("provider")
+        .prefetch_related("items", "items__product")
+        .get(pk=ret_id)
+    )
+
+    created_status = pret.initial_status
+    created_paid = pret.initial_paid
+
+    ctx = {
+        "pret": pret,
+        "created_status": created_status,
+        "created_paid": created_paid,
+        "has_credit_now": pret.remaining > 0,
+    }
+    return render(request, "billing/return_view.html", ctx)
 
 # ---------- Helpers ----------
 
@@ -102,7 +129,7 @@ def api_provider_create(request: HttpRequest) -> JsonResponse:
     name = (payload.get("name") or "").strip()
     if not name:
         return _bad("name required")
-    # uses your ActiveProviderManager
+    # uses ActiveProviderManager
     if Provider.active.filter(name__iexact=name).exists():
         return _bad("الاسم موجود مسبقا", 409)
     p = Provider.objects.create(
@@ -118,11 +145,13 @@ def api_provider_create(request: HttpRequest) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_provider_delete(request: HttpRequest, pid: int) -> JsonResponse:
     p = get_object_or_404(Provider, pk=pid)
-    has_debts = Bill.objects.filter(
-        provider=p, status__in=[Bill.Status.UNPAID, Bill.Status.PARTIAL]
-    ).exists()
-    if has_debts:
-        return _bad("cannot delete: unpaid debts exist")
+
+    # Block deletion if there are any OPEN debtor or creditor entries
+    has_open_payables = DebtorEntry.objects.filter(provider=p, status=DebtorEntry.Status.OPEN).exists()
+    has_open_receivables = CreditorEntry.objects.filter(provider=p, status=CreditorEntry.Status.OPEN).exists()
+    if has_open_payables or has_open_receivables:
+        return _bad("cannot delete: outstanding balances exist")
+
     if not p.is_active:
         return JsonResponse({"ok": True})
     p.is_active = False
@@ -271,7 +300,8 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             update_product_defaults=update_defaults,
         )
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
-    except Exception:
+    except Exception as e:
+        logger.exception("api_bill_save failed")
         return _bad("save failed", 500)
 
 
@@ -283,7 +313,7 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     bill_id = request.GET.get("id")
     date_from = (request.GET.get("date_from") or "").strip()
     date_to = (request.GET.get("date_to") or "").strip()
-    status = (request.GET.get("status") or "").lower()
+    status = (request.GET.get("status") or "").lower()  # NOTE: evaluated at Python-level via properties
     cursor = request.GET.get("cursor")
 
     try:
@@ -294,6 +324,11 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     qs = S.bills_list_filters(S.bills_base(), q, serial, bill_id, status, date_from, date_to, cursor, page_size)
     qs = qs.order_by("-id")[:page_size]
     items = list(qs)
+
+    # Optional status filter at Python-level (since status is now a property)
+    if status in {"paid", "unpaid", "partial"}:
+        items = [b for b in items if (b.status or "").lower() == status]
+
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [bill_row(b) for b in items], "next_cursor": nxt})
 
@@ -301,12 +336,9 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
 def api_debts_list(request: HttpRequest) -> JsonResponse:
+    """List OPEN/ALL payables from DebtorEntry instead of Bills."""
     q = (request.GET.get("q") or "").strip()
-    serial = request.GET.get("serial")
-    bill_id = request.GET.get("id")
-    date_from = (request.GET.get("date_from") or "").strip()
-    date_to = (request.GET.get("date_to") or "").strip()
-    status = (request.GET.get("status") or "").lower()
+    status = (request.GET.get("status") or "").lower()  # "open" / "closed" / ""
     cursor = request.GET.get("cursor")
 
     try:
@@ -314,23 +346,24 @@ def api_debts_list(request: HttpRequest) -> JsonResponse:
     except ValueError:
         page_size = 30
 
-    qs = S.debts_list(q, serial, bill_id, status, date_from, date_to, cursor, page_size)
+    qs = S.debtors_list(q=q, status=status, cursor=cursor, page_size=page_size)
     items = list(qs)
     nxt = items[-1].id if items else None
-    return JsonResponse({"ok": True, "items": [bill_row(b) for b in items], "next_cursor": nxt})
+    return JsonResponse({"ok": True, "items": [debtor_row(d) for d in items], "next_cursor": nxt})
 
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
     try:
-        SV.delete_bill(actor=request.user , bill_id=bill_id)
+        SV.delete_bill(actor=request.user, bill_id=bill_id)
         return JsonResponse({"ok": True})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
+    except ValueError as ve:
+        return _bad(str(ve), 409)
     except Exception:
         return _bad("delete failed", 500)
-
 
 
 @role_required(AccountProfile.Role.MANAGER)
@@ -342,9 +375,10 @@ def bill_view(request: HttpRequest, bill_id: int) -> HttpResponse:
         .get(pk=bill_id)
     )
 
-    # “creation-time” payment info (see models change below)
-    created_status = getattr(bill, "initial_status", bill.status)
-    created_paid   = getattr(bill, "initial_paid_amount", bill.paid_amount)
+    # With the new model, "creation-time" snapshot lives only in GL / subledger;
+    # we show current derived status & paid from DebtorEntry.
+    created_status = bill.status
+    created_paid = bill.paid_amount
 
     ctx = {
         "bill": bill,
@@ -355,13 +389,13 @@ def bill_view(request: HttpRequest, bill_id: int) -> HttpResponse:
     return render(request, "billing/bill_view.html", ctx)
 
 
-# ---------- Payments ----------
+# ---------- Payments (payables) ----------
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def pay_debt_full(request: HttpRequest, bill_id: int) -> JsonResponse:
     try:
-        SV.pay_full(actor=request.user , bill_id = bill_id)
+        SV.pay_full(actor=request.user, bill_id=bill_id)
         return JsonResponse({"ok": True, "remaining": "0"})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
@@ -378,7 +412,7 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
     if amount <= 0:
         return _bad("Enter a positive amount.")
     try:
-        bill = SV.pay_partial(actor=request.user, bill_id = bill_id,amount = amount)
+        bill = SV.pay_partial(actor=request.user, bill_id=bill_id, amount=amount)
         return JsonResponse({"ok": True, "remaining": str(bill.remaining)})
     except ValueError as ve:
         return _bad(str(ve))
@@ -386,20 +420,18 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
         return _bad("not found", 404)
 
 
-# -----------returns---------------
+# ----------- Provider Returns (receivables) ---------------
+
 @role_required(AccountProfile.Role.MANAGER)
 def providers_returns_page(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/providers_returns.html")
+
 
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
 def api_return_next_serial(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "next_serial": S.next_return_serial()})
 
-# app/billing/views.py
-# app/billing/views.py
-import logging
-logger = logging.getLogger(__name__)
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -410,15 +442,18 @@ def api_return_save(request: HttpRequest) -> JsonResponse:
         return _bad("bad json")
 
     items = payload.get("items") or []
-    if not items: return _bad("no items")
+    if not items:
+        return _bad("no items")
 
     provider = payload.get("provider") or {}
     pid = provider.get("id")
-    if not pid: return _bad("provider must be selected from list")
+    if not pid:
+        return _bad("provider must be selected from list")
 
     pay = payload.get("pay") or {}
     status = (pay.get("status") or "unpaid").lower()
-    if status not in {"paid","unpaid","partial"}: status = "unpaid"
+    if status not in {"paid", "unpaid", "partial"}:
+        status = "unpaid"
     paid_amount = _dec(pay.get("paid_amount"), "0")
 
     try:
@@ -436,12 +471,8 @@ def api_return_save(request: HttpRequest) -> JsonResponse:
         return _bad("product not found", 404)
     except Exception as e:
         logger.exception("api_return_save failed")
-        # TEMP: reveal exact failure to the UI so we can fix fast.
         return _bad(f"save failed: {e.__class__.__name__}: {e}", 500)
 
-
-
-# app/billing/views.py
 
 @role_required(AccountProfile.Role.MANAGER)
 def providers_returns_list_page(request: HttpRequest) -> HttpResponse:
@@ -456,7 +487,7 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
     rid = request.GET.get("id")
     date_from = (request.GET.get("date_from") or "").strip()
     date_to = (request.GET.get("date_to") or "").strip()
-    status = (request.GET.get("status") or "").lower()
+    status = (request.GET.get("status") or "").lower()  # property-based
     cursor = request.GET.get("cursor")
     try:
         page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
@@ -465,10 +496,17 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
 
     qs = S.returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, page_size)
     items = list(qs)
+
+    # Python-level status filter (since status is property now)
+    if status in {"paid", "partial", "unpaid"}:
+        items = [r for r in items if (r.status or "").lower() == status]
+
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [return_row(r) for r in items], "next_cursor": nxt})
 
+
 # Payments (collections) for provider debts-to-store:
+
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
@@ -477,6 +515,7 @@ def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
         return JsonResponse({"ok": True, "remaining": "0"})
     except ProviderReturn.DoesNotExist:
         return _bad("not found", 404)
+
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -495,3 +534,23 @@ def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
         return _bad(str(ve))
     except ProviderReturn.DoesNotExist:
         return _bad("not found", 404)
+
+
+# ----------- Creditors (receivables) list API ---------------
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_creditors_list(request: HttpRequest) -> JsonResponse:
+    """List receivables from CreditorEntry (OPEN by default)."""
+    q = (request.GET.get("q") or "").strip()
+    status = (request.GET.get("status") or "").lower()  # "open"/"closed"/""
+    cursor = request.GET.get("cursor")
+    try:
+        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
+    except ValueError:
+        page_size = 30
+
+    qs = S.creditors_list(q=q, status=status, cursor=cursor, page_size=page_size)
+    items = list(qs)
+    nxt = items[-1].id if items else None
+    return JsonResponse({"ok": True, "items": [creditor_row(c) for c in items], "next_cursor": nxt})
