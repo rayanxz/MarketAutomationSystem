@@ -10,8 +10,7 @@
   const provErr   = document.getElementById("provErr");
 
   // Bill serial / errors
-  const serialEl  = document.getElementById("billSerial");
-  const serialErr = document.getElementById("serialErr");
+ 
   const saveErr   = document.getElementById("saveErr");
   const autoSerialBadge = document.getElementById("billAutoSerial");
 
@@ -437,65 +436,65 @@ refreshAutoSerial();
 
   
   document.getElementById("btnSave")?.addEventListener("click", async ()=>{
-    saveErr.hidden = true; serialErr.hidden = true; provErr.hidden = true;
+  saveErr.hidden = true; provErr.hidden = true;
 
-    const pid = (provIdEl.value || "").trim();
-    if (!pid){ provErr.textContent = "الرجاء اختيار مورد من القائمة."; provErr.hidden = false; provInput?.focus(); return; }
+  const pid = (provIdEl.value || "").trim();
+  if (!pid){
+    provErr.textContent = "الرجاء اختيار مورد من القائمة.";
+    provErr.hidden = false;
+    provInput?.focus();
+    return;
+  }
 
-    // Optional manual serial (digits only)
-    const serialRaw = (serialEl?.value || "").trim();
-    let serial = null;
-    if (serialRaw){
-      if (!/^\d+$/.test(serialRaw)){ serialErr.textContent = "أرقام فقط."; serialErr.hidden = false; serialEl?.focus(); return; }
-      serial = parseInt(serialRaw, 10);
-      if (!Number.isFinite(serial) || serial <= 0){ serialErr.textContent = "رقم غير صالح."; serialErr.hidden = false; serialEl?.focus(); return; }
-    }
+  // Build items
+  const rows = [...(tbody?.querySelectorAll("tr") || [])];
+  if (!rows.length){
+    saveErr.textContent = "أضف منتجاً واحداً على الأقل.";
+    saveErr.hidden = false;
+    return;
+  }
 
-    // Build items
-    const rows = [...(tbody?.querySelectorAll("tr") || [])];
-    if (!rows.length){ saveErr.textContent = "أضف منتجاً واحداً على الأقل."; saveErr.hidden = false; return; }
-
-    const items = rows.map(tr=>{
-      const product_id = parseInt(tr.dataset.pid, 10);
-      const qty_raw = String(tr.querySelector('input[name="qty[]"]').value || "0");
-      const cost = String(tr.querySelector('input[name="cost[]"]').value || "0");
-      const price = String(tr.querySelector('input[name="price[]"]').value || "0");
-      const total_cost_el = tr.querySelector('input[name="total_cost[]"]').value;
-      const unit_index = tr.querySelector('select[name="qty_unit[]"]').value === "u2" ? 2 : 1;
-      const row = { product_id, unit_index, qty_raw, cost, price };
-      if (total_cost_el && total_cost_el.trim().length) row.total_cost = String(total_cost_el);
-      return row;
-    });
-
-    // Pay
-    const status = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
-    const paid_amount = (paidInput?.value || "0");
-
-    const payload = {
-      provider: { id: parseInt(pid, 10) },           // ONLY existing providers
-      items,
-      pay: { status, paid_amount },
-    };
-    if (serial !== null) payload.serial = serial;     // optional manual serial
-
-    try{
-      const res = await fetch(SAVE_URL, {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "X-CSRFToken": getCsrf() },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!data.ok){
-        const msg = data.error || "فشل الحفظ";
-        if (msg.toLowerCase().includes("serial")) { serialErr.hidden = false; serialErr.textContent = msg; }
-        else { saveErr.hidden = false; saveErr.textContent = msg; }
-        return;
-      }
-      window.location.href = LIST_URL; // success
-    }catch{
-      saveErr.hidden = false; saveErr.textContent = "فشل الاتصال بالخادم.";
-    }
+  const items = rows.map(tr=>{
+    const product_id = parseInt(tr.dataset.pid, 10);
+    const qty_raw = String(tr.querySelector('input[name="qty[]"]').value || "0");
+    const cost = String(tr.querySelector('input[name="cost[]"]').value || "0");
+    const price = String(tr.querySelector('input[name="price[]"]').value || "0");
+    const total_cost_el = tr.querySelector('input[name="total_cost[]"]').value;
+    const unit_index = tr.querySelector('select[name="qty_unit[]"]').value === "u2" ? 2 : 1;
+    const row = { product_id, unit_index, qty_raw, cost, price };
+    if (total_cost_el && total_cost_el.trim().length) row.total_cost = String(total_cost_el);
+    return row;
   });
+
+  // Pay
+  const status = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
+  const paid_amount = (paidInput?.value || "0");
+
+  const payload = {
+    provider: { id: parseInt(pid, 10) },   // ONLY existing providers
+    items,
+    pay: { status, paid_amount }
+  };
+
+  try{
+    const res = await fetch(SAVE_URL, {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "X-CSRFToken": getCsrf() },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.ok){
+      const msg = data.error || "فشل الحفظ";
+      saveErr.hidden = false;
+      saveErr.textContent = msg;
+      return;
+    }
+    window.location.href = LIST_URL; // success
+  }catch{
+    saveErr.hidden = false;
+    saveErr.textContent = "فشل الاتصال بالخادم.";
+  }
+});
 
   function getCsrf(){
     const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);

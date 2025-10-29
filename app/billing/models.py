@@ -4,8 +4,8 @@ from decimal import Decimal
 
 from django.core.validators import MinValueValidator
 from django.db import models, transaction, IntegrityError
+from django.db.models import Q, Max
 from django.db.models.functions import Lower
-from django.db.models import Q
 from django.utils import timezone
 
 from catalog.models import Product
@@ -23,19 +23,20 @@ class ActiveProviderManager(models.Manager):
 
 
 class Provider(models.Model):
-    name = models.CharField(max_length=128, unique=False, db_index=True)
-    phone = models.CharField(max_length=64, blank=True)
-    notes = models.TextField(blank=True)
+    name       = models.CharField(max_length=128, unique=False, db_index=True)
+    phone      = models.CharField(max_length=64, blank=True)
+    notes      = models.TextField(blank=True)
     created_at = models.DateTimeField(null=True, blank=True)
-    is_active = models.BooleanField(default=True)
+    is_active  = models.BooleanField(default=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
     objects = models.Manager()
-    active = ActiveProviderManager()
+    active  = ActiveProviderManager()
 
     class Meta:
         ordering = ["name"]
         constraints = [
+            # Case-insensitive uniqueness while active
             models.UniqueConstraint(
                 Lower("name"),
                 condition=Q(is_active=True),
@@ -53,13 +54,11 @@ class Provider(models.Model):
 
 class Bill(models.Model):
     # NOTE: Debt state (paid/remaining/status) lives in DebtorEntry now.
-    serial = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
+    serial   = models.PositiveIntegerField(unique=True, db_index=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="bills")
 
-    total = models.DecimalField(
-        max_digits=14, decimal_places=3, default=Decimal("0.000"),
-        validators=[MinValueValidator(0)]
-    )
+    total      = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                     validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -70,8 +69,8 @@ class Bill(models.Model):
 
     # --------- Compatibility helpers (Python-level only) ---------
     class Status(models.TextChoices):
-        PAID = "paid", "مدفوعة بالكامل"
-        UNPAID = "unpaid", "غير مدفوعة"
+        PAID    = "paid",    "مدفوعة بالكامل"
+        UNPAID  = "unpaid",  "غير مدفوعة"
         PARTIAL = "partial", "مدفوعة جزئياً"
 
     @property
@@ -95,55 +94,60 @@ class Bill(models.Model):
         d = self.debtor_entry
         if not d:
             return Bill.Status.UNPAID
-        return (Bill.Status.PAID
-                if d.remaining <= 0
-                else Bill.Status.PARTIAL if d.paid_amount and d.paid_amount > 0
-                else Bill.Status.UNPAID)
+        return (
+            Bill.Status.PAID
+            if d.remaining <= 0
+            else Bill.Status.PARTIAL if d.paid_amount and d.paid_amount > 0
+            else Bill.Status.UNPAID
+        )
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
         return f"Bill #{s} — {self.provider.name}"
 
-    def assign_serial_if_needed(self) -> None:
-        if self.serial:
-            return
-        for _ in range(5):
-            try:
-                with transaction.atomic():
-                    last = (
-                        Bill.objects.select_for_update()
-                        .order_by("-serial")
-                        .values_list("serial", flat=True)
-                        .first()
-                    )
-                    last = last or 0
-                    self.serial = 1 if int(last) <= 0 else int(last) + 1
-                    return
-            except IntegrityError:
-                continue
+    # --------- Race-safe serial assignment ---------
+    def _assign_serial_locked(self) -> None:
+        """Must be called under SELECT ... FOR UPDATE; assigns next serial."""
+        last = Bill.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
+        self.serial = int(last) + 1
 
     def save(self, *args, **kwargs):
-        if not self.serial:
-            self.assign_serial_if_needed()
-        super().save(*args, **kwargs)
+        # If serial already present (updates), just save.
+        if self.serial:
+            return super().save(*args, **kwargs)
 
+        # Initial insert with retry to avoid serial collisions.
+        for _ in range(8):
+            try:
+                with transaction.atomic():
+                    self._assign_serial_locked()
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                # Someone else grabbed the same serial; retry.
+                self.serial = None
+                continue
+        # Highly contended system – surface the error for visibility.
+        raise
 
 class BillItem(models.Model):
     class UnitIndex(models.IntegerChoices):
-        PRIMARY = 1, "الوحدة الأولى"
+        PRIMARY   = 1, "الوحدة الأولى"
         SECONDARY = 2, "الوحدة الثانية"
 
-    bill = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="bill_items")
+    bill       = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="items")
+    product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="bill_items")
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
-    qty_primary = models.DecimalField(max_digits=14, decimal_places=3)
-    cost = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
-    price = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
+    qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
+    cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
+    price      = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["bill"]), models.Index(fields=["product"])]
+        indexes = [
+            models.Index(fields=["bill"]),
+            models.Index(fields=["product"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.product.name} x {self.qty_primary} (#{self.bill.serial or self.bill_id})"
@@ -155,21 +159,14 @@ class BillItem(models.Model):
 
 class ProviderReturn(models.Model):
     # NOTE: Debt state (collected/remaining/status) lives in CreditorEntry now.
-    serial = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
+    serial   = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="returns")
 
-    total = models.DecimalField(
-        max_digits=14, decimal_places=3, default=Decimal("0.000"),
-        validators=[MinValueValidator(0)]
-    )
-    initial_paid = models.DecimalField(
-        max_digits=14, decimal_places=3, default=Decimal("0.000"),
-        validators=[MinValueValidator(0)]
-    )
-    initial_status = models.CharField(
-        max_length=8, choices=Bill.Status.choices, default=Bill.Status.UNPAID
-    )
-
+    total          = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                         validators=[MinValueValidator(0)])
+    initial_paid   = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                         validators=[MinValueValidator(0)])
+    initial_status = models.CharField(max_length=8, choices=Bill.Status.choices, default=Bill.Status.UNPAID)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -181,8 +178,8 @@ class ProviderReturn(models.Model):
 
     # --------- Compatibility helpers (Python-level only) ---------
     class Status(models.TextChoices):
-        PAID = "paid", "مدفوعة بالكامل"
-        UNPAID = "unpaid", "غير مدفوعة"
+        PAID    = "paid",    "مدفوعة بالكامل"
+        UNPAID  = "unpaid",  "غير مدفوعة"
         PARTIAL = "partial", "مدفوعة جزئياً"
 
     @property
@@ -193,8 +190,7 @@ class ProviderReturn(models.Model):
 
     @property
     def paid_amount(self) -> Decimal:
-        # historical name for "collected"
-        c = self.creditor_entry
+        c = self.creditor_entry  # historical name for "collected"
         return (c.collected if c else DEC0) or DEC0
 
     @property
@@ -207,80 +203,81 @@ class ProviderReturn(models.Model):
         c = self.creditor_entry
         if not c:
             return ProviderReturn.Status.UNPAID
-        return (ProviderReturn.Status.PAID
-                if c.remaining <= 0
-                else ProviderReturn.Status.PARTIAL if c.collected and c.collected > 0
-                else ProviderReturn.Status.UNPAID)
+        return (
+            ProviderReturn.Status.PAID
+            if c.remaining <= 0
+            else ProviderReturn.Status.PARTIAL if c.collected and c.collected > 0
+            else ProviderReturn.Status.UNPAID
+        )
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
         return f"Return #{s} — {self.provider.name}"
 
-    def assign_serial_if_needed(self) -> None:
-        if self.serial:
-            return
-        for _ in range(5):
-            try:
-                with transaction.atomic():
-                    last = (
-                        ProviderReturn.objects.select_for_update()
-                        .order_by("-serial")
-                        .values_list("serial", flat=True)
-                        .first()
-                    )
-                    last = last or 0
-                    self.serial = 1 if int(last) <= 0 else int(last) + 1
-                    return
-            except IntegrityError:
-                continue
+    # --------- Race-safe serial assignment ---------
+    def _assign_serial_locked(self) -> None:
+        last = ProviderReturn.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
+        self.serial = int(last) + 1
 
     def save(self, *args, **kwargs):
-        if not self.serial:
-            self.assign_serial_if_needed()
-        super().save(*args, **kwargs)
+        if self.serial:
+            return super().save(*args, **kwargs)
+        for _ in range(8):
+            try:
+                with transaction.atomic():
+                    self._assign_serial_locked()
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                self.serial = None
+                continue
+        raise
 
 
 class ProviderReturnItem(models.Model):
     class UnitIndex(models.IntegerChoices):
-        PRIMARY = 1, "الوحدة الأولى"
+        PRIMARY   = 1, "الوحدة الأولى"
         SECONDARY = 2, "الوحدة الثانية"
 
-    ret = models.ForeignKey(ProviderReturn, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="return_items")
+    ret        = models.ForeignKey(ProviderReturn, on_delete=models.CASCADE, related_name="items")
+    product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="return_items")
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
-    qty_primary = models.DecimalField(max_digits=14, decimal_places=3)
-    cost = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
+    qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
+    cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["ret"]), models.Index(fields=["product"])]
+        indexes = [
+            models.Index(fields=["ret"]),
+            models.Index(fields=["product"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.product.name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
 
 
 # =====================================
-# NEW: Debtor / Creditor Sub-Ledgers
+# Debtor / Creditor Sub-Ledgers
 # =====================================
 
 class DebtorEntry(models.Model):
     """What the store owes a provider (payables) per source doc (Bill)."""
+
     class Status(models.TextChoices):
-        OPEN   = "open", "مفتوحة"
+        OPEN   = "open",   "مفتوحة"
         CLOSED = "closed", "مغلقة"
 
     provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="debtor_entries")
-    source_app   = models.CharField(max_length=64)    # "billing"
-    source_model = models.CharField(max_length=64)    # "Bill"
-    source_id    = models.CharField(max_length=64)    # bill id as str
+    source_app   = models.CharField(max_length=64)   # "billing"
+    source_model = models.CharField(max_length=64)   # "Bill"
+    source_id    = models.CharField(max_length=64)   # bill id as str
     created_at   = models.DateTimeField(default=timezone.now)
 
-    total        = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                       validators=[MinValueValidator(0)])
-    paid_amount  = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                       validators=[MinValueValidator(0)])
-    status       = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+    total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                      validators=[MinValueValidator(0)])
+    paid_amount = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                      validators=[MinValueValidator(0)])
+    status      = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
 
     class Meta:
         indexes = [
@@ -289,7 +286,7 @@ class DebtorEntry(models.Model):
             models.Index(fields=["created_at"]),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["source_app","source_model","source_id"], name="uniq_debtor_by_source"),
+            models.UniqueConstraint(fields=["source_app", "source_model", "source_id"], name="uniq_debtor_by_source"),
             models.CheckConstraint(check=Q(total__gte=0), name="debtor_total_ge0"),
             models.CheckConstraint(check=Q(paid_amount__gte=0), name="debtor_paid_ge0"),
             models.CheckConstraint(check=Q(paid_amount__lte=models.F("total")), name="debtor_paid_le_total"),
@@ -304,37 +301,42 @@ class DebtorEntry(models.Model):
 
 
 class DebtorPayment(models.Model):
-    entry       = models.ForeignKey(DebtorEntry, on_delete=models.CASCADE, related_name="payments")
-    created_at  = models.DateTimeField(default=timezone.now)
-    amount      = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
+    entry      = models.ForeignKey(DebtorEntry, on_delete=models.CASCADE, related_name="payments")
+    created_at = models.DateTimeField(default=timezone.now)
+    amount     = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
     journal_entry_id = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["entry_id"]), models.Index(fields=["created_at"])]
+        indexes = [
+            models.Index(fields=["entry_id"]),
+            models.Index(fields=["created_at"]),
+        ]
         constraints = [
             models.CheckConstraint(check=Q(amount__gt=0), name="debtor_payment_amount_pos"),
         ]
 
-    def __str__(self): return f"DebtorPayment {self.amount} on entry {self.entry_id}"
+    def __str__(self) -> str:
+        return f"DebtorPayment {self.amount} on entry {self.entry_id}"
 
 
 class CreditorEntry(models.Model):
     """What the provider owes the store (receivables) per source doc (ProviderReturn)."""
+
     class Status(models.TextChoices):
-        OPEN   = "open", "مفتوحة"
+        OPEN   = "open",   "مفتوحة"
         CLOSED = "closed", "مغلقة"
 
     provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="creditor_entries")
-    source_app   = models.CharField(max_length=64)    # "billing"
-    source_model = models.CharField(max_length=64)    # "ProviderReturn"
-    source_id    = models.CharField(max_length=64)    # return id as str
+    source_app   = models.CharField(max_length=64)   # "billing"
+    source_model = models.CharField(max_length=64)   # "ProviderReturn"
+    source_id    = models.CharField(max_length=64)   # return id as str
     created_at   = models.DateTimeField(default=timezone.now)
 
-    total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                      validators=[MinValueValidator(0)])
-    collected   = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                      validators=[MinValueValidator(0)])
-    status      = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+    total     = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                    validators=[MinValueValidator(0)])
+    collected = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+                                    validators=[MinValueValidator(0)])
+    status    = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
 
     class Meta:
         indexes = [
@@ -343,7 +345,7 @@ class CreditorEntry(models.Model):
             models.Index(fields=["created_at"]),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["source_app","source_model","source_id"], name="uniq_creditor_by_source"),
+            models.UniqueConstraint(fields=["source_app", "source_model", "source_id"], name="uniq_creditor_by_source"),
             models.CheckConstraint(check=Q(total__gte=0), name="creditor_total_ge0"),
             models.CheckConstraint(check=Q(collected__gte=0), name="creditor_coll_ge0"),
             models.CheckConstraint(check=Q(collected__lte=models.F("total")), name="creditor_coll_le_total"),
@@ -358,15 +360,19 @@ class CreditorEntry(models.Model):
 
 
 class CreditorReceipt(models.Model):
-    entry       = models.ForeignKey(CreditorEntry, on_delete=models.CASCADE, related_name="receipts")
-    created_at  = models.DateTimeField(default=timezone.now)
-    amount      = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
+    entry      = models.ForeignKey(CreditorEntry, on_delete=models.CASCADE, related_name="receipts")
+    created_at = models.DateTimeField(default=timezone.now)
+    amount     = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
     journal_entry_id = models.IntegerField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["entry_id"]), models.Index(fields=["created_at"])]
+        indexes = [
+            models.Index(fields=["entry_id"]),
+            models.Index(fields=["created_at"]),
+        ]
         constraints = [
             models.CheckConstraint(check=Q(amount__gt=0), name="creditor_receipt_amount_pos"),
         ]
 
-    def __str__(self): return f"CreditorReceipt {self.amount} on entry {self.entry_id}"
+    def __str__(self) -> str:
+        return f"CreditorReceipt {self.amount} on entry {self.entry_id}"

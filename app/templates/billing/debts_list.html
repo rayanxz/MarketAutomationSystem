@@ -45,7 +45,7 @@
   .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
   .modal .input{ width:100%; }
 </style>
-<script defer src="{% static 'js/billing_debts.js' %}"></script>
+<script defer src="{% static 'js/billing_debts.js' %}?v=debts-20251029-4"></script>
 {% endblock %}
 
 {% block content %}
@@ -64,10 +64,6 @@
       <div class="field" style="max-width:160px;">
         <label class="muted">سيريال الفاتورة</label>
         <input id="fSerial" class="input" placeholder="رقم السيريال">
-      </div>
-      <div class="field" style="max-width:160px;">
-        <label class="muted">ID الفاتورة</label>
-        <input id="fId" class="input" placeholder="رقم الفاتورة">
       </div>
       <div class="field" style="max-width:180px;">
         <label class="muted">من تاريخ</label>
@@ -96,7 +92,6 @@
     <table>
       <thead>
         <tr>
-          <th style="width:80px;">ID</th>
           <th style="width:120px;">سيريال</th>
           <th>المورد</th>
           <th style="width:160px;">الإجمالي</th>

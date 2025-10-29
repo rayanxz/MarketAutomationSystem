@@ -1,6 +1,5 @@
 // static/js/billing_bills.js
 (() => {
-
   const API_LIST = window.__BILLING__?.billsListUrl;
   const API_DELETE_BASE = window.__BILLING__?.billDeleteBase;
 
@@ -36,7 +35,6 @@
     const viewUrl = `${window.__BILLING__.billViewBase}${b.id}/`;
     return `
       <tr data-id="${b.id}">
-        <td>${b.id}</td>
         <td>${b.serial ?? ""}</td>
         <td>${b.provider?.name ?? ""}</td>
         <td>${nfmt(b.total)}</td>
@@ -116,22 +114,19 @@
   }
 
   // ---------- Events ----------
-  // Prevent full page submit (which used to wipe inputs)
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     updateUrlFromFilters();
     load(true);
   });
 
-  // Live search UX
   for (const el of form.querySelectorAll('input,select')){
     el.addEventListener('input', debounce(() => { updateUrlFromFilters(); load(true); }, 300));
     el.addEventListener('change', () => { updateUrlFromFilters(); load(true); });
   }
 
-  document.getElementById('loadMore').addEventListener('click', () => load(false));
+  loadMoreBtn.addEventListener('click', () => load(false));
 
-  // Infinite scroll (no duplicate const names)
   if ('IntersectionObserver' in window && sentinelEl){
     const io = new IntersectionObserver(entries => {
       for (const en of entries) if (en.isIntersecting) load(false);
@@ -139,7 +134,6 @@
     io.observe(sentinelEl);
   }
 
-  // Delete modal
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-del]');
     if (!btn) return;
@@ -175,8 +169,6 @@
     return m ? decodeURIComponent(m[1]) : '';
   }
 
-  // ---------- Boot ----------
   const hasUrl = prefillFromUrl();
-  // Initial load (respect URL if present)
   load(true);
 })();

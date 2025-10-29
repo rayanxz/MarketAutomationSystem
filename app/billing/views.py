@@ -167,11 +167,6 @@ def api_providers_ac(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "items": list(S.providers_ac(q))})
 
 
-@require_GET
-@role_required(AccountProfile.Role.MANAGER)
-def api_bill_next_serial(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"ok": True, "next_serial": S.next_bill_serial()})
-
 
 # ---------- Products search (for Add Bill) ----------
 
@@ -251,6 +246,16 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
 
 
 # ---------- Bills APIs ----------
+# - Bills: next serial (preview) -
+from django.db.models import Max
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_bill_next_serial(request: HttpRequest) -> JsonResponse:
+    from django.db.models import Max
+    last = Bill.objects.aggregate(m=Max("serial"))["m"] or 0
+    return JsonResponse({"ok": True, "next_serial": int(last) + 1})
+
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -269,18 +274,6 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     if not pid:
         return _bad("provider must be selected from list")
 
-    serial_raw = payload.get("serial")
-    serial = None
-    if serial_raw not in (None, ""):
-        try:
-            serial = int(serial_raw)
-            if serial <= 0:
-                return _bad("serial must be a positive number")
-        except Exception:
-            return _bad("serial must be numbers only")
-        if Bill.objects.filter(serial=serial).exists():
-            return _bad("serial already exists", 409)
-
     pay = payload.get("pay") or {}
     status = (pay.get("status") or "unpaid").lower()
     if status not in {"paid", "unpaid", "partial"}:
@@ -293,7 +286,6 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
         bill = SV.create_bill(
             actor=request.user,
             provider_id=int(pid),
-            serial=serial,
             status=status,
             paid_amount=paid_amount,
             items=items,
@@ -310,7 +302,6 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
 def api_bills_list(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
     serial = request.GET.get("serial")
-    bill_id = request.GET.get("id")
     date_from = (request.GET.get("date_from") or "").strip()
     date_to = (request.GET.get("date_to") or "").strip()
     status = (request.GET.get("status") or "").lower()  # NOTE: evaluated at Python-level via properties
@@ -321,7 +312,7 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     except ValueError:
         page_size = 30
 
-    qs = S.bills_list_filters(S.bills_base(), q, serial, bill_id, status, date_from, date_to, cursor, page_size)
+    qs = S.bills_list_filters(S.bills_base(), q, serial, status, date_from, date_to, cursor, page_size)
     qs = qs.order_by("-id")[:page_size]
     items = list(qs)
 
@@ -336,11 +327,24 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
 def api_debts_list(request: HttpRequest) -> JsonResponse:
-    """List OPEN/ALL payables from DebtorEntry instead of Bills."""
+    """
+    Debtor (payables) list backed by DebtorEntry.
+    Accepts status as: 'open'/'closed' OR 'unpaid'/'partial'/'paid'.
+    """
     q = (request.GET.get("q") or "").strip()
-    status = (request.GET.get("status") or "").lower()  # "open" / "closed" / ""
-    cursor = request.GET.get("cursor")
 
+    # Normalize UI status -> sub-ledger status
+    raw_status = (request.GET.get("status") or "").lower().strip()
+    if raw_status in {"unpaid", "partial"}:
+        status = "open"
+    elif raw_status == "paid":
+        status = "closed"
+    elif raw_status in {"open", "closed", ""}:
+        status = raw_status
+    else:
+        status = ""  # unknown -> no filter
+
+    cursor = request.GET.get("cursor")
     try:
         page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
     except ValueError:
@@ -349,7 +353,11 @@ def api_debts_list(request: HttpRequest) -> JsonResponse:
     qs = S.debtors_list(q=q, status=status, cursor=cursor, page_size=page_size)
     items = list(qs)
     nxt = items[-1].id if items else None
-    return JsonResponse({"ok": True, "items": [debtor_row(d) for d in items], "next_cursor": nxt})
+
+    return JsonResponse(
+        {"ok": True, "items": [debtor_row(d) for d in items], "next_cursor": nxt}
+    )
+
 
 
 @require_POST

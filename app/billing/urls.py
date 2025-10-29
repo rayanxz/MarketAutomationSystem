@@ -14,12 +14,16 @@ urlpatterns = [
     path("creditors/", v.creditors_page, name="billing_creditors"),# قائمة الدائن (providers owe store)
 
     # APIs (debts/creditors)
-    path("api/debts", v.api_debts_list, name="billing_api_debts_list"),
-    path("api/creditors", v.api_creditors_list, name="billing_api_creditors_list"),
+    path("api/debts/", v.api_debts_list, name="billing_api_debts_list"),
+    path("api/creditors/", v.api_creditors_list, name="billing_api_creditors_list"),
+
+    # aliases (no trailing slash) to avoid front-end 301/redirect issues
+    path("api/debts", v.api_debts_list),
+    path("api/creditors", v.api_creditors_list),
 
     # APIs (bills)
     path("api/bill/save/", v.api_bill_save, name="billing_api_bill_save"),
-    path("api/bill/next-serial/", v.api_bill_next_serial, name="billing_api_bill_next_serial"),
+    path("api/bill/next-serial/", v.api_bill_next_serial, name="billing_api_bill_next_serial"),  
     path("api/bills", v.api_bills_list, name="billing_api_bills_list"),
     path("api/products/search/", v.api_products_search, name="billing_api_products_search"),
     path("api/bills/<int:bill_id>/delete", v.api_bill_delete, name="billing_api_bill_delete"),

@@ -1,4 +1,4 @@
-// app/static/js/billing_creditors.js
+// static/js/billing_creditors.js
 (function () {
   "use strict";
 
@@ -14,7 +14,6 @@
 
   const fQ      = el("#fQ");
   const fSerial = el("#fSerial");
-  const fId     = el("#fId");
   const fFrom   = el("#fFrom");
   const fTo     = el("#fTo");
   const fStatus = el("#fStatus");
@@ -52,7 +51,6 @@
       page_size: 30,
       q:        (fQ.value||"").trim(),
       serial:   (fSerial.value||"").trim(),
-      id:       (fId.value||"").trim(),
       date_from: fFrom.value || "",
       date_to:   fTo.value || "",
       status:   fStatus.value || "",
@@ -79,7 +77,6 @@
           data-id="${b.id}"
           data-provider="${escapeHtml(b.provider.name)}"
           data-remaining="${b.remaining}">
-        <td>${b.id}</td>
         <td>${b.serial ?? ""}</td>
         <td>${escapeHtml(b.provider.name || "")}</td>
         <td>${nf(b.total)}</td>
@@ -123,7 +120,7 @@
   }
 
   btnSearch.addEventListener("click", () => load(true));
-  [fQ, fSerial, fId, fFrom, fTo, fStatus].forEach(i => i?.addEventListener("change", () => load(true)));
+  [fQ, fSerial, fFrom, fTo, fStatus].forEach(i => i?.addEventListener("change", () => load(true)));
   loadMore.addEventListener("click", () => load(false));
 
   rows.addEventListener("click", (e) => {
@@ -152,10 +149,10 @@
   function closeModal(m){ m.classList.remove("open"); m.setAttribute("aria-hidden", "true"); }
 
   mFullClose.addEventListener("click", () => closeModal(mFull));
-  mFull.addEventListener("click",  (e) => { if (e.target === mFull)   closeModal(mFull); });
+  mFull.addEventListener("click",  (e) => { if (e.target === mFull) closeModal(mFull); });
 
   mBatchClose.addEventListener("click", () => closeModal(mBatch));
-  mBatch.addEventListener("click", (e) => { if (e.target === mBatch)  closeModal(mBatch); });
+  mBatch.addEventListener("click", (e) => { if (e.target === mBatch) closeModal(mBatch); });
 
   mFullConfirm.addEventListener("click", async () => {
     if (!target.id) return;
@@ -183,7 +180,6 @@
   (function prefillFromUrl(){
     const p = new URLSearchParams(location.search);
     if (p.has("serial") && fSerial) fSerial.value = p.get("serial");
-    if (p.has("id") && fId) fId.value = p.get("id");
     if (p.has("q") && fQ) fQ.value = p.get("q");
   })();
 

@@ -67,7 +67,6 @@ def create_bill(
     *,
     actor,
     provider_id: int,
-    serial: int | None,
     status: str,
     paid_amount: Decimal,
     items: Iterable[Dict[str, Any]],
@@ -82,8 +81,6 @@ def create_bill(
 
     # Persist a shell bill first to get PK/serial
     bill = Bill(provider=provider, total=DEC0)
-    if serial is not None:
-        bill.serial = serial
     bill.save()
 
     grand = DEC0

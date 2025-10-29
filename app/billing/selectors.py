@@ -80,17 +80,12 @@ def bills_base():
         .only("id", "serial", "total", "created_at", "provider__id", "provider__name")
     )
 
-def bills_list_filters(qs, q, serial, bill_id, status, date_from, date_to, cursor, page_size):
+def bills_list_filters(qs, q, serial, status, date_from, date_to, cursor, page_size):
     if q:
         qs = qs.filter(provider__name__icontains=q)
     if serial not in (None, ""):
         try:
             qs = qs.filter(serial=int(serial))
-        except ValueError:
-            return qs.none()
-    if bill_id not in (None, ""):
-        try:
-            qs = qs.filter(id=int(bill_id))
         except ValueError:
             return qs.none()
     # status is filtered at the view level using Bill.status property (Python), to avoid complex subqueries
@@ -114,11 +109,8 @@ def debtors_list(q: str, status: str, cursor: Optional[int], page_size: int):
         .order_by("-id")
     )
     if q:
-        qs = qs.filter(
-            Q(provider__name__icontains=q) |
-            Q(source_model__icontains=q) |
-            Q(source_id__icontains=q)
-        )
+        qs = qs.filter(Q(provider__name__icontains=q))
+
     if status in {"open", "closed"}:
         qs = qs.filter(status=status)
     if cursor:
@@ -132,11 +124,8 @@ def creditors_list(q: str, status: str, cursor: Optional[int], page_size: int):
         .order_by("-id")
     )
     if q:
-        qs = qs.filter(
-            Q(provider__name__icontains=q) |
-            Q(source_model__icontains=q) |
-            Q(source_id__icontains=q)
-        )
+        qs = qs.filter(Q(provider__name__icontains=q))
+        
     if status in {"open", "closed"}:
         qs = qs.filter(status=status)
     if cursor:
@@ -145,9 +134,7 @@ def creditors_list(q: str, status: str, cursor: Optional[int], page_size: int):
 
 # ---------- Serials & returns ----------
 
-def next_bill_serial() -> int:
-    last = Bill.objects.order_by("-serial").values_list("serial", flat=True).first()
-    return 1 if (last in (None, 0)) else int(last) + 1
+
 
 def next_return_serial() -> int:
     last = ProviderReturn.objects.order_by("-serial").values_list("serial", flat=True).first() or 0

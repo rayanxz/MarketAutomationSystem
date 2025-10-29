@@ -9,7 +9,7 @@
     LIST: (role) =>
       role === "creditor"
         ? "/manager/billing/api/returns/list/"
-        : "/manager/billing/api/debts",
+        : "/manager/billing/api/debts/",
 
     // Debtor (store owes provider) = existing bill pay endpoints:
     PAY_FULL:  (id) => `/manager/billing/bills/${id}/pay-full/`,
@@ -66,18 +66,18 @@
 
   // ========================= Filters/params =========================
   function params(reset=false){
-    const p = {
-      page_size: 30,
-      q:        (fQ.value||"").trim(),
-      serial:   (fSerial.value||"").trim(),
-      id:       (fId.value||"").trim(),
-      date_from: fFrom.value || "",
-      date_to:   fTo.value || "",
-      status:   fStatus.value || "",
-    };
-    if (!reset && cursor) p.cursor = cursor;
-    return p;
-  }
+  const p = {
+    page_size: 30,
+    q:        (fQ?.value || "").trim(),
+    serial:   (fSerial?.value || "").trim(),
+    id:       (fId?.value || "").trim(),          // <<< fixed (was fId.value)
+    date_from: fFrom?.value || "",
+    date_to:   fTo?.value || "",
+    status:   fStatus?.value || "",
+  };
+  if (!reset && cursor) p.cursor = cursor;
+  return p;
+}
 
   // ========================= Rendering =========================
   function statusClass(st){
@@ -86,37 +86,36 @@
     return "is-paid";
   }
 
-  function rowHtml(b){
-    const role   = (fRole?.value || "debtor");
-    const canAct = (b.status !== "paid");
+ function rowHtml(b){
+  const role   = (fRole?.value || "debtor");
+  const canAct = (String(b.status).toLowerCase() !== "paid" && Number(b.remaining ?? 0) > 0);
 
-    // Buttons depend on role:
-    const actions = role === "debtor"
-      ? (canAct
-          ? `<button class="btn js-full">تسديد كامل</button>
-             <button class="btn js-batch">تسديد دفعة</button>`
-          : `<button class="btn" disabled>لا يوجد إجراء</button>`)
-      : (canAct
-          ? `<button class="btn js-collect-full">تحصيل كامل</button>
-             <button class="btn js-collect-batch">تحصيل دفعة</button>`
-          : `<button class="btn" disabled>لا يوجد إجراء</button>`);
+  const actions = role === "debtor"
+    ? (canAct
+        ? `<button class="btn js-full">تسديد كامل</button>
+           <button class="btn js-batch">تسديد دفعة</button>`
+        : `<button class="btn" disabled>لا يوجد إجراء</button>`)
+    : (canAct
+        ? `<button class="btn js-collect-full">تحصيل كامل</button>
+           <button class="btn js-collect-batch">تحصيل دفعة</button>`
+        : `<button class="btn" disabled>لا يوجد إجراء</button>`);
 
-    return `
-      <tr class="${statusClass(b.status)}"
-          data-id="${b.id}"
-          data-provider="${escapeHtml(b.provider.name)}"
-          data-remaining="${b.remaining}">
-        <td>${b.id}</td>
-        <td>${b.serial ?? ""}</td>
-        <td>${escapeHtml(b.provider.name || "")}</td>
-        <td>${nf(b.total)}</td>
-        <td>${nf(b.paid_amount)}</td>
-        <td>${nf(b.remaining)}</td>
-        <td>${b.status === "unpaid" ? "غير مدفوعة" : (b.status === "partial" ? "مدفوعة جزئياً" : "مدفوعة")}</td>
-        <td class="left">${actions}</td>
-      </tr>
-    `;
-  }
+  return `
+    <tr class="${statusClass(b.status)}"
+        data-id="${b.id}"
+        data-provider="${escapeHtml(b?.provider?.name || "")}"
+        data-remaining="${b.remaining}">
+      <td>${b.serial ?? ""}</td>
+      <td>${escapeHtml(b?.provider?.name || "")}</td>
+      <td>${nf(b.total)}</td>
+      <td>${nf(b.paid_amount)}</td>
+      <td>${nf(b.remaining)}</td>
+      <td>${(String(b.status).toLowerCase()==="unpaid")?"غير مدفوعة":(String(b.status).toLowerCase()==="partial"?"مدفوعة جزئياً":"مدفوعة")}</td>
+      <td class="left">${actions}</td>
+    </tr>
+  `;
+}
+
 
   // ========================= Loading =========================
   async function load(reset=false){
@@ -128,8 +127,18 @@
       const role = (fRole?.value || "debtor");
       const url  = `${API.LIST(role)}?${qsBuild(params(reset))}`;
       const res  = await fetch(url, { headers: { "Accept": "application/json" } });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "error");
+
+      if (!res.ok){
+        const txt = await res.text().catch(()=>"(no body)");
+        alert(`فشل التحميل\nHTTP ${res.status}\n${txt.slice(0,300)}`);
+        return;
+      }
+
+      const data = await res.json().catch(()=>({ok:false,error:"bad json"}));
+      if (!data.ok){
+        alert(`فشل التحميل\n${data.error || "unknown error"}`);
+        return;
+      }
 
       const frag = document.createDocumentFragment();
       for (const item of (data.items || [])){
@@ -139,13 +148,13 @@
       }
       rows.appendChild(frag);
 
-      cursor = data.next_cursor;
+      cursor = data.next_cursor || null;
       done   = !cursor;
       loadMore.style.display = done ? "none" : "inline-block";
       if (done && rows.children.length) endMsg.hidden = false;
     }catch(e){
       console.error(e);
-      alert("فشل التحميل");
+      alert(`فشل التحميل\n${e?.message || e}`);
     }finally{
       busy = false; loadMore.disabled = false;
     }
