@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from django.db.models import (
-    Q, F, Value, DecimalField, IntegerField, Count, Sum, Case, When
+    Q, F, Value, DecimalField, Count, Sum
 )
 from django.db.models.functions import Coalesce, Lower
 
@@ -109,7 +109,8 @@ def debtors_list(q: str, status: str, cursor: Optional[int], page_size: int):
         .order_by("-id")
     )
     if q:
-        qs = qs.filter(Q(provider__name__icontains=q))
+        # allow searching either provider name (commercial docs) or party snapshot (manual)
+        qs = qs.filter(Q(provider__name__icontains=q) | Q(party_name__icontains=q))
 
     if status in {"open", "closed"}:
         qs = qs.filter(status=status)
@@ -124,8 +125,8 @@ def creditors_list(q: str, status: str, cursor: Optional[int], page_size: int):
         .order_by("-id")
     )
     if q:
-        qs = qs.filter(Q(provider__name__icontains=q))
-        
+        qs = qs.filter(Q(provider__name__icontains=q) | Q(party_name__icontains=q))
+
     if status in {"open", "closed"}:
         qs = qs.filter(status=status)
     if cursor:
@@ -133,8 +134,6 @@ def creditors_list(q: str, status: str, cursor: Optional[int], page_size: int):
     return qs[:page_size]
 
 # ---------- Serials & returns ----------
-
-
 
 def next_return_serial() -> int:
     last = ProviderReturn.objects.order_by("-serial").values_list("serial", flat=True).first() or 0

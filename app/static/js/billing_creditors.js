@@ -4,8 +4,13 @@
 
   const API = {
     LIST: "/manager/billing/api/creditors",
-    COLLECT_FULL:  (id) => `/manager/billing/returns/${id}/collect-full/`,
-    COLLECT_BATCH: (id) => `/manager/billing/returns/${id}/collect-batch/`,
+    COLLECT_FULL: (item) => item.manual
+    ? `/manager/billing/manual-creditors/${item.id}/collect-full/`
+    : `/manager/billing/returns/${item.id}/collect-full/`,
+
+  COLLECT_BATCH: (item) => item.manual
+    ? `/manager/billing/manual-creditors/${item.id}/collect-batch/`
+    : `/manager/billing/returns/${item.id}/collect-batch/`,
   };
 
   const rows     = el("#rows");
@@ -65,28 +70,41 @@
     return "is-paid";
   }
 
-  function rowHtml(b){
-    const canAct = (b.status !== "paid");
-    const actions = canAct
-      ? `<button class="btn js-collect-full">تحصيل كامل</button>
-         <button class="btn js-collect-batch">تحصيل دفعة</button>`
-      : `<button class="btn" disabled>لا يوجد إجراء</button>`;
+ function arType(t){
+  if ((t||"").toLowerCase() === "customer") return "زبون";
+  if ((t||"").toLowerCase() === "worker")   return "عامل";
+  return "مورد";
+}
 
-    return `
-      <tr class="${statusClass(b.status)}"
-          data-id="${b.id}"
-          data-provider="${escapeHtml(b.provider.name)}"
-          data-remaining="${b.remaining}">
-        <td>${b.serial ?? ""}</td>
-        <td>${escapeHtml(b.provider.name || "")}</td>
-        <td>${nf(b.total)}</td>
-        <td>${nf(b.paid_amount)}</td>
-        <td>${nf(b.remaining)}</td>
-        <td>${b.status === "unpaid" ? "غير مدفوعة" : (b.status === "partial" ? "مدفوعة جزئياً" : "مدفوعة")}</td>
-        <td class="left">${actions}</td>
-      </tr>
-    `;
-  }
+function rowHtml(b){
+  const partyType = (b.party_type || "provider");
+  const partyName = b.party_name || (b?.provider?.name || "");
+  const serial    = (b.serial ?? b.doc_serial ?? "");
+  const canAct = (b.status !== "paid" && Number(b.remaining ?? 0) > 0);
+  const actions = canAct
+    ? `<button class="btn js-collect-full">تحصيل كامل</button>
+       <button class="btn js-collect-batch">تحصيل دفعة</button>`
+    : `<button class="btn" disabled>لا يوجد إجراء</button>`;
+
+  return `
+    <tr class="${statusClass(b.status)}"
+      data-id="${b.id}"
+      data-provider="${escapeHtml(partyName)}"
+      data-remaining="${b.remaining}"
+      data-manual="${b.manual ? 1 : 0}">
+
+      <td>${serial}</td>
+      <td>${escapeHtml(arType(partyType))}</td>
+      <td>${escapeHtml(partyName)}</td>
+      <td>${nf(b.total)}</td>
+      <td>${nf(b.paid_amount)}</td>
+      <td>${nf(b.remaining)}</td>
+      <td>${b.status === "unpaid" ? "غير مدفوعة" : (b.status === "partial" ? "مدفوعة جزئياً" : "مدفوعة")}</td>
+      <td class="left">${actions}</td>
+    </tr>
+  `;
+}
+
 
   async function load(reset=false){
     if (busy || (done && !reset)) return;
@@ -130,6 +148,8 @@
     target.id        = tr.getAttribute("data-id");
     target.provider  = tr.getAttribute("data-provider") || "";
     target.remaining = parseFloat(tr.getAttribute("data-remaining") || "0");
+    target.manual = tr.getAttribute("data-manual") === "1";
+
 
     if (e.target.classList.contains("js-collect-full")){
       mFullText.textContent = `هل أنت متأكد من تحصيل ${nf(target.remaining)} بالكامل من (${target.provider})؟`;
@@ -157,7 +177,7 @@
   mFullConfirm.addEventListener("click", async () => {
     if (!target.id) return;
     try{
-      const resp = await fetch(API.COLLECT_FULL(target.id), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const resp = await fetch(API.COLLECT_FULL(target), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json();
       if (data.ok){ closeModal(mFull); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }
@@ -171,7 +191,7 @@
     const form = new FormData();
     form.append("amount", String(v));
     try{
-      const resp = await fetch(API.COLLECT_BATCH(target.id), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const resp = await fetch(API.COLLECT_BATCH(target), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json();
       if (data.ok){ closeModal(mBatch); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }

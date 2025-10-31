@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import contextlib
 from decimal import Decimal
-from typing import Iterable, Dict, Any
+from typing import Iterable, Dict, Any , Optional
+
+from datetime import date
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -16,6 +18,9 @@ from billing.models import (
 )
 from catalog.models import Product
 from ledger import services as LSV
+
+from django.db.models import Max
+from billing.models import PartyType
 
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
@@ -61,6 +66,23 @@ def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) ->
 # =======================================================================
 # Bills  (commercial doc) + Debtor subledger (payables)
 # =======================================================================
+
+
+@transaction.atomic
+def _next_bill_serial_locked() -> int:
+    # Largest among Bills.serial and DebtorEntry.doc_serial (manual debts)
+    m_bill  = Bill.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
+    m_debt  = DebtorEntry.objects.select_for_update().aggregate(m=Max("doc_serial")).get("m") or 0
+    return int(max(int(m_bill or 0), int(m_debt or 0))) + 1
+
+@transaction.atomic
+def _next_return_serial_locked() -> int:
+    # Largest among ProviderReturn.serial and CreditorEntry.doc_serial (manual debts)
+    m_ret   = ProviderReturn.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
+    m_cred  = CreditorEntry.objects.select_for_update().aggregate(m=Max("doc_serial")).get("m") or 0
+    return int(max(int(m_ret or 0), int(m_cred or 0))) + 1
+
+
 
 @transaction.atomic
 def create_bill(
@@ -173,6 +195,105 @@ def create_bill(
 
 
 @transaction.atomic
+def create_manual_debt(
+    *,
+    actor,
+    direction: str,                 # "debtor" | "creditor"
+    party_type: str,                # "provider" | "customer" | "worker"
+    provider_id: Optional[int],        # (ok to leave as is if you want; or make Optional[int])
+    party_name: str,
+    amount: Decimal,
+    due_date: Optional[date] = None,   # <-- replace `"date | None"` with Optional[date]
+):
+    """
+    Create a pure debt with no product flow.
+    - direction="debtor": store owes other party  -> DebtorEntry(total=amount, paid=0)
+      serial source = next Bill serial (but we do NOT create a Bill)
+    - direction="creditor": other party owes store -> CreditorEntry(total=amount, collected=0)
+      serial source = next ProviderReturn serial (but we do NOT create a ProviderReturn)
+
+    GL/Vault:
+      At creation we assume **cash actually moved**:
+        * debtor  : we TOOK cash now  -> SAFE UP (inflow), liability created
+        * creditor: we GAVE cash now  -> SAFE DOWN (outflow), receivable created
+      If your LSV has no direct helpers yet, these calls are guarded.
+    """
+    amt = q3(amount or DEC0)
+    if amt <= 0:
+        raise ValueError("amount must be positive")
+
+    ptype = (party_type or PartyType.PROVIDER).lower().strip()
+    if ptype not in {PartyType.PROVIDER, PartyType.CUSTOMER, PartyType.WORKER}:
+        ptype = PartyType.PROVIDER
+
+    # Resolve provider (enabled now), others added later
+    provider = None
+    if ptype == PartyType.PROVIDER:
+        if not provider_id:
+            raise ValueError("provider must be selected from list")
+        provider = get_object_or_404(Provider.objects.select_for_update(), pk=int(provider_id))
+
+    dirn = (direction or "").lower().strip()
+    if dirn not in {"debtor", "creditor"}:
+        raise ValueError("direction must be 'debtor' or 'creditor'")
+
+    # Serial (locked like commercial docs)
+    if dirn == "debtor":
+        serial = _next_bill_serial_locked()
+        entry = DebtorEntry.objects.create(
+            provider=provider if provider else None,
+            source_app="billing",
+            source_model="ManualDebt",          # mark as manual
+            source_id=f"manual:{serial}",       # <<< make it unique
+            total=q3(amt),
+            paid_amount=q3(DEC0),
+            status=DebtorEntry.Status.OPEN,
+            party_type=ptype,
+            party_name=(party_name or (provider.name if provider else "")).strip(),
+            doc_serial=serial,
+            due_date=due_date,
+        )
+
+        # Vault/GL: inflow (we took cash), liability created
+        with contextlib.suppress(Exception):
+            # If you have a generic cash adjust, prefer that. Placeholder:
+            LSV.post_manual_debtor_created(
+                actor=actor,
+                amount_minor=minor3(amt),
+                provider_id=provider.id if provider else None,
+                source=("billing", "ManualDebt", f"D-{entry.id}"),
+            )
+        return entry
+
+    else:
+        serial = _next_return_serial_locked()
+        entry = CreditorEntry.objects.create(
+            provider=provider if provider else None,
+            source_app="billing",
+            source_model="ManualDebt",          # mark as manual
+            source_id=f"manual:{serial}",       # <<< make it unique
+            total=q3(amt),
+            collected=q3(DEC0),
+            status=CreditorEntry.Status.OPEN,
+            party_type=ptype,
+            party_name=(party_name or (provider.name if provider else "")).strip(),
+            doc_serial=serial,
+            due_date=due_date,
+        )
+
+        # Vault/GL: outflow (we gave cash), receivable created
+        with contextlib.suppress(Exception):
+            LSV.post_manual_creditor_created(
+                actor=actor,
+                amount_minor=minor3(amt),
+                provider_id=provider.id if provider else None,
+                source=("billing", "ManualDebt", f"C-{entry.id}"),
+            )
+        return entry
+
+
+
+@transaction.atomic
 def delete_bill(*, actor, bill_id: int) -> None:
     """
     Reverse stock and post GL reversal:
@@ -225,9 +346,21 @@ def pay_full(*, actor, bill_id: int) -> Bill:
       Dr PROVIDER_PAYABLE / Cr SAFE (in our GL design this is implemented via LSV helper)
     """
     bill = Bill.objects.select_for_update().get(pk=bill_id)
-    debtor = DebtorEntry.objects.select_for_update().get(
-        source_app="billing", source_model="Bill", source_id=str(bill.id)
+    debtor, _created = DebtorEntry.objects.select_for_update().get_or_create(
+        provider=bill.provider,
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+        defaults={
+            "total": q3(bill.total or DEC0),
+            "paid_amount": q3(DEC0),
+            "status": DebtorEntry.Status.OPEN,
+            "party_type": PartyType.PROVIDER,
+            "party_name": bill.provider.name if bill.provider_id else "",
+            "doc_serial": bill.serial,
+        },
     )
+
     if debtor.remaining <= 0:
         return bill
 
@@ -250,19 +383,31 @@ def pay_full(*, actor, bill_id: int) -> Bill:
 
 @transaction.atomic
 def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
-    """
-    Pay a partial amount against DebtorEntry and post GL.
-    """
     amt = q3(amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
 
     bill = Bill.objects.select_for_update().get(pk=bill_id)
-    debtor = DebtorEntry.objects.select_for_update().get(
-        source_app="billing", source_model="Bill", source_id=str(bill.id)
+    # self-heal missing DebtorEntry (same pattern as pay_full)
+    debtor, _created = DebtorEntry.objects.select_for_update().get_or_create(
+        provider=bill.provider,
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+        defaults={
+            "total": q3(bill.total or DEC0),
+            "paid_amount": q3(DEC0),
+            "status": DebtorEntry.Status.OPEN,
+            "party_type": PartyType.PROVIDER,
+            "party_name": bill.provider.name if bill.provider_id else "",
+            "doc_serial": bill.serial,
+        },
     )
-    if amt > debtor.remaining:
-        raise ValueError("amount exceeds remaining")
+
+    rem = q3(debtor.remaining)
+    if amt > rem:
+        # add remaining to the message so UI and DB don't disagree silently
+        raise ValueError(f"amount exceeds remaining ({rem})")
 
     DebtorPayment.objects.create(entry=debtor, amount=amt)
     debtor.paid_amount = q3((debtor.paid_amount or DEC0) + amt)
@@ -276,6 +421,59 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
         source=("billing", "Bill", bill.id),
     )
     return bill
+
+
+@transaction.atomic
+def pay_manual_debt_full(*, actor, entry_id: int) -> DebtorEntry:
+    debtor = DebtorEntry.objects.select_for_update().get(pk=entry_id)
+    if debtor.source_model != "ManualDebt":
+        raise ValueError("not a manual debt")
+
+    if debtor.remaining <= 0:
+        return debtor
+
+    pay_amt = debtor.remaining
+    DebtorPayment.objects.create(entry=debtor, amount=q3(pay_amt))
+    debtor.paid_amount = q3((debtor.paid_amount or DEC0) + pay_amt)
+    debtor.status = DebtorEntry.Status.CLOSED
+    debtor.save(update_fields=["paid_amount", "status"])
+
+    with contextlib.suppress(Exception):
+        LSV.post_manual_debtor_paid(
+            actor=actor,
+            amount_minor=minor3(pay_amt),
+            provider_id=debtor.provider_id,
+            source=("billing", "ManualDebt", f"D-{debtor.id}")
+        )
+    return debtor
+
+
+@transaction.atomic
+def pay_manual_debt_partial(*, actor, entry_id: int, amount: Decimal) -> DebtorEntry:
+    amt = q3(amount or DEC0)
+    if amt <= 0:
+        raise ValueError("amount must be positive")
+
+    debtor = DebtorEntry.objects.select_for_update().get(pk=entry_id)
+    if debtor.source_model != "ManualDebt":
+        raise ValueError("not a manual debt")
+
+    if amt > debtor.remaining:
+        raise ValueError("amount exceeds remaining")
+
+    DebtorPayment.objects.create(entry=debtor, amount=amt)
+    debtor.paid_amount = q3((debtor.paid_amount or DEC0) + amt)
+    debtor.status = DebtorEntry.Status.CLOSED if debtor.remaining <= DEC0 else DebtorEntry.Status.OPEN
+    debtor.save(update_fields=["paid_amount", "status"])
+
+    with contextlib.suppress(Exception):
+        LSV.post_manual_debtor_paid(
+            actor=actor,
+            amount_minor=minor3(amt),
+            provider_id=debtor.provider_id,
+            source=("billing", "ManualDebt", f"D-{debtor.id}")
+        )
+    return debtor
 
 
 # =======================================================================
@@ -487,3 +685,56 @@ def collect_partial(*, actor, return_id: int, amount: Decimal) -> ProviderReturn
         source=("billing", "ProviderReturn", pret.id),
     )
     return pret
+
+
+@transaction.atomic
+def collect_manual_debt_full(*, actor, entry_id: int) -> CreditorEntry:
+    cred = CreditorEntry.objects.select_for_update().get(pk=entry_id)
+    if cred.source_model != "ManualDebt":
+        raise ValueError("not a manual debt")
+
+    if cred.remaining <= 0:
+        return cred
+
+    amt = cred.remaining
+    CreditorReceipt.objects.create(entry=cred, amount=q3(amt))
+    cred.collected = q3((cred.collected or DEC0) + amt)
+    cred.status = CreditorEntry.Status.CLOSED
+    cred.save(update_fields=["collected", "status"])
+
+    with contextlib.suppress(Exception):
+        LSV.post_manual_creditor_collected(
+            actor=actor,
+            amount_minor=minor3(amt),
+            provider_id=cred.provider_id,
+            source=("billing", "ManualDebt", f"C-{cred.id}")
+        )
+    return cred
+
+
+@transaction.atomic
+def collect_manual_debt_partial(*, actor, entry_id: int, amount: Decimal) -> CreditorEntry:
+    amt = q3(amount or DEC0)
+    if amt <= 0:
+        raise ValueError("amount must be positive")
+
+    cred = CreditorEntry.objects.select_for_update().get(pk=entry_id)
+    if cred.source_model != "ManualDebt":
+        raise ValueError("not a manual debt")
+
+    if amt > cred.remaining:
+        raise ValueError("amount exceeds remaining")
+
+    CreditorReceipt.objects.create(entry=cred, amount=amt)
+    cred.collected = q3((cred.collected or DEC0) + amt)
+    cred.status = CreditorEntry.Status.CLOSED if cred.remaining <= DEC0 else CreditorEntry.Status.OPEN
+    cred.save(update_fields=["collected", "status"])
+
+    with contextlib.suppress(Exception):
+        LSV.post_manual_creditor_collected(
+            actor=actor,
+            amount_minor=minor3(amt),
+            provider_id=cred.provider_id,
+            source=("billing", "ManualDebt", f"C-{cred.id}")
+        )
+    return cred

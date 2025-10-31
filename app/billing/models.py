@@ -14,6 +14,16 @@ DEC0 = Decimal("0.000")
 
 
 # =========================
+# Party type (for sub-ledgers)
+# =========================
+
+class PartyType(models.TextChoices):
+    PROVIDER = "provider", "مزود"
+    CUSTOMER = "customer", "زبون"
+    WORKER   = "worker",   "عامل"
+
+
+# =========================
 # Provider
 # =========================
 
@@ -103,7 +113,8 @@ class Bill(models.Model):
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
-        return f"Bill #{s} — {self.provider.name}"
+        prov_name = getattr(self.provider, "name", "") or "—"
+        return f"Bill #{s} — {prov_name}"
 
     # --------- Race-safe serial assignment ---------
     def _assign_serial_locked(self) -> None:
@@ -128,6 +139,7 @@ class Bill(models.Model):
                 continue
         # Highly contended system – surface the error for visibility.
         raise
+
 
 class BillItem(models.Model):
     class UnitIndex(models.IntegerChoices):
@@ -212,7 +224,8 @@ class ProviderReturn(models.Model):
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
-        return f"Return #{s} — {self.provider.name}"
+        prov_name = getattr(self.provider, "name", "") or "—"
+        return f"Return #{s} — {prov_name}"
 
     # --------- Race-safe serial assignment ---------
     def _assign_serial_locked(self) -> None:
@@ -261,7 +274,7 @@ class ProviderReturnItem(models.Model):
 # =====================================
 
 class DebtorEntry(models.Model):
-    """What the store owes a provider (payables) per source doc (Bill)."""
+    """What the store owes a provider (payables) per source doc (Bill) or manual debt."""
 
     class Status(models.TextChoices):
         OPEN   = "open",   "مفتوحة"
@@ -269,8 +282,8 @@ class DebtorEntry(models.Model):
 
     provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="debtor_entries")
     source_app   = models.CharField(max_length=64)   # "billing"
-    source_model = models.CharField(max_length=64)   # "Bill"
-    source_id    = models.CharField(max_length=64)   # bill id as str
+    source_model = models.CharField(max_length=64)   # "Bill" | "ManualDebt"
+    source_id    = models.CharField(max_length=64)   # bill id as str | "manual"
     created_at   = models.DateTimeField(default=timezone.now)
 
     total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
@@ -279,11 +292,18 @@ class DebtorEntry(models.Model):
                                       validators=[MinValueValidator(0)])
     status      = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
 
+    # NEW: meta for manual debts & list columns
+    party_type  = models.CharField(max_length=16, choices=PartyType.choices, default=PartyType.PROVIDER)
+    party_name  = models.CharField(max_length=128, blank=True)
+    doc_serial  = models.PositiveIntegerField(null=True, blank=True)  # serial when manual (Bill counter)
+    due_date    = models.DateField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["provider_id"]),
             models.Index(fields=["status"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["party_name"]),
         ]
         constraints = [
             models.UniqueConstraint(fields=["source_app", "source_model", "source_id"], name="uniq_debtor_by_source"),
@@ -297,7 +317,8 @@ class DebtorEntry(models.Model):
         return (self.total or DEC0) - (self.paid_amount or DEC0)
 
     def __str__(self) -> str:
-        return f"Debtor #{self.id} → {self.provider.name} ({self.remaining} remaining)"
+        party = self.party_name or (self.provider.name if self.provider_id else "—")
+        return f"Debtor #{self.id} → {party} ({self.remaining} remaining)"
 
 
 class DebtorPayment(models.Model):
@@ -320,7 +341,7 @@ class DebtorPayment(models.Model):
 
 
 class CreditorEntry(models.Model):
-    """What the provider owes the store (receivables) per source doc (ProviderReturn)."""
+    """What the provider owes the store (receivables) per source doc (ProviderReturn) or manual debt."""
 
     class Status(models.TextChoices):
         OPEN   = "open",   "مفتوحة"
@@ -328,8 +349,8 @@ class CreditorEntry(models.Model):
 
     provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="creditor_entries")
     source_app   = models.CharField(max_length=64)   # "billing"
-    source_model = models.CharField(max_length=64)   # "ProviderReturn"
-    source_id    = models.CharField(max_length=64)   # return id as str
+    source_model = models.CharField(max_length=64)   # "ProviderReturn" | "ManualDebt"
+    source_id    = models.CharField(max_length=64)   # return id as str | "manual"
     created_at   = models.DateTimeField(default=timezone.now)
 
     total     = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
@@ -338,11 +359,18 @@ class CreditorEntry(models.Model):
                                     validators=[MinValueValidator(0)])
     status    = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
 
+    # NEW: meta for manual debts & list columns
+    party_type  = models.CharField(max_length=16, choices=PartyType.choices, default=PartyType.PROVIDER)
+    party_name  = models.CharField(max_length=128, blank=True)
+    doc_serial  = models.PositiveIntegerField(null=True, blank=True)  # serial when manual (Return counter)
+    due_date    = models.DateField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["provider_id"]),
             models.Index(fields=["status"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["party_name"]),
         ]
         constraints = [
             models.UniqueConstraint(fields=["source_app", "source_model", "source_id"], name="uniq_creditor_by_source"),
@@ -356,7 +384,8 @@ class CreditorEntry(models.Model):
         return (self.total or DEC0) - (self.collected or DEC0)
 
     def __str__(self) -> str:
-        return f"Creditor #{self.id} ← {self.provider.name} ({self.remaining} remaining)"
+        party = self.party_name or (self.provider.name if self.provider_id else "—")
+        return f"Creditor #{self.id} ← {party} ({self.remaining} remaining)"
 
 
 class CreditorReceipt(models.Model):

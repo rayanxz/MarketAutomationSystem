@@ -1,0 +1,109 @@
+{# app/templates/billing/add_debt.html #}
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}إضافة دين{% endblock %}
+
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة المدين</a>
+    <a class="btn-sec" href="{% url 'billing_creditors' %}">قائمة الدائن</a>
+    <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+    <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
+    <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+    <a class="btn-sec active" href="{% url 'billing_add_debt' %}">إضافة دين</a>
+  </div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .card{ background:#fff; border-radius:12px; padding:16px; box-shadow:var(--card-shadow); }
+  .row{ display:flex; flex-wrap:wrap; gap:12px; }
+  .field{ min-width:220px; flex:1 1 220px; }
+  .label{ display:block; font-size:12px; color:#6b7280; margin-bottom:6px; }
+  .input, .select, .btn{
+    width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#fff;
+  }
+  .btn{ cursor:pointer; background:#f8fafc; }
+  .btn.primary{ background:var(--brand); border-color:var(--brand); color:#fff; }
+  .muted{ color:#6b7280; font-size:12px; }
+  ul.ac{ position:absolute; z-index:10; background:#fff; border:1px solid #e5e7eb; border-radius:10px; margin:4px 0 0; padding:6px 0; list-style:none; width:100%; max-height:220px; overflow:auto; display:none; }
+  ul.ac.show{ display:block; }
+  ul.ac li{ padding:8px 10px; cursor:pointer; }
+  ul.ac li.active, ul.ac li:hover{ background:#eef2ff; }
+  .actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .two{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+</style>
+<script defer src="{% static 'js/billing_add_debt.js' %}?v=20251030-3"></script>
+{% endblock %}
+
+{% block content %}
+<div class="card" dir="rtl">
+  <h2 style="margin:0 0 12px;">إضافة دين (بدون حركة منتجات)</h2>
+
+  <div class="row">
+    <!-- Direction -->
+    <div class="field" style="max-width:260px;">
+      <label class="label">نوع الدين</label>
+      <select id="dir" class="select">
+        <option value="debtor">مدين (المتجر مدين لشخص)</option>
+        <option value="creditor">دائن (شخص مدين للمتجر)</option>
+      </select>
+      <small class="muted">سيتحدد منه مصدر السيريال (فاتورة/مرتجع)</small>
+    </div>
+
+    <!-- Party type (only provider enabled now) -->
+    <div class="field" style="max-width:260px;">
+      <label class="label">نوع العميل (مُعطّل مؤقتاً ما عدا المورد)</label>
+      <select id="ptype" class="select" disabled>
+        <option value="provider" selected>مورد</option>
+        <option value="customer" disabled>زبون (لاحقاً)</option>
+        <option value="worker" disabled>عامل (لاحقاً)</option>
+      </select>
+    </div>
+
+    <!-- Serial (preview) -->
+    <div class="field" style="max-width:200px;">
+      <label class="label">السيريال</label>
+      <input id="serial" class="input" placeholder="—" disabled>
+      <small class="muted">يتغير تلقائياً حسب النوع</small>
+    </div>
+
+    <!-- Amount -->
+    <div class="field" style="max-width:220px;">
+      <label class="label">المبلغ</label>
+      <input id="amount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+    </div>
+
+    <!-- Due date -->
+    <div class="field" style="max-width:220px;">
+      <label class="label">يجب تغطيته قبل (اختياري)</label>
+      <input id="due" class="input" type="date">
+    </div>
+  </div>
+
+  <!-- Party picker (Provider AC) -->
+  <div class="row" style="margin-top:12px; position:relative;">
+    <div class="field">
+      <label class="label">الاسم</label>
+      <input id="partyName" class="input" placeholder="ابحث بالاسم (يجب اختيار اسم صحيح)">
+      <input id="partyId" type="hidden">
+      <ul id="acList" class="ac"></ul>
+      <small id="partyErr" class="muted"></small>
+    </div>
+  </div>
+
+  <div class="actions" style="margin-top:16px;">
+    <!-- add these two lines -->
+    <input type="hidden" id="debtsUrl"     value="{% url 'billing_debts' %}">
+    <input type="hidden" id="creditorsUrl" value="{% url 'billing_creditors' %}">
+
+    <a href="{% url 'billing_list' %}" class="btn">إلغاء</a>
+    <button id="save" class="btn primary">حفظ</button>
+  </div>
+
+  <p id="saveErr" class="muted" style="margin-top:8px;"></p>
+</div>
+{% endblock %}

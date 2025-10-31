@@ -13,6 +13,8 @@
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
     <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
     <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+    <a class="btn-sec" href="{% url 'billing_add_debt' %}">إضافة دين</a>
+
   </div>
 {% endblock %}
 
@@ -45,7 +47,7 @@
   .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
   .modal .input{ width:100%; }
 </style>
-<script defer src="{% static 'js/billing_debts.js' %}?v=debts-20251029-4"></script>
+<script defer src="{% static 'js/billing_debts.js' %}?v=debts-20251029-5"></script>
 {% endblock %}
 
 {% block content %}
@@ -90,17 +92,19 @@
   <!-- Table -->
   <div class="table-wrap">
     <table>
-      <thead>
-        <tr>
-          <th style="width:120px;">سيريال</th>
-          <th>المورد</th>
-          <th style="width:160px;">الإجمالي</th>
-          <th style="width:160px;">المدفوع</th>
-          <th style="width:160px;">المتبقي</th>
-          <th style="width:160px;">الحالة</th>
-          <th style="width:260px;" class="left">إجراءات</th>
-        </tr>
+     <thead>
+      <tr>
+         <th style="width:120px;">سيريال</th>
+         <th style="width:140px;">نوع العميل</th>
+         <th>الاسم</th>
+         <th style="width:160px;">الإجمالي</th>
+         <th style="width:160px;">المدفوع</th>
+         <th style="width:160px;">المتبقي</th>
+         <th style="width:160px;">الحالة</th>
+         <th style="width:260px;" class="left">إجراءات</th>
+       </tr>
       </thead>
+
       <tbody id="rows"></tbody>
     </table>
   </div>

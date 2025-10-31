@@ -4,8 +4,13 @@
 
   const API = {
     LIST: "/manager/billing/api/debts/",
-    PAY_FULL:  (billId) => `/manager/billing/bills/${billId}/pay-full/`,
-    PAY_BATCH: (billId) => `/manager/billing/bills/${billId}/pay-batch/`,
+    PAY_FULL: (item) => item.manual
+    ? `/manager/billing/manual-debts/${item.id}/pay-full/`
+    : `/manager/billing/bills/${item.id}/pay-full/`,
+
+  PAY_BATCH: (item) => item.manual
+    ? `/manager/billing/manual-debts/${item.id}/pay-batch/`
+    : `/manager/billing/bills/${item.id}/pay-batch/`,
   };
 
   const $ = (s, r=document) => r.querySelector(s);
@@ -78,30 +83,46 @@
     };
   }
 
-  function rowHtml(src){
-    const b = normalize(src);
-    const canAct = (String(b.status).toLowerCase() !== "paid" && (b.remaining ?? 0) > 0);
-    const actions = canAct
-      ? `<button class="btn js-full">تسديد كامل</button>
-         <button class="btn js-batch">تسديد دفعة</button>`
-      : `<button class="btn" disabled>لا يوجد إجراء</button>`;
+ function arType(t){
+  if ((t||"").toLowerCase() === "customer") return "زبون";
+  if ((t||"").toLowerCase() === "worker")   return "عامل";
+  return "مورد";
+}
 
-    return `
-      <tr class="${statusClass(b.status)}"
-          data-bill="${eh(b.bill_id)}"
-          data-provider="${eh(b.provider_name)}"
-          data-remaining="${eh(b.remaining)}">
-        <td>${eh(b.serial)}</td>
-        <td>${eh(b.provider_name)}</td>
-        <td>${nf(b.total)}</td>
-        <td>${nf(b.paid)}</td>
-        <td>${nf(b.remaining)}</td>
-        <td>${(String(b.status).toLowerCase()==="unpaid")?"غير مدفوعة":(String(b.status).toLowerCase()==="partial"?"مدفوعة جزئياً":"مدفوعة")}</td>
-        <td class="left">${actions}</td>
-      </tr>
-    `;
-  }
+function rowHtml(src){
+  // Normalize
+  const partyType  = (src.party_type || "provider");
+  const partyName  = src.party_name || (src?.provider?.name || "");
+  const serial     = (src.serial ?? src.doc_serial ?? ""); // backend may send any
+  const total      = src.total ?? 0;
+  const paid       = src.paid_amount ?? 0;
+  const remaining  = src.remaining ?? Math.max(0, Number(total)-Number(paid));
+  const status     = (src.status || "").toLowerCase();
 
+  const canAct = (status !== "paid" && Number(remaining) > 0);
+  const actions = canAct
+    ? `<button class="btn js-full">تسديد كامل</button>
+       <button class="btn js-batch">تسديد دفعة</button>`
+    : `<button class="btn" disabled>لا يوجد إجراء</button>`;
+
+  return `
+  <tr class="${statusClass(status)}"
+      data-bill="${eh(src.id ?? src.bill_id ?? "")}"
+      data-provider="${eh(partyName)}"
+      data-remaining="${eh(remaining)}"
+      data-manual="${src.manual ? 1 : 0}">
+
+      <td>${eh(serial)}</td>
+      <td>${eh(arType(partyType))}</td>
+      <td>${eh(partyName)}</td>
+      <td>${nf(total)}</td>
+      <td>${nf(paid)}</td>
+      <td>${nf(remaining)}</td>
+      <td>${status === "unpaid" ? "غير مدفوعة" : (status === "partial" ? "مدفوعة جزئياً" : "مدفوعة")}</td>
+      <td class="left">${actions}</td>
+    </tr>
+  `;
+}
   async function load(reset=false){
     if (busy || (done && !reset)) return;
     busy = true; loadMore.disabled = true; endMsg.hidden = true;
@@ -153,6 +174,8 @@
     target.bill_id   = tr.getAttribute("data-bill");
     target.provider  = tr.getAttribute("data-provider") || "";
     target.remaining = parseFloat(tr.getAttribute("data-remaining") || "0");
+    target.manual = tr.getAttribute("data-manual") === "1";
+
 
     if (e.target.classList.contains("js-full")){
       mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)}؟`;
@@ -180,7 +203,7 @@
   mFullConfirm?.addEventListener("click", async () => {
     if (!target.bill_id) return;
     try{
-      const resp = await fetch(API.PAY_FULL(target.bill_id), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const resp = await fetch(API.PAY_FULL(target), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json().catch(()=>({ok:false,error:"bad json"}));
       if (data.ok){ closeModal(mFull); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }
@@ -194,7 +217,7 @@
     const form = new FormData();
     form.append("amount", String(v));
     try{
-      const resp = await fetch(API.PAY_BATCH(target.bill_id), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const resp = await fetch(API.PAY_BATCH(target), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json().catch(()=>({ok:false,error:"bad json"}));
       if (data.ok){ closeModal(mBatch); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }
