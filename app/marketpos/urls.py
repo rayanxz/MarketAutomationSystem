@@ -35,6 +35,10 @@ urlpatterns = [
 
     path("manager/billing/", include("billing.urls")),
 
+    path("manager/notifications/", include("notifications.urls")),
+
+    path("manager/debts/", include("debts.urls")),
+
 
 
 ]

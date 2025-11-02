@@ -45,6 +45,10 @@
               {% endif %}
             </small>
           </div>
+          
+          {# ⬇️ NEW: role-specific session widgets (e.g., notifications) #}
+          {% block session_extras %}{% endblock %}
+
           <form action="{% url 'logout' %}" method="post" style="margin:0">
             {% csrf_token %}
             <button type="submit" class="btn logout-btn">تسجيل الخروج</button>
@@ -79,9 +83,12 @@
     </div>
   </main>
 
+
+  <script defer src="{% static 'js/notifications.js' %}"></script>
   {% block extra_scripts %}{% endblock %}
 
 <style>
+  /* ===== Context menu (existing) ===== */
   .ctx-menu{position:fixed;transform:translate(var(--x,0),var(--y,0));
     background:#111827;color:#fff;border-radius:10px;padding:6px;min-width:180px;
     box-shadow:0 12px 30px rgba(0,0,0,.3);display:none;z-index:4000;font-size:14px}
@@ -89,15 +96,55 @@
   .ctx-menu button{display:block;width:100%;text-align:start;padding:8px 10px;
     background:transparent;border:0;color:#e5e7eb;border-radius:8px;cursor:pointer}
   .ctx-menu button:hover{background:#1f2937}
+
+  .topbar .session { position: relative; z-index: 5; }
+  .notif-root{ position:relative; margin-inline-end:8px; }
+  .notif-btn{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px;
+    background:#f8fafc; cursor:pointer; line-height:1; pointer-events:auto;
+  }
+  .notif-badge{
+    display:inline-block; min-width:18px; padding:0 5px; border-radius:10px;
+    font-size:12px; background:#ef4444; color:#fff; text-align:center;
+  }
+  /* Notifications dropdown */
+  .notif-panel{
+    position:absolute;
+    top: calc(100% + 6px);
+    inset-inline-end: 0;
+    width: min(420px, 90vw);
+    max-height: 60vh;
+    overflow:auto;
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    box-shadow:0 12px 30px rgba(0,0,0,.15);
+    padding: 6px 0;
+    z-index: 5000;     /* keep only this one */
+    color: #111;       /* force dark text inside the panel */
+    direction: rtl;
+    text-align: right;
+  }
+
+  .notif-item{
+    color:#111;                 /* readable text */
+    background:#fff;            /* base bg */
+    padding:12px 14px;
+    border-bottom:1px solid #e5e7eb;
+  }
+  .notif-item:last-child{ border-bottom:0; }
+  .notif-item.unread{ background:#fff8db; }   /* stronger unread highlight */
+  .notif-item:hover{ background:#f1f5f9; }
+  .notif-empty{ color:#475569; }
+
+
 </style>
 
 <div id="ctx" class="ctx-menu" role="menu" aria-hidden="true">
   <!-- default items; you can replace dynamically -->
   <button data-act="refresh">تحديث</button>
 </div>
-
-
-
 
 </body>
 </html>

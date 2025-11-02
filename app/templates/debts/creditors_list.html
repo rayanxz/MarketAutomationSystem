@@ -1,4 +1,4 @@
-{# app/templates/billing/creditors_list.html #}
+{# app/templates/debts/creditors_list.html #}
 {% extends "manager/base_manager.html" %}
 {% load static %}
 
@@ -8,12 +8,12 @@
   <div class="tabs-row">
     <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
     <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة المدين</a>
-    <a class="btn-sec" href="{% url 'billing_creditors' %}">قائمة الدائن</a>
+    <a class="btn-sec" href="{% url 'debts_page' %}">قائمة المدين</a>
+    <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
     <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
     <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_add_debt' %}">إضافة دين</a>
 
   </div>
 {% endblock %}
@@ -45,8 +45,10 @@
   .modal header{ font-weight:700; margin-bottom:6px; }
   .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
   .modal .input{ width:100%; }
+  .left{ text-align:left; }
+
 </style>
-<script defer src="{% static 'js/billing_creditors.js' %}"></script>
+<script defer src="{% static 'js/debts_creditors.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -80,7 +82,7 @@
           <option value="paid">مدفوعة</option>
         </select>
       </div>
-      <button id="btnSearch" class="btn">بحث</button>
+      <button id="btnSearch" class="btn" type="button">بحث</button>
       <a id="btnReset" class="btn" href=".">إعادة تعيين</a>
     </div>
   </div>

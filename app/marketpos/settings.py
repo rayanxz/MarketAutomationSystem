@@ -12,7 +12,7 @@ DB_PATH = DATA_DIR / "pos.db"
 # ---- Core
 SECRET_KEY = "dev-only-change-before-shipping"
 DEBUG = True
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost" , "testserver"]
 
 # ---- Apps
 INSTALLED_APPS = [
@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "printing",
     "backups_app",
     "core",
+    "notifications",
 ]
 
 # ---- Middleware / WSGI / URLs

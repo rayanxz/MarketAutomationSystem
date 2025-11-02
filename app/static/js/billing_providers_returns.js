@@ -33,7 +33,7 @@
   const API_SEARCH= (document.body?.dataset?.urlApiSearch || "/manager/billing/api/products/search/").replace(/\/+$/,"/");
   const SAVE_URL  = (CFG.saveReturnUrl || "/manager/billing/api/returns/save/").replace(/\/+$/,"/");
   const NEXT_URL  = (CFG.nextSerialUrl || "/manager/billing/api/returns/next-serial/").replace(/\/+$/,"/");
-  const LIST_URL  = "/manager/billing/"; // back link (to bills home); change if you prefer
+  const LIST_URL  = (CFG.listUrl || "/manager/billing/");
 
   const apiModeFor = (m) => (m || "name");
 

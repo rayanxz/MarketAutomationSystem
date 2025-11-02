@@ -6,14 +6,14 @@
 {% block menu_secondary %}
   <div class="tabs-row">
     <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
-    <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة المدين</a>
-    <a class="btn-sec" href="{% url 'billing_creditors' %}">قائمة الدائن</a>
+    <a class="btn-sec active" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec" href="{% url 'debts_page' %}">قائمة المدين</a>
+    <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
     <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
     <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_add_debt' %}">إضافة دين</a>
-
+    
   </div>
 {% endblock %}
 
@@ -44,6 +44,8 @@
   .modal .box{ background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:0 10px 30px rgba(0,0,0,.2); }
   .modal header{ font-weight:700; margin-bottom:6px; }
   .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .left{ text-align:left; }
+
 </style>
 <script>
   window.__BILLING__ = {

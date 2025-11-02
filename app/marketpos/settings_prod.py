@@ -2,7 +2,7 @@ import os
 from .settings import *  # base
 
 DEBUG = False
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost" , "testserver"]
 
 # Runtime locations under ProgramData (Windows-friendly and survives updates)
 PROGRAM_DATA = os.environ.get("PROGRAMDATA", r"C:\ProgramData")

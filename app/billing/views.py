@@ -13,20 +13,20 @@ from django.db.models import Q  # needed for products search filters
 from accounts.models import AccountProfile
 from catalog.views import role_required
 from catalog.models import Product
-from billing.models import (
-    Provider, Bill, ProviderReturn,
-    DebtorEntry, CreditorEntry, PartyType
-    
-)
+
+from billing.models import Provider, Bill, ProviderReturn
+from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
 
 from . import selectors as S
 from . import services as SV
-from .serializers import provider_row, bill_row, debtor_row, creditor_row, return_row
+from .serializers import provider_row, bill_row, return_row
 
 import logging
 logger = logging.getLogger(__name__)
 
 from datetime import date
+
+
 
 
 # ---------- Page views ----------
@@ -47,23 +47,9 @@ def add_bill(request: HttpRequest) -> HttpResponse:
 
 
 @role_required(AccountProfile.Role.MANAGER)
-def debts_list(request: HttpRequest) -> HttpResponse:
-    return render(request, "billing/debts_list.html")
-
-
-@role_required(AccountProfile.Role.MANAGER)
 def providers_list(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/providers_list.html")
 
-
-@role_required(AccountProfile.Role.MANAGER)
-def debts_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "billing/debts_list.html")
-
-@role_required(AccountProfile.Role.MANAGER)
-def creditors_page(request: HttpRequest) -> HttpResponse:
-    # قائمة الدائن (providers owe store)
-    return render(request, "billing/creditors_list.html")
 
 
 @role_required(AccountProfile.Role.MANAGER)
@@ -182,60 +168,6 @@ def api_providers_ac(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
     return JsonResponse({"ok": True, "items": list(S.providers_ac(q))})
 
-
-
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_manual_debt_save(request: HttpRequest) -> JsonResponse:
-    """
-    POST JSON:
-    {
-      "direction": "debtor" | "creditor",
-      "party_type": "provider" | "customer" | "worker",   # UI: only provider enabled now
-      "party": {"id": 123, "name": "..."},                # for provider: id required
-      "amount": "123.456",
-      "due_date": "2025-11-10"                            # optional
-    }
-    Returns a row compatible with debtor/creditor list item.
-    """
-    try:
-        payload = json.loads(request.body.decode("utf-8") or "{}")
-    except Exception:
-        return _bad("bad json")
-
-    direction = (payload.get("direction") or "").strip().lower()
-    party_type = (payload.get("party_type") or PartyType.PROVIDER).strip().lower()
-    party = payload.get("party") or {}
-    party_id = party.get("id")
-    party_name = (party.get("name") or "").strip()
-    amount = _dec(payload.get("amount"), "0")
-    due_date = _date(payload.get("due_date"))
-
-    # only provider allowed for now (enforced both server & UI)
-    if party_type != PartyType.PROVIDER:
-        return _bad("party_type not supported yet", 422)
-
-    try:
-        entry = SV.create_manual_debt(
-            actor=request.user,
-            direction=direction,
-            party_type=party_type,
-            provider_id=int(party_id) if party_id else None,
-            party_name=party_name,
-            amount=amount,
-            due_date=due_date,
-        )
-    except ValueError as ve:
-        return _bad(str(ve))
-    except Exception as e:
-        logger.exception("api_manual_debt_save failed")
-        return _bad("save failed", 500)
-
-    # serialize according to list kind
-    if direction == "debtor":
-        return JsonResponse({"ok": True, "item": debtor_row(entry)})
-    else:
-        return JsonResponse({"ok": True, "item": creditor_row(entry)})
 
 
 # ---------- Products search (for Add Bill) ----------
@@ -393,40 +325,6 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [bill_row(b) for b in items], "next_cursor": nxt})
 
-
-@require_GET
-@role_required(AccountProfile.Role.MANAGER)
-def api_debts_list(request: HttpRequest) -> JsonResponse:
-    """
-    Debtor (payables) list backed by DebtorEntry.
-    Accepts status as: 'open'/'closed' OR 'unpaid'/'partial'/'paid'.
-    """
-    q = (request.GET.get("q") or "").strip()
-
-    # Normalize UI status -> sub-ledger status
-    raw_status = (request.GET.get("status") or "").lower().strip()
-    if raw_status in {"unpaid", "partial"}:
-        status = "open"
-    elif raw_status == "paid":
-        status = "closed"
-    elif raw_status in {"open", "closed", ""}:
-        status = raw_status
-    else:
-        status = ""  # unknown -> no filter
-
-    cursor = request.GET.get("cursor")
-    try:
-        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
-    except ValueError:
-        page_size = 30
-
-    qs = S.debtors_list(q=q, status=status, cursor=cursor, page_size=page_size)
-    items = list(qs)
-    nxt = items[-1].id if items else None
-
-    return JsonResponse(
-        {"ok": True, "items": [debtor_row(d) for d in items], "next_cursor": nxt}
-    )
 
 
 
@@ -599,70 +497,6 @@ def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
         return _bad("not found", 404)
 
 
-
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_manual_debt_pay_full(request: HttpRequest, entry_id: int) -> JsonResponse:
-    try:
-        SV.pay_manual_debt_full(actor=request.user, entry_id=entry_id)
-        return JsonResponse({"ok": True})
-    except DebtorEntry.DoesNotExist:
-        return _bad("not found", 404)
-    except Exception as e:
-        logger.exception("manual_debt_pay_full failed")
-        return _bad(str(e), 500)
-
-
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_manual_debt_pay_batch(request: HttpRequest, entry_id: int) -> JsonResponse:
-    amount_raw = (request.POST.get("amount") or "").strip()
-    try:
-        amount = Decimal(amount_raw)
-    except Exception:
-        return _bad("invalid amount")
-    try:
-        SV.pay_manual_debt_partial(actor=request.user, entry_id=entry_id, amount=amount)
-        return JsonResponse({"ok": True})
-    except Exception as e:
-        logger.exception("manual_debt_pay_batch failed")
-        return _bad(str(e), 500)
-
-
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_manual_creditor_collect_full(request: HttpRequest, entry_id: int) -> JsonResponse:
-    try:
-        SV.collect_manual_debt_full(actor=request.user, entry_id=entry_id)
-        return JsonResponse({"ok": True})
-    except CreditorEntry.DoesNotExist:
-        return _bad("not found", 404)
-    except Exception as e:
-        logger.exception("manual_creditor_collect_full failed")
-        return _bad(str(e), 500)
-
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_manual_creditor_collect_batch(request: HttpRequest, entry_id: int) -> JsonResponse:
-    amount_raw = (request.POST.get("amount") or "").strip()
-    try:
-        amount = Decimal(amount_raw)
-    except Exception:
-        return _bad("invalid amount")
-    if amount <= 0:
-        return _bad("Enter a positive amount.")
-
-    try:
-        SV.collect_manual_debt_partial(actor=request.user, entry_id=entry_id, amount=amount)
-        return JsonResponse({"ok": True})
-    except CreditorEntry.DoesNotExist:
-        return _bad("not found", 404)
-    except ValueError as ve:
-        return _bad(str(ve))
-    except Exception as e:
-        logger.exception("manual_creditor_collect_batch failed")
-        return _bad(str(e), 500)
-
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
@@ -682,86 +516,3 @@ def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
         return _bad("not found", 404)
 
 
-# --- page: add debt ---
-@role_required(AccountProfile.Role.MANAGER)
-def add_debt(request: HttpRequest) -> HttpResponse:
-    return render(request, "billing/add_debt.html")
-
-# --- API: save manual debt ---
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_debt_save(request: HttpRequest) -> JsonResponse:
-    import json
-    from decimal import Decimal
-    try:
-        payload = json.loads(request.body.decode("utf-8") or "{}")
-    except Exception:
-        return _bad("bad json")
-
-    direction   = (payload.get("direction") or "").strip().lower()   # debtor|creditor
-    party_type  = (payload.get("party_type") or "").strip().lower()  # provider|customer|worker
-    provider_id = payload.get("provider_id")
-    party_name  = (payload.get("party_name") or "").strip()
-    amount_raw  = payload.get("amount")
-    due_date    = payload.get("due_date") or None
-
-    try:
-        amount = Decimal(str(amount_raw or "0"))
-    except Exception:
-        return _bad("invalid amount")
-
-    # for now only provider is allowed via UI; keep backend tolerant:
-    if party_type != "provider":
-        return _bad("unsupported party type for now")
-
-    if not provider_id:
-        return _bad("provider must be selected from list")
-
-    # Parse date (optional)
-    from datetime import date
-    d_due = None
-    if due_date:
-        try:
-            # YYYY-MM-DD
-            y, m, d = [int(x) for x in str(due_date).split("-")]
-            d_due = date(y, m, d)
-        except Exception:
-            return _bad("bad due date")
-
-    try:
-        entry = SV.create_manual_debt(
-            actor=request.user,
-            direction=direction,
-            party_type=party_type,
-            provider_id=int(provider_id),
-            party_name=party_name,
-            amount=amount,
-            due_date=d_due,
-        )
-        return JsonResponse({"ok": True, "id": entry.id})
-    except ValueError as ve:
-        return _bad(str(ve))
-    except Exception as e:
-        logger.exception("api_debt_save failed")
-        return _bad("save failed", 500)
-
-
-
-# ----------- Creditors (receivables) list API ---------------
-
-@require_GET
-@role_required(AccountProfile.Role.MANAGER)
-def api_creditors_list(request: HttpRequest) -> JsonResponse:
-    """List receivables from CreditorEntry (OPEN by default)."""
-    q = (request.GET.get("q") or "").strip()
-    status = (request.GET.get("status") or "").lower()  # "open"/"closed"/""
-    cursor = request.GET.get("cursor")
-    try:
-        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
-    except ValueError:
-        page_size = 30
-
-    qs = S.creditors_list(q=q, status=status, cursor=cursor, page_size=page_size)
-    items = list(qs)
-    nxt = items[-1].id if items else None
-    return JsonResponse({"ok": True, "items": [creditor_row(c) for c in items], "next_cursor": nxt})

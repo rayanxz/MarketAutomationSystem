@@ -7,10 +7,9 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce, Lower
 
-from billing.models import (
-    Provider, Bill, ProviderReturn,
-    DebtorEntry, CreditorEntry
-)
+from billing.models import Provider, Bill, ProviderReturn
+from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+
 
 # ---------- Providers ----------
 
@@ -99,39 +98,6 @@ def bills_list_filters(qs, q, serial, status, date_from, date_to, cursor, page_s
         except ValueError:
             pass
     return qs
-
-# ---------- Debtor/Creditor (sub-ledgers) ----------
-
-def debtors_list(q: str, status: str, cursor: Optional[int], page_size: int):
-    qs = (
-        DebtorEntry.objects
-        .select_related("provider")
-        .order_by("-id")
-    )
-    if q:
-        # allow searching either provider name (commercial docs) or party snapshot (manual)
-        qs = qs.filter(Q(provider__name__icontains=q) | Q(party_name__icontains=q))
-
-    if status in {"open", "closed"}:
-        qs = qs.filter(status=status)
-    if cursor:
-        qs = qs.filter(id__lt=cursor)
-    return qs[:page_size]
-
-def creditors_list(q: str, status: str, cursor: Optional[int], page_size: int):
-    qs = (
-        CreditorEntry.objects
-        .select_related("provider")
-        .order_by("-id")
-    )
-    if q:
-        qs = qs.filter(Q(provider__name__icontains=q) | Q(party_name__icontains=q))
-
-    if status in {"open", "closed"}:
-        qs = qs.filter(status=status)
-    if cursor:
-        qs = qs.filter(id__lt=cursor)
-    return qs[:page_size]
 
 # ---------- Serials & returns ----------
 

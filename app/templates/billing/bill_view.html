@@ -7,12 +7,12 @@
   <div class="tabs-row">
     <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
     <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة المدين</a>
-    <a class="btn-sec" href="{% url 'billing_creditors' %}">قائمة الدائن</a>
+    <a class="btn-sec" href="{% url 'debts_page' %}">قائمة المدين</a>
+    <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
     <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
     <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_add_debt' %}">إضافة دين</a>
 
   </div>
 {% endblock %}
@@ -64,7 +64,7 @@
       </div>
       <div class="field" style="max-width:220px;">
         <label class="muted">تاريخ الإنشاء</label>
-        <div class="badge">{{ bill.created_at }}</div>
+        <div class="badge">{{ bill.created_at|date:"Y-m-d H:i" }}</div>
       </div>
     </div>
   </section>
@@ -104,27 +104,29 @@
       <div class="total-amt">{{ bill.total }}</div>
     </div>
 
-    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
-      <div>
-        <div>
+       <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+          <div>
             <div class="muted">حالة الدفع عند الإنشاء</div>
             <span class="pill {{ bill.initial_status }}">{{ bill.get_initial_status_display }}</span>
-            <small class="muted">— المدفوع عند الإنشاء: {{ bill.initial_paid_amount }}</small>
+            <small class="muted" style="display:block; margin-top:4px;">
+              المدفوع عند الإنشاء: {{ bill.initial_paid_amount }}
+            </small>
+          </div>
+          <div>
+            <div class="muted">الوضع الحالي</div>
+            <span class="pill {{ bill.status }}">{{ bill.get_status_display }}</span>
+            <small class="muted" style="display:block; margin-top:4px;">
+              المدفوع الآن: {{ bill.paid_amount }} / المتبقي: {{ bill.remaining }}
+            </small>
+          </div>
         </div>
-
-      <div>
-        <div class="muted">الوضع الحالي</div>
-        <span class="pill {{ bill.status }}">{{ bill.get_status_display }}</span>
-        <small class="muted">— المدفوع الآن: {{ bill.paid_amount }} / المتبقي: {{ bill.remaining }}</small>
-      </div>
-    </div>
 
     <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
       <a class="btn" href="{% url 'billing_list' %}">رجوع</a>
 
       {% if has_debt_now %}
         <!-- Opens debts page filtered by this serial -->
-        <a class="btn" href="{% url 'billing_debts' %}?serial={{ bill.serial|default:'' }}">معلومات الدين</a>
+        <a class="btn" href="{% url 'debts_page' %}?serial={{ bill.serial|default:'' }}">معلومات الدين</a>
       {% endif %}
     </div>
   </section>

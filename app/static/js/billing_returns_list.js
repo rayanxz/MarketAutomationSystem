@@ -27,7 +27,8 @@
   };
   const row = (r) => {
   const dt = r.created_at ? new Date(r.created_at).toLocaleString() : "";
-  const viewUrl = (window.__RETURNS__?.viewBase || "").replace(/\/$/, "") + r.id + "/";
+  const viewUrl = `${(window.__RETURNS__?.viewBase || "").replace(/\/?$/, "/")}${r.id}/`;
+
   return `
       <tr data-id="${r.id}">
         <td>${r.serial ?? ""}</td>

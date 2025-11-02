@@ -6,12 +6,12 @@
   <div class="tabs-row">
     <a class="btn-sec" href="{% url 'billing_add' %}">إضافة فاتورة</a>
     <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec" href="{% url 'billing_debts' %}">قائمة المدين</a>
-    <a class="btn-sec" href="{% url 'billing_creditors' %}">قائمة الدائن</a>
+    <a class="btn-sec" href="{% url 'debts_page' %}">قائمة المدين</a>
+    <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
+    <a class="btn-sec active" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
     <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_add_debt' %}">إضافة دين</a>
 
   </div>
 {% endblock %}
@@ -180,6 +180,7 @@
     providersAcUrl: "{% url 'billing_api_providers_ac' %}",
     saveReturnUrl:  "{% url 'billing_api_return_save' %}",
     nextSerialUrl:  "{% url 'billing_api_return_next_serial' %}",
+    listUrl:        "{% url 'billing_returns_list' %}",
   };
   document.body.dataset.urlApiSearch = "{% url 'billing_api_products_search' %}";
 </script>

@@ -6,22 +6,13 @@ from django.core.validators import MinValueValidator
 from django.db import models, transaction, IntegrityError
 from django.db.models import Q, Max
 from django.db.models.functions import Lower
-from django.utils import timezone
 
 from catalog.models import Product
 
+from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+
+
 DEC0 = Decimal("0.000")
-
-
-# =========================
-# Party type (for sub-ledgers)
-# =========================
-
-class PartyType(models.TextChoices):
-    PROVIDER = "provider", "مزود"
-    CUSTOMER = "customer", "زبون"
-    WORKER   = "worker",   "عامل"
-
 
 # =========================
 # Provider
@@ -269,139 +260,3 @@ class ProviderReturnItem(models.Model):
         return f"{self.product.name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
 
 
-# =====================================
-# Debtor / Creditor Sub-Ledgers
-# =====================================
-
-class DebtorEntry(models.Model):
-    """What the store owes a provider (payables) per source doc (Bill) or manual debt."""
-
-    class Status(models.TextChoices):
-        OPEN   = "open",   "مفتوحة"
-        CLOSED = "closed", "مغلقة"
-
-    provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="debtor_entries")
-    source_app   = models.CharField(max_length=64)   # "billing"
-    source_model = models.CharField(max_length=64)   # "Bill" | "ManualDebt"
-    source_id    = models.CharField(max_length=64)   # bill id as str | "manual"
-    created_at   = models.DateTimeField(default=timezone.now)
-
-    total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                      validators=[MinValueValidator(0)])
-    paid_amount = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                      validators=[MinValueValidator(0)])
-    status      = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
-
-    # NEW: meta for manual debts & list columns
-    party_type  = models.CharField(max_length=16, choices=PartyType.choices, default=PartyType.PROVIDER)
-    party_name  = models.CharField(max_length=128, blank=True)
-    doc_serial  = models.PositiveIntegerField(null=True, blank=True)  # serial when manual (Bill counter)
-    due_date    = models.DateField(null=True, blank=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["provider_id"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["created_at"]),
-            models.Index(fields=["party_name"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(fields=["source_app", "source_model", "source_id"], name="uniq_debtor_by_source"),
-            models.CheckConstraint(check=Q(total__gte=0), name="debtor_total_ge0"),
-            models.CheckConstraint(check=Q(paid_amount__gte=0), name="debtor_paid_ge0"),
-            models.CheckConstraint(check=Q(paid_amount__lte=models.F("total")), name="debtor_paid_le_total"),
-        ]
-
-    @property
-    def remaining(self) -> Decimal:
-        return (self.total or DEC0) - (self.paid_amount or DEC0)
-
-    def __str__(self) -> str:
-        party = self.party_name or (self.provider.name if self.provider_id else "—")
-        return f"Debtor #{self.id} → {party} ({self.remaining} remaining)"
-
-
-class DebtorPayment(models.Model):
-    entry      = models.ForeignKey(DebtorEntry, on_delete=models.CASCADE, related_name="payments")
-    created_at = models.DateTimeField(default=timezone.now)
-    amount     = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
-    journal_entry_id = models.IntegerField(null=True, blank=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["entry_id"]),
-            models.Index(fields=["created_at"]),
-        ]
-        constraints = [
-            models.CheckConstraint(check=Q(amount__gt=0), name="debtor_payment_amount_pos"),
-        ]
-
-    def __str__(self) -> str:
-        return f"DebtorPayment {self.amount} on entry {self.entry_id}"
-
-
-class CreditorEntry(models.Model):
-    """What the provider owes the store (receivables) per source doc (ProviderReturn) or manual debt."""
-
-    class Status(models.TextChoices):
-        OPEN   = "open",   "مفتوحة"
-        CLOSED = "closed", "مغلقة"
-
-    provider     = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="creditor_entries")
-    source_app   = models.CharField(max_length=64)   # "billing"
-    source_model = models.CharField(max_length=64)   # "ProviderReturn" | "ManualDebt"
-    source_id    = models.CharField(max_length=64)   # return id as str | "manual"
-    created_at   = models.DateTimeField(default=timezone.now)
-
-    total     = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                    validators=[MinValueValidator(0)])
-    collected = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
-                                    validators=[MinValueValidator(0)])
-    status    = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
-
-    # NEW: meta for manual debts & list columns
-    party_type  = models.CharField(max_length=16, choices=PartyType.choices, default=PartyType.PROVIDER)
-    party_name  = models.CharField(max_length=128, blank=True)
-    doc_serial  = models.PositiveIntegerField(null=True, blank=True)  # serial when manual (Return counter)
-    due_date    = models.DateField(null=True, blank=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["provider_id"]),
-            models.Index(fields=["status"]),
-            models.Index(fields=["created_at"]),
-            models.Index(fields=["party_name"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(fields=["source_app", "source_model", "source_id"], name="uniq_creditor_by_source"),
-            models.CheckConstraint(check=Q(total__gte=0), name="creditor_total_ge0"),
-            models.CheckConstraint(check=Q(collected__gte=0), name="creditor_coll_ge0"),
-            models.CheckConstraint(check=Q(collected__lte=models.F("total")), name="creditor_coll_le_total"),
-        ]
-
-    @property
-    def remaining(self) -> Decimal:
-        return (self.total or DEC0) - (self.collected or DEC0)
-
-    def __str__(self) -> str:
-        party = self.party_name or (self.provider.name if self.provider_id else "—")
-        return f"Creditor #{self.id} ← {party} ({self.remaining} remaining)"
-
-
-class CreditorReceipt(models.Model):
-    entry      = models.ForeignKey(CreditorEntry, on_delete=models.CASCADE, related_name="receipts")
-    created_at = models.DateTimeField(default=timezone.now)
-    amount     = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0.001)])
-    journal_entry_id = models.IntegerField(null=True, blank=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["entry_id"]),
-            models.Index(fields=["created_at"]),
-        ]
-        constraints = [
-            models.CheckConstraint(check=Q(amount__gt=0), name="creditor_receipt_amount_pos"),
-        ]
-
-    def __str__(self) -> str:
-        return f"CreditorReceipt {self.amount} on entry {self.entry_id}"

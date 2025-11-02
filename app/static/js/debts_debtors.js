@@ -3,14 +3,13 @@
   "use strict";
 
   const API = {
-    LIST: "/manager/billing/api/debts/",
-    PAY_FULL: (item) => item.manual
-    ? `/manager/billing/manual-debts/${item.id}/pay-full/`
-    : `/manager/billing/bills/${item.id}/pay-full/`,
-
-  PAY_BATCH: (item) => item.manual
-    ? `/manager/billing/manual-debts/${item.id}/pay-batch/`
-    : `/manager/billing/bills/${item.id}/pay-batch/`,
+   LIST: "/manager/debts/api/debts/",
+   PAY_FULL:  (item) => item.manual
+     ? `/manager/debts/manual/${item.id}/pay-full/`
+     : `/manager/billing/bills/${item.id}/pay-full/`,
+   PAY_BATCH: (item) => item.manual
+     ? `/manager/debts/manual/${item.id}/pay-batch/`
+     : `/manager/billing/bills/${item.id}/pay-batch/`,
   };
 
   const $ = (s, r=document) => r.querySelector(s);
@@ -38,7 +37,7 @@
   const mBatchClose   = $('[data-close]',   mBatch);
 
   let cursor = null, busy = false, done = false;
-  let target = { bill_id: null, provider: "", remaining: 0 };
+  let target = { id: null, provider: "", remaining: 0, manual: false };
 
   function nf(x){ const n = Number(x); return Number.isFinite(n) ? new Intl.NumberFormat().format(n) : (x ?? ""); }
   function eh(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -68,21 +67,7 @@
     return "is-paid";
   }
 
-  // Accepts either DebtorEntry-shaped rows or old Bill-shaped rows
-  function normalize(row){
-    const providerName = row?.provider?.name ?? row?.provider_name ?? "";
-    const billId = row?.bill_id ?? row?.source_id ?? row?.id ?? null; // prefer bill id
-    return {
-      bill_id: billId,
-      serial:  row?.serial ?? "",
-      provider_name: providerName,
-      total:   row?.total ?? row?.grand_total ?? 0,
-      paid:    row?.paid_amount ?? row?.paid ?? 0,
-      remaining: row?.remaining ?? ( (row?.total ?? 0) - (row?.paid_amount ?? 0) ),
-      status:  row?.status ?? "",
-    };
-  }
-
+ 
  function arType(t){
   if ((t||"").toLowerCase() === "customer") return "زبون";
   if ((t||"").toLowerCase() === "worker")   return "عامل";
@@ -171,7 +156,7 @@ function rowHtml(src){
     const tr = e.target.closest("tr[data-bill]");
     if (!tr) return;
 
-    target.bill_id   = tr.getAttribute("data-bill");
+    target.id        = tr.getAttribute("data-bill");
     target.provider  = tr.getAttribute("data-provider") || "";
     target.remaining = parseFloat(tr.getAttribute("data-remaining") || "0");
     target.manual = tr.getAttribute("data-manual") === "1";
@@ -201,7 +186,7 @@ function rowHtml(src){
   mBatch?.addEventListener("click", (e) => { if (e.target === mBatch) closeModal(mBatch); });
 
   mFullConfirm?.addEventListener("click", async () => {
-    if (!target.bill_id) return;
+    if (!target.id) return;
     try{
       const resp = await fetch(API.PAY_FULL(target), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json().catch(()=>({ok:false,error:"bad json"}));

@@ -29,7 +29,7 @@
   const BILLING   = window.__BILLING__ || {};
   const API_PROV  = (BILLING.providersAcUrl || "/manager/billing/api/providers/ac/").replace(/\/+$/,"/");
   const API_SEARCH= (document.body?.dataset?.urlApiSearch || BILLING.searchUrl || "/manager/billing/api/products/search/").replace(/\/+$/,"/");
-  const SAVE_URL  = (BILLING.saveBillUrl || "/manager/billing/api/bill/save/").replace(/\/+$/,"/");
+  const SAVE_URL  = (BILLING.saveBillUrl || "/manager/debts/api/bill/save/").replace(/\/+$/,"/");
   const LIST_URL  = (BILLING.listUrl || document.body?.dataset?.urlList || "/manager/billing/").replace(/\/+$/,"/");
 
    const apiModeFor = (m) => (m || "name");

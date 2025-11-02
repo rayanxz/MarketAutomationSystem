@@ -1,9 +1,23 @@
 {% extends "base_dash.html" %}
+{% load static %}
 {% block title %}لوحة المدير{% endblock %}
 
 {% block menu_primary %}
   <a href="{% url 'manager_dash' %}">الصفحة الرئيسية</a>
   <a href="{% url 'manager_collections' %}"> ادارة المنتجات</a>
   <a href="{% url 'billing_home' %}"> ادارة الفواتير</a>
+{% endblock %}
 
+{# Renders next to username #}
+{% block session_extras %}
+  <div class="notif-root" id="notifRoot" data-role="manager">
+    <button id="notifBtn" class="notif-btn" type="button"
+            aria-haspopup="true" aria-expanded="false"
+            aria-controls="notifList" title="الإشعارات">
+      🔔 <span id="notifBadge" class="notif-badge" hidden>0</span>
+    </button>
+    <div id="notifList" class="notif-panel" hidden>
+      <div class="notif-empty">لا توجد إشعارات</div>
+    </div>
+  </div>
 {% endblock %}

@@ -3,14 +3,13 @@
   "use strict";
 
   const API = {
-    LIST: "/manager/billing/api/creditors",
-    COLLECT_FULL: (item) => item.manual
-    ? `/manager/billing/manual-creditors/${item.id}/collect-full/`
-    : `/manager/billing/returns/${item.id}/collect-full/`,
-
-  COLLECT_BATCH: (item) => item.manual
-    ? `/manager/billing/manual-creditors/${item.id}/collect-batch/`
-    : `/manager/billing/returns/${item.id}/collect-batch/`,
+       LIST: "/manager/debts/api/creditors/",
+   COLLECT_FULL:  (item) => item.manual
+     ? `/manager/debts/manual-creditors/${item.id}/collect-full/`
+     : `/manager/billing/returns/${item.id}/collect-full/`,
+   COLLECT_BATCH: (item) => item.manual
+     ? `/manager/debts/manual-creditors/${item.id}/collect-batch/`
+     : `/manager/billing/returns/${item.id}/collect-batch/`,
   };
 
   const rows     = el("#rows");
@@ -51,6 +50,13 @@
     return u.toString();
   }
 
+  function mapStatus(s){
+    const v = (s||"").toLowerCase();
+    if (v === "unpaid" || v === "partial") return "open";
+    if (v === "paid") return "closed";
+    return "";
+  }
+
   function params(reset=false){
     const p = {
       page_size: 30,
@@ -58,7 +64,7 @@
       serial:   (fSerial.value||"").trim(),
       date_from: fFrom.value || "",
       date_to:   fTo.value || "",
-      status:   fStatus.value || "",
+      status:   mapStatus(fStatus.value || ""),
     };
     if (!reset && cursor) p.cursor = cursor;
     return p;
@@ -125,7 +131,7 @@ function rowHtml(b){
       }
       rows.appendChild(frag);
 
-      cursor = data.next_cursor;
+      cursor = data.next_cursor || null;
       done   = !cursor;
       loadMore.style.display = done ? "none" : "inline-block";
       if (done && rows.children.length) endMsg.hidden = false;
