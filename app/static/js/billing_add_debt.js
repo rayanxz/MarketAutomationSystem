@@ -3,11 +3,11 @@
   "use strict";
 
   const API = {
-    PROV_AC: "/manager/billing/api/providers/ac/",
-    BILL_NEXT: "/manager/billing/api/bill/next-serial/",
-    RET_NEXT:  "/manager/billing/api/returns/next-serial/",
-    SAVE: "/manager/billing/api/debt/save/",   // new view
-  };
+    PROV_AC: "/manager/billing/api/providers/ac/",            // stays in billing
+    BILL_NEXT: "/manager/billing/api/bill/next-serial/",      // ok
+    RET_NEXT:  "/manager/billing/api/returns/next-serial/",   // ok
+    SAVE: "/manager/debts/api/manual/save/",                  // <<< FIX
+};
 
   // el helpers
   const $ = (s, r=document) => r.querySelector(s);
@@ -130,8 +130,8 @@
       });
       const data = await res.json();
     if (data.ok){
-        const debtsUrl     = document.getElementById("debtsUrl")?.value || "/manager/billing/debts/";
-        const creditorsUrl = document.getElementById("creditorsUrl")?.value || "/manager/billing/creditors/";
+        const debtsUrl     = document.getElementById("debtsUrl")?.value || "/manager/debts/";
+        const creditorsUrl = document.getElementById("creditorsUrl")?.value || "/manager/debts/creditors/";
         location.href = (dir.value === "debtor") ? debtsUrl : creditorsUrl;
       }else{
         saveErr.textContent = data.error || "فشل الحفظ.";

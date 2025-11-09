@@ -29,6 +29,7 @@ def debtor_row(d: DebtorEntry) -> Dict[str, Any]:
     pname = getattr(d, "party_name", None) or provider_name
 
     return {
+        "entry_id": d.id,
         "id": doc_id,
         "serial": serial,
         "party_type": ptype,
@@ -67,6 +68,7 @@ def creditor_row(c: CreditorEntry) -> Dict[str, Any]:
     pname = getattr(c, "party_name", None) or provider_name
 
     return {
+        "entry_id": c.id,
         "id": doc_id,
         "serial": serial,
         "party_type": ptype,

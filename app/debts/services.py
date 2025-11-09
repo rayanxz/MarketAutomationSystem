@@ -13,11 +13,9 @@ from debts.models import (
     CreditorDebt,
     CreditorReceipt,
     DebtReminder,
+    PartyType,
 )
-
-from debts.models import PartyType
 from billing.models import Provider
-
 from ledger import services as LSV
 
 # ====== Decimals / helpers ======
@@ -31,12 +29,11 @@ def q3(x: Decimal) -> Decimal:
 def q4(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC4)
 
-def minor3(x: Decimal) -> int:
-    return LSV.to_minor(q3(x or DEC0), 3)
-
+def minor(x: Decimal) -> int:
+    return LSV.to_minor(q3(x or DEC0))
 
 # =======================================================================
-# CREATE DEBTS
+# CREATE / UPSERT ENTRIES MIRRORED FROM COMMERCIAL DOCS
 # =======================================================================
 
 @transaction.atomic
@@ -53,9 +50,7 @@ def create_debtor_entry(
     party_name: Optional[str] = None,
     due_date: Optional[date] = None,
 ) -> DebtorDebt:
-    """
-    Create or update a DebtorDebt record.
-    """
+    """Upsert a DebtorDebt snapshot driven by a commercial document."""
     total = q3(total)
     paid = q3(paid_amount or DEC0)
     remaining = total - paid
@@ -93,9 +88,7 @@ def create_creditor_entry(
     party_name: Optional[str] = None,
     due_date: Optional[date] = None,
 ) -> CreditorDebt:
-    """
-    Create or update a CreditorDebt record.
-    """
+    """Upsert a CreditorDebt snapshot driven by a commercial document."""
     total = q3(total)
     collected = q3(collected or DEC0)
     remaining = total - collected
@@ -118,6 +111,9 @@ def create_creditor_entry(
     )
     return entry
 
+# =======================================================================
+# MANUAL DEBTS (no commercial doc)
+# =======================================================================
 
 @transaction.atomic
 def create_manual_debt(
@@ -131,7 +127,11 @@ def create_manual_debt(
     due_date: Optional[date] = None,
 ) -> DebtorDebt | CreditorDebt:
     """
-    Create a manual debt without commercial document.
+    Create a manual debt without a commercial document.
+    NOTE: For manual debts we DO touch SAFE immediately:
+      - direction='debtor'   → SAFE IN   (volt up)   because we took cash and now we owe
+      - direction='creditor' → SAFE OUT  (volt down) because we gave cash and they now owe
+    Settlement later uses pay/collect as before.
     """
     from billing.services import _next_bill_serial_locked, _next_return_serial_locked
 
@@ -166,14 +166,18 @@ def create_manual_debt(
             due_date=due_date,
         )
 
+        # SAFE goes UP at creation (we took cash, now we owe)
         with LSV.suppress_exceptions():
-            LSV.post_manual_debtor_created(
+            LSV.post_safe_in(
                 actor=actor,
-                amount_minor=minor3(amt),
-                provider_id=provider.id if provider else None,
-                source=("debts", "ManualDebt", f"D-{entry.id}"),
+                amount_minor=minor(amt),
+                description=f"Manual debtor debt created (#{entry.doc_serial}) from {entry.party_name}",
+                source=("debts", "DebtorDebt", str(entry.id)),
             )
+            # If you also model the payable increase in ledger, call your payable-increase helper here.
+
         return entry
+
 
     else:
         serial = _next_return_serial_locked()
@@ -191,13 +195,16 @@ def create_manual_debt(
             due_date=due_date,
         )
 
+        # SAFE goes DOWN at creation (we gave cash, they owe us)
         with LSV.suppress_exceptions():
-            LSV.post_manual_creditor_created(
+            LSV.post_safe_out(
                 actor=actor,
-                amount_minor=minor3(amt),
-                provider_id=provider.id if provider else None,
-                source=("debts", "ManualDebt", f"C-{entry.id}"),
+                amount_minor=minor(amt),
+                description=f"Manual creditor debt created (#{entry.doc_serial}) to {entry.party_name}",
+                source=("debts", "CreditorDebt", str(entry.id)),
             )
+            # If you also model the receivable increase, call that helper here.
+
         return entry
 
 
@@ -213,6 +220,11 @@ def pay_debt(
     amount: Optional[Decimal] = None,
     full: bool = False,
 ) -> DebtorDebt:
+    """
+    Pay a debtor debt (we owe provider) → SAFE goes DOWN.
+    Posts:
+      - Dr PROVIDER_PAYABLE / Cr SAFE  (reduce payable, cash out)
+    """
     entry = DebtorDebt.objects.select_for_update().get(pk=entry_id)
     rem = q3(entry.remaining)
     if rem <= 0:
@@ -230,12 +242,15 @@ def pay_debt(
     entry.save(update_fields=["paid_amount", "status"])
 
     with LSV.suppress_exceptions():
-        LSV.post_provider_payment_from_safe(
+
+        # SAFE goes DOWN
+        LSV.post_safe_out(
             actor=actor,
-            amount_minor=minor3(amt),
-            provider_id=entry.provider_id,
-            source=("debts", "DebtorDebt", entry.id),
+            amount_minor=minor(amt),
+            description=f"Cover manual debtor debt {entry.party_name}",
+            source=("debts", "DebtorDebt", str(entry.id)),
         )
+
     return entry
 
 
@@ -247,6 +262,11 @@ def collect_debt(
     amount: Optional[Decimal] = None,
     full: bool = False,
 ) -> CreditorDebt:
+    """
+    Collect a creditor debt (provider owes us) → SAFE goes UP.
+    Posts:
+      - Dr SAFE / Cr PROVIDER_RECEIVABLE  (reduce receivable, cash in)
+    """
     entry = CreditorDebt.objects.select_for_update().get(pk=entry_id)
     rem = q3(entry.remaining)
     if rem <= 0:
@@ -264,18 +284,21 @@ def collect_debt(
     entry.save(update_fields=["collected", "status"])
 
     with LSV.suppress_exceptions():
-        LSV.collect_from_provider(
+       
+        # SAFE goes UP
+        LSV.post_safe_in(
             actor=actor,
-            amount_minor=minor3(amt),
-            provider_id=entry.provider_id,
-            source=("debts", "CreditorDebt", entry.id),
+            amount_minor=minor(amt),
+            description=f"Collect manual creditor debt {entry.party_name}",
+            source=("debts", "CreditorDebt", str(entry.id)),
         )
-    return entry
 
+    return entry
 
 # =======================================================================
 # REMINDERS
 # =======================================================================
+
 @transaction.atomic
 def set_reminder(
     *,
@@ -283,47 +306,38 @@ def set_reminder(
     direction: str,            # "debtor" | "creditor"
     reminder_date: date,
 ) -> DebtReminder:
-    """
-    Create or update a reminder snapshot for a given debt entry.
-    Uses (direction, debtor) or (direction, creditor) as the identity.
-    """
     dirn = (direction or "").lower().strip()
     if dirn not in {"debtor", "creditor"}:
         raise ValueError("direction must be 'debtor' or 'creditor'")
 
+    now = timezone.now()
+
     if dirn == "debtor":
         obj = get_object_or_404(DebtorDebt.objects.select_for_update(), pk=debt_id)
-        rem, _ = DebtReminder.objects.update_or_create(
+        return DebtReminder.objects.create(
             direction="debtor",
             debtor=obj,
-            defaults=dict(
-                creditor=None,
-                due_date=reminder_date,
-                set_at=timezone.now(),
-            ),
+            creditor=None,
+            due_date=reminder_date,
+            set_at=now,
         )
-        return rem
-    else:
-        obj = get_object_or_404(CreditorDebt.objects.select_for_update(), pk=debt_id)
-        rem, _ = DebtReminder.objects.update_or_create(
-            direction="creditor",
-            creditor=obj,
-            defaults=dict(
-                debtor=None,
-                due_date=reminder_date,
-                set_at=timezone.now(),
-            ),
-        )
-        return rem
-    
+
+    obj = get_object_or_404(CreditorDebt.objects.select_for_update(), pk=debt_id)
+    return DebtReminder.objects.create(
+        direction="creditor",
+        creditor=obj,
+        debtor=None,
+        due_date=reminder_date,
+        set_at=now,
+    )
+
+
 def get_reminders_due(
     *,
     as_of: Optional[date] = None,
     include_closed: bool = False,
 ):
-    """
-    Return reminders due on/before as_of.
-    """
+    """Return reminders due on/before `as_of`."""
     as_of = as_of or timezone.now().date()
     qs = DebtReminder.objects.filter(due_date__lte=as_of)
 
@@ -335,7 +349,4 @@ def get_reminders_due(
             direction="creditor",
             creditor__status=CreditorDebt.Status.CLOSED,
         )
-
-    # we don't need heavy select_related; keep it light
     return qs
-

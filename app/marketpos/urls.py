@@ -4,6 +4,9 @@ from django.shortcuts import redirect
 
 from accounts import views as acc_views  # all auth + dashboards live here
 
+from django.conf import settings
+from django.conf.urls.static import static
+
 urlpatterns = [
     # Home → login
     path("", lambda r: redirect("login"), name="home"),
@@ -27,18 +30,18 @@ urlpatterns = [
     # URL stays /accounts/ and name stays 'accounts' to match your current links
     path("accounts/", acc_views.manage_accounts, name="accounts"),
     path("accounts/list/", acc_views.accounts_list, name="accounts_list"),  # NEW
-
     path("owner/edit/", acc_views.owner_edit_account, name="owner_edit"),
     path("accounts/staff/<int:user_id>/edit/", acc_views.staff_edit, name="staff_edit"),
     path("accounts/staff/<int:user_id>/delete/", acc_views.staff_delete, name="staff_delete"),
+   
+    path("manager/volt/", include(("ledger.urls", "ledger"), namespace="ledger")),
+   
     path("", include("catalog.urls")),
-
     path("manager/billing/", include("billing.urls")),
-
     path("manager/notifications/", include("notifications.urls")),
-
     path("manager/debts/", include("debts.urls")),
 
-
-
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

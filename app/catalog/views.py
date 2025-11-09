@@ -569,6 +569,44 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
     return render(request, "manager/product_new.html", {"form": form, "editing": False})
 
 
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_sets_search(request: HttpRequest) -> JsonResponse:
+    """
+    Global father-sets search (no cid required).
+    Optional params:
+      - q: substring in set name or code
+      - collection_id: filter by collection
+      - limit: max items (default 25)
+    """
+    q = (request.GET.get("q") or "").strip()
+    col_id = request.GET.get("collection_id")
+    try:
+        limit = max(1, min(50, int(request.GET.get("limit", "25"))))
+    except ValueError:
+        limit = 25
+
+    qs = ProductSet.objects.select_related("collection")
+    if col_id:
+        qs = qs.filter(collection_id=col_id)
+    if q:
+        from django.db.models import Q
+        qs = qs.filter(Q(name__icontains=q) | Q(code__icontains=q))
+
+    qs = qs.order_by("collection__name", "name")[:limit]
+    items = [{
+        "id": s.id,
+        "name": s.name,
+        "code": s.code,
+        "collection": {
+            "id": s.collection_id,
+            "code": s.collection.code,
+            "name": s.collection.name,
+        },
+    } for s in qs]
+    return JsonResponse({"ok": True, "items": items})
+
+
 # --- Delete product ---
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -761,18 +799,18 @@ def api_collection_stats(request: HttpRequest, pk: int) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_collection_cascade_delete(request: HttpRequest, pk: int) -> JsonResponse:
     col = get_object_or_404(ProductCollection, pk=pk)
-    # Safety: if any products exist (active or not), block destructive delete
-    from catalog.models import ProductSet, Product  # local import to avoid cycles
-    prod_exists = Product.objects.filter(set__collection=col).exists()
-    if prod_exists:
-        return JsonResponse({"ok": False, "error": "collection has products; deletion blocked"}, status=409)
+    from catalog.models import ProductSet, ProductBarcode, ProductUnitId, Product
     try:
         with transaction.atomic():
+            ProductBarcode.objects.filter(product__set__collection=col).delete()
+            ProductUnitId.objects.filter(product__set__collection=col).delete()
+            Product.objects.filter(set__collection=col).delete()
             ProductSet.objects.filter(collection=col).delete()
             col.delete()
     except Exception:
         return JsonResponse({"ok": False, "error": "delete failed"}, status=500)
     return JsonResponse({"ok": True})
+
 
 
 @require_GET

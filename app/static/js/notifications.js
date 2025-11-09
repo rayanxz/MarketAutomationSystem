@@ -35,27 +35,62 @@
   }
 
   function renderList(items) {
-    if (!items.length) {
-      list.innerHTML = `<div class="notif-empty">لا توجد إشعارات</div>`;
-      return;
-    }
-    const frag = document.createDocumentFragment();
-    for (const n of items) {
-      const div = document.createElement("div");
-      div.className = "notif-item" + (n.is_read ? "" : " unread");
-      div.textContent = `${n.title} (${n.created})`;
-      div.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        div.classList.remove("unread");
-        await markRead(n.id);
-        // after marking read, refresh count (cheap re-fetch)
-        loadNotifs();
-      });
-      frag.appendChild(div);
-    }
-    list.innerHTML = "";
-    list.appendChild(frag);
+  if (!items.length) {
+    list.innerHTML = `<div class="notif-empty">لا توجد إشعارات</div>`;
+    return;
   }
+  const frag = document.createDocumentFragment();
+  for (const n of items) {
+    const div = document.createElement("div");
+    div.className = "notif-item" + (n.is_read ? "" : " unread");
+
+    const title = document.createElement("div");
+    title.className = "notif-title";
+    title.textContent = n.title;
+
+    const meta = document.createElement("div");
+    meta.className = "notif-meta";
+    meta.textContent = `${n.created}`;
+
+    const actions = document.createElement("div");
+    actions.className = "notif-actions";
+    if (n.url) {
+      const btn = document.createElement("button");
+      btn.className = "btn btn-link";
+      btn.textContent = "عرض";
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        // mark read then navigate
+        await markRead(n.id);
+        window.location.href = n.url;
+      });
+      actions.appendChild(btn);
+    }
+
+    div.appendChild(title);
+    if (n.message) {
+      const msg = document.createElement("div");
+      msg.className = "notif-msg";
+      msg.textContent = n.message;
+      div.appendChild(msg);
+    }
+    div.appendChild(meta);
+    div.appendChild(actions);
+
+    // clicking the card just marks read (no navigation)
+    div.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      div.classList.remove("unread");
+      await markRead(n.id);
+      loadNotifs();
+    });
+
+    frag.appendChild(div);
+  }
+  list.innerHTML = "";
+  list.appendChild(frag);
+}
+
 
   function updateBadge(items) {
     const unread = items.reduce((c, n) => c + (n.is_read ? 0 : 1), 0);

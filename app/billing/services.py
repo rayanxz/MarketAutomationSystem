@@ -39,9 +39,9 @@ def q3(x: Decimal) -> Decimal:
 def q4(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC4)
 
-def minor3(x: Decimal) -> int:
-    """Convert a Decimal (quantized to 3dp) to integer minor units (x * 1000)."""
-    return LSV.to_minor(q3(x or DEC0), 3)
+def minor(x: Decimal) -> int:
+    """1 minor = 1 SYP."""
+    return LSV.to_minor(q3(x or DEC0))
 
 
 def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) -> Decimal:
@@ -171,8 +171,8 @@ def create_bill(
     )
 
     # ====== Ledger ======
-    total_minor = minor3(bill.total)
-    paid_minor = minor3(final_paid)
+    total_minor = minor(bill.total)
+    paid_minor = minor(final_paid)
     LSV.post_purchase(
         actor=actor,
         total_minor=total_minor,
@@ -330,8 +330,8 @@ def create_return(
     )
 
     # ====== Ledger ======
-    total_minor = minor3(pret.total)
-    paid_minor = minor3(final_collected)
+    total_minor = minor(pret.total)
+    paid_minor = minor(final_collected)
     LSV.post_provider_return(
         actor=actor,
         total_minor=total_minor,

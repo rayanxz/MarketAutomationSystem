@@ -36,3 +36,8 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["receiver_role"]),
+            models.Index(fields=["related_app", "related_model", "related_id"]),
+            models.Index(fields=["due_date"]),
+        ]

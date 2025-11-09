@@ -1,0 +1,224 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}تصدير المنتجات (Excel/ODS){% endblock %}
+
+{% block menu_secondary %}{% include "manager/_products_tabs.html" %}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .wrap{max-width:1200px;margin:0 auto}
+  .card{background:#fff;border-radius:14px;box-shadow:var(--card-shadow);padding:18px}
+  .steps{display:flex;gap:6px;margin:4px 0 12px}
+  .step{padding:8px 12px;border-radius:999px;border:1px solid #e5e7eb;background:#f8fafc}
+  .step.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .grid{display:grid;gap:16px;grid-template-columns: 1.2fr .8fr}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .input,.select{padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:1px solid var(--brand);background:var(--brand);color:#fff;cursor:pointer}
+  .btn.secondary{background:#f3f4f6;border-color:#e5e7eb;color:#111}
+  .btn.ghost{background:#fff;color:#111;border-color:#e5e7eb}
+  .muted{color:#6b7280}.mini{font-size:12px}.hidden{display:none}
+  .bar{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  .preview{overflow:auto;max-height:460px;border:1px solid #e5e7eb;border-radius:10px;background:#fcfdff}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px 10px;border-bottom:1px solid #f1f5f9;white-space:nowrap}
+
+  /* Token selector */
+  .tokens{display:flex;flex-wrap:wrap;gap:6px}
+  .token{display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px}
+  .token button{border:0;background:transparent;cursor:pointer;font-weight:bold}
+
+  /* Suggestions dropdown */
+  .searchbox{position:relative}
+  .sugs{position:absolute;inset-inline:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:10px;max-height:260px;overflow:auto;z-index:10}
+  .sugs button{display:flex;width:100%;text-align:start;gap:8px;padding:8px 10px;background:#fff;border:0;border-bottom:1px solid #f3f4f6;cursor:pointer}
+  .sugs button:hover{background:#f8fafc}
+
+  /* Columns stage */
+  .cols-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .box{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fcfdff;min-height:180px}
+  .box h4{margin:0 0 8px 0}
+  .col-item{display:flex;align-items:center;justify-content:space-between;border:1px dashed #e5e7eb;border-radius:8px;padding:6px 10px;margin-bottom:6px;background:#fff}
+  .col-item.dragging{opacity:.6}
+  .ghost{opacity:.25}
+  .col-row{display:flex;align-items:center;gap:10px;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff}
+  .col-row.drag{opacity:.6}
+  .col-handle{cursor:grab;user-select:none}
+  .col-name{flex:1}
+
+  .slots{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  white-space:nowrap;     /* one line */
+  padding-bottom:6px;
+  }
+  .slot{
+    display:inline-block;
+    vertical-align:top;
+    min-width:240px;
+    max-width:280px;
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:8px 10px;
+  }
+  .slot-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .slot-title{font-weight:600}
+  .slot-actions{display:flex;gap:6px}
+  .slot select{width:100%}
+
+
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <div class="card">
+    <div class="steps">
+      <span class="step active" id="s1">١) النطاق</span>
+      <span class="step" id="s2">٢) الأعمدة</span>
+      <span class="step" id="s3">٣) المعاينة والتنزيل</span>
+    </div>
+
+    <!-- STEP 1: Scope -->
+    <section id="step1">
+      <div class="grid">
+        <section>
+          <div class="field">
+            <label>النطاق</label>
+            <div class="muted" style="display:flex;gap:16px">
+              <label><input type="radio" name="scope" value="all" checked> كل المنتجات</label>
+              <label><input type="radio" name="scope" value="collections"> زُمَر محددة</label>
+              <label><input type="radio" name="scope" value="sets"> مجموعات أب محددة</label>
+            </div>
+            <small class="muted">اختيار <b>كل المنتجات</b> يعطّل بقية الاختيارات تلقائياً.</small>
+          </div>
+
+          <!-- Collections token picker -->
+          <div class="field hidden" id="pickCollections">
+            <label>اختر الزُمر</label>
+            <div class="searchbox">
+              <input id="colSearch1" class="input" placeholder="ابحث بالاسم أو الرمز (#001) …">
+              <div id="colSugs" class="sugs hidden"></div>
+            </div>
+            <div class="tokens" id="colTokens"></div>
+            <div class="bar mini muted">
+              <span id="colCount">—</span>
+              <button type="button" class="btn ghost mini" id="btnClrCols">مسح</button>
+            </div>
+          </div>
+
+          <!-- Father-sets token picker -->
+          <div class="field hidden" id="pickSets">
+            <label>اختر المجموعات الأب</label>
+            <div class="bar">
+              <select id="setFilterCol" class="select">
+                <option value="">(كل الزُمر)</option>
+                {% for c in collections %}
+                  <option value="{{c.id}}">{{c.code}} — {{c.name}}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="searchbox" style="margin-top:6px">
+              <input id="setSearch" class="input" placeholder="ابحث باسم المجموعة أو رمزها (@001) …">
+              <div id="setSugs" class="sugs hidden"></div>
+            </div>
+            <div class="tokens" id="setTokens"></div>
+            <div class="bar mini muted">
+              <span id="setCount">—</span>
+              <button type="button" class="btn ghost mini" id="btnClrSets">مسح</button>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div class="field">
+            <label>نوع الملف</label>
+            <select id="fileType" class="select">
+              <option value="xlsx">Excel (.xlsx)</option>
+              <option value="ods">LibreOffice (.ods)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label><input id="includeHeader" type="checkbox" checked> تضمين الصف الأول كعناوين</label>
+          </div>
+
+          <div class="field mini muted" id="scopeSummary"></div>
+        </section>
+      </div>
+
+      <div class="bar" style="margin-top:10px">
+        <div class="mini muted" id="validationMsg1"></div>
+        <button class="btn" id="toStep2">التالي</button>
+      </div>
+    </section>
+
+      <!-- STEP 2: Columns (slots-style like import mapping) -->
+    <section id="step2" class="hidden">
+      <div class="field">
+        <p class="muted mini">
+          رتّب الأعمدة أفقياً كما ستظهر في ملف Excel. كل صندوق يمثل عموداً:
+          اختر الحقل أو <b>تجاهل</b> لتخطيه.
+        </p>
+      </div>
+
+      <div class="bar">
+        <div class="muted mini" id="colsSummary">—</div>
+        <div class="right">
+          <button class="btn ghost mini" id="presetAll">كل الحقول</button>
+          <button class="btn ghost mini" id="presetNamePrice">الاسم + السعر</button>
+          <button class="btn ghost mini" id="presetNameCostPrice">الاسم + الكلفة + السعر</button>
+          <button class="btn ghost mini" id="presetReset">إعادة الضبط</button>
+          <button class="btn ghost mini" id="addSlot">إضافة عمود</button>
+        </div>
+      </div>
+
+      <!-- Slots row -->
+      <div id="slotRow" class="slots"></div>
+
+      <div class="bar" style="margin-top:10px">
+        <div class="mini muted" id="validationMsg2"></div>
+        <div>
+          <button class="btn secondary" id="backTo1">رجوع</button>
+          <button class="btn" id="toStep3">التالي</button>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- STEP 3: Preview & Download -->
+    <section id="step3" class="hidden">
+      <div class="bar">
+        <div class="mini muted" id="previewMeta">—</div>
+        <div class="muted mini">الوحدات تُعرض وتُصدَّر بالاسم العربي.</div>
+        <div class="bar">
+          <a id="btnDownload" class="btn hidden" href="#">تنزيل</a>
+          <button class="btn secondary" id="backTo2">رجوع</button>
+        </div>
+      </div>
+
+      <div class="preview" id="previewBox" style="margin-top:10px">
+        <table id="previewTbl"></table>
+      </div>
+      <div id="err" style="color:#b91c1c;margin-top:8px" class="hidden"></div>
+
+      <div class="bar" style="margin-top:10px">
+        <button class="btn" id="btnPrepare">إعادة التحضير</button>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+
+{{ default_columns|json_script:"exp_cols" }}
+{{ column_labels|json_script:"exp_labels" }}
+
+<script src="{% static 'js/manager_export.js' %}"></script>
+
+{% endblock %}

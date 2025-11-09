@@ -36,6 +36,9 @@
   const mBatchConfirm = $('[data-confirm]', mBatch);
   const mBatchClose   = $('[data-close]',   mBatch);
 
+  const VIEW_URL = (entryId) => `/manager/debts/view/debtor/${entryId}/`;
+
+
   let cursor = null, busy = false, done = false;
   let target = { id: null, provider: "", remaining: 0, manual: false };
 
@@ -75,16 +78,16 @@
 }
 
 function rowHtml(src){
-  // Normalize
+  // Normalize (force numbers)
   const partyType  = (src.party_type || "provider");
   const partyName  = src.party_name || (src?.provider?.name || "");
-  const serial     = (src.serial ?? src.doc_serial ?? ""); // backend may send any
-  const total      = src.total ?? 0;
-  const paid       = src.paid_amount ?? 0;
-  const remaining  = src.remaining ?? Math.max(0, Number(total)-Number(paid));
+  const serial     = (src.serial ?? src.doc_serial ?? "");
+  const totalNum   = Number(src.total ?? 0);
+  const paidNum    = Number(src.paid_amount ?? 0);
+  const remainingNum = (src.remaining != null) ? Number(src.remaining) : Math.max(0, totalNum - paidNum);
   const status     = (src.status || "").toLowerCase();
 
-  const canAct = (status !== "paid" && Number(remaining) > 0);
+  const canAct = (status !== "paid" && remainingNum > 0);
   const actions = canAct
     ? `<button class="btn js-full">تسديد كامل</button>
        <button class="btn js-batch">تسديد دفعة</button>`
@@ -94,20 +97,22 @@ function rowHtml(src){
   <tr class="${statusClass(status)}"
       data-bill="${eh(src.id ?? src.bill_id ?? "")}"
       data-provider="${eh(partyName)}"
-      data-remaining="${eh(remaining)}"
-      data-manual="${src.manual ? 1 : 0}">
+      data-remaining="${String(remainingNum)}"
+      data-manual="${src.manual ? "1" : "0"}">
 
       <td>${eh(serial)}</td>
       <td>${eh(arType(partyType))}</td>
       <td>${eh(partyName)}</td>
-      <td>${nf(total)}</td>
-      <td>${nf(paid)}</td>
-      <td>${nf(remaining)}</td>
+      <td>${nf(totalNum)}</td>
+      <td>${nf(paidNum)}</td>
+      <td>${nf(remainingNum)}</td>
       <td>${status === "unpaid" ? "غير مدفوعة" : (status === "partial" ? "مدفوعة جزئياً" : "مدفوعة")}</td>
-      <td class="left">${actions}</td>
+      <td class="left">${actions} <a class="btn" href="/manager/debts/view/debtor/${src.entry_id ?? ""}/">عرض</a></td>
     </tr>
   `;
 }
+
+
   async function load(reset=false){
     if (busy || (done && !reset)) return;
     busy = true; loadMore.disabled = true; endMsg.hidden = true;
@@ -153,28 +158,27 @@ function rowHtml(src){
   loadMore?.addEventListener("click", () => load(false));
 
   rows.addEventListener("click", (e) => {
-    const tr = e.target.closest("tr[data-bill]");
-    if (!tr) return;
+  const tr = e.target.closest("tr[data-bill]");
+  if (!tr) return;
 
-    target.id        = tr.getAttribute("data-bill");
-    target.provider  = tr.getAttribute("data-provider") || "";
-    target.remaining = parseFloat(tr.getAttribute("data-remaining") || "0");
-    target.manual = tr.getAttribute("data-manual") === "1";
+  const ds = tr.dataset;
+  target.id        = ds.bill || "";
+  target.provider  = ds.provider || "";
+  target.remaining = Number(ds.remaining || "0");
+  target.manual    = (ds.manual === "1" || ds.manual === "true");
 
+  if (e.target.classList.contains("js-full")){
+    mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)}؟`;
+    openModal(mFull); return;
+  }
+  if (e.target.classList.Contains?.("js-batch") || e.target.classList.contains("js-batch")){
+    mBatchText.textContent = `أدخل الدفعة للمورد (${target.provider})`;
+    mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
+    mBatchAmount.value = "";
+    openModal(mBatch); return;
+  }
+});
 
-    if (e.target.classList.contains("js-full")){
-      mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)}؟`;
-      openModal(mFull);
-      return;
-    }
-    if (e.target.classList.contains("js-batch")){
-      mBatchText.textContent = `أدخل الدفعة للمورد (${target.provider})`;
-      mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
-      mBatchAmount.value = "";
-      openModal(mBatch);
-      return;
-    }
-  });
 
   function openModal(m){ m.classList.add("open"); m.setAttribute("aria-hidden", "false"); }
   function closeModal(m){ m.classList.remove("open"); m.setAttribute("aria-hidden", "true"); }

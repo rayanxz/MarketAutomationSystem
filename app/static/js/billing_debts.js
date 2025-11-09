@@ -4,27 +4,27 @@
 
   // ========================= API endpoints =========================
   const API = {
-    LIST: (role) =>
-      role === "creditor"
-        ? "/manager/billing/api/returns/list/"
-        : "/manager/billing/api/debts/",
+  LIST: (role) =>
+    role === "creditor"
+      ? "/manager/billing/api/returns/list/"  // was billing returns list
+      : "/manager/debts/api/debts/",     // was /manager/billing/api/debts/
 
-    // Debtor (store owes provider) = existing bill pay endpoints:
-    DEBTOR: {
-      PAY_FULL_BILL:   (id) => `/manager/billing/bills/${id}/pay-full/`,
-      PAY_BATCH_BILL:  (id) => `/manager/billing/bills/${id}/pay-batch/`,
-      PAY_FULL_MANUAL: (id) => `/manager/billing/manual-debts/${id}/pay-full/`,
-      PAY_BATCH_MANUAL:(id) => `/manager/billing/manual-debts/${id}/pay-batch/`,
+  // Debtor (store owes provider)
+   DEBTOR: {
+      PAY_FULL_BILL:    (id) => `/manager/billing/bills/${id}/pay-full/`,
+      PAY_BATCH_BILL:   (id) => `/manager/billing/bills/${id}/pay-batch/`,
+      PAY_FULL_MANUAL:  (id) => `/manager/debts/manual-debts/${id}/pay-full/`,
+      PAY_BATCH_MANUAL: (id) => `/manager/debts/manual-debts/${id}/pay-batch/`,
     },
 
-    // Creditor (provider owes store) = provider returns collect endpoints:
-    CREDITOR: {
-      COLLECT_FULL_RET:   (id) => `/manager/billing/returns/${id}/collect-full/`,
-      COLLECT_BATCH_RET:  (id) => `/manager/billing/returns/${id}/collect-batch/`,
-      COLLECT_FULL_MANUAL:(id) => `/manager/billing/manual-creditors/${id}/collect-full/`,
-      COLLECT_BATCH_MANUAL:(id)=> `/manager/billing/manual-creditors/${id}/collect-batch/`,
+  // Creditor (provider owes store)
+  CREDITOR: {
+      COLLECT_FULL_RET:    (id) => `/manager/billing/returns/${id}/collect-full/`,
+      COLLECT_BATCH_RET:   (id) => `/manager/billing/returns/${id}/collect-batch/`,
+      COLLECT_FULL_MANUAL: (id) => `/manager/debts/manual-creditors/${id}/collect-full/`,
+      COLLECT_BATCH_MANUAL:(id) => `/manager/debts/manual-creditors/${id}/collect-batch/`,
     },
-  };
+};
 
   // ========================= DOM refs =========================
   const rows      = el("#rows");

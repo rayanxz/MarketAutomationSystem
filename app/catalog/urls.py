@@ -18,7 +18,27 @@ from catalog.views import (
     api_collections_ac,
     api_sets_ac,
     api_sets_create,
+
+    api_sets_search,
 )
+
+
+
+from catalog.import_views import (
+    import_start,
+    import_analyze,
+    import_map,
+    import_stage_rows,
+    import_update_row,
+    import_commit,
+)
+
+from catalog.export_views import (
+export_start,
+export_prepare,
+export_download,
+)
+
 
 from catalog.edit_api import edit_apply_batch  # NEW
 
@@ -44,6 +64,8 @@ urlpatterns = [
     path("manager/products/api/ac/sets/",        api_sets_ac,        name="api_sets_ac"),
     path("manager/products/api/sets/create/",    api_sets_create,    name="api_sets_create"),
 
+    path("manager/products/api/sets/search/",    api_sets_search,    name="api_sets_search"),
+
     # Product delete
     path("manager/products/delete/<int:pk>/", manager_product_delete, name="manager_product_delete"),
 
@@ -58,4 +80,17 @@ urlpatterns = [
 
     # Batch editor (rename / adjust / delete) for set or collection
     path("manager/products/api/edit/apply/", edit_apply_batch, name="edit_apply_batch"),
+
+    path("manager/products/import/",               import_start,       name="products_import"),
+    path("manager/products/import/analyze/",       import_analyze,     name="products_import_analyze"),
+    path("manager/products/import/map/",           import_map,         name="products_import_map"),
+    path("manager/products/import/stage/",         import_stage_rows,  name="products_import_stage"),
+    path("manager/products/import/update-row/",    import_update_row,  name="products_import_update_row"),
+    path("manager/products/import/commit/",        import_commit,      name="products_import_commit"),
+
+
+    path("manager/products/export/", export_start, name="products_export"),
+    path("manager/products/export/prepare/", export_prepare, name="products_export_prepare"),
+    path("manager/products/export/download/<str:k>/", export_download, name="products_export_download"),
+
 ]

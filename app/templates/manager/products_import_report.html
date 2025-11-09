@@ -1,0 +1,27 @@
+{% extends "manager/base_manager.html" %}
+{% block title %}نتيجة الاستيراد{% endblock %}
+{% block content %}
+  <h1>نتيجة الاستيراد</h1>
+  <p>الزمرة: <strong>{{ collection.name }}</strong></p>
+
+  <ul>
+    <li>تم إنشاء: <strong>{{ report.created }}</strong></li>
+    <li>تم تحديث: <strong>{{ report.updated }}</strong></li>
+    <li>تجاوز (Skipped): <strong>{{ report.skipped }}</strong></li>
+  </ul>
+
+  {% if report.errors %}
+    <h3>أخطاء</h3>
+    <ul>
+      {% for e in report.errors %}
+        <li>{{ e }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>لا توجد أخطاء.</p>
+  {% endif %}
+
+  <div style="margin-top:12px;">
+    <a class="btn" href="{% url 'manager_collections' %}">رجوع</a>
+  </div>
+{% endblock %}

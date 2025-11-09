@@ -1,0 +1,44 @@
+/* Filters */
+.volt-filters .grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.volt-filters label { display: flex; flex-direction: column; gap: 4px; }
+
+/* AC list */
+.ac-list { position: absolute; z-index: 10; background:#fff; border:1px solid #ddd; border-radius:8px; padding:6px 0; max-height:220px; overflow:auto; width:260px; }
+.ac-list li { padding:6px 10px; cursor:pointer; }
+.ac-list li:hover, .ac-list li.active { background:#f2f2f7; }
+
+/* Table */
+.tbl { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; }
+.tbl th, .tbl td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: right; }
+.tbl thead th { background: #fafafa; font-weight: 700; }
+
+/* Effect arrows */
+.eff-up { color: #0a8f4a; font-weight: 700; }
+.eff-down { color: #c62828; font-weight: 700; }
+
+/* Infinite sentinel */
+.sentinel { height: 1px; }
+
+/* Empty */
+.empty { text-align: center; padding: 18px; color: #666; }
+
+/* Sticky footer */
+.volt-footer {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 1px solid #e6e6ef;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.volt-balance strong { font-size: 20px; letter-spacing: .3px; }
+
+/* Form tweaks RTL */
+[dir="rtl"] .volt-filters .grid { direction: rtl; }

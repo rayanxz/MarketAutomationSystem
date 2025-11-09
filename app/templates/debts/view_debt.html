@@ -1,0 +1,98 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}تفاصيل الدين{% endblock %}
+
+{% block extra_head %}
+<style>
+  .card{ background:#fff; border-radius:12px; padding:14px; box-shadow:var(--card-shadow); }
+  .muted{ color:#6b7280; font-size:12px; }
+  .grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:10px; }
+  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .label{ font-weight:600; }
+  .val{ }
+  .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
+  table{ width:100%; border-collapse:collapse; }
+  th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
+  thead th{ background:#f8fafc; position:sticky; top:0; }
+  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
+  .btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
+  .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:2000; }
+  .modal.open{ display:flex; }
+  .modal .box{ background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:0 10px 30px rgba(0,0,0,.2); }
+  .modal header{ font-weight:700; margin-bottom:6px; }
+  .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .input{ width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
+</style>
+<script>
+  window.__DEBT_VIEW__ = {
+    direction: "{{ direction }}",
+    entryId: {{ entry_id }},
+    API: {
+      DETAILS:  `/manager/debts/api/entry/{{ direction }}/{{ entry_id }}/`,
+      PAY_FULL: `/manager/debts/api/entry/{{ direction }}/{{ entry_id }}/pay-full/`,
+      PAY_BATCH:`/manager/debts/api/entry/{{ direction }}/{{ entry_id }}/pay-batch/`,
+      REM_SET:  `/manager/debts/api/entry/{{ direction }}/{{ entry_id }}/set-reminder/`,
+    },
+  };
+</script>
+<script defer src="{% static 'js/debts_view_debt.js' %}?v=1"></script>
+{% endblock %}
+
+{% block content %}
+<div class="card" dir="rtl">
+    {% csrf_token %}
+  <h2 style="margin:0 0 12px;">
+  تفاصيل الدين ({% if direction == 'debtor' %}مدين{% else %}دائن{% endif %})
+  </h2>
+
+  <!-- summary -->
+  <div id="summary" class="grid"></div>
+
+  <!-- actions -->
+  <div class="row" style="margin-top:10px;">
+    <button id="btnFull" class="btn primary" type="button"></button>
+    <button id="btnBatch" class="btn" type="button"></button>
+    <div class="row" style="align-items:center;">
+      <input id="remDate" type="date" class="input" style="max-width:180px;">
+      <button id="btnRem" class="btn" type="button">حفظ تذكير</button>
+      <small id="remHint" class="muted"></small>
+    </div>
+  </div>
+
+  <!-- payments/receipts -->
+  <div class="table-wrap" style="margin-top:12px;">
+    <table>
+      <thead>
+        <tr id="movHead"></tr>
+      </thead>
+      <tbody id="movRows"></tbody>
+    </table>
+  </div>
+
+  <!-- reminders history -->
+  <div class="table-wrap" style="margin-top:12px;">
+    <table>
+      <thead>
+        <tr><th>تاريخ الضبط</th><th>تاريخ التذكير</th></tr>
+      </thead>
+      <tbody id="remRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal: Batch amount -->
+<div id="mBatch" class="modal" aria-hidden="true">
+  <div class="box">
+    <header id="mBatchTitle"></header>
+    <div class="body">
+      <input id="mBatchAmount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+      <small id="mBatchHint" class="muted"></small>
+    </div>
+    <footer>
+      <button class="btn" data-close>إلغاء</button>
+      <button class="btn primary" data-confirm>تأكيد</button>
+    </footer>
+  </div>
+</div>
+{% endblock %}

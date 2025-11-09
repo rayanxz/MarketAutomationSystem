@@ -4,21 +4,22 @@ from __future__ import annotations
 import json
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import F, Value
+from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Lower, Greatest
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 from accounts.models import AccountProfile
-from catalog.models import ProductCollection, ProductSet, Product
+from catalog.models import ProductCollection, ProductSet, Product, ProductBarcode, ProductUnitId
 from catalog.views import role_required
 
 
-ALLOWED_TYPES = {"collection", "set"}
+ALLOWED_TYPES  = {"collection", "set"}
 ALLOWED_FIELDS = {"price", "cost"}
-ALLOWED_MODES = {"percent", "absolute"}
-ALLOWED_SIGNS = {"+", "-"}
+ALLOWED_MODES  = {"percent", "absolute"}
+ALLOWED_SIGNS  = {"+", "-"}
 
 
 def _scope_qs(scope_type: str, scope_id: int):
@@ -43,6 +44,20 @@ def _as_decimal(x) -> Decimal | None:
         return None
 
 
+def _get_or_create_trash_set(col: ProductCollection) -> ProductSet:
+    """Find (case-insensitive) or create a 'Trash' set in the given collection."""
+    trash = (
+        ProductSet.objects
+        .filter(collection=col)
+        .annotate(n=Lower("name"))
+        .filter(n="سلة المحذوفات")
+        .first()
+    )
+    if not trash:
+        trash = ProductSet.objects.create(collection=col, name="سلة المحذوفات")
+    return trash
+
+
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def edit_apply_batch(request):
@@ -60,6 +75,7 @@ def edit_apply_batch(request):
     Runs in a single transaction and returns per-op results:
     {"ok": true, "results": [{"ok":true}, {"ok":false,"error":"..."} , ...]}
     """
+    # ---- parse payload ----
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
         ops = payload.get("ops") or []
@@ -70,13 +86,13 @@ def edit_apply_batch(request):
 
     results: list[dict] = []
 
+    # We want "all-or-nothing" for the entire batch
     try:
         with transaction.atomic():
             for op in ops:
-                # basic validation
                 kind = (op.get("op") or "").strip().lower()
-                typ = (op.get("type") or "").strip().lower()
-                _id = _as_int(op.get("id"))
+                typ  = (op.get("type") or "").strip().lower()
+                _id  = _as_int(op.get("id"))
 
                 if kind not in {"rename", "adjust", "delete"}:
                     results.append({"ok": False, "error": "bad op"})
@@ -85,7 +101,9 @@ def edit_apply_batch(request):
                     results.append({"ok": False, "error": "bad type/id"})
                     continue
 
-                # ---------- RENAME ----------
+                # =========================
+                #          RENAME
+                # =========================
                 if kind == "rename":
                     new_name = (op.get("name") or "").strip()
                     if not new_name:
@@ -97,7 +115,7 @@ def edit_apply_batch(request):
                         if not col:
                             results.append({"ok": False, "error": "collection not found"})
                             continue
-                        # CI uniqueness (defensive; DB constraint will enforce anyway)
+                        # CI uniqueness
                         exists = (
                             ProductCollection.objects
                             .exclude(pk=col.pk)
@@ -109,7 +127,7 @@ def edit_apply_batch(request):
                             results.append({"ok": False, "error": "collection name exists"})
                             continue
                         col.name = new_name
-                        col.full_clean(exclude=None)
+                        col.full_clean()
                         col.save(update_fields=["name"])
                         results.append({"ok": True})
 
@@ -131,15 +149,17 @@ def edit_apply_batch(request):
                             results.append({"ok": False, "error": "set name exists in collection"})
                             continue
                         st.name = new_name
-                        st.full_clean(exclude=None)
+                        st.full_clean()
                         st.save(update_fields=["name"])
                         results.append({"ok": True})
 
-                # ---------- ADJUST ----------
+                # =========================
+                #          ADJUST
+                # =========================
                 elif kind == "adjust":
                     field = (op.get("field") or "").strip().lower()
-                    mode = (op.get("mode") or "").strip().lower()
-                    sign = (op.get("sign") or "").strip()
+                    mode  = (op.get("mode") or "").strip().lower()
+                    sign  = (op.get("sign") or "").strip()
 
                     delta = _as_decimal(op.get("delta"))
                     if field not in ALLOWED_FIELDS or mode not in ALLOWED_MODES or sign not in ALLOWED_SIGNS:
@@ -159,44 +179,79 @@ def edit_apply_batch(request):
                             field: Greatest(F(field) * factor, Value(Decimal("0")))
                         })
                     else:
-                        # absolute add/subtract; clamp at zero
-                        if sign == "+":
-                            expr = F(field) + delta
-                        else:
-                            expr = F(field) - delta
+                        expr = F(field) + delta if sign == "+" else F(field) - delta
                         qs.update(**{
                             field: Greatest(expr, Value(Decimal("0")))
                         })
 
                     results.append({"ok": True, "affected": qs.count()})
 
-                # ---------- DELETE ----------
+                # =========================
+                #          DELETE
+                # =========================
                 elif kind == "delete":
                     if typ == "collection":
                         col = ProductCollection.objects.filter(id=_id).first()
                         if not col:
                             results.append({"ok": False, "error": "collection not found"})
                             continue
-                        # mirror views: block destructive delete if any products exist
+
+                        # This operation is intentionally conservative here.
+                        # Full destructive collection delete is handled by
+                        # api_collection_cascade_delete (views.py).
                         if Product.objects.filter(set__collection=col).exists():
                             results.append({"ok": False, "error": "collection has products; deletion blocked"})
                             continue
+
                         ProductSet.objects.filter(collection=col).delete()
                         col.delete()
                         results.append({"ok": True})
 
-                    else:  # set
-                        st = ProductSet.objects.filter(id=_id).first()
+                    else:
+                        # DELETE a SET (father set) with FK-safe behavior.
+                        st = ProductSet.objects.select_related("collection").filter(id=_id).first()
                         if not st:
                             results.append({"ok": False, "error": "set not found"})
                             continue
-                        if Product.objects.filter(set=st).exists():
-                            results.append({"ok": False, "error": "set has products; deletion blocked"})
+
+                        # All products inside the set
+                        qs_products = Product.objects.filter(set=st)
+
+                        try:
+                            with transaction.atomic():
+                                # Free globally-unique children to avoid future import collisions
+                                ProductBarcode.objects.filter(product__in=qs_products).delete()
+                                ProductUnitId.objects.filter(product__in=qs_products).delete()
+
+                                # Try hard delete; if any product is referenced, this will raise ProtectedError
+                                qs_products.delete()
+
+                                # If we reached here, nothing protected → delete the set itself
+                                st.delete()
+                                results.append({"ok": True})
+                                continue
+
+                        except ProtectedError:
+                            # Some products are referenced elsewhere (billing/ledger/...).
+                            # Fall back to: move products to a Trash set in the SAME collection and archive them.
+                            with transaction.atomic():
+                                trash = _get_or_create_trash_set(st.collection)
+
+                                # (barcodes/unit_ids already removed above – frees uniqueness)
+                                Product.objects.filter(set=st).update(set=trash, is_active=False)
+
+                                # Now the original set has no products pointing to it → delete it
+                                st.delete()
+
+                            results.append({"ok": True, "note": "moved referenced products to trash"})
                             continue
-                        st.delete()
-                        results.append({"ok": True})
+
+                        except IntegrityError as e:
+                            results.append({"ok": False, "error": f"delete failed: {e.__class__.__name__}"})
+                            continue
 
     except Exception:
+        # If anything in the batch fails, return a generic error (transaction rolls back).
         return JsonResponse({"ok": False, "error": "apply failed"}, status=500)
 
     return JsonResponse({"ok": True, "results": results})

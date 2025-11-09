@@ -10,7 +10,10 @@ def sales_by_cashier(date_from, date_to):
     return list(qs)
 
 def cash_account_balance(account_code):
-    acc = Account.objects.get(code=account_code)
+    try:
+        acc = Account.objects.get(code=account_code)
+    except Account.DoesNotExist:
+        return 0
     agg = acc.journal_lines.aggregate(
         d=Sum("amount_minor", filter=Q(dc="D")),
         c=Sum("amount_minor", filter=Q(dc="C")),

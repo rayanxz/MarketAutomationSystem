@@ -1,0 +1,134 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+{% block title %}استيراد منتجات من ملف{% endblock %}
+
+{% block extra_head %}
+<style>
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:14px 0}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .hint{font-size:12px;color:#6b7280}
+  .excel{border-collapse:collapse;width:100%}
+  .excel th,.excel td{border:1px solid #e5e7eb;padding:6px 8px;font-size:13px}
+  .excel th{background:#f9fafb;position:sticky;top:0;z-index:1}
+  .badge{display:inline-block;font-size:11px;padding:2px 6px;border-radius:8px;border:1px solid #e5e7eb;margin-inline-start:6px}
+  .badge.err{border-color:#ef4444;color:#b91c1c}
+  .btools{display:flex;gap:8px}
+  .muted{color:#6b7280}
+</style>
+<script>
+  // CSRF helper
+  function getCSRF(){
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+</script>
+{% endblock %}
+
+{% block content %}
+<h1>استيراد منتجات من ملف</h1>
+
+<!-- Step 1 -->
+<div id="step1" class="panel">
+  <h3>١) الملف</h3>
+  <div class="row">
+    <div>
+      <label>نوع الملف</label><br/>
+      <select id="fileType" class="input">
+        <option value="xlsx">Excel (.xlsx)</option>
+        <option value="ods">OpenDocument (.ods)</option>
+      </select>
+    </div>
+
+    <div>
+      <label>الزمرة</label><br/>
+      <select id="collection" class="input">
+        {% for c in collections %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label>الملف</label><br/>
+      <input id="file" type="file" class="input" />
+      <div class="hint">Excel (.xlsx) أو OpenDocument (.ods) فقط.</div>
+    </div>
+
+    <div>
+      <label>الصف الأول عناوين؟</label><br/>
+      <input id="hasHeader" type="checkbox" checked />
+      <div class="hint">ألغِ التحديد إذا كان ملفك لا يحتوي صف عناوين (أول صف بيانات مباشرة).</div>
+    </div>
+
+    <div><button id="btnAnalyze" class="btn">رفع ومعاينة</button></div>
+  </div>
+  <div id="s1msg" class="hint" style="margin-top:8px;"></div>
+</div>
+
+<!-- Step 2 -->
+<div id="step2" class="panel" style="display:none;">
+  <h3>٢) تعيين الأعمدة</h3>
+  <div class="hint">اختر نوع كل عمود. الصف أدناه يمثل صف العناوين (أو أول صف بيانات عند إلغاء خيار العناوين).</div>
+  <div style="overflow:auto;max-width:100%;">
+    <table class="excel" id="mapTable">
+      <thead><tr id="mapHeader"></tr></thead>
+      <tbody id="mapSample"></tbody>
+    </table>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <label><input type="checkbox" id="optCreateSets" checked/> إنشاء المجموعات غير الموجودة تلقائياً</label>
+    <span class="muted"> الحد الادنى المطلوب : اسم المنتج , اسم المجموعة الأب , الوحدة 1 , الوحدة 2 , عامل التحويل</span>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <label><input type="radio" name="import_mode" value="new" checked> إضافة عناصر جديدة فقط</label>
+    <label><input type="radio" name="import_mode" value="add_update"> إضافة جديدة + تعديل الموجودة</label>
+    <label><input type="radio" name="import_mode" value="update"> تعديل الموجودة فقط</label>
+  </div>
+
+  <div class="btools" style="margin-top:10px;">
+    <button id="btnMap" class="btn">متابعة للمراجعة</button>
+    <button id="btnBack1" class="btn-sec">رجوع</button>
+  </div>
+  <div id="s2msg" class="hint" style="margin-top:8px;"></div>
+</div>
+
+<!-- Step 3 -->
+<div id="step3" class="panel" style="display:none;">
+  <h3>٣) مراجعة وتصحيح قبل الإدخال</h3>
+  <div class="hint" id="statsLine">—</div>
+
+  <div style="overflow:auto;height:55vh;margin-top:10px;">
+    <table class="excel">
+      <thead>
+        <tr>
+            <th>#</th>
+            <th>الاسم</th>
+            <th>المجموعة</th>
+            <th>الوحدة الأولى</th>
+            <th>الوحدة الثانية</th>
+            <th>عامل التحويل</th>
+            <th>الكلفة</th>
+            <th>السعر</th>
+            <th>باركودات U1</th>
+            <th>باركودات U2</th>
+            <th>معرّفات U1</th>
+            <th>معرّفات U2</th>
+            <th>ملاحظات</th>
+            <th>أخطاء</th>
+        </tr>
+      </thead>
+      <tbody id="rowsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="btools" style="margin-top:10px;">
+    <button id="btnCommit" class="btn" disabled>إدخال في قاعدة البيانات</button>
+    <button id="btnBack2" class="btn-sec">رجوع</button>
+  </div>
+  <div id="s3msg" class="hint" style="margin-top:8px;"></div>
+</div>
+
+<script src="{% static 'js/products_import.js' %}"></script>
+{% endblock %}

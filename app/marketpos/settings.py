@@ -46,6 +46,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.RequireLoginMiddleware",
+    'notifications.middleware.NotificationsOnLoginMiddleware',
+
 ]
 ROOT_URLCONF = "marketpos.urls"
 WSGI_APPLICATION = "marketpos.wsgi.application"
@@ -85,6 +87,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'                                          
 STATICFILES_DIRS = [STATIC_DIR]              # <-- correct: app/static
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# media (uploaded / temp files)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"   # this will be C:\MarketAutomationSystem\app\media
+
+
 # ---- Misc
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -94,3 +101,5 @@ LOGOUT_REDIRECT_URL = "/login/"
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_SAVE_EVERY_REQUEST = False
+
+LEDGER_MINOR_PLACES = 0

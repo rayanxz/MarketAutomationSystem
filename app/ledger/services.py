@@ -20,6 +20,10 @@ from .models import (
     JournalLine,
 )
 
+from django.conf import settings
+
+DEFAULT_MINOR_PLACES = getattr(settings, "LEDGER_MINOR_PLACES", 0)
+
 __all__ = [
     "LineSpec",
     "to_minor",
@@ -60,15 +64,16 @@ class LineSpec:
     extra: dict | None = None
 
 
-def to_minor(amount: Decimal, places: int = 3) -> int:
+def to_minor(amount: Decimal, places: int | None = None) -> int:
     """
-    Convert a Decimal to integer "minor units" (e.g. places=3 → ×1000).
-    Rounds HALF_UP. None → 0.
+    Convert Decimal to integer minor units.
+    Default: places=0 -> 1 minor = 1 SYP (no scaling).
     """
     if amount is None:
         return 0
-    q = Decimal(10) ** -places
-    return int((amount.quantize(q, rounding=ROUND_HALF_UP) * (10 ** places)).to_integral_value())
+    p = DEFAULT_MINOR_PLACES if places is None else places
+    q = Decimal(10) ** -p
+    return int((amount.quantize(q, rounding=ROUND_HALF_UP) * (10 ** p)).to_integral_value())
 
 
 def _get_account(code: str) -> Account:
@@ -595,6 +600,56 @@ def post_sale_receivable(
         source_model=model,
         source_id=str(sid),
         idempotency_key=_src_key(source, "sale_credit:v1"),
+    )
+
+
+def post_safe_in(*, actor, amount_minor: int, description: str = "", source=None):
+    """
+    Directly increase SAFE (manager vault) without session.
+    Dr SAFE ................. amount
+      Cr MISC_GAIN (placeholder)
+    """
+    if amount_minor <= 0:
+        raise ValidationError("amount must be positive")
+    lines = [
+        LineSpec("SAFE", DC.DEBIT, amount_minor),
+        LineSpec("MISC_GAIN", DC.CREDIT, amount_minor),
+    ]
+    app, model, sid = source or ("debts", "ManualDebt", "")
+    return post_journal(
+        actor=actor,
+        session=None,
+        lines=lines,
+        memo=description or "SAFE IN",
+        source_app=app,
+        source_model=model,
+        source_id=str(sid),
+        idempotency_key=f"safein:{app}:{model}:{sid}:{amount_minor}",
+    )
+
+
+def post_safe_out(*, actor, amount_minor: int, description: str = "", source=None):
+    """
+    Directly decrease SAFE (manager vault) without session.
+    Dr MISC_EXPENSE ......... amount
+      Cr SAFE ............... amount
+    """
+    if amount_minor <= 0:
+        raise ValidationError("amount must be positive")
+    lines = [
+        LineSpec("MISC_EXPENSE", DC.DEBIT, amount_minor),
+        LineSpec("SAFE", DC.CREDIT, amount_minor),
+    ]
+    app, model, sid = source or ("debts", "ManualDebt", "")
+    return post_journal(
+        actor=actor,
+        session=None,
+        lines=lines,
+        memo=description or "SAFE OUT",
+        source_app=app,
+        source_model=model,
+        source_id=str(sid),
+        idempotency_key=f"safeout:{app}:{model}:{sid}:{amount_minor}",
     )
 
 
