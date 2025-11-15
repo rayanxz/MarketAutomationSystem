@@ -41,6 +41,9 @@ urlpatterns = [
     path("manager/notifications/", include("notifications.urls")),
     path("manager/debts/", include("debts.urls")),
 
+    path("pos/", include("pos.urls")),
+
+
 ]
 
 if settings.DEBUG:

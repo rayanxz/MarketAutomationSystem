@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     # your apps
     "accounts", "catalog", "billing", "ledger", "debts",
     "io_ops", "printing", "backups_app", "core", "notifications",
+    "pos",
 ]
 
 MIDDLEWARE = [

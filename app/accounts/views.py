@@ -99,7 +99,7 @@ def login_view(request: HttpRequest) -> HttpResponse:
         role_to_url = {
             AccountProfile.Role.OWNER: "owner_dash",
             AccountProfile.Role.MANAGER: "manager_dash",
-            AccountProfile.Role.CASHIER: "cashier_dash",
+            AccountProfile.Role.CASHIER: "pos:pos_screen",
         }
 
         if not profile:

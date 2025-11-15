@@ -1,0 +1,268 @@
+<div class="pos-shell">
+  <!-- Right Section: Inputs -->
+  <aside class="panel right-panel">
+    <div class="pad">
+      <div class="section-title">بحث سريع</div>
+
+      <div class="form-grid">
+        <div>
+          <label for="barcode">الباركود</label>
+          <input class="input" id="barcode" type="text" placeholder="..." autocomplete="off" />
+          <small id="bcError" class="muted" style="color:#ef4444;display:none">لا يوجد منتج بهذا الباركود.</small>
+        </div>
+
+        <div style="position:relative">
+          <label for="pname">الاسم</label>
+          <input class="input" id="pname" type="text" placeholder="..." autocomplete="off" />
+          <!-- autocomplete dropdown -->
+          <div id="nameSuggest" class="panel" style="position:absolute; inset-inline:0; z-index:70; display:none; max-height:220px; overflow:auto; padding:4px;">
+            <!-- suggestions injected here -->
+          </div>
+        </div>
+
+        <div>
+          <label for="pcode">الكود</label>
+          <input class="input" id="pcode" type="text" placeholder="..." autocomplete="off" />
+        </div>
+
+        <div>
+          <label for="pid">المعرّف (ID)</label>
+          <input class="input" id="pid" type="text" placeholder="..." autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="btns" style="margin-top:10px;">
+        <label class="radio">
+          <input type="radio" name="mode" value="add" id="modeAdd" checked>
+          <span>إضافة</span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="mode" value="inq" id="modeInq">
+          <span>استفسار</span>
+        </label>
+      </div>
+
+      <div class="hr" style="margin-top:10px"></div>
+
+      <div class="form-grid">
+        <div>
+          <label for="qty">الكمية</label>
+          <div class="row">
+            <input class="input" id="qty" type="number" min="0" step="0.001" placeholder="0" style="max-width:120px;" />
+            <div class="units-switch">
+              <select class="input" id="uom" style="width:auto; min-width: 120px;">
+                <option value="1">الوحدة الأساسية</option>
+                <option value="2">الوحدة الثانوية</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label>الخصم</label>
+          <div class="discount-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <input class="input" id="discPct" type="number" min="0" step="0.01" placeholder="% نسبة" />
+            <input class="input" id="discAmt" type="number" min="0" step="0.001" placeholder="قيمة" />
+          </div>
+        </div>
+
+        <div>
+          <label for="notes">ملاحظات</label>
+          <textarea class="input note" id="notes" placeholder="..."></textarea>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Middle Section: Bill Table + Footer -->
+  <section class="panel mid-panel mid">
+    <div class="list-head">
+      <div class="section-title">محتوى الفاتورة</div>
+      <div class="spacer"></div>
+
+      <!-- Shown only when viewing a saved (locked) bill -->
+      <button id="posBillClose"
+              type="button"
+              class="btn"
+              style="display:none; font-size:11px; padding:2px 8px;">
+        فاتورة جديدة
+      </button>
+
+      <div class="muted" style="font-size:12px">سريعة وخفيفة – واجهة الكاشير</div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-name">اسم المنتج</th>
+            <th class="col-qty">الكمية</th>
+            <th class="col-unit">وحدة القياس</th>
+            <th class="col-disc">الخصم</th>
+            <th class="col-total">السعر الإجمالي</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody id="billRows">
+          <!-- rows rendered by JS -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bill-footer">
+
+  <!-- ================== EDITABLE FOOTER (new / parked bills) ================== -->
+  <div id="billFooterEdit">
+    <div class="row" style="gap:12px; align-items:flex-start; flex-wrap: wrap;">
+
+      <!-- Total -->
+      <div class="total-box">
+        <span class="muted">الإجمالي:</span>
+        <span id="grandTotal" style="font-variant-numeric: tabular-nums;">0.000</span>
+      </div>
+
+      <!-- Pay status -->
+      <div class="status-group">
+        <label class="radio">
+          <input type="radio" name="payStatus" id="payFull" value="full" checked>
+          <span>مدفوع بالكامل</span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="payStatus" id="payNone" value="none">
+          <span>غير مدفوع</span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="payStatus" id="payPartial" value="partial">
+          <span>مدفوع جزئياً</span>
+        </label>
+      </div>
+
+      <!-- Paid / left -->
+      <div class="pay-part">
+        <label for="partAmt" class="muted">المبلغ المدفوع</label>
+        <input id="partAmt" class="input" type="number" min="0" step="0.001" placeholder="0" style="width:140px" />
+        <span class="muted">المتبقي:</span>
+        <span class="left-amount" id="leftAmount">0.000</span>
+      </div>
+
+      <!-- Customer block -->
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:220px;">
+        <label for="custName" class="muted">اسم الزبون</label>
+
+        <div style="position:relative;">
+          <input id="custName"
+                class="input"
+                type="text"
+                placeholder="يمكن تركه فارغاً إن كانت الفاتورة مدفوعة بالكامل"
+                autocomplete="off" />
+
+          <!-- Customer autocomplete dropdown -->
+          <div id="custSuggest"
+              class="panel"
+              style="position:absolute; inset-inline:0; z-index:70; display:none; max-height:220px; overflow:auto; padding:4px;">
+            <!-- suggestions injected here -->
+          </div>
+        </div>
+
+        <label class="checkbox" style="margin-top:2px;">
+          <input type="checkbox" id="custCreate">
+          <span>إنشاء بطاقة زبون جديدة</span>
+        </label>
+      </div>
+
+
+      <div class="spacer"></div>
+
+      <!-- Actions -->
+      <div class="row" style="gap:8px;">
+        <button class="btn" id="parkBtn" type="button">تعليق الفاتورة</button>
+        <button class="btn primary" id="payPrintBtn" type="button">حفظ / دفع وطباعة</button>
+      </div>
+    </div>
+
+    <div class="muted" style="margin-top:4px; font-size:11px;">
+      Ctrl+Space = تعليق الفاتورة • Ctrl+Enter = حفظ الفاتورة
+    </div>
+  </div>
+
+  <!-- ================== READ-ONLY FOOTER (saved / locked bills) ================== -->
+  <div id="billFooterReadonly" style="display:none;">
+    <div class="row" style="gap:12px; align-items:flex-start; flex-wrap:wrap;">
+
+      <div class="total-box">
+        <span class="muted">الإجمالي:</span>
+        <span id="roTotal" style="font-variant-numeric: tabular-nums;">0.000</span>
+      </div>
+
+      <div>
+        <div class="muted">حالة الدفع:</div>
+        <div id="roPayStatus">—</div>
+      </div>
+
+      <div>
+        <div class="muted">المدفوع:</div>
+        <div id="roPaid">0.000</div>
+      </div>
+
+      <div>
+        <div class="muted">المتبقي:</div>
+        <div id="roLeft">0.000</div>
+      </div>
+
+      <div>
+        <div class="muted">اسم الزبون:</div>
+        <div id="roCustomer">—</div>
+      </div>
+
+      <div class="spacer"></div>
+    </div>
+
+    <div class="muted" style="margin-top:4px; font-size:11px;">
+      اضغط Esc للعودة وإنشاء فاتورة جديدة.
+    </div>
+  </div>
+
+</div>
+
+  </section>
+
+  <!-- Left Section: Today's Bills -->
+  <aside class="panel left-panel">
+    <div class="list-head" style="border-bottom:1px solid var(--border);">
+      <div class="section-title">فواتير اليوم</div>
+      <div class="spacer"></div>
+      <input class="input" id="leftSearch" type="text" placeholder="بحث..." style="max-width:160px;">
+    </div>
+
+    <div class="bill-list" id="leftBills">
+      <!-- left list populated later -->
+    </div>
+
+    <!-- Clock footer under the list (outside the scroller) -->
+    <div class="left-footer" style="border-top:1px solid var(--border); padding:10px 12px; display:flex; gap:8px; align-items:center;">
+      <span id="posClockTime">--:--:--</span>
+      <span class="muted">|</span>
+      <span id="posClockDate">----/--/--</span>
+    </div>
+  </aside>
+
+  <!-- Custom context menu -->
+  <div id="posContextMenu" class="panel" style="position:fixed; z-index:100; display:none; padding:6px 0; min-width:160px;">
+    <button type="button" id="ctxDeleteRow" class="btn" style="width:100%; text-align:right; border:none;">حذف السطر</button>
+  </div>
+</div>
+
+<!-- Confirm delete bill (ALT+Backspace opens this) -->
+<div id="billConfirmOverlay" class="pos-overlay" hidden>
+  <div class="pos-modal" role="dialog" aria-modal="true" aria-labelledby="billConfirmTitle">
+    <h3 id="billConfirmTitle" style="margin-top:0">هل أنت متأكد من حذف كامل الفاتورة؟</h3>
+    <p class="muted">لن يمكنك التراجع عن هذا الإجراء.</p>
+
+    <div class="btns" style="margin-top:10px">
+      <button id="billConfirmYes" class="btn danger" autofocus>تأكيد</button>
+      <button id="billConfirmNo"  class="btn">إلغاء</button>
+    </div>
+
+    <p class="muted" style="margin-top:6px">Enter = تأكيد • Esc = إلغاء</p>
+  </div>
+</div>

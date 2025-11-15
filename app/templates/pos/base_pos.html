@@ -1,0 +1,70 @@
+{% load static %}
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="blue">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}نقطة البيع{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'pos.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="pos-kiosk">
+
+  <!-- TOPBAR -->
+  <header class="pos-topbar" role="navigation" aria-label="POS top bar">
+    <div class="brand">MarketPOS</div>
+
+    <div class="spacer"></div>
+
+    <div class="top-actions">
+      <div class="user-chip" title="المستخدم الحالي">
+        <strong>{{ request.user.username }}</strong>
+        {% if request.user.account_profile %}
+          <small>{{ request.user.account_profile.get_role_display }}</small>
+        {% else %}
+          <small>كاشير</small>
+        {% endif %}
+      </div>
+
+      <button id="posNotifBtn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="الإشعارات">
+        <span class="bell" aria-hidden="true">🔔</span>
+        <span id="posNotifBadge" class="notif-badge" hidden>0</span>
+      </button>
+
+      <form action="{% url 'logout' %}" method="post" class="logout-form">
+        {% csrf_token %}
+        <button type="submit" class="btn danger">تسجيل الخروج</button>
+      </form>
+    </div>
+
+    <!-- Notifications dropdown (UI only for now) -->
+    <div id="posNotifPanel" class="notif-panel" hidden>
+      <div class="notif-head">الإشعارات</div>
+      <div class="notif-empty">لا توجد إشعارات حالياً.</div>
+    </div>
+  </header>
+
+  <!-- Theme switcher (floats) -->
+  <div class="theme-switcher" title="تغيير السمة">
+    <label for="posTheme" class="sr-only">السمة</label>
+    <select id="posTheme" aria-label="السمة">
+      <option value="blue">أزرق</option>
+      <option value="dark">داكن</option>
+      <option value="light">فاتح</option>
+    </select>
+  </div>
+
+  {% block content %}{% endblock %}
+
+  <!-- Expose CSRF token for AJAX calls in pos.js -->
+  <script>
+    window.CSRF_TOKEN = "{{ csrf_token }}";
+  </script>
+
+  <script src="{% static 'pos.js' %}"></script>
+   <!-- Extra POS enhancements (customers autocomplete, key fixes, etc.) -->
+  <script src="{% static 'pos_customers.js' %}"></script>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>
