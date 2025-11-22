@@ -1,0 +1,203 @@
+/* ===== Page wrapper ===== */
+.mv-page {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: var(--card-shadow);
+}
+
+.mv-page h2 {
+  margin: 0 0 16px;
+  font-size: 22px;
+}
+
+/* ================= FILTERS (volt-style grid) ================= */
+.mv-filters {
+  margin-bottom: 18px;
+}
+
+.mv-filters .mv-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.mv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.mv-field > input,
+.mv-field > select {
+  height: 34px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
+/* product + set search */
+.mv-field--set,
+.mv-field--product {
+  position: relative; /* so AC is positioned under each input */
+}
+
+/* hint under product search */
+.hint-search {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* actions (search + reset) */
+.mv-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mv-actions .btn {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+/* disable style */
+.mv-field input[disabled],
+.mv-field select[disabled] {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* ================== AC LIST (volt-like) ================== */
+.ac-list {
+  position: absolute;
+  top: 100%;          /* directly under the input */
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 6px 0;
+  max-height: 220px;
+  overflow: auto;
+  width: 100%;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.ac-list li {
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.ac-list li:hover,
+.ac-list li.active {
+  background: #f2f2f7;
+}
+
+/* ================= TABLE ================= */
+.mv-list {
+  margin-top: 4px;
+}
+
+.mv-table.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mv-table.tbl th,
+.mv-table.tbl td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eee;
+  text-align: center;
+  font-size: 14px;
+}
+
+.mv-table.tbl thead th {
+  background: #fafafa;
+  font-weight: 700;
+}
+
+/* date column: single line, LTR */
+.mv-table .col-date {
+  white-space: nowrap;
+  direction: ltr;
+}
+
+/* ===== Quantity cell: keep td normal, flex only inside ===== */
+.qty-cell {
+  vertical-align: middle;
+}
+
+.qty-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  direction: ltr;
+}
+
+/* Colors for qty + direction arrow */
+.qty-up {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.qty-down {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.arrow {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.qty-text {
+  font-size: 14px;
+}
+
+/* ================= EMPTY & PAGINATION ================= */
+.mv-empty {
+  text-align: center;
+  padding: 18px;
+  color: #666;
+}
+
+.pagination {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.pagination a {
+  margin: 0 6px;
+  color: #2563eb;
+}
+
+/* RTL tweak similar to volt */
+[dir="rtl"] .mv-filters .mv-grid {
+  direction: rtl;
+}
+
+/* ===== Actions: search + reset side by side ===== */
+.mv-field.mv-actions {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.mv-field.mv-actions .btn {
+  white-space: nowrap;
+}

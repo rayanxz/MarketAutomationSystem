@@ -25,8 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from datetime import date
-
-
+from stock.models import ProductContainer  # ⬅️ NEW
 
 
 # ---------- Page views ----------
@@ -276,6 +275,33 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     if not pid:
         return _bad("provider must be selected from list")
 
+    # ---- Container handling ----
+    # Accept several shapes:
+    #   payload["container_code"] = "store"
+    #   payload["container"] = {"code": "store"}
+    #   payload["container"] = "store"
+    container_code = (
+        (payload.get("container_code") or "")
+        or (payload.get("container") or {}).get("code", "") if isinstance(payload.get("container"), dict) else payload.get("container", "")
+    )
+
+    if isinstance(container_code, str):
+        container_code = container_code.strip()
+    else:
+        container_code = ""
+
+    # Default to 'store' if nothing sent
+    if not container_code:
+        container_code = "store"
+
+    from stock.models import ProductContainer  # local import to avoid touching global imports
+
+    try:
+        container = ProductContainer.objects.get(code=container_code)
+    except ProductContainer.DoesNotExist:
+        return _bad("invalid container", 400)
+
+    # ---- Pay section ----
     pay = payload.get("pay") or {}
     status = (pay.get("status") or "unpaid").lower()
     if status not in {"paid", "unpaid", "partial"}:
@@ -285,18 +311,33 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     update_defaults = bool(payload.get("update_product_defaults") or False)
 
     try:
-        bill = SV.create_bill(
-            actor=request.user,
-            provider_id=int(pid),
-            status=status,
-            paid_amount=paid_amount,
-            items=items,
-            update_product_defaults=update_defaults,
-        )
+        # Try with container kwarg (new signature)
+        try:
+            bill = SV.create_bill(
+                actor=request.user,
+                provider_id=int(pid),
+                status=status,
+                paid_amount=paid_amount,
+                items=items,
+                update_product_defaults=update_defaults,
+                container=container,
+            )
+        except TypeError:
+            # Fallback for old create_bill without container param
+            bill = SV.create_bill(
+                actor=request.user,
+                provider_id=int(pid),
+                status=status,
+                paid_amount=paid_amount,
+                items=items,
+                update_product_defaults=update_defaults,
+            )
+
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
     except Exception as e:
         logger.exception("api_bill_save failed")
         return _bad("save failed", 500)
+
 
 
 @require_GET
@@ -400,7 +441,13 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 def providers_returns_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "billing/providers_returns.html")
+    containers = (
+        ProductContainer.objects
+        .filter(is_active=True)
+        .order_by("sort_order", "name")
+    )
+    ctx = {"containers": containers}
+    return render(request, "billing/providers_returns.html", ctx)
 
 
 @require_GET
@@ -430,6 +477,36 @@ def api_return_save(request: HttpRequest) -> JsonResponse:
     if not pid:
         return _bad("provider must be selected from list")
 
+    # ---- Container handling (same style as api_bill_save) ----
+    # Accept:
+    #   payload["container_code"] = "store"
+    #   payload["container"] = {"code": "store"}
+    #   payload["container"] = "store"
+    raw_container = payload.get("container")
+    container_code = (payload.get("container_code") or "")
+
+    if not container_code:
+        if isinstance(raw_container, dict):
+            container_code = (raw_container.get("code") or "")
+        else:
+            container_code = (raw_container or "")
+
+    if isinstance(container_code, str):
+        container_code = container_code.strip()
+    else:
+        container_code = ""
+
+    if not container_code:
+        container_code = "store"
+
+    from stock.models import ProductContainer  # local import
+
+    try:
+        container = ProductContainer.objects.get(code=container_code)
+    except ProductContainer.DoesNotExist:
+        return _bad("invalid container", 400)
+
+    # ---- Pay section ----
     pay = payload.get("pay") or {}
     status = (pay.get("status") or "unpaid").lower()
     if status not in {"paid", "unpaid", "partial"}:
@@ -437,13 +514,26 @@ def api_return_save(request: HttpRequest) -> JsonResponse:
     paid_amount = _dec(pay.get("paid_amount"), "0")
 
     try:
-        pret = SV.create_return(
-            actor=request.user,
-            provider_id=int(pid),
-            status=status,
-            paid_amount=paid_amount,
-            items=items,
-        )
+        # Try new signature with container kwarg
+        try:
+            pret = SV.create_return(
+                actor=request.user,
+                provider_id=int(pid),
+                status=status,
+                paid_amount=paid_amount,
+                items=items,
+                container=container,
+            )
+        except TypeError:
+            # Fallback for older create_return without container parameter
+            pret = SV.create_return(
+                actor=request.user,
+                provider_id=int(pid),
+                status=status,
+                paid_amount=paid_amount,
+                items=items,
+            )
+
         return JsonResponse({"ok": True, "ret": return_row(pret)})
     except ValueError as ve:
         return _bad(str(ve))
@@ -452,6 +542,7 @@ def api_return_save(request: HttpRequest) -> JsonResponse:
     except Exception as e:
         logger.exception("api_return_save failed")
         return _bad(f"save failed: {e.__class__.__name__}: {e}", 500)
+
 
 
 @role_required(AccountProfile.Role.MANAGER)
@@ -514,5 +605,3 @@ def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
         return _bad(str(ve))
     except ProviderReturn.DoesNotExist:
         return _bad("not found", 404)
-
-

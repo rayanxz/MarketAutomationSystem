@@ -3,6 +3,9 @@ from django.urls import path
 from catalog.browser_api import api_browser_collections, api_browser_sets, api_browser_products
 from catalog.views import api_collection_stats, api_collection_cascade_delete
 
+from inventory import views as inv_views
+
+
 from catalog.views import (
     # Pages
     manager_collections,
@@ -92,5 +95,9 @@ urlpatterns = [
     path("manager/products/export/", export_start, name="products_export"),
     path("manager/products/export/prepare/", export_prepare, name="products_export_prepare"),
     path("manager/products/export/download/<str:k>/", export_download, name="products_export_download"),
+
+
+        # Product movements (inventory)
+    path("manager/products/movements/", inv_views.manager_product_movements, name="product_movements"),
 
 ]

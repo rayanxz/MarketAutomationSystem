@@ -24,6 +24,9 @@
   const tbody    = document.getElementById("retBody");
   const totalBox = document.getElementById("retTotalBox");
 
+  const containerSelect = document.getElementById("containerSelect");
+
+
   const paidInput = document.getElementById("paidAmount");
   const payRadios = document.querySelectorAll('input[name="pay"]');
 
@@ -442,11 +445,16 @@
     const status = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
     const paid_amount = (paidInput?.value || "0");
 
+    const container_code = containerSelect?.value || "store";
+
     const payload = {
       provider: { id: parseInt(pid, 10) },
+      container_code: container_code,   // explicit, matches api_bill_save style
       items,
       pay: { status, paid_amount },
     };
+
+
 
     try{
     const res = await fetch(SAVE_URL, {

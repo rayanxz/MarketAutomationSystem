@@ -18,6 +18,8 @@ INSTALLED_APPS = [
     "accounts", "catalog", "billing", "ledger", "debts",
     "io_ops", "printing", "backups_app", "core", "notifications",
     "pos",
+    "inventory",
+    "stock",
 ]
 
 MIDDLEWARE = [

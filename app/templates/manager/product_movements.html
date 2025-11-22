@@ -1,0 +1,197 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}حركة المواد{% endblock %}
+
+{% block menu_secondary %}
+  {% include "manager/_products_tabs.html" %}
+{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'inventory/product_movements.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="mv-page">
+  <h2>حركة المواد</h2>
+
+  {# ================== FILTERS (volt-style grid) ================== #}
+  <form method="get" class="mv-filters" id="mvFilterForm">
+    <div class="mv-grid">
+
+      <label class="mv-field">من تاريخ
+        <input type="date" name="date_from"
+               value="{{ filters.date_from }}">
+      </label>
+
+      <label class="mv-field">إلى تاريخ
+        <input type="date" name="date_to"
+               value="{{ filters.date_to }}">
+      </label>
+
+      {# scope: which set of products to show #}
+      <label class="mv-field">النطاق
+        <select id="mvScope">
+          <option value="all">كل المواد</option>
+          <option value="collection">ضمن زمرة</option>
+          <option value="set">ضمن مجموعة أب</option>
+          <option value="product">منتج واحد</option>
+        </select>
+      </label>
+
+      {# collection select #}
+      <label class="mv-field">الزمرة
+        <select name="collection_id" id="mvCollection">
+          <option value="">الكل</option>
+          {% for c in collections %}
+            <option value="{{ c.id }}"
+                    {% if filters.collection_id == c.id|stringformat:'s' %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      {# father set search with AC #}
+      <label class="mv-field mv-field--set">
+        المجموعة الأب
+        <input type="hidden" name="set_id" id="mvSetId" value="{{ filters.set_id }}">
+        <input type="text" id="mvSetSearch" autocomplete="off"
+               placeholder="اكتب للبحث عن مجموعة أب">
+        <ul id="mvSetAC" class="ac-list" hidden></ul>
+      </label>
+
+      {# product search with AC #}
+      <label class="mv-field mv-field--product">
+        المادة
+        <input type="hidden" name="product_id" id="mvProductId" value="{{ filters.product_id }}">
+        <input type="text" id="mvProductSearch" autocomplete="off"
+               placeholder="ابحث باسم المادة">
+        <ul id="mvProductAC" class="ac-list" hidden></ul>
+      </label>
+
+      {# type (grouped: buy / sale / customer returns / provider returns / all) #}
+      <label class="mv-field">النوع
+        <select name="movement_type" id="mvType">
+          {% for val, label in movement_type_choices %}
+            <option value="{{ val }}"
+                    {% if filters.movement_type == val %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="mv-field mv-actions">
+        <button type="submit" class="btn btn-primary">بحث</button>
+        <button type="button" class="btn btn-sec" id="mvResetBtn">إعادة ضبط</button>
+      </div>
+
+    </div>
+  </form>
+
+  {# ================== LIST (volt-style table) ================== #}
+  <section class="mv-list">
+    <table class="mv-table tbl">
+      <thead>
+        <tr>
+          <th>التاريخ</th>
+          <th>الكمية</th>
+          <th>الاتجاه</th>
+          <th>الكلفة للوحدة</th>
+          <th>السعر للوحدة</th>
+          <th>النوع</th>
+          <th>اسم المادة</th>
+          <th>الزمرة / المجموعة</th>
+          <th>نوع الجهة الأخرى</th>
+          <th>اسم الجهة الأخرى</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+          {% for row in rows %}
+            <tr>
+              <td class="col-date" dir="ltr">{{ row.date|date:"Y-m-d H:i" }}</td>
+
+              <td class="qty-cell {% if row.direction == 'up' %}qty-up{% elif row.direction == 'down' %}qty-down{% endif %}">
+                <span class="qty-inner">
+                    {% if row.direction == 'up' %}
+                    <span class="arrow">▲</span>
+                    {% elif row.direction == 'down' %}
+                    <span class="arrow">▼</span>
+                    {% else %}
+                    <span class="arrow">•</span>
+                    {% endif %}
+                    <span class="qty-text" dir="ltr">
+                    {{ row.qty_abs|default:row.qty }}
+                    </span>
+                </span>
+                </td>
+
+
+              <td>
+                {% if row.direction == 'up' %}
+                  زيادة
+                {% elif row.direction == 'down' %}
+                  نقصان
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>{{ row.cost }}</td>
+              <td>{{ row.price }}</td>
+              <td>{{ row.movement_type_label }}</td>
+
+              <td>{{ row.product.name }}</td>
+
+              <td>
+                {% if row.collection %}{{ row.collection.name }} / {% endif %}
+                {% if row.set %}{{ row.set.name }}{% endif %}
+              </td>
+
+              <td>{{ row.other_party_type }}</td>
+              <td>{{ row.other_party_name }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="10" class="mv-empty">لا توجد حركات مطابقة للفلاتر الحالية.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+
+  <div class="pagination">
+    {% if page_obj.has_previous %}
+      <a href="?page=1&{{ request.GET.urlencode|default:''|cut:'page=' }}">الأولى</a>
+      <a href="?page={{ page_obj.previous_page_number }}&{{ request.GET.urlencode|default:''|cut:'page=' }}">السابق</a>
+    {% endif %}
+    <span>صفحة {{ page_obj.number }} من {{ paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}&{{ request.GET.urlencode|default:''|cut:'page=' }}">التالي</a>
+      <a href="?page={{ paginator.num_pages }}&{{ request.GET.urlencode|default:''|cut:'page=' }}">الأخيرة</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    window.MV_PRODUCT_SEARCH_API =
+      document.body.dataset.urlApiSearch || "{% url 'api_product_search' %}";
+
+    // dump sets so JS can autocomplete father sets
+    window.MV_SET_DATA = [
+      {% for s in sets %}
+        {
+          id: {{ s.id }},
+          name: "{{ s.name|escapejs }}",
+          collection: "{{ s.collection.name|escapejs }}"
+        }{% if not forloop.last %},{% endif %}
+      {% endfor %}
+    ];
+  </script>
+  <script src="{% static 'inventory/product_movements.js' %}"></script>
+{% endblock %}

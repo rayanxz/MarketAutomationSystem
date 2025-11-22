@@ -470,8 +470,11 @@ refreshAutoSerial();
   const status = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
   const paid_amount = (paidInput?.value || "0");
 
+  const container_code = document.getElementById("containerSelect")?.value || "store";
+
   const payload = {
     provider: { id: parseInt(pid, 10) },   // ONLY existing providers
+    container: container_code,
     items,
     pay: { status, paid_amount }
   };

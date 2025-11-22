@@ -33,7 +33,9 @@ INSTALLED_APPS = [
     "backups_app",
     "core",
     "notifications",
-    "pos"
+    "pos",
+    "inventory",
+    "stock",
 ]
 
 # ---- Middleware / WSGI / URLs

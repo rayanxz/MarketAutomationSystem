@@ -26,6 +26,8 @@ from debts.models import (
 from catalog.models import Product
 from ledger import services as LSV
 from debts import services as DebtSV  # NEW unified debts layer
+from inventory import services as InvSV
+from stock.models import ProductContainer
 
 
 # ====== Decimals / helpers ======
@@ -85,7 +87,6 @@ def _next_return_serial_locked() -> int:
 # =======================================================================
 # BILLS (Purchases)
 # =======================================================================
-
 @transaction.atomic
 def create_bill(
     *,
@@ -95,16 +96,17 @@ def create_bill(
     paid_amount: Decimal,
     items: Iterable[Dict[str, Any]],
     update_product_defaults: bool = False,
+    container: ProductContainer | None = None,   # ⬅️ NEW
 ) -> Bill:
     """
-    Create a Bill, increase stock, post GL, and register DebtorDebt.
+    Create a Bill, increase stock via inventory movements, post GL, and register DebtorDebt.
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
     bill = Bill(provider=provider, total=DEC0)
     bill.save()
 
-    # ====== Add items & update stock ======
+    # ====== Add items & update stock via inventory layer ======
     grand = DEC0
     prod_ids = [int(it["product_id"]) for it in items]
     products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
@@ -123,6 +125,7 @@ def create_bill(
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
+        # Convert to primary unit
         qty_primary = qty_raw
         cf = getattr(product, "conversion_factor", None)
         if unit_idx == 2 and cf:
@@ -141,18 +144,25 @@ def create_bill(
             line_total=line_total,
         )
 
-        # Stock increase
-        product.stock_qty = (product.stock_qty or DEC0) + qty_primary
-        update_fields = ["stock_qty"]
-        if hasattr(product, "updated_at"):
-            from django.utils import timezone
-            product.updated_at = timezone.now()
-            update_fields.append("updated_at")
+        # Stock increase via inventory layer (+qty_primary)
+        extra_updates = {}
         if update_product_defaults:
-            product.cost = cost_u1
-            product.price = price_u1
-            update_fields += ["cost", "price"]
-        product.save(update_fields=list(dict.fromkeys(update_fields)))
+            extra_updates["cost"] = cost_u1
+            extra_updates["price"] = price_u1
+
+        InvSV.record_purchase_item(
+            actor=actor,
+            product=product,
+            unit_index=unit_idx,
+            qty_primary=qty_primary,
+            unit_cost=cost_u1,
+            source_app="billing",
+            source_model="Bill",
+            source_id=bill.id,
+            container=container,                     # ⬅️ PASS CONTAINER
+            extra_product_updates=extra_updates or None,
+        )
+
         grand += line_total
 
     bill.total = q3(grand)
@@ -183,13 +193,16 @@ def create_bill(
     return bill
 
 
+
 @transaction.atomic
 def delete_bill(*, actor, bill_id: int) -> None:
-    bill = (Bill.objects
-            .select_for_update()
-            .select_related('provider')
-            .prefetch_related('items', 'items__product')
-            .get(pk=bill_id))
+    bill = (
+        Bill.objects
+        .select_for_update()
+        .select_related("provider")
+        .prefetch_related("items", "items__product")
+        .get(pk=bill_id)
+    )
 
     # Block if there are non-closed debtor entries
     from debts.models import DebtorDebt, DebtorPayment
@@ -199,11 +212,36 @@ def delete_bill(*, actor, bill_id: int) -> None:
     if entry and entry.status != DebtorDebt.Status.CLOSED and (entry.paid_amount or 0) > 0:
         raise ValueError("cannot delete a bill with payments; refund/void first")
 
-    # Reverse stock
+    # Try to detect container from existing movements (if bill was created after inventory integration)
+    from inventory.models import ProductMovement  # local import to avoid cycles
+    mv_qs = ProductMovement.objects.filter(
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+    ).select_related("container")
+
+    mv_container = None
+    for mv in mv_qs:
+        if mv.container_id:
+            mv_container = mv.container
+            break
+
+    # Reverse stock via movements (purchase_reversal)
     for it in bill.items.all():
-        p = it.product
-        p.stock_qty = (p.stock_qty or DEC0) - (it.qty_primary or DEC0)
-        p.save(update_fields=["stock_qty"])
+        product = it.product
+        InvSV.record_movement(
+            actor=actor,
+            product=product,
+            unit_index=int(it.unit_index),
+            qty_primary=-(it.qty_primary or DEC0),  # reverse
+            unit_cost=it.cost or DEC0,
+            movement_type="purchase_reversal",
+            source_app="billing",
+            source_model="Bill",
+            source_id=bill.id,
+            container=mv_container,                # ⬅️ KEEP SAME CONTAINER (if known)
+            extra_product_updates=None,
+        )
 
     # Remove subledger entry (and its payments if any exist but total=0)
     if entry:
@@ -214,6 +252,8 @@ def delete_bill(*, actor, bill_id: int) -> None:
     # LSV.reverse_purchase(...)
 
     bill.delete()
+
+
 
 
 # =======================================================================
@@ -257,9 +297,10 @@ def create_return(
     status: str,
     paid_amount: Decimal,
     items: Iterable[Dict[str, Any]],
+    container: ProductContainer | None = None,   # ⬅️ NEW
 ) -> ProviderReturn:
     """
-    Create a ProviderReturn, decrease stock, post GL, and register CreditorDebt.
+    Create a ProviderReturn, decrease stock via inventory movements, post GL, and register CreditorDebt.
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
@@ -295,6 +336,7 @@ def create_return(
         qty_primary = q3(qty_primary)
 
         line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
+
         ProviderReturnItem.objects.create(
             ret=pret,
             product=product,
@@ -304,14 +346,19 @@ def create_return(
             line_total=line_total,
         )
 
-        # Stock decrease
-        product.stock_qty = (product.stock_qty or DEC0) - qty_primary
-        update_fields = ["stock_qty"]
-        if hasattr(product, "updated_at"):
-            from django.utils import timezone
-            product.updated_at = timezone.now()
-            update_fields.append("updated_at")
-        product.save(update_fields=list(dict.fromkeys(update_fields)))
+        # Stock decrease via inventory layer (NEGATIVE qty_primary)
+        InvSV.record_provider_return_item(
+            actor=actor,
+            product=product,
+            unit_index=unit_idx,
+            qty_primary=-qty_primary,  # stock out
+            unit_cost=cost_u1,
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=pret.id,
+            container=container,       # ⬅️ PASS CONTAINER
+        )
+
         grand += line_total
 
     pret.total = q3(grand)
@@ -340,6 +387,8 @@ def create_return(
         source=("billing", "ProviderReturn", pret.id),
     )
     return pret
+
+
 
 
 @transaction.atomic
