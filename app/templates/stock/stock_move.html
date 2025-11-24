@@ -1,0 +1,360 @@
+{# app/templates/stock/stock_move.html #}
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}إدارة المخزون — نقل المنتجات{% endblock %}
+
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'stock:stock_list' %}">قائمة المخزون</a>
+    <a class="btn-sec" href="{% url 'stock:stock_move' %}">نقل المنتجات</a>
+    <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
+  </div>
+{% endblock %}
+
+{% block extra_head %}
+  <style>
+    .mv-panel{
+      background:#fff;
+      border-radius:12px;
+      padding:18px;
+      box-shadow:var(--card-shadow);
+    }
+    .mv-header{
+      margin-bottom:14px;
+      border-bottom:1px solid #e5e7eb;
+      padding-bottom:8px;
+    }
+    .mv-header h2{
+      margin:0 0 4px;
+      font-size:18px;
+    }
+    .mv-header p{
+      margin:0;
+      font-size:12px;
+      color:#6b7280;
+    }
+
+    .mv-grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap:12px 16px;
+      margin-bottom:12px;
+    }
+    .mv-field{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      font-size:13px;
+    }
+    .mv-field label{
+      color:#6b7280;
+      font-size:12px;
+    }
+    .mv-field .input,
+    .mv-field select,
+    .mv-field textarea{
+      padding:8px 10px;
+      border-radius:8px;
+      border:1px solid #e5e7eb;
+      font-size:14px;
+      width:100%;
+    }
+    .mv-field textarea{
+      min-height:70px;
+      resize:vertical;
+    }
+    .mv-error{
+      color:#dc2626;
+      font-size:12px;
+    }
+
+    .mv-search-modes{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+      font-size:11px;
+    }
+    .mv-search-modes label{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      cursor:pointer;
+    }
+
+    .note-small{
+      font-size:11px;
+      color:#6b7280;
+    }
+
+    /* autocomplete */
+    .ac-list{
+      position:relative;
+      margin-top:4px;
+    }
+    .ac-list ul{
+      position:absolute;
+      inset-inline:0;
+      top:0;
+      margin:0;
+      padding:4px 0;
+      background:#fff;
+      border-radius:8px;
+      border:1px solid #e5e7eb;
+      list-style:none;
+      max-height:230px;
+      overflow:auto;
+      box-shadow:0 10px 22px rgba(15,23,42,.18);
+      z-index:40;
+    }
+    .ac-list ul[hidden]{ display:none; }
+    .ac-list li{
+      padding:6px 10px;
+      cursor:pointer;
+      font-size:13px;
+      display:flex;
+      gap:6px;
+      align-items:center;
+    }
+    .ac-list li:hover,
+    .ac-list li.active{ background:#eef2ff; }
+    .ac-name{ font-weight:500; }
+    .ac-code{
+      font-family:ui-monospace, Menlo, monospace;
+      color:#64748b;
+    }
+    .ac-path{
+      margin-inline-start:auto;
+      font-size:11px;
+      color:#6b7280;
+    }
+
+    /* table */
+    .mv-table-wrap{
+      margin-top:14px;
+      border-radius:12px;
+      border:1px solid #e5e7eb;
+      overflow:hidden;
+    }
+    .mv-table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+    .mv-table thead{
+      background:#f9fafb;
+    }
+    .mv-table th,
+    .mv-table td{
+      padding:6px 8px;
+      border-bottom:1px solid #e5e7eb;
+      text-align:right;
+    }
+    .mv-table th{
+      font-weight:600;
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .mv-table td.num{
+      text-align:left;
+      font-variant-numeric:tabular-nums;
+      white-space:nowrap;
+    }
+    .mv-row-neg td{
+      background:rgba(239,68,68,0.06);
+      color:#991b1b;
+    }
+    .mv-row-neg .mv-warn-text{
+      color:#b91c1c;
+      font-weight:600;
+    }
+    .mv-empty{
+      text-align:center;
+      color:#9ca3af;
+      font-size:12px;
+    }
+
+    .mv-actions-bar{
+      margin-top:10px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+    }
+    .btn-primary{
+      padding:8px 14px;
+      border-radius:10px;
+      border:1px solid var(--brand);
+      background:var(--brand);
+      color:#fff;
+      cursor:pointer;
+      font-size:14px;
+    }
+    .btn-primary:hover{
+      background:var(--brand-2);
+      border-color:var(--brand-2);
+    }
+    .btn-sec-soft{
+      padding:8px 14px;
+      border-radius:10px;
+      border:1px solid #e5e7eb;
+      background:#f8fafc;
+      cursor:pointer;
+      font-size:13px;
+    }
+    .btn-mini{
+      padding:4px 8px;
+      border-radius:8px;
+      border:1px solid #e5e7eb;
+      background:#f9fafb;
+      font-size:11px;
+      cursor:pointer;
+    }
+    .btn-mini:hover{
+      background:#fee2e2;
+      border-color:#fecaca;
+    }
+
+    .mv-global-warn{
+      margin-top:8px;
+      font-size:12px;
+      color:#b91c1c;
+      display:none;
+    }
+    .mv-global-warn.show{
+      display:block;
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div class="mv-panel"
+       id="stockMoveRoot"
+       data-url-search="{% url 'stock:api_product_search' %}"
+       data-url-stock="{% url 'stock:api_product_stock' %}">
+    <div class="mv-header">
+      <h2>نقل المنتجات بين الحاويات</h2>
+      <p>
+        هذه العملية لا تزيد ولا تُنقِص من المخزون الكلي، بل تنقل الكميات بين حاويتين
+        (مثلاً من المتجر إلى أحد المستودعات). يمكن أن ينتج عنها رصيد سالب في الحاوية
+        المصدر، وسيظهر لك تحذير بذلك.
+      </p>
+    </div>
+
+    <form method="post" id="stockMoveForm" autocomplete="off">
+      {% csrf_token %}
+
+      <div class="mv-grid">
+        {# FROM container #}
+        <div class="mv-field">
+          <label for="from_container">الحاوية المصدر</label>
+          <select id="from_container" name="from_container">
+            <option value="">اختر...</option>
+            {% for c in containers %}
+              <option value="{{ c.code }}">{{ c.display_label }}</option>
+            {% endfor %}
+          </select>
+          {% if errors.from_container %}
+            <div class="mv-error">{{ errors.from_container }}</div>
+          {% endif %}
+        </div>
+
+        {# TO container #}
+        <div class="mv-field">
+          <label for="to_container">الحاوية الهدف</label>
+          <select id="to_container" name="to_container">
+            <option value="">اختر...</option>
+            {% for c in containers %}
+              <option value="{{ c.code }}">{{ c.display_label }}</option>
+            {% endfor %}
+          </select>
+          {% if errors.to_container %}
+            <div class="mv-error">{{ errors.to_container }}</div>
+          {% endif %}
+        </div>
+
+        {# Add product by search #}
+        <div class="mv-field" style="grid-column:1 / -1;">
+          <label for="productSearch">إضافة مادة إلى قائمة النقل</label>
+          <input id="productSearch"
+                 class="input"
+                 type="text"
+                 placeholder="ابحث بالاسم / رقم التعريف (ID) / الكود / الباركود لإضافة مادة للقائمة">
+          <div class="mv-search-modes">
+            <label><input type="radio" name="searchMode" value="name" checked> بالاسم</label>
+            <label><input type="radio" name="searchMode" value="id"> بـ ID</label>
+            <label><input type="radio" name="searchMode" value="code"> بالكود</label>
+            <label><input type="radio" name="searchMode" value="barcode"> بالباركود</label>
+          </div>
+          <div class="ac-list">
+            <ul id="productAC" hidden></ul>
+          </div>
+          <div class="note-small">
+            عند اختيار مادة من القائمة المنسدلة سيتم إضافتها إلى جدول التحويل، مع إظهار
+            الكمية الحالية في الحاويتين.
+          </div>
+        </div>
+
+        {# Optional note #}
+        <div class="mv-field" style="grid-column:1 / -1;">
+          <label for="note">ملاحظة (اختياري)</label>
+          <textarea id="note" name="note"
+                    placeholder="مثال: تجهيز رف العرض، أو تسوية مخزون يدوية."></textarea>
+        </div>
+      </div>
+
+      {# table of rows #}
+      <div class="mv-table-wrap">
+        <table class="mv-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>المادة</th>
+              <th>الكمية في المصدر</th>
+              <th>الكمية في الهدف</th>
+              <th>الكمية المراد نقلها</th>
+              <th>الرصيد بعد النقل (المصدر)</th>
+              <th>الرصيد بعد النقل (الهدف)</th>
+              <th>تحذير</th>
+              <th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="mvRowsBody">
+            <tr id="mvEmptyRow">
+              <td colspan="9" class="mv-empty">
+                لم تتم إضافة أي مواد بعد. ابحث عن مادة من الحقل أعلاه ثم اخترها من القائمة.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {% if errors.rows %}
+        <div class="mv-error" style="margin-top:6px;">{{ errors.rows }}</div>
+      {% endif %}
+
+      {% if non_field_errors %}
+        <div class="mv-error" style="margin-top:6px;">
+          {% for e in non_field_errors %}
+            {{ e }}{% if not forloop.last %}<br>{% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div id="mvGlobalWarn" class="mv-global-warn">
+        ⚠ توجد صفوف سينتج عنها رصيد سالب في الحاوية المصدر بعد تنفيذ النقل.
+        تأكد أن هذا مقصود قبل المتابعة.
+      </div>
+
+      <div class="mv-actions-bar">
+        <a href="{% url 'stock:stock_list' %}" class="btn-sec-soft">رجوع لقائمة المخزون</a>
+        <button type="submit" class="btn-primary">تنفيذ النقل</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'stock/stock_move.js' %}"></script>
+{% endblock %}

@@ -10,6 +10,9 @@ from catalog.models import Product
 from inventory.models import ProductMovement, q3
 from stock.models import ProductContainer, StockEntry, DEC0
 
+from django.utils import timezone
+from inventory import services as InvSV
+
 
 @transaction.atomic
 def apply_movement(mv: ProductMovement) -> StockEntry | None:
@@ -75,3 +78,59 @@ def get_stock_for_product(product: Product) -> dict:
         e.container.code: str(e.qty_primary or DEC0)
         for e in entries
     }
+
+
+@transaction.atomic
+def transfer_between_containers(
+    *,
+    actor,
+    product: Product,
+    from_container: ProductContainer,
+    to_container: ProductContainer,
+    qty_primary: Decimal,
+) -> tuple[ProductMovement, ProductMovement]:
+    """
+    Move qty_primary (primary unit, positive) from one container to another.
+
+    Creates two ProductMovement rows:
+      - ADJUSTMENT negative from 'from_container'
+      - ADJUSTMENT positive into 'to_container'
+
+    Overall product.stock_qty stays the same (out + in).
+    """
+    qty = q3(Decimal(str(qty_primary or DEC0)))
+    if qty <= DEC0:
+        raise ValueError("Quantity must be positive for transfer.")
+
+    unit_cost = getattr(product, "cost", DEC0) or DEC0
+
+    # Just some reference so both legs are logically linked
+    ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
+
+    mv_out = InvSV.record_movement(
+        actor=actor,
+        product=product,
+        unit_index=ProductMovement.UnitIndex.PRIMARY,
+        qty_primary=-qty,
+        unit_cost=unit_cost,
+        movement_type=ProductMovement.MovementType.ADJUSTMENT,
+        source_app="stock",
+        source_model="Transfer",
+        source_id=f"{ref}-OUT",
+        container=from_container,
+    )
+
+    mv_in = InvSV.record_movement(
+        actor=actor,
+        product=product,
+        unit_index=ProductMovement.UnitIndex.PRIMARY,
+        qty_primary=qty,
+        unit_cost=unit_cost,
+        movement_type=ProductMovement.MovementType.ADJUSTMENT,
+        source_app="stock",
+        source_model="Transfer",
+        source_id=f"{ref}-IN",
+        container=to_container,
+    )
+
+    return mv_out, mv_in

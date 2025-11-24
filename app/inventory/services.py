@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from catalog.models import Product
 from inventory.models import ProductMovement, q3, q4, DEC0
-
 from stock.models import ProductContainer
 
 
@@ -78,7 +77,6 @@ def record_movement(
     return mv
 
 
-# Convenience wrappers for readability from billing / pos
 @transaction.atomic
 def record_purchase_item(
     *,
@@ -133,4 +131,40 @@ def record_provider_return_item(
         source_model=source_model,
         source_id=source_id,
         container=container
+    )
+
+
+# ===== NEW: POS Sales =====
+@transaction.atomic
+def record_sale_item(
+    *,
+    actor,
+    product: Product,
+    unit_index: int,
+    qty_primary: Decimal,
+    unit_cost: Decimal,
+    source_app: str,
+    source_model: str,
+    source_id: str | int,
+    container: ProductContainer | None = None,
+) -> ProductMovement:
+    """
+    Logs a SALE movement (stock goes OUT of the container).
+
+    qty_primary should be POSITIVE here; we flip it to negative inside.
+    """
+    qty_primary = Decimal(str(qty_primary or 0))
+    if qty_primary > 0:
+        qty_primary = -qty_primary  # stock out
+    return record_movement(
+        actor=actor,
+        product=product,
+        unit_index=unit_index,
+        qty_primary=qty_primary,
+        unit_cost=unit_cost,
+        movement_type=ProductMovement.MovementType.SALE,
+        source_app=source_app,
+        source_model=source_model,
+        source_id=source_id,
+        container=container,
     )

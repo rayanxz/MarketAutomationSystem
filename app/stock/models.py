@@ -41,8 +41,22 @@ class ProductContainer(models.Model):
     class Meta:
         ordering = ["sort_order", "name"]
 
+    @property
+    def display_label(self) -> str:
+        """
+        Arabic label for UI, without touching DB names.
+        """
+        if self.code == "store":
+            return "متجر"
+        elif self.code == "wh1":
+            return "مستودع 1"
+        elif self.code == "wh2":
+            return "مستودع 2"
+        return self.name
+
     def __str__(self) -> str:
         return f"{self.code} — {self.name}"
+
 
 
 class StockEntry(models.Model):

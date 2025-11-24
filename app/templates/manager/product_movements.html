@@ -4,7 +4,11 @@
 {% block title %}حركة المواد{% endblock %}
 
 {% block menu_secondary %}
-  {% include "manager/_products_tabs.html" %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'stock:stock_list' %}">قائمة المخزون</a>
+    <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
+    <a class="btn-sec" href="#" onclick="return false;" aria-disabled="true">نقل المنتجات (قريباً)</a>
+  </div>
 {% endblock %}
 
 {% block extra_head %}
@@ -70,6 +74,22 @@
         <ul id="mvProductAC" class="ac-list" hidden></ul>
       </label>
 
+      {# CONTAINER filter #}
+      <label class="mv-field">
+        الحاوية
+        <select name="container" id="mvContainer">
+            <option value="">كل الحاويات</option>
+            {% for c in containers %}
+            <option value="{{ c.code }}"
+                    {% if filters.container == c.code %}selected{% endif %}>
+                {{ c.display_label }}
+            </option>
+            {% endfor %}
+        </select>
+        </label>
+
+
+
       {# type (grouped: buy / sale / customer returns / provider returns / all) #}
       <label class="mv-field">النوع
         <select name="movement_type" id="mvType">
@@ -101,6 +121,7 @@
           <th>الكلفة للوحدة</th>
           <th>السعر للوحدة</th>
           <th>النوع</th>
+          <th>الحاوية</th>           {# NEW #}
           <th>اسم المادة</th>
           <th>الزمرة / المجموعة</th>
           <th>نوع الجهة الأخرى</th>
@@ -115,19 +136,18 @@
 
               <td class="qty-cell {% if row.direction == 'up' %}qty-up{% elif row.direction == 'down' %}qty-down{% endif %}">
                 <span class="qty-inner">
-                    {% if row.direction == 'up' %}
+                  {% if row.direction == 'up' %}
                     <span class="arrow">▲</span>
-                    {% elif row.direction == 'down' %}
+                  {% elif row.direction == 'down' %}
                     <span class="arrow">▼</span>
-                    {% else %}
+                  {% else %}
                     <span class="arrow">•</span>
-                    {% endif %}
-                    <span class="qty-text" dir="ltr">
+                  {% endif %}
+                  <span class="qty-text" dir="ltr">
                     {{ row.qty_abs|default:row.qty }}
-                    </span>
+                  </span>
                 </span>
-                </td>
-
+              </td>
 
               <td>
                 {% if row.direction == 'up' %}
@@ -143,6 +163,16 @@
               <td>{{ row.price }}</td>
               <td>{{ row.movement_type_label }}</td>
 
+              <td>
+                {% if row.container %}
+                    {{ row.container.display_label }}
+                {% else %}
+                    <span class="muted">غير محدد</span>
+                {% endif %}
+              </td>
+
+
+
               <td>{{ row.product.name }}</td>
 
               <td>
@@ -156,7 +186,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="10" class="mv-empty">لا توجد حركات مطابقة للفلاتر الحالية.</td>
+            <td colspan="11" class="mv-empty">لا توجد حركات مطابقة للفلاتر الحالية.</td>
           </tr>
         {% endif %}
       </tbody>

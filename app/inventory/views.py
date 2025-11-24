@@ -13,6 +13,7 @@ from accounts.models import AccountProfile
 from catalog.models import ProductCollection, ProductSet, Product
 from billing.models import Bill, ProviderReturn
 from inventory.models import ProductMovement
+from stock.models import ProductContainer   # <- NEW
 
 
 PAGE_SIZE = 50
@@ -39,10 +40,15 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
       - collection_id
       - set_id
       - product_id
-      - movement_type
+      - movement_type (grouped)
+      - container (stock.ProductContainer)
     """
     qs = ProductMovement.objects.select_related(
-        "product", "product__set", "product__set__collection", "actor"
+        "product",
+        "product__set",
+        "product__set__collection",
+        "actor",
+        "container",   # <- NEW
     )
 
     # -------- filters from GET --------
@@ -53,6 +59,8 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
     set_id = request.GET.get("set_id") or ""
     product_id = request.GET.get("product_id") or ""
     movement_group = (request.GET.get("movement_type") or "all").strip()
+
+    container_code = (request.GET.get("container") or "").strip()  # <- NEW
 
     # dates
     dt_from = _parse_date(date_from_raw)
@@ -66,21 +74,24 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
     # hierarchy
     if product_id:
         try:
-            qs = qs.filter(product_id=int(product_id))
+          qs = qs.filter(product_id=int(product_id))
         except ValueError:
-            pass
+          pass
     elif set_id:
         try:
-            qs = qs.filter(product__set_id=int(set_id))
+          qs = qs.filter(product__set_id=int(set_id))
         except ValueError:
-            pass
+          pass
     elif collection_id:
         try:
-            qs = qs.filter(product__set__collection_id=int(collection_id))
+          qs = qs.filter(product__set__collection_id=int(collection_id))
         except ValueError:
-            pass
+          pass
 
-    # type
+    # container filter
+    if container_code:
+        qs = qs.filter(container__code=container_code)
+
     # type group (buy / sale / customer returns / provider returns / all)
     if movement_group == "buy":
         qs = qs.filter(
@@ -191,11 +202,13 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
                 "movement_type_label": mv.get_movement_type_display(),
                 "other_party_type": other_party_type,
                 "other_party_name": other_party_name,
+                "container": mv.container,  # <- NEW
             }
         )
 
     collections = ProductCollection.objects.order_by("name")
     sets = ProductSet.objects.select_related("collection").order_by("collection__name", "name")
+    containers = ProductContainer.objects.filter(is_active=True).order_by("sort_order", "name")
 
     ctx = {
         "rows": rows,
@@ -203,6 +216,7 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
         "paginator": paginator,
         "collections": collections,
         "sets": sets,
+        "containers": containers,  # <- NEW
         "filters": {
             "date_from": date_from_raw,
             "date_to": date_to_raw,
@@ -210,6 +224,7 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
             "set_id": set_id,
             "product_id": product_id,
             "movement_type": movement_group,
+            "container": container_code,   # <- NEW
         },
         "movement_type_choices": [
             ("all", "الكل"),

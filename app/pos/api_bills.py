@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.db import transaction
 
 from .models import SalesBill, SalesBillRow, CustomerProfile
+from . import services as POSSV
 
 
 def _parse_decimal(x):
@@ -91,8 +92,10 @@ def api_bill_save(request: HttpRequest):
                 notes=r.get("notes") or "",
             )
 
-        # NOTE: here we DO NOT yet touch billing/catalog/etc.
-        # Later: if not parked, this is where we trigger the real "save bill" integration.
+        # If bill is NOT parked → finalize: create inventory movements (SALE from store)
+        if not bill.parked:
+            POSSV.finalize_pos_bill(bill=bill, actor=request.user)
+
 
         return JsonResponse({
             "ok": True,
