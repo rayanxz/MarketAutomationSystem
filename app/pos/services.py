@@ -11,6 +11,7 @@ from inventory.models import ProductMovement, DEC0, q3
 from stock.models import ProductContainer
 from .models import SalesBill, SalesBillRow
 
+from typing import Tuple
 
 def _get_store_container() -> ProductContainer | None:
     """
@@ -22,7 +23,11 @@ def _get_store_container() -> ProductContainer | None:
     return ProductContainer.objects.filter(code="store").first()
 
 
-def _qty_to_primary(product: Product, uom_index: int, qty: Decimal) -> (Decimal, int):
+def _qty_to_primary(
+    product: Product,
+    uom_index: int,
+    qty: Decimal,
+) -> Tuple[Decimal, int]:
     """
     Convert qty based on UOM index to primary units.
     Returns (qty_primary, actual_unit_index_used).
@@ -36,6 +41,7 @@ def _qty_to_primary(product: Product, uom_index: int, qty: Decimal) -> (Decimal,
         # secondary → primary
         return q3(qty * conv), 2
     return qty, 1
+
 
 
 @transaction.atomic
