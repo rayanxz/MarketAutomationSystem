@@ -2,12 +2,11 @@
 {% extends "manager/base_manager.html" %}
 {% load static %}
 
-
 {% block menu_secondary %}
   <div class="tabs-row">
     <a class="btn-sec" href="{% url 'stock:stock_list' %}">قائمة المخزون</a>
-    <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
     <a class="btn-sec" href="{% url 'stock:stock_move' %}">نقل المنتجات</a>
+    <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
   </div>
 {% endblock %}
 
@@ -29,22 +28,22 @@
   </style>
 {% endblock %}
 
-
-
 {% block title %}إدارة المخزون — قائمة المخزون{% endblock %}
 
 {% block content_header %}
   <div class="page-header">
     <h1>إدارة المخزون</h1>
-    <p class="muted">متابعة الكميات في الواجهة والمستودعات، مع تمييز النواقص والسلبيات.</p>
+    <p class="muted">
+      متابعة الكميات في الواجهة والمستودعات، مع تمييز النواقص والسلبيات،
+      وإمكانية عرض الدفعات (الباتشات) بالتفصيل.
+    </p>
   </div>
 
-    <div class="tab-strip" style="margin-bottom: 10px;">
+  <div class="tab-strip" style="margin-bottom: 10px;">
     <a href="{% url 'stock:stock_list' %}" class="tab active">قائمة المخزون</a>
-    <a href="#" class="tab disabled" title="قريباً">نقل المنتجات</a>
+    <a href="{% url 'stock:stock_move' %}" class="tab">نقل المنتجات</a>
     <a href="{% url 'product_movements' %}" class="tab">حركة المواد</a>
   </div>
-
 {% endblock %}
 
 {% block content %}
@@ -55,7 +54,7 @@
       <div>
         <label for="container" class="muted">الموقع (الحاوية)</label>
         <select id="container" name="container" class="input"
-                onchange="location.href='?container=' + encodeURIComponent(this.value);">
+                onchange="stockListChangeContainer(this.value);">
           {% for c in containers %}
             <option value="{{ c.code }}" {% if current_container and c.id == current_container.id %}selected{% endif %}>
               {{ c.name }} ({% if c.is_store %}الواجهة{% else %}{{ c.code }}{% endif %})
@@ -64,7 +63,7 @@
         </select>
       </div>
 
-      {# qty filter radios #}
+      {# qty filter radios (client-side only) #}
       <div class="qty-filter-group">
         <span class="muted" style="font-size:0.85rem;">تصفية حسب الكمية</span>
         <div class="qty-filter-options">
@@ -83,6 +82,29 @@
           <label>
             <input type="radio" name="qtyFilter" value="negative">
             <span>كميات سالبة</span>
+          </label>
+        </div>
+      </div>
+
+      {# view mode: products vs batches #}
+      <div class="view-mode-group">
+        <span class="muted" style="font-size:0.85rem;">طريقة العرض</span>
+        <div class="view-mode-options">
+          <label>
+            <input type="radio"
+                   name="viewMode"
+                   value="products"
+                   {% if view_mode != 'batches' %}checked{% endif %}
+                   onchange="stockListChangeView(this.value);">
+            <span>إجمالي لكل منتج</span>
+          </label>
+          <label>
+            <input type="radio"
+                   name="viewMode"
+                   value="batches"
+                   {% if view_mode == 'batches' %}checked{% endif %}
+                   onchange="stockListChangeView(this.value);">
+            <span>عرض الدفعات (باتشات)</span>
           </label>
         </div>
       </div>
@@ -118,7 +140,8 @@
 
     {# ========== SUMMARY / LEGEND ========== #}
     {% if current_container %}
-      <div class="stock-summary" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; font-size:0.9rem;">
+      <div class="stock-summary"
+           style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; font-size:0.9rem;">
         <span class="badge-chip">
           الحاوية الحالية:
           <strong>{{ current_container.name }}</strong>
@@ -140,6 +163,12 @@
           <span class="legend-box legend-neg"></span> كمية سالبة
           &nbsp;&nbsp;
           <span class="legend-box legend-zero"></span> كمية صفرية
+          {% if view_mode == "batches" %}
+            &nbsp;&nbsp;
+            <span class="legend-batch">
+              في وضع الدفعات: التصنيف ← المجموعة ← المنتج ← الدفعات (الأحدث في الأعلى).
+            </span>
+          {% endif %}
         </span>
       </div>
     {% endif %}
@@ -152,17 +181,23 @@
         <table class="table stock-table">
           <thead>
             <tr>
-              <th style="width:45%;">التصنيف / المجموعة / المنتج</th>
-              <th class="col-qty" style="width:15%;">الكمية (بالوحدة الأساسية)</th>
-              <th class="col-uom" style="width:10%;">الوحدة الأساسية</th>
-              <th style="width:15%;">الكلفة للوحدة</th>
-              <th style="width:15%;">سعر البيع للوحدة</th>
+              <th style="width:40%;"></th>
+              {% if view_mode == "batches" %}
+                <th class="col-date" style="width:15%;"></th>
+              {% endif %}
+              <th class="col-qty" style="width:15%;"></th>
+              <th class="col-uom" style="width:10%;"></th>
+              <th style="width:11%;"></th>
+              <th style="width:12%;"></th>
             </tr>
           </thead>
+
           <tbody>
             {% if not tree %}
               <tr>
-                <td colspan="5" class="muted" style="text-align:center; padding:16px;">
+                <td colspan="{% if view_mode == 'batches' %}6{% else %}5{% endif %}"
+                    class="muted"
+                    style="text-align:center; padding:16px;">
                   لا توجد منتجات في هذه الحاوية.
                 </td>
               </tr>
@@ -170,7 +205,7 @@
               {% for col in tree %}
                 {# Collection row #}
                 <tr class="row-collection">
-                  <td colspan="5">
+                  <td colspan="{% if view_mode == 'batches' %}6{% else %}5{% endif %}">
                     <span class="icon" aria-hidden="true">📂</span>
                     {% if col.collection %}
                       {{ col.collection.name }}
@@ -183,7 +218,7 @@
                 {% for s in col.sets %}
                   {# Father set row #}
                   <tr class="row-set">
-                    <td colspan="5">
+                    <td colspan="{% if view_mode == 'batches' %}6{% else %}5{% endif %}">
                       <span class="icon" aria-hidden="true">🧺</span>
                       {% if s.set %}
                         {{ s.set.name }}
@@ -196,46 +231,135 @@
                   {# Product rows #}
                   {% for item in s.products %}
                     {% with p=item.product %}
-                      <tr class="row-product{% if item.qty < 0 %} row-negative{% elif item.qty == 0 %} row-zero{% endif %}"
-                          data-name="{{ p.name|default_if_none:''|lower }}"
-                          data-id="{{ p.id }}"
-                          data-code="{{ p.display_code|default_if_none:''|lower }}"
-                          data-barcode="{{ item.barcodes|default_if_none:''|lower }}"
-                          data-collection="{% if col.collection %}{{ col.collection.name|lower }}{% else %}{% endif %}"
-                          data-set="{% if s.set %}{{ s.set.name|lower }}{% else %}{% endif %}"
-                          data-qty="{{ item.qty }}">
-                        <td class="cell-product">
-                          <span class="icon" aria-hidden="true">📦</span>
-                          <span class="prod-name">{{ p.name }}</span>
-                          <span class="muted prod-code">({{ p.display_code }})</span>
-                        </td>
+                      {% if view_mode == "batches" %}
 
-                        <td class="num col-qty">
-                          {{ item.qty_display }}
-                        </td>
+                        {# PRODUCT HEADER (acts as the searchable/filterable row) #}
+                        <tr class="row-product row-product-header{% if item.qty < 0 %} row-negative{% elif item.qty == 0 %} row-zero{% endif %}"
+                            data-name="{{ p.name|default_if_none:''|lower }}"
+                            data-id="{{ p.id }}"
+                            data-code="{{ p.display_code|default_if_none:''|lower }}"
+                            data-barcode="{{ item.barcodes|default_if_none:''|lower }}"
+                            data-collection="{% if col.collection %}{{ col.collection.name|lower }}{% else %}{% endif %}"
+                            data-set="{% if s.set %}{{ s.set.name|lower }}{% else %}{% endif %}"
+                            data-qty="{{ item.qty }}">
+                          <td class="cell-product">
+                            <span class="icon" aria-hidden="true">📦</span>
+                            <span class="prod-name">{{ p.name }}</span>
+                            <span class="muted prod-code">({{ p.display_code }})</span>
+                          </td>
+                          <td class="col-date col-label">تاريخ الدفعة</td>
+                          <td class="col-qty col-label">الكمية</td>
+                          <td class="col-uom col-label">الوحدة الأساسية</td>
+                          <td class="num col-label">الكلفة للوحدة</td>
+                          <td class="num col-label">سعر البيع للوحدة</td>
+                        </tr>
 
-                        <td class="col-uom">
-                          {% if p.get_unit_primary_display %}
-                            {{ p.get_unit_primary_display }}
-                          {% else %}
-                            {{ p.unit_primary }}
-                          {% endif %}
-                        </td>
+                        {# BATCH ROWS for this product (newest-first from view) #}
+                        {% if item.batches %}
+                          {% for b in item.batches %}
+                            <tr class="row-batch"
+                                data-batch-id="{{ b.id }}"
+                                data-parent-id="{{ p.id }}">
+                              <td class="cell-batch">
+                                <span class="batch-label">دفعة #{{ b.index }}</span>
+                                {% if b.source %}
+                                  <span class="batch-meta">
+                                    <span class="muted">{{ b.source }}</span>
+                                  </span>
+                                {% endif %}
+                              </td>
+                              <td class="col-date">
+                                {{ b.created_at }}
+                              </td>
+                              <td class="num col-qty">
+                                {{ b.qty }}
+                              </td>
+                              <td class="col-uom">
+                                {% if p.get_unit_primary_display %}
+                                  {{ p.get_unit_primary_display }}
+                                {% else %}
+                                  {{ p.unit_primary }}
+                                {% endif %}
+                              </td>
+                              <td class="num">
+                                {{ b.unit_cost }}
+                              </td>
+                              <td class="num">
+                                —  {# السعر من المنتج نفسه، لا من الدفعة #}
+                              </td>
+                            </tr>
+                          {% endfor %}
+                        {% else %}
+                          <tr class="row-batch row-batch-empty"
+                              data-parent-id="{{ p.id }}">
+                            <td class="cell-batch"
+                                colspan="6">
+                              <span class="muted">لا توجد دفعات مسجلة لهذا المنتج في هذه الحاوية.</span>
+                            </td>
+                          </tr>
+                        {% endif %}
 
-                        <td class="num">
-                          {{ item.cost_display }}
-                        </td>
+                        {# small visual gap after each product block in batches mode #}
+                        <tr class="product-gap">
+                          <td colspan="6"></td>
+                        </tr>
 
-                        <td class="num">
-                          {{ item.price_display }}
-                        </td>
-                      </tr>
+                      {% else %}
+                        {# ===== PRODUCTS VIEW (aggregated) ===== #}
+
+                        {# 1) Per-product header with identifiers #}
+                        <tr class="row-product-header">
+                          <td class="cell-product">
+                            <span class="icon" aria-hidden="true">📦</span>
+                            <span class="prod-name">{{ p.name }}</span>
+                            <span class="muted prod-code">({{ p.display_code }})</span>
+                          </td>
+                          <td class="col-qty col-label">الكمية</td>
+                          <td class="col-uom col-label">الوحدة الأساسية</td>
+                          <td class="col-label">الكلفة للوحدة</td>
+                          <td class="col-label">سعر البيع للوحدة</td>
+                        </tr>
+
+                        {# 2) Data row: actual totals (this is the searchable/filterable one) #}
+                        <tr class="row-product{% if item.qty < 0 %} row-negative{% elif item.qty == 0 %} row-zero{% endif %}"
+                            data-name="{{ p.name|default_if_none:''|lower }}"
+                            data-id="{{ p.id }}"
+                            data-code="{{ p.display_code|default_if_none:''|lower }}"
+                            data-barcode="{{ item.barcodes|default_if_none:''|lower }}"
+                            data-collection="{% if col.collection %}{{ col.collection.name|lower }}{% else %}{% endif %}"
+                            data-set="{% if s.set %}{{ s.set.name|lower }}{% else %}{% endif %}"
+                            data-qty="{{ item.qty }}">
+                          <td class="cell-product cell-product-total">
+                            <span class="batch-pill">إجمالي المنتج</span>
+                          </td>
+
+                          <td class="num col-qty">
+                            {{ item.qty_display }}
+                          </td>
+
+                          <td class="col-uom">
+                            {% if p.get_unit_primary_display %}
+                              {{ p.get_unit_primary_display }}
+                            {% else %}
+                              {{ p.unit_primary }}
+                            {% endif %}
+                          </td>
+
+                          <td class="num">
+                            {{ item.cost_display }}
+                          </td>
+
+                          <td class="num">
+                            {{ item.price_display }}
+                          </td>
+                        </tr>
+                      {% endif %}
                     {% endwith %}
                   {% endfor %}
 
                   {# Light separator between sets #}
                   <tr class="set-separator">
-                    <td colspan="5"></td>
+                    <td colspan="{% if view_mode == 'batches' %}6{% else %}5{% endif %}"></td>
                   </tr>
                 {% endfor %}
               {% endfor %}
@@ -255,13 +379,13 @@
 
     .row-collection td {
       border-top: 2px solid var(--border-strong, #d4d4d8);
-      background: var(--bg-subtle, #f9fafb);
+      background: #e5f3ff;
       font-weight: 600;
       padding-block: 6px;
     }
 
     .row-set td {
-      background: rgba(0, 0, 0, 0.02);
+      background: #f1f5f9;
       padding-inline-start: 24px;
       padding-block: 4px;
       font-weight: 500;
@@ -270,6 +394,18 @@
     .row-product td {
       border-bottom: 1px dashed var(--border-soft, #e5e7eb);
       padding-block: 4px;
+      background: #f9fafb;
+    }
+
+    .row-product-header td {
+      background: #eff6ff;
+      font-size: 0.8rem;
+      padding-block: 4px;
+      border-bottom: 1px solid rgba(148,163,184,0.6);
+    }
+
+    .row-product-header .cell-product {
+      font-weight: 600;
     }
 
     .cell-product {
@@ -284,24 +420,38 @@
       margin-inline-start: 4px;
     }
 
-    .row-product .num {
+    .cell-product-total {
+      padding-inline-start: 48px;
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+
+    /* numeric cells */
+    .stock-table td.num {
       text-align: left;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
 
+    /* headers alignment */
     .table th.col-qty,
-    .table th.col-uom {
+    .table th.col-uom,
+    .table th.col-date {
       text-align: center;
     }
 
-    .row-product .col-qty {
+    /* same alignment for ALL rows (product + batch) */
+    .stock-table td.col-date {
+      text-align: center;
+    }
+
+    .stock-table td.col-qty {
       text-align: right;
       padding-right: 6px;
       padding-left: 0;
     }
 
-    .row-product .col-uom {
+    .stock-table td.col-uom {
       text-align: left;
       padding-left: 6px;
       padding-right: 0;
@@ -320,6 +470,12 @@
     .set-separator td {
       border-bottom: 1px solid var(--border-soft, #e5e7eb);
       padding: 0;
+    }
+
+    .product-gap td {
+      padding: 4px 0;
+      border-bottom: 0;
+      background: transparent;
     }
 
     .badge-chip {
@@ -372,7 +528,8 @@
     }
 
     .qty-filter-options label,
-    .search-modes label {
+    .search-modes label,
+    .view-mode-options label {
       display: inline-flex;
       align-items: center;
       gap: 4px;
@@ -391,7 +548,82 @@
       flex-wrap: wrap;
       gap: 6px 10px;
     }
+
+    .view-mode-group{
+      min-width: 220px;
+      font-size:0.85rem;
+    }
+    .view-mode-options{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      margin-top:4px;
+    }
+
+    /* batch rows */
+    .row-batch td {
+      border-bottom: 1px dashed var(--border-soft, #e5e7eb);
+      background: #ffffff;
+      font-size: 0.8rem;
+    }
+    .row-batch-empty td {
+      background: #f8fafc;
+      color: #6b7280;
+      font-style: italic;
+    }
+    .cell-batch {
+      padding-inline-start: 68px;
+    }
+    .batch-label{
+      font-weight:600;
+      margin-inline-end:4px;
+    }
+    .batch-meta{
+      font-size:0.78rem;
+      color:#6b7280;
+    }
+    .legend-batch{
+      font-size:0.78rem;
+    }
+
+    .col-label {
+      font-size: 0.78rem;
+      color: #6b7280;
+      text-align: center;
+    }
+
+    .batch-pill{
+      display:inline-block;
+      margin-inline-start:6px;
+      padding:1px 6px;
+      border-radius:999px;
+      font-size:0.7rem;
+      background:rgba(37,99,235,0.08);
+      color:#1d4ed8;
+    }
   </style>
+
+  <script>
+    function stockListChangeContainer(code) {
+      const url = new URL(window.location.href);
+      if (code) {
+        url.searchParams.set('container', code);
+      } else {
+        url.searchParams.delete('container');
+      }
+      // preserve view mode
+      if (!url.searchParams.get('view')) {
+        url.searchParams.set('view', '{{ view_mode|default:"products" }}');
+      }
+      window.location.href = url.toString();
+    }
+
+    function stockListChangeView(view) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', view || 'products');
+      window.location.href = url.toString();
+    }
+  </script>
 
   <script src="{% static 'stock/stock_list.js' %}"></script>
 {% endblock %}

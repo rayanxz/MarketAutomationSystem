@@ -124,6 +124,17 @@
       const visible = okQty && okSearch;
       row.dataset.visible = visible ? "1" : "0";
       row.style.display = visible ? "" : "none";
+
+      // Hide/show batch rows for this product (batches view)
+      const pid = row.dataset.id;
+      if (pid) {
+        const batchRows = document.querySelectorAll(
+          'tr.row-batch[data-parent-id="' + pid + '"]'
+        );
+        batchRows.forEach((br) => {
+          br.style.display = visible ? "" : "none";
+        });
+      }
     });
 
     refreshHeadersVisibility();

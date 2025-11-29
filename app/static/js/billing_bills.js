@@ -30,9 +30,17 @@
     const label = status === "paid" ? "مدفوعة" : (status === "partial" ? "مدفوعة جزئياً" : "غير مدفوعة");
     return `<span class="status ${cls}">${label}</span>`;
   }
-  function row(b){
+    function row(b){
     const dt = new Date(b.created_at).toLocaleString();
     const viewUrl = `${window.__BILLING__.billViewBase}${b.id}/`;
+
+    let deleteBtn = "";
+    if (b.can_delete) {
+      deleteBtn = `<button class="btn danger" data-del="${b.id}" data-label="${b.serial ?? b.id}">حذف</button>`;
+    } else {
+      deleteBtn = `<button class="btn danger" type="button" disabled title="لا يمكن حذف هذه الفاتورة (تم استخدام كميتها)">حذف</button>`;
+    }
+
     return `
       <tr data-id="${b.id}">
         <td>${b.serial ?? ""}</td>
@@ -42,11 +50,12 @@
         <td>${dt}</td>
         <td class="left">
           <a class="btn" href="${viewUrl}">عرض</a>
-          <button class="btn danger" data-del="${b.id}" data-label="${b.serial ?? b.id}">حذف</button>
+          ${deleteBtn}
         </td>
       </tr>
     `;
   }
+
   function readFilters(includeCursor=true){
     const fd = new FormData(form);
     const obj = {};

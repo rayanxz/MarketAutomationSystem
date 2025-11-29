@@ -10,6 +10,13 @@ from django.views.decorators.http import require_GET, require_POST
 from django.utils import timezone
 from django.db.models import Q  # needed for products search filters
 
+from django.contrib.auth.decorators import login_required
+
+from billing import services as BillingSV
+
+from inventory.models import DEC0
+
+
 from accounts.models import AccountProfile
 from catalog.views import role_required
 from catalog.models import Product
@@ -95,6 +102,59 @@ def _date(val) -> "date | None":
 
 def _bad(msg: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"ok": False, "error": msg}, status=status)
+
+
+def _build_return_items_from_form(request: HttpRequest, bill: Bill, left_map: dict[int, Decimal]):
+    """
+    Read POST fields return_qty_<item_id> and return_cost_<item_id>,
+    validate against remaining FIFO qty, and build items payload for SV.create_return().
+    """
+    items_payload = []
+
+    for it in bill.items.all():
+        field_qty = f"return_qty_{it.id}"
+        raw_qty = (request.POST.get(field_qty) or "").strip()
+        if not raw_qty:
+            continue
+
+        try:
+            qty = Decimal(raw_qty)
+        except Exception:
+            raise ValueError(f"الكمية المدخلة للمنتج '{it.product.name}' غير صحيحة.")
+
+        if qty <= 0:
+            continue  # ignore zeros / negatives
+
+        left_allowed = left_map.get(it.id, DEC0)
+        if qty > left_allowed:
+            raise ValueError(
+                f"الكمية المرتجعة للمنتج '{it.product.name}' أكبر من الكمية المتبقية ({left_allowed})."
+            )
+
+        field_cost = f"return_cost_{it.id}"
+        raw_cost = (request.POST.get(field_cost) or "").strip()
+        try:
+            cost = Decimal(raw_cost) if raw_cost else (it.cost or Decimal("0"))
+        except Exception:
+            raise ValueError(f"كلفة المرتجع للمنتج '{it.product.name}' غير صحيحة.")
+
+        if cost < 0:
+            cost = -cost
+
+        # We treat the quantity as primary-unit qty_raw (unit_index = 1)
+        items_payload.append(
+            {
+                "product_id": it.product_id,
+                "unit_index": 1,
+                "qty_raw": str(qty),
+                "cost": str(cost),
+            }
+        )
+
+    if not items_payload:
+        raise ValueError("لم يتم إدخال أي كميات مرتجعة.")
+
+    return items_payload
 
 
 # ---------- Providers APIs ----------
@@ -355,7 +415,16 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     except ValueError:
         page_size = 30
 
-    qs = S.bills_list_filters(S.bills_base(), q, serial, status, date_from, date_to, cursor, page_size)
+    qs = S.bills_list_filters(
+        S.bills_base(),
+        q,
+        serial,
+        status,
+        date_from,
+        date_to,
+        cursor,
+        page_size,
+    )
     qs = qs.order_by("-id")[:page_size]
     items = list(qs)
 
@@ -364,7 +433,29 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
         items = [b for b in items if (b.status or "").lower() == status]
 
     nxt = items[-1].id if items else None
-    return JsonResponse({"ok": True, "items": [bill_row(b) for b in items], "next_cursor": nxt})
+
+    # ---- HERE is the FIFO flag logic for each bill ----
+    payload_items = []
+    for b in items:
+        # existing serializer
+        row = bill_row(b)
+
+        # left_map not needed here, just flags
+        _left_map, is_closed, untouched = BillingSV.get_bill_status_flags(b)
+
+        row["is_closed"] = is_closed
+        row["can_delete"] = untouched   # untouched → no qty used yet → allowed to delete
+
+        payload_items.append(row)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "items": payload_items,
+            "next_cursor": nxt,
+        }
+    )
+
 
 
 
@@ -384,26 +475,124 @@ def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
 
 
 @role_required(AccountProfile.Role.MANAGER)
-def bill_view(request: HttpRequest, bill_id: int) -> HttpResponse:
-    bill = (
-        Bill.objects
-        .select_related("provider")
-        .prefetch_related("items", "items__product")
-        .get(pk=bill_id)
+@login_required
+def bill_view(request, bill_id: int):
+    bill = get_object_or_404(
+        Bill.objects.prefetch_related("items__product", "provider"),
+        pk=bill_id,
     )
 
-    # With the new model, "creation-time" snapshot lives only in GL / subledger;
-    # we show current derived status & paid from DebtorEntry.
-    created_status = bill.status
-    created_paid = bill.paid_amount
+    # FIFO: left quantity per BillItem, and flags
+    left_map, is_closed, untouched = BillingSV.get_bill_status_flags(bill)
+
+    error_msg = None
+
+    # ----- Handle POST: create ProviderReturn from this bill -----
+    if request.method == "POST":
+        if is_closed:
+            error_msg = "لا يمكن إنشاء مرتجع: الفاتورة مغلقة (لا توجد كميات متبقية)."
+        else:
+            try:
+                # 1) read and validate items from form
+                items_payload = _build_return_items_from_form(request, bill, left_map)
+
+                # 2) try to reuse same container as the original purchase
+                from inventory.models import ProductMovement
+                mv_container = None
+                item_ids = list(bill.items.values_list("id", flat=True))
+                if item_ids:
+                    mv = (
+                        ProductMovement.objects
+                        .filter(
+                            source_app="billing",
+                            source_model="BillItem",
+                            source_id__in=item_ids,
+                        )
+                        .select_related("container")
+                        .first()
+                    )
+                    if mv and mv.container_id:
+                        mv_container = mv.container
+
+                # 3) create ProviderReturn (we treat it as UNPAID by default)
+                pret = SV.create_return(
+                    actor=request.user,
+                    provider_id=bill.provider_id,
+                    status="unpaid",
+                    paid_amount=Decimal("0"),
+                    items=items_payload,
+                    container=mv_container,
+                )
+
+                # You can redirect to the return view if you have a URL name for it.
+                # For now, go to the returns list.
+                return redirect("billing_returns_list")
+            except ValueError as ve:
+                error_msg = str(ve)
+            except Exception:
+                logger.exception("bill_view: failed to create ProviderReturn from bill")
+                error_msg = "فشل حفظ المرتجع، حدث خطأ غير متوقع."
+
+        # if we fall through, we re-render the page with error_msg
+
+    # Build rows for template (GET or POST with errors)
+    items_rows = []
+    for it in bill.items.all():
+        prod = it.product
+        left_qty = left_map.get(it.id, DEC0)
+        can_return = left_qty > DEC0
+
+        # qty_u1 is the stored primary qty
+        qty_u1 = it.qty_primary
+
+        # qty_u2 depends on conversion_factor and unit_index
+        qty_u2 = None
+        try:
+            if prod and prod.conversion_factor and prod.conversion_factor > 0 and it.unit_index == 1:
+                qty_u2 = it.qty_primary / prod.conversion_factor
+        except Exception:
+            qty_u2 = None
+
+        items_rows.append(
+            {
+                "item_id": it.id,
+                "product_name": getattr(prod, "name", "") or "",
+                "unit1_label": prod.get_unit_primary_display() if prod else "",
+                "unit2_label": (
+                    prod.get_unit_secondary_display()
+                    if (prod and getattr(prod, "unit_secondary", None))
+                    else ""
+                ),
+                "cost": it.cost,
+                "price": it.price,
+                "qty_u1": qty_u1,
+                "qty_u2": qty_u2,
+                "line_total": it.line_total,
+                "left_qty": left_qty,
+                "can_return": can_return,
+            }
+        )
+
+    # Existing "has_debt_now" logic – keep whatever you had before
+    has_debt_now = False
+    try:
+        if bill.serial:
+            has_debt_now = DebtorEntry.objects.filter(doc_serial=bill.serial).exists()
+    except Exception:
+        has_debt_now = False
 
     ctx = {
         "bill": bill,
-        "created_status": created_status,
-        "created_paid": created_paid,
-        "has_debt_now": bill.remaining > 0,
+        "items_rows": items_rows,
+        "is_closed": is_closed,
+        "untouched": untouched,
+        "can_delete": untouched,       # bill can be deleted only if untouched
+        "can_return": not is_closed,   # if closed → no more returns
+        "has_debt_now": has_debt_now,
+        "error_msg": error_msg,
     }
     return render(request, "billing/bill_view.html", ctx)
+
 
 
 # ---------- Payments (payables) ----------

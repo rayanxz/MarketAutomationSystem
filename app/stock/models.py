@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from catalog.models import Product
+from django.db.models import Q
 
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
@@ -40,6 +41,14 @@ class ProductContainer(models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
+        constraints = [
+            # At most one container can be marked as main store
+            models.UniqueConstraint(
+                fields=["is_store"],
+                condition=Q(is_store=True),
+                name="unique_main_store_container",
+            ),
+        ]
 
     @property
     def display_label(self) -> str:
@@ -102,3 +111,60 @@ class StockEntry(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.display_code} @ {self.container.code}: {self.qty_primary}"
+
+
+class StockFifoLayer(models.Model):
+    """
+    FIFO cost layer per (product, container).
+
+    Each incoming movement (purchase / positive adjustment / sale-return)
+    creates one or more layers.
+
+    Outgoing movements (sales, provider returns, negative adjustments)
+    consume from the oldest non-empty layers in this table.
+    """
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="fifo_layers",
+    )
+    container = models.ForeignKey(
+        ProductContainer,
+        on_delete=models.CASCADE,
+        related_name="fifo_layers",
+    )
+
+    # remaining quantity in primary unit for this layer
+    qty_remaining = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+        help_text="Remaining qty in primary unit for this FIFO layer.",
+    )
+
+    # cost per primary unit for this layer
+    unit_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Cost per primary unit for this FIFO layer.",
+    )
+
+    created_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="Creation time (used for FIFO ordering).",
+    )
+
+    # purely for traceability (not required for logic)
+    source_app = models.CharField(max_length=32, blank=True, default="")
+    source_model = models.CharField(max_length=64, blank=True, default="")
+    source_id = models.CharField(max_length=36, blank=True, default="")
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["product", "container", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"FIFO {self.product.display_code} @ {self.container.code}: {self.qty_remaining} @ {self.unit_cost}"

@@ -1,11 +1,15 @@
 # app/billing/services.py
 from __future__ import annotations
 
+
+from collections import defaultdict
 from decimal import Decimal
 from typing import Iterable, Dict, Any, Optional
 from datetime import date
 
 from django.db import transaction
+from inventory.models import ProductMovement
+
 from django.shortcuts import get_object_or_404
 from django.db.models import Max
 
@@ -134,7 +138,8 @@ def create_bill(
 
         line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
 
-        BillItem.objects.create(
+        # Create the bill item
+        item = BillItem.objects.create(
             bill=bill,
             product=product,
             unit_index=unit_idx,
@@ -145,7 +150,7 @@ def create_bill(
         )
 
         # Stock increase via inventory layer (+qty_primary)
-        extra_updates = {}
+        extra_updates: Dict[str, Any] = {}
         if update_product_defaults:
             extra_updates["cost"] = cost_u1
             extra_updates["price"] = price_u1
@@ -157,9 +162,9 @@ def create_bill(
             qty_primary=qty_primary,
             unit_cost=cost_u1,
             source_app="billing",
-            source_model="Bill",
-            source_id=bill.id,
-            container=container,                     # ⬅️ PASS CONTAINER
+            source_model="BillItem",   # ⬅️ tie movement to BillItem
+            source_id=item.id,         # ⬅️ so FIFO can map back
+            container=container,
             extra_product_updates=extra_updates or None,
         )
 
@@ -214,17 +219,39 @@ def delete_bill(*, actor, bill_id: int) -> None:
 
     # Try to detect container from existing movements (if bill was created after inventory integration)
     from inventory.models import ProductMovement  # local import to avoid cycles
-    mv_qs = ProductMovement.objects.filter(
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-    ).select_related("container")
 
     mv_container = None
-    for mv in mv_qs:
-        if mv.container_id:
+
+    # First try new-style movements tied to BillItem
+    item_ids = list(bill.items.values_list("id", flat=True))
+    if item_ids:
+        mv = (
+            ProductMovement.objects
+            .filter(
+                source_app="billing",
+                source_model="BillItem",
+                source_id__in=item_ids,
+            )
+            .select_related("container")
+            .first()
+        )
+        if mv and mv.container_id:
             mv_container = mv.container
-            break
+
+    # Fallback: old-style movements tied to Bill
+    if mv_container is None:
+        mv_old = (
+            ProductMovement.objects
+            .filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+            )
+            .select_related("container")
+            .first()
+        )
+        if mv_old and mv_old.container_id:
+            mv_container = mv_old.container
 
     # Reverse stock via movements (purchase_reversal)
     for it in bill.items.all():
@@ -252,6 +279,7 @@ def delete_bill(*, actor, bill_id: int) -> None:
     # LSV.reverse_purchase(...)
 
     bill.delete()
+
 
 
 
@@ -498,3 +526,138 @@ def collect_manual_debt_partial(*, actor, entry_id: int, amount: Decimal) -> Cre
     if amt <= 0:
         raise ValueError("amount must be positive")
     return DebtSV.collect_debt(actor=actor, entry_id=entry_id, amount=amt, full=False)
+
+# ==============================
+# FIFO helpers for purchase bills
+# ==============================
+
+def compute_bill_fifo_left(bill: Bill) -> dict[int, Decimal]:
+    """
+    Compute remaining quantity per BillItem using full FIFO over ProductMovement.
+
+    Returns:
+        { bill_item_id: left_qty_primary }
+    """
+    # Collect items by product
+    items = list(bill.items.select_related("product"))
+    if not items:
+        return {}
+
+    by_product: dict[int, list] = defaultdict(list)
+    for it in items:
+        if not it.product_id:
+            continue
+        by_product[it.product_id].append(it)
+
+    left_by_item: dict[int, Decimal] = defaultdict(lambda: DEC0)
+
+    # Process each product separately
+    for product_id, product_items in by_product.items():
+        # All movements for this product, oldest → newest
+        mv_qs = (
+            ProductMovement.objects
+            .filter(product_id=product_id)
+            .order_by("created_at", "id")
+        )
+
+        inflow_remaining: dict[int, Decimal] = {}
+        inflow_map: dict[int, ProductMovement] = {}
+        fifo_queue: list[ProductMovement] = []
+
+        for mv in mv_qs:
+            qty = q3(mv.qty_primary or DEC0)
+
+            # ===== FIX: provider returns must ALWAYS be treated as OUT (negative) =====
+            # In older data, some ProviderReturn movements may have been saved with +qty.
+            # For the FIFO "what is left from each BillItem", a provider return is ALWAYS
+            # stock OUT, so we flip the sign to negative if needed.
+            from inventory.models import ProductMovement as PM
+
+            if (
+                mv.movement_type == PM.MovementType.PROVIDER_RETURN
+                and qty > DEC0
+            ):
+                qty = -qty
+
+            if qty > DEC0:
+                # Inflow (purchase, sale_return, adjustment positive, ...)
+                inflow_remaining[mv.id] = qty
+                inflow_map[mv.id] = mv
+                fifo_queue.append(mv)
+
+            elif qty < DEC0:
+                # Outflow (sale, provider_return, adjustment negative, ...)
+                need = -qty
+                while need > DEC0 and fifo_queue:
+                    first = fifo_queue[0]
+                    first_id = first.id
+                    rem = inflow_remaining.get(first_id, DEC0)
+
+                    if rem <= DEC0:
+                        # no left in this batch, pop and continue
+                        fifo_queue.pop(0)
+                        continue
+
+                    if rem <= need:
+                        # consume entire batch
+                        need = q3(need - rem)
+                        inflow_remaining[first_id] = DEC0
+                        fifo_queue.pop(0)
+                    else:
+                        # consume part of this batch
+                        inflow_remaining[first_id] = q3(rem - need)
+                        need = DEC0
+
+
+
+        # Map remaining inflows that belong to BillItems of THIS bill
+        item_ids_for_product = {it.id for it in product_items}
+
+        for mv_id, rem in inflow_remaining.items():
+            rem = q3(rem or DEC0)
+            if rem <= DEC0:
+                continue
+            mv = inflow_map[mv_id]
+            if mv.source_app != "billing" or mv.source_model != "BillItem":
+                # Not a purchase line tied to a BillItem → ignore for our per-bill left
+                continue
+            try:
+                item_id = int(mv.source_id or "0")
+            except (TypeError, ValueError):
+                continue
+
+            if item_id in item_ids_for_product:
+                left_by_item[item_id] = q3(left_by_item[item_id] + rem)
+
+    return left_by_item
+
+
+def get_bill_status_flags(bill: Bill) -> tuple[dict[int, Decimal], bool, bool]:
+    """
+    Returns:
+        (left_map, is_closed, untouched)
+
+    - left_map: { BillItem.id: left_qty_primary }
+    - is_closed: True if ALL items have left_qty == 0
+    - untouched: True if ALL items still have full quantity
+                 (no FIFO consumption from this bill at all)
+    """
+    left_map = compute_bill_fifo_left(bill)
+    items = list(bill.items.all())
+    if not items:
+        # No items → nothing to do, treat as closed & untouched
+        return left_map, True, True
+
+    is_closed = True
+    untouched = True
+
+    for it in items:
+        orig = q3(it.qty_primary or DEC0)
+        left = q3(left_map.get(it.id, DEC0))
+
+        if left > DEC0:
+            is_closed = False
+        if left < orig:
+            untouched = False
+
+    return left_map, is_closed, untouched

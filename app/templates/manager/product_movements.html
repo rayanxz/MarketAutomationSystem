@@ -6,10 +6,11 @@
 {% block menu_secondary %}
   <div class="tabs-row">
     <a class="btn-sec" href="{% url 'stock:stock_list' %}">قائمة المخزون</a>
+    <a class="btn-sec" href="{% url 'stock:stock_move' %}">نقل المنتجات</a>
     <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
-    <a class="btn-sec" href="#" onclick="return false;" aria-disabled="true">نقل المنتجات (قريباً)</a>
   </div>
 {% endblock %}
+
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'inventory/product_movements.css' %}">

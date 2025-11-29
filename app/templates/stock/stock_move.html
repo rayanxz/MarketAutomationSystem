@@ -130,7 +130,166 @@
       color:#6b7280;
     }
 
-    /* table */
+    /* === CURRENT PRODUCT / BATCHES PANEL === */
+    .mv-product-panel{
+      margin-top:10px;
+      margin-bottom:14px;
+      padding:12px;
+      border-radius:10px;
+      border:1px solid #e5e7eb;
+      background:#f9fafb;
+    }
+    .mv-product-panel-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .mv-product-panel-header h3{
+      margin:0;
+      font-size:14px;
+    }
+    .mv-product-empty{
+      font-size:12px;
+      color:#9ca3af;
+      padding:8px 4px;
+    }
+
+    .mv-product-content{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .mv-product-summary{
+      font-size:13px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px 10px;
+      align-items:center;
+    }
+    .mv-product-name{
+      font-weight:600;
+    }
+    .mv-product-code{
+      font-family:ui-monospace, Menlo, monospace;
+      font-size:11px;
+      color:#6b7280;
+    }
+    .mv-product-path{
+      font-size:11px;
+      color:#6b7280;
+    }
+    .mv-product-cont{
+      margin-inline-start:auto;
+      font-size:11px;
+      color:#6b7280;
+    }
+
+
+        .mv-batch-table{
+      width:100%;
+      border-collapse:collapse;
+      table-layout:fixed;        /* key: make columns line up perfectly */
+      font-size:12px;
+      margin-top:4px;
+      background:#fff;
+      border-radius:8px;
+      overflow:hidden;
+    }
+    .mv-batch-table thead{
+      background:#e5e7eb;
+    }
+    .mv-batch-table th,
+    .mv-batch-table td{
+      padding:5px 6px;
+      border-bottom:1px solid #e5e7eb;
+      text-align:right;
+      white-space:nowrap;
+    }
+    .mv-batch-table th{
+      font-weight:600;
+      font-size:11px;
+    }
+    .mv-batch-table td.num{
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+    }
+    .mv-batch-table tr:last-child td{
+      border-bottom:none;
+    }
+
+    /* ---- column alignment / widths ---- */
+    .mv-batch-table th:nth-child(1),
+    .mv-batch-table td:nth-child(1){
+      width:40px;
+      text-align:center;
+    }
+
+    .mv-batch-table th:nth-child(2),
+    .mv-batch-table td:nth-child(2){
+      width:40px;
+      text-align:center;
+    }
+
+    .mv-batch-table th:nth-child(3),
+    .mv-batch-table td:nth-child(3){
+      width:150px;
+      text-align:center;
+    }
+
+    .mv-batch-table th:nth-child(4),
+    .mv-batch-table td:nth-child(4){
+      width:130px;
+    }
+
+    .mv-batch-table th:nth-child(5),
+    .mv-batch-table td:nth-child(5){
+      width:130px;
+    }
+
+    .mv-batch-table th:nth-child(6),
+    .mv-batch-table td:nth-child(6){
+      width:auto;
+      max-width:100%;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+
+
+    .mv-current-options{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px 12px;
+      align-items:flex-end;
+      margin-top:6px;
+    }
+    .mv-field-inline{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      font-size:12px;
+      min-width:180px;
+      max-width:260px;
+    }
+    .mv-field-inline .input{
+      padding:6px 8px;
+      font-size:13px;
+    }
+    .mv-unit-note{
+      font-size:11px;
+      color:#6b7280;
+    }
+
+    .btn-add-row{
+      margin-inline-start:auto;
+      padding-inline:14px;
+      font-size:13px;
+    }
+
+    /* === FINAL TRANSFER LIST TABLE === */
     .mv-table-wrap{
       margin-top:14px;
       border-radius:12px;
@@ -175,6 +334,45 @@
       font-size:12px;
     }
 
+    .mv-prod-main{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .mv-prod-title{
+      display:flex;
+      align-items:center;
+      gap:4px;
+      font-size:13px;
+    }
+    .mv-prod-code{
+      font-family:ui-monospace, Menlo, monospace;
+      font-size:11px;
+      color:#6b7280;
+    }
+    .mv-prod-sub{
+      font-size:11px;
+      color:#6b7280;
+    }
+    .mv-batch-tag{
+      display:inline-block;
+      padding:1px 6px;
+      border-radius:999px;
+      font-size:10px;
+      background:#eef2ff;
+      color:#1d4ed8;
+      margin-inline-start:4px;
+    }
+
+    .mv-note-cell{
+      font-size:11px;
+      color:#4b5563;
+      max-width:180px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
     .mv-actions-bar{
       margin-top:10px;
       display:flex;
@@ -202,6 +400,8 @@
       background:#f8fafc;
       cursor:pointer;
       font-size:13px;
+      text-decoration:none;
+      color:inherit;
     }
     .btn-mini{
       padding:4px 8px;
@@ -232,13 +432,15 @@
   <div class="mv-panel"
        id="stockMoveRoot"
        data-url-search="{% url 'stock:api_product_search' %}"
-       data-url-stock="{% url 'stock:api_product_stock' %}">
+       data-url-stock="{% url 'stock:api_product_stock' %}"
+       data-url-batches="{% url 'stock:api_product_batches' %}">
+
     <div class="mv-header">
       <h2>نقل المنتجات بين الحاويات</h2>
       <p>
         هذه العملية لا تزيد ولا تُنقِص من المخزون الكلي، بل تنقل الكميات بين حاويتين
-        (مثلاً من المتجر إلى أحد المستودعات). يمكن أن ينتج عنها رصيد سالب في الحاوية
-        المصدر، وسيظهر لك تحذير بذلك.
+        (مثلاً من المتجر إلى أحد المستودعات). <strong>لكل سطر يجب اختيار دفعة (باتش)</strong>.
+        الكمية المدخلة تُحسب دائماً <strong>بالوحدة الأساسية</strong> للمنتج.
       </p>
     </div>
 
@@ -276,11 +478,11 @@
 
         {# Add product by search #}
         <div class="mv-field" style="grid-column:1 / -1;">
-          <label for="productSearch">إضافة مادة إلى قائمة النقل</label>
+          <label for="productSearch">اختيار مادة من الحاوية المصدر</label>
           <input id="productSearch"
                  class="input"
                  type="text"
-                 placeholder="ابحث بالاسم / رقم التعريف (ID) / الكود / الباركود لإضافة مادة للقائمة">
+                 placeholder="ابحث بالاسم / رقم التعريف (ID) / الكود / الباركود لإظهار دفعات المادة في الحاوية المصدر">
           <div class="mv-search-modes">
             <label><input type="radio" name="searchMode" value="name" checked> بالاسم</label>
             <label><input type="radio" name="searchMode" value="id"> بـ ID</label>
@@ -291,39 +493,105 @@
             <ul id="productAC" hidden></ul>
           </div>
           <div class="note-small">
-            عند اختيار مادة من القائمة المنسدلة سيتم إضافتها إلى جدول التحويل، مع إظهار
-            الكمية الحالية في الحاويتين.
+            بعد اختيار مادة سيتم عرض <strong>دفعاتها في الحاوية المصدر</strong> أسفل، ثم يمكنك
+            اختيار الدفعة والكمية وإضافتها إلى <strong>قائمة النقل</strong>.
           </div>
         </div>
 
-        {# Optional note #}
+        {# Optional global note #}
         <div class="mv-field" style="grid-column:1 / -1;">
-          <label for="note">ملاحظة (اختياري)</label>
+          <label for="note">ملاحظة عامة (اختياري)</label>
           <textarea id="note" name="note"
                     placeholder="مثال: تجهيز رف العرض، أو تسوية مخزون يدوية."></textarea>
         </div>
       </div>
 
-      {# table of rows #}
+      {# ========== CURRENT PRODUCT / BATCHES PANEL ========== #}
+      <div class="mv-product-panel">
+        <div class="mv-product-panel-header">
+          <h3>المادة والدفعات</h3>
+          <span class="note-small">
+            اختر مادة، ثم حدد دفعة (باتش) واحدة والكمية، واضغط <strong>إضافة إلى قائمة النقل</strong>.
+          </span>
+        </div>
+
+        <div id="mvProductEmpty" class="mv-product-empty">
+          لم يتم اختيار مادة بعد. استخدم مربع البحث في الأعلى ثم اختر مادة من القائمة المنسدلة.
+        </div>
+
+        <div id="mvProductContent" class="mv-product-content" hidden>
+          <div id="mvProductSummary" class="mv-product-summary"></div>
+
+          <div class="mv-batches-section">
+            <table class="mv-batch-table">
+              <thead>
+                <tr>
+                  <th>اختيار</th>
+                  <th>#</th>
+                  <th>تاريخ الدفعة</th>
+                  <th>الكمية المتاحة (مصدر)</th>
+                  <th>الكلفة للوحدة</th>
+                  <th>المصدر</th>
+                </tr>
+              </thead>
+              <tbody id="mvBatchBody">
+                {# filled by JS #}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mv-current-options">
+            <div class="mv-field-inline">
+              <label for="mvQtyInput">الكمية المراد نقلها (بالوحدة الأساسية)</label>
+              <input id="mvQtyInput"
+                     type="number"
+                     step="0.001"
+                     min="0.001"
+                     class="input"
+                     placeholder="0.000">
+              <div class="mv-unit-note">
+                يتم التخزين دائماً بالوحدة الأساسية للمنتج كما هي معرّفة في كرت المادة.
+              </div>
+            </div>
+
+            <div class="mv-field-inline">
+              <label for="mvRowNote">ملاحظة لهذا السطر (اختياري)</label>
+              <input id="mvRowNote"
+                     type="text"
+                     class="input"
+                     placeholder="مثال: نقل من دفعة قريبة الانتهاء.">
+            </div>
+
+            <button type="button"
+                    id="mvAddRowBtn"
+                    class="btn-primary btn-add-row">
+              إضافة إلى قائمة النقل
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {# ========== FINAL TRANSFER LIST TABLE ========== #}
       <div class="mv-table-wrap">
         <table class="mv-table">
           <thead>
             <tr>
               <th>#</th>
-              <th>المادة</th>
-              <th>الكمية في المصدر</th>
-              <th>الكمية في الهدف</th>
-              <th>الكمية المراد نقلها</th>
+              <th>المادة / الدفعة المختارة</th>
+              <th>الكمية المتاحة في الدفعة (المصدر)</th>
+              <th>الكمية الحالية في الحاوية الهدف</th>
+              <th>الكمية المراد نقلها (بالوحدة الأساسية)</th>
               <th>الرصيد بعد النقل (المصدر)</th>
               <th>الرصيد بعد النقل (الهدف)</th>
+              <th>ملاحظة السطر</th>
               <th>تحذير</th>
               <th>إجراءات</th>
             </tr>
           </thead>
           <tbody id="mvRowsBody">
             <tr id="mvEmptyRow">
-              <td colspan="9" class="mv-empty">
-                لم تتم إضافة أي مواد بعد. ابحث عن مادة من الحقل أعلاه ثم اخترها من القائمة.
+              <td colspan="10" class="mv-empty">
+                لم تتم إضافة أي مواد بعد. اختر مادة من الأعلى، ثم دفعة وكمية، واضغط "إضافة إلى قائمة النقل".
               </td>
             </tr>
           </tbody>

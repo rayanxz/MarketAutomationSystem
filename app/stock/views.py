@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.views.decorators.http import require_GET
 
 from catalog.models import Product
-from stock.models import ProductContainer, StockEntry, DEC0
+from stock.models import ProductContainer, StockEntry, StockFifoLayer, DEC0
 
 from stock import services as StockSV
 
@@ -33,12 +33,22 @@ def _fmt_decimal(x: Decimal | None) -> str:
 
 
 @login_required
-def stock_list(request):
+def stock_list(request: HttpRequest) -> HttpResponse:
     """
     Stock list per container, grouped by:
       Collection -> Father set -> Products
-    All filtering (search / qty type) is done client-side with JS.
+
+    Supports two view modes:
+      - products (default): one row per product with total qty
+      - batches: product row + sub-rows for each FIFO batch (StockFifoLayer)
+    All searching / qty-type filtering is still done client-side with JS.
     """
+    # ---- 0) View mode: products | batches ----
+    view_mode = (request.GET.get("view") or "products").lower()
+    if view_mode not in ("products", "batches"):
+        view_mode = "products"
+    show_batches = view_mode == "batches"
+
     # ---- 1) Containers + current selection ----
     containers = list(
         ProductContainer.objects.filter(is_active=True).order_by("sort_order", "name")
@@ -56,11 +66,12 @@ def stock_list(request):
                     "negative_count": 0,
                     "zero_count": 0,
                 },
+                "view_mode": view_mode,
             },
         )
 
     requested_code = (request.GET.get("container") or "").strip()
-    current = None
+    current: ProductContainer | None = None
 
     if requested_code:
         current = next((c for c in containers if c.code == requested_code), None)
@@ -69,7 +80,20 @@ def stock_list(request):
         # try store, else first
         current = next((c for c in containers if c.is_store), containers[0])
 
-    # ---- 2) Load entries for this container (no qty filtering here) ----
+    # ---- 2) Optional: load batches per product for this container ----
+    batches_by_product: dict[int, list[StockFifoLayer]] = {}
+    if show_batches:
+        fifo_qs = (
+            StockFifoLayer.objects
+            .filter(container=current, qty_remaining__gt=DEC0)
+            .select_related("product")
+            .order_by("-created_at", "-id")  # NEW: newest first
+        )
+        for layer in fifo_qs:
+            batches_by_product.setdefault(layer.product_id, []).append(layer)
+
+
+    # ---- 3) Load entries for this container (no qty filtering here) ----
     entries_qs = (
         StockEntry.objects
         .select_related(
@@ -79,11 +103,12 @@ def stock_list(request):
             "product__set__collection" # its collection
         )
         .filter(container=current)
+        .prefetch_related("product__barcodes")   # avoid N+1 on barcodes
     )
 
     entries = list(entries_qs)
 
-    # ---- 3) Build tree: collection -> father set -> products ----
+    # ---- 4) Build tree: collection -> father set -> products ----
     tree_map: dict[int, dict] = {}
 
     for e in entries:
@@ -135,6 +160,25 @@ def stock_list(request):
             except Exception:
                 barcodes_str = ""
 
+        # batches (only populated in batches view)
+        batches_list: list[dict] = []
+        if show_batches:
+            layers = batches_by_product.get(p.id, [])
+            for idx, layer in enumerate(layers, start=1):
+                bqty = layer.qty_remaining or DEC0
+                # same idea as api_product_batches
+                source_str = f"{layer.source_app or ''} / {layer.source_model or ''} / {layer.source_id or ''}".strip(" /")
+                batches_list.append(
+                    {
+                        "index": idx,
+                        "id": layer.id,
+                        "qty": _fmt_decimal(bqty),
+                        "unit_cost": str(layer.unit_cost or "0.0000"),
+                        "created_at": layer.created_at.strftime("%Y-%m-%d %H:%M"),
+                        "source": source_str,
+                    }
+                )
+
         sets_map[set_id]["products"].append(
             {
                 "entry": e,
@@ -146,6 +190,7 @@ def stock_list(request):
                 "price": price,
                 "price_display": _fmt_decimal(price),
                 "barcodes": barcodes_str,
+                "batches": batches_list,
             }
         )
 
@@ -189,7 +234,7 @@ def stock_list(request):
         )
     )
 
-    # ---- 4) Simple stats for header ----
+    # ---- 5) Simple stats for header (always based on product totals) ----
     total_products = 0
     negative_count = 0
     zero_count = 0
@@ -198,10 +243,10 @@ def stock_list(request):
         for s in col["sets"]:
             for item in s["products"]:
                 total_products += 1
-                qty = item["qty"]
-                if qty < DEC0:
+                q = item["qty"]
+                if q < DEC0:
                     negative_count += 1
-                elif qty == DEC0:
+                elif q == DEC0:
                     zero_count += 1
 
     stats = {
@@ -215,22 +260,24 @@ def stock_list(request):
         "current_container": current,
         "tree": tree,
         "stats": stats,
+        "view_mode": view_mode,
     }
     return render(request, "stock/stock_list.html", context)
+
 
 
 @login_required
 def stock_move(request: HttpRequest) -> HttpResponse:
     """
-    Move one or more products between two containers.
+    Move one or more *batches* of products between two containers.
 
     - User chooses FROM container + TO container (required, must differ)
-    - User adds multiple products to a table, with transfer quantities
-    - For each row, we call transfer_between_containers (ADJUSTMENT out + in)
-    - Global stock stays the same; per-container stock changes.
-
-    We allow negative stock in the source container, but this is warned
-    on the frontend (and could be guarded later if you decide to block it).
+    - User adds multiple rows:
+        product_id + batch_id + qty
+    - For each row, we call StockSV.transfer_from_batch, which:
+        * decreases that specific FIFO batch in the source container
+        * creates a new batch in the target container with same cost
+        * posts two ADJUSTMENT ProductMovement rows (out + in)
     """
     containers_qs = ProductContainer.objects.filter(is_active=True).order_by("sort_order", "name")
     containers = list(containers_qs)
@@ -257,21 +304,27 @@ def stock_move(request: HttpRequest) -> HttpResponse:
         if from_container and to_container and from_container.id == to_container.id:
             errors["to_container"] = "لا يمكن أن تكون الحاوية المصدر هي نفسها الحاوية الهدف."
 
-        # --- rows (products) ---
+        # --- rows (product + batch + qty) ---
         product_ids = request.POST.getlist("product_id")
+        batch_ids = request.POST.getlist("batch_id")
         qty_list = request.POST.getlist("qty")
 
-        valid_rows: list[tuple[Product, Decimal]] = []
+        # each valid row => (batch: StockFifoLayer, qty: Decimal)
+        valid_rows: list[tuple[StockFifoLayer, Decimal]] = []
 
         if not product_ids:
             errors["rows"] = "يجب إضافة مادة واحدة على الأقل إلى قائمة النقل."
         else:
-            for idx, (pid_raw, qty_raw) in enumerate(zip(product_ids, qty_list), start=1):
+            for idx, (pid_raw, bid_raw, qty_raw) in enumerate(
+                zip(product_ids, batch_ids, qty_list),
+                start=1,
+            ):
                 pid_raw = (pid_raw or "").strip()
+                bid_raw = (bid_raw or "").strip()
                 qty_raw = (qty_raw or "").strip()
 
-                if not pid_raw and not qty_raw:
-                    # completely empty row – ignore silently
+                # completely empty row – ignore silently
+                if not pid_raw and not bid_raw and not qty_raw:
                     continue
 
                 # product
@@ -280,6 +333,24 @@ def stock_move(request: HttpRequest) -> HttpResponse:
                     product = Product.objects.get(id=pid)
                 except (ValueError, Product.DoesNotExist):
                     errors["rows"] = f"السطر رقم {idx}: المادة المحددة غير صحيحة."
+                    break
+
+                # batch
+                if not bid_raw:
+                    errors["rows"] = f"السطر رقم {idx}: يجب اختيار دفعة (باتش) من الحاوية المصدر."
+                    break
+                try:
+                    bid = int(bid_raw)
+                    batch = StockFifoLayer.objects.get(id=bid, product=product)
+                except (ValueError, StockFifoLayer.DoesNotExist):
+                    errors["rows"] = f"السطر رقم {idx}: الدفعة المحددة غير صحيحة."
+                    break
+
+                # sanity: batch must belong to from_container
+                if from_container and batch.container_id != from_container.id:
+                    errors["rows"] = (
+                        f"السطر رقم {idx}: الدفعة لا تنتمي إلى الحاوية المصدر المحددة."
+                    )
                     break
 
                 # quantity
@@ -293,31 +364,38 @@ def stock_move(request: HttpRequest) -> HttpResponse:
                     errors["rows"] = f"السطر رقم {idx}: يجب أن تكون الكمية أكبر من صفر."
                     break
 
-                valid_rows.append((product, qty))
+                # cannot move more than batch available
+                batch_remain = batch.qty_remaining or DEC0
+                if qty > batch_remain:
+                    errors["rows"] = (
+                        f"السطر رقم {idx}: الكمية المراد نقلها أكبر من الكمية المتاحة في هذه الدفعة."
+                    )
+                    break
+
+                valid_rows.append((batch, qty))
 
             if not errors and not valid_rows:
                 errors["rows"] = "لم يتم العثور على أي سطر صالح للنقل."
 
         note = (request.POST.get("note") or "").strip()
+        # note is not stored yet; later you can log it to a journal / ledger doc
 
         # --- perform transfer if everything valid ---
         if not errors and valid_rows and from_container and to_container:
             try:
-                for product, qty in valid_rows:
-                    StockSV.transfer_between_containers(
+                for batch, qty in valid_rows:
+                    StockSV.transfer_from_batch(
                         actor=request.user,
-                        product=product,
-                        from_container=from_container,
+                        batch=batch,
                         to_container=to_container,
                         qty_primary=qty,
                     )
 
                 messages.success(
                     request,
-                    f"تم تنفيذ نقل {len(valid_rows)} مادة/مواد من «{from_container.display_label}» "
+                    f"تم تنفيذ نقل {len(valid_rows)} مادة/دفعة من «{from_container.display_label}» "
                     f"إلى «{to_container.display_label}» بنجاح."
                 )
-                # We don't need to keep the note for now; later you can log it to a journal.
                 return redirect("stock:stock_move")
 
             except Exception as e:
@@ -330,6 +408,7 @@ def stock_move(request: HttpRequest) -> HttpResponse:
         "non_field_errors": non_field_errors,
     }
     return render(request, "stock/stock_move.html", context)
+
 
 
 # ========= AJAX APIs for move page =========
@@ -359,8 +438,8 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
         except ValueError:
             qs = qs.none()
     elif mode == "code":
-        # adjust field name if your Product uses something else
-        qs = qs.filter(code__icontains=q)
+        # use product_number (consistent with the rest of the system)
+        qs = qs.filter(product_number__icontains=q)
     elif mode == "barcode":
         qs = qs.filter(
             Q(barcodes__code__icontains=q) | Q(barcodes__value__icontains=q)
@@ -385,12 +464,18 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
             {
                 "id": p.id,
                 "name": p.name or "",
-                "code": getattr(p, "display_code", "") or getattr(p, "code", "") or "",
+                # prefer display_code, fallback to product_number
+                "code": (
+                    getattr(p, "display_code", "")
+                    or getattr(p, "product_number", "")
+                    or ""
+                ),
                 "path": " / ".join(path_parts),
             }
         )
 
     return JsonResponse({"results": results})
+
 
 
 @login_required
@@ -433,5 +518,77 @@ def api_product_stock(request: HttpRequest) -> HttpResponse:
             "ok": True,
             "product": {"id": product.id, "name": product.name or ""},
             "containers": data,
+        }
+    )
+
+
+@login_required
+@require_GET
+def api_product_batches(request: HttpRequest) -> HttpResponse:
+    """
+    Returns FIFO batches (StockFifoLayer) for a product in a given container.
+
+    Query params:
+      product_id
+      container  (container.code)
+    """
+    pid_raw = (request.GET.get("product_id") or "").strip()
+    cont_code = (request.GET.get("container") or "").strip()
+
+    # product
+    try:
+        pid = int(pid_raw)
+        product = Product.objects.get(id=pid)
+    except (ValueError, Product.DoesNotExist):
+        return JsonResponse(
+            {"ok": False, "error": "المادة غير موجودة."},
+            status=400,
+        )
+
+    # container
+    try:
+        container = ProductContainer.objects.get(code=cont_code, is_active=True)
+    except ProductContainer.DoesNotExist:
+        return JsonResponse(
+            {"ok": False, "error": "الحاوية غير موجودة أو غير مفعّلة."},
+            status=400,
+        )
+
+    layers = (
+        StockFifoLayer.objects
+        .filter(product=product, container=container, qty_remaining__gt=DEC0)
+        .order_by("created_at", "id")
+    )
+
+    batches = []
+    total_qty = DEC0
+
+    for layer in layers:
+        qty = layer.qty_remaining or DEC0
+        total_qty += qty
+        batches.append(
+            {
+                "id": layer.id,
+                "qty": _fmt_decimal(qty),
+                # cost is 4-decimal; we send as string
+                "unit_cost": str(layer.unit_cost or "0.0000"),
+                "created_at": layer.created_at.isoformat(),
+                "source": f"{layer.source_app or ''} / {layer.source_model or ''} / {layer.source_id or ''}".strip(" /"),
+            }
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "product": {
+                "id": product.id,
+                "name": product.name or "",
+            },
+            "container": {
+                "code": container.code,
+                "name": container.display_label,
+            },
+            "total_qty": _fmt_decimal(total_qty),
+            "batches": batches,
         }
     )

@@ -11,4 +11,6 @@ urlpatterns = [
     # AJAX APIs for the move page
     path("api/product-search/", views.api_stock_product_search, name="api_product_search"),
     path("api/product-stock/", views.api_product_stock, name="api_product_stock"),
+    path("api/product-batches/", views.api_product_batches, name="api_product_batches"),  # NEW
+
 ]

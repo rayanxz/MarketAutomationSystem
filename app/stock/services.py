@@ -7,11 +7,163 @@ from typing import Iterable
 from django.db import transaction
 
 from catalog.models import Product
-from inventory.models import ProductMovement, q3
-from stock.models import ProductContainer, StockEntry, DEC0
+from inventory.models import ProductMovement, q3 , q4
+from stock.models import ProductContainer, StockEntry , StockFifoLayer, DEC0
 
 from django.utils import timezone
 from inventory import services as InvSV
+
+
+# ===================== FIFO helpers =====================
+
+@transaction.atomic
+def fifo_add_incoming(
+    *,
+    product: Product,
+    container: ProductContainer,
+    qty_primary: Decimal,
+    unit_cost: Decimal,
+    source_app: str = "",
+    source_model: str = "",
+    source_id: str | int = "",
+) -> None:
+    """
+    Create a FIFO layer for incoming stock (PURCHASE, SALE_RETURN, positive ADJUSTMENT…).
+
+    qty_primary must be POSITIVE (primary unit).
+    """
+    if not container:
+        return
+
+    qty = q3(Decimal(str(qty_primary or DEC0)))
+    if qty <= DEC0:
+        return
+
+    uc = q4(Decimal(str(unit_cost or DEC0)))
+
+    StockFifoLayer.objects.create(
+        product=product,
+        container=container,
+        qty_remaining=qty,
+        unit_cost=uc,
+        source_app=source_app or "",
+        source_model=source_model or "",
+        source_id=str(source_id or ""),
+    )
+
+
+@transaction.atomic
+def fifo_consume(
+    *,
+    product: Product,
+    container: ProductContainer,
+    qty_out_primary: Decimal,
+) -> Decimal:
+    """
+    Consume FIFO layers for an OUTGO movement (SALE, PROVIDER_RETURN, negative ADJUSTMENT).
+
+    - qty_out_primary must be POSITIVE (how much stock is going OUT).
+    - Returns the *effective* unit cost (weighted average over all layers consumed).
+    - If layers are not enough, we fall back to product.cost (or last layer cost)
+      for the remaining quantity, without creating negative layers.
+    """
+    if not container:
+        # No container = no per-container FIFO → fallback to product cost
+        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+
+    need = q3(Decimal(str(qty_out_primary or DEC0)))
+    if need <= DEC0:
+        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+
+    layers = (
+        StockFifoLayer.objects
+        .select_for_update()
+        .filter(product=product, container=container, qty_remaining__gt=DEC0)
+        .order_by("created_at", "id")
+    )
+
+    remaining = need
+    total_cost = DEC0
+    last_cost: Decimal | None = None
+
+    for layer in layers:
+        if remaining <= DEC0:
+            break
+
+        avail = q3(layer.qty_remaining or DEC0)
+        if avail <= DEC0:
+            continue
+
+        use = avail if avail <= remaining else remaining
+
+        uc = q4(Decimal(str(layer.unit_cost or DEC0)))
+        total_cost += q3(use) * uc
+
+        layer.qty_remaining = q3(avail - use)
+        layer.save(update_fields=["qty_remaining"])
+
+        remaining -= use
+        last_cost = uc
+
+    # If we need more than what layers had, use fallback (product.cost or last layer)
+    if remaining > DEC0:
+        fallback_uc = q4(
+            last_cost if last_cost is not None
+            else Decimal(str(getattr(product, "cost", DEC0) or DEC0))
+        )
+        total_cost += q3(remaining) * fallback_uc
+
+    if need <= DEC0:
+        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+
+    eff_uc = total_cost / need
+    return q4(eff_uc)
+
+
+@transaction.atomic
+def rebuild_fifo_from_inventory() -> None:
+    """
+    Wipe FIFO layers and rebuild them purely from ProductMovement history.
+
+    - Processes movements oldest → newest.
+    - For incoming movements (qty > 0): create layers.
+    - For outgoing movements (qty < 0): consume layers FIFO.
+    """
+    from inventory.models import ProductMovement  # local import
+
+    StockFifoLayer.objects.all().delete()
+
+    qs = (
+        ProductMovement.objects
+        .select_related("product", "container")
+        .order_by("created_at", "id")
+    )
+
+    for mv in qs.iterator():
+        if not mv.container_id:
+            continue
+
+        qty = q3(Decimal(str(mv.qty_primary or DEC0)))
+        if qty > DEC0:
+            # incoming – treat as one FIFO layer
+            fifo_add_incoming(
+                product=mv.product,
+                container=mv.container,
+                qty_primary=qty,
+                unit_cost=mv.unit_cost,
+                source_app=mv.source_app,
+                source_model=mv.source_model,
+                source_id=mv.source_id,
+            )
+        elif qty < DEC0:
+            # outgoing – consume FIFO layers (ignore returned cost)
+            fifo_consume(
+                product=mv.product,
+                container=mv.container,
+                qty_out_primary=-qty,
+            )
+
+
 
 
 @transaction.atomic
@@ -81,6 +233,94 @@ def get_stock_for_product(product: Product) -> dict:
 
 
 @transaction.atomic
+def transfer_from_batch(
+    *,
+    actor,
+    batch: StockFifoLayer,
+    to_container: ProductContainer,
+    qty_primary: Decimal,
+) -> tuple[ProductMovement, ProductMovement]:
+    """
+    Move qty_primary from a specific FIFO batch (StockFifoLayer) in its current container
+    into another container.
+
+    - qty_primary must be > 0 and <= batch.qty_remaining
+    - Creates:
+        * OUT ADJUSTMENT movement from batch.container
+        * IN  ADJUSTMENT movement into to_container
+    - Decreases batch.qty_remaining
+    - Creates a new FIFO layer in the target container with the same cost.
+    """
+    qty = q3(Decimal(str(qty_primary or DEC0)))
+    if qty <= DEC0:
+        raise ValueError("Quantity must be positive for transfer.")
+
+    # Source container & product come from the batch
+    from_container = batch.container
+    product = batch.product
+
+    if not from_container:
+        raise ValueError("Batch has no source container.")
+
+    if to_container.id == from_container.id:
+        raise ValueError("Source and target containers must differ.")
+
+    current_remain = q3(Decimal(str(batch.qty_remaining or DEC0)))
+    if qty > current_remain:
+        raise ValueError("Cannot move more than batch remaining quantity.")
+
+    unit_cost = q4(Decimal(str(batch.unit_cost or DEC0)))
+
+    # Just some reference so both legs are logically linked
+    ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
+
+    # OUT movement: negative ADJUSTMENT in source container
+    mv_out = InvSV.record_movement(
+        actor=actor,
+        product=product,
+        unit_index=ProductMovement.UnitIndex.PRIMARY,
+        qty_primary=-qty,  # stock out from source
+        unit_cost=unit_cost,
+        movement_type=ProductMovement.MovementType.ADJUSTMENT,
+        source_app="stock",
+        source_model="TransferBatch",
+        source_id=f"{ref}-OUT",
+        container=from_container,
+    )
+
+    # Decrease remaining qty on the source batch
+    batch.qty_remaining = q3(current_remain - qty)
+    batch.save(update_fields=["qty_remaining"])
+
+    # Create FIFO layer in destination container with same cost
+    fifo_add_incoming(
+        product=product,
+        container=to_container,
+        qty_primary=qty,
+        unit_cost=unit_cost,
+        source_app="stock",
+        source_model="TransferBatch",
+        source_id=f"{ref}-IN",
+    )
+
+    # IN movement: positive ADJUSTMENT in target container
+    mv_in = InvSV.record_movement(
+        actor=actor,
+        product=product,
+        unit_index=ProductMovement.UnitIndex.PRIMARY,
+        qty_primary=qty,  # stock in to target
+        unit_cost=unit_cost,
+        movement_type=ProductMovement.MovementType.ADJUSTMENT,
+        source_app="stock",
+        source_model="TransferBatch",
+        source_id=f"{ref}-IN",
+        container=to_container,
+    )
+
+    return mv_out, mv_in
+
+
+@transaction.atomic
 def transfer_between_containers(
     *,
     actor,
@@ -90,13 +330,10 @@ def transfer_between_containers(
     qty_primary: Decimal,
 ) -> tuple[ProductMovement, ProductMovement]:
     """
-    Move qty_primary (primary unit, positive) from one container to another.
+    Legacy generic transfer (without choosing a specific batch).
 
-    Creates two ProductMovement rows:
-      - ADJUSTMENT negative from 'from_container'
-      - ADJUSTMENT positive into 'to_container'
-
-    Overall product.stock_qty stays the same (out + in).
+    Kept for compatibility if you use it somewhere else.
+    NOT used by the stock_move UI anymore (that uses transfer_from_batch).
     """
     qty = q3(Decimal(str(qty_primary or DEC0)))
     if qty <= DEC0:
@@ -104,7 +341,6 @@ def transfer_between_containers(
 
     unit_cost = getattr(product, "cost", DEC0) or DEC0
 
-    # Just some reference so both legs are logically linked
     ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
 
     mv_out = InvSV.record_movement(
