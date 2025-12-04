@@ -101,14 +101,10 @@ def bills_list_filters(qs, q, serial, status, date_from, date_to, cursor, page_s
 
 # ---------- Serials & returns ----------
 
-def next_return_serial() -> int:
-    last = ProviderReturn.objects.order_by("-serial").values_list("serial", flat=True).first() or 0
-    return (int(last) + 1) if int(last) > 0 else 1
-
 def returns_base():
     return ProviderReturn.objects.select_related("provider")
 
-def returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, page_size):
+def returns_list_filters(q, serial, rid, bill_serial, status, date_from, date_to, cursor, page_size):
     qs = returns_base()
     if q:
         qs = qs.filter(provider__name__icontains=q)
@@ -116,6 +112,8 @@ def returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, pag
         qs = qs.filter(serial=serial)
     if rid:
         qs = qs.filter(id=rid)
+    if bill_serial:
+        qs = qs.filter(source_bill_serial=bill_serial)
     # status is a property now; filter in the view at Python level
     if date_from:
         qs = qs.filter(created_at__date__gte=date_from)
@@ -124,3 +122,4 @@ def returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, pag
     if cursor:
         qs = qs.filter(id__lt=cursor)
     return qs.order_by("-id")[:page_size]
+

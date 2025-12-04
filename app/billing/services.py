@@ -80,14 +80,6 @@ def _next_bill_serial_locked() -> int:
     return int(max(int(m_bill or 0), int(m_debt or 0))) + 1
 
 
-@transaction.atomic
-def _next_return_serial_locked() -> int:
-    from debts.models import CreditorDebt
-    m_ret = ProviderReturn.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
-    m_cred = CreditorDebt.objects.select_for_update().aggregate(m=Max("doc_serial")).get("m") or 0
-    return int(max(int(m_ret or 0), int(m_cred or 0))) + 1
-
-
 # =======================================================================
 # BILLS (Purchases)
 # =======================================================================
@@ -201,6 +193,12 @@ def create_bill(
 
 @transaction.atomic
 def delete_bill(*, actor, bill_id: int) -> None:
+    from debts.models import DebtorDebt, DebtorPayment
+    from inventory.models import ProductMovement  # local import to avoid cycles
+    from stock.models import StockFifoLayer
+    from ledger import services as LSV
+
+    # Lock bill + related rows
     bill = (
         Bill.objects
         .select_for_update()
@@ -209,20 +207,32 @@ def delete_bill(*, actor, bill_id: int) -> None:
         .get(pk=bill_id)
     )
 
-    # Block if there are non-closed debtor entries
-    from debts.models import DebtorDebt, DebtorPayment
+    # ==========================
+    # 1) Enforce FIFO "untouched"
+    # ==========================
+    # Only allow deletion if NO quantity from this bill was ever consumed in FIFO.
+    _, _, untouched = get_bill_status_flags(bill)
+    if not untouched:
+        raise ValueError("cannot delete a bill whose items were already sold/returned")
+
+    # ==========================
+    # 2) Locate Debtor entry
+    # ==========================
     entry = DebtorDebt.objects.select_for_update().filter(
-        source_app="billing", source_model="Bill", source_id=str(bill.id)
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
     ).first()
-    if entry and entry.status != DebtorDebt.Status.CLOSED and (entry.paid_amount or 0) > 0:
-        raise ValueError("cannot delete a bill with payments; refund/void first")
 
-    # Try to detect container from existing movements (if bill was created after inventory integration)
-    from inventory.models import ProductMovement  # local import to avoid cycles
+    paid_amount = q3(entry.paid_amount if entry and entry.paid_amount is not None else DEC0)
+    total_amount = q3(bill.total or DEC0)
 
+    # ==========================
+    # 3) Detect container (as before)
+    # ==========================
     mv_container = None
 
-    # First try new-style movements tied to BillItem
+    # Prefer new-style movements tied to BillItem
     item_ids = list(bill.items.values_list("id", flat=True))
     if item_ids:
         mv = (
@@ -238,7 +248,7 @@ def delete_bill(*, actor, bill_id: int) -> None:
         if mv and mv.container_id:
             mv_container = mv.container
 
-    # Fallback: old-style movements tied to Bill
+    # Fallback: old-style movements tied directly to Bill
     if mv_container is None:
         mv_old = (
             ProductMovement.objects
@@ -253,36 +263,70 @@ def delete_bill(*, actor, bill_id: int) -> None:
         if mv_old and mv_old.container_id:
             mv_container = mv_old.container
 
-    # Reverse stock via movements (purchase_reversal)
+    # ==========================================
+    # 4) Reverse stock movements + FIFO layers
+    # ==========================================
     for it in bill.items.all():
         product = it.product
+
+        # 4.a) Reverse inventory movement: purchase_reversal (NEGATIVE qty)
         InvSV.record_movement(
             actor=actor,
             product=product,
             unit_index=int(it.unit_index),
-            qty_primary=-(it.qty_primary or DEC0),  # reverse
+            qty_primary=-(it.qty_primary or DEC0),
             unit_cost=it.cost or DEC0,
             movement_type="purchase_reversal",
             source_app="billing",
             source_model="Bill",
             source_id=bill.id,
-            container=mv_container,                # ⬅️ KEEP SAME CONTAINER (if known)
+            container=mv_container,          # same container used at purchase
             extra_product_updates=None,
         )
 
-    # Remove subledger entry (and its payments if any exist but total=0)
+        # 4.b) Remove FIFO layers created from this BillItem (only if we know container)
+        if mv_container is not None:
+            StockFifoLayer.objects.filter(
+                product=product,
+                container=mv_container,
+                source_app="billing",
+                source_model="BillItem",
+                source_id=str(it.id),
+            ).delete()
+
+    # ==========================
+    # 5) Ledger reversal (GL)
+    # ==========================
+    # This handles INVENTORY + PROVIDER_PAYABLE + SAFE in one go.
+    # Behaviour by case:
+    #   - PAID:    paid_amount == total_amount → SAFE goes UP by total
+    #   - UNPAID:  paid_amount == 0            → SAFE unchanged (no volt movement)
+    #   - PARTIAL: 0 < paid_amount < total     → SAFE goes UP by paid_amount
+    total_minor = minor(total_amount)
+    paid_minor = minor(paid_amount)
+
+    if total_minor > 0:
+        LSV.post_purchase_reversal(
+            actor=actor,
+            total_minor=total_minor,
+            paid_minor=paid_minor,
+            provider_id=bill.provider_id,
+            source=("billing", "Bill", bill.id),
+        )
+        # This journal IS your "volt movement (up) – bill deletion" in
+        # the paid/partial cases, because it debits SAFE.
+
+    # ==========================
+    # 6) Delete debt + payments
+    # ==========================
     if entry:
         DebtorPayment.objects.filter(entry=entry).delete()
         entry.delete()
 
-    # TODO: post reversal in GL if you have a reversal policy
-    # LSV.reverse_purchase(...)
-
+    # ==========================
+    # 7) Delete the bill itself
+    # ==========================
     bill.delete()
-
-
-
-
 
 # =======================================================================
 # MANUAL DEBTS
@@ -325,19 +369,65 @@ def create_return(
     status: str,
     paid_amount: Decimal,
     items: Iterable[Dict[str, Any]],
-    container: ProductContainer | None = None,   # ⬅️ NEW
+    container: ProductContainer | None = None,   # ⬅️ single-container mode (legacy)
+    source_bill_serial: int | None = None,
 ) -> ProviderReturn:
     """
     Create a ProviderReturn, decrease stock via inventory movements, post GL, and register CreditorDebt.
+
+    Supports two shapes of `items`:
+
+    1) Legacy (single container):
+       {
+         "product_id": ...,
+         "unit_index": 1|2,
+         "qty_raw": "10.000",
+         "cost": "123.456",
+         "total_cost": "..." (optional)
+       }
+       + global `container` argument.
+
+    2) Wizard per-container mode:
+       {
+         "product_id": ...,
+         "unit_index": 1,
+         "qty_primary": "10.000",
+         "cost": "123.456",
+         "container_splits": [
+            {"code": "store", "qty_primary": "3.000"},
+            {"code": "wh1",   "qty_primary": "7.000"},
+         ]
+       }
+       In this mode `container` is ignored and we use `container_splits`.
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
-    pret = ProviderReturn(provider=provider, total=DEC0)
+
+    pret = ProviderReturn(
+        provider=provider,
+        total=DEC0,
+        source_bill_serial=source_bill_serial,
+    )
     pret.save()
 
     pret.initial_paid = intended_paid
     pret.initial_status = (status or "unpaid").lower()
-    pret.save(update_fields=["initial_paid", "initial_status"])
+    pret.save(update_fields=["initial_paid", "initial_status", "source_bill_serial"])
+
+    # ====== Collect container codes (wizard mode) ======
+    all_codes: set[str] = set()
+    for row in items:
+        for split in row.get("container_splits") or []:
+            code = (split.get("code") or "").strip().lower()
+            if code:
+                all_codes.add(code)
+
+    containers_by_code: dict[str, ProductContainer] = {}
+    if all_codes:
+        containers_by_code = {
+            c.code.lower(): c
+            for c in ProductContainer.objects.select_for_update().filter(code__in=all_codes)
+        }
 
     # ====== Process items ======
     grand = DEC0
@@ -349,20 +439,40 @@ def create_return(
         product = products.get(pid) or get_object_or_404(Product.objects.select_for_update(), pk=pid)
 
         unit_idx = 2 if int(row.get("unit_index") or 1) == 2 else 1
-        qty_raw = Decimal(str(row.get("qty_raw") or "0"))
-        if qty_raw <= 0:
-            raise ValueError(f"qty must be > 0 at row {idx}")
-
         cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
-        qty_primary = qty_raw
-        cf = getattr(product, "conversion_factor", None)
-        if unit_idx == 2 and cf:
-            qty_primary *= Decimal(str(cf))
-        qty_primary = q3(qty_primary)
+        container_splits = row.get("container_splits") or []
 
+        # ---------- determine qty_primary ----------
+        if container_splits:
+            # wizard mode: qty_primary is already in primary unit and split per container
+            qty_total_primary = DEC0
+            for split in container_splits:
+                q_split = Decimal(str(split.get("qty_primary") or "0"))
+                if q_split <= DEC0:
+                    continue
+                qty_total_primary = q3(qty_total_primary + q_split)
+
+            if qty_total_primary <= DEC0:
+                raise ValueError(f"qty must be > 0 at row {idx}")
+
+            qty_primary = q3(qty_total_primary)
+
+        else:
+            # legacy mode: use qty_raw (or qty_primary) + unit_index + conversion factor
+            qty_raw = Decimal(str(row.get("qty_raw") or row.get("qty_primary") or "0"))
+            if qty_raw <= 0:
+                raise ValueError(f"qty must be > 0 at row {idx}")
+
+            qty_primary = qty_raw
+            cf = getattr(product, "conversion_factor", None)
+            if unit_idx == 2 and cf:
+                qty_primary *= Decimal(str(cf))
+            qty_primary = q3(qty_primary)
+
+        # ---------- line total & ProviderReturnItem ----------
         line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
 
         ProviderReturnItem.objects.create(
@@ -374,20 +484,45 @@ def create_return(
             line_total=line_total,
         )
 
-        # Stock decrease via inventory layer (NEGATIVE qty_primary)
-        InvSV.record_provider_return_item(
-            actor=actor,
-            product=product,
-            unit_index=unit_idx,
-            qty_primary=-qty_primary,  # stock out
-            unit_cost=cost_u1,
-            source_app="billing",
-            source_model="ProviderReturn",
-            source_id=pret.id,
-            container=container,       # ⬅️ PASS CONTAINER
-        )
+        # ---------- Inventory movements ----------
+        if container_splits:
+            # wizard: multiple negative movements, one per container
+            for split in container_splits:
+                q_split = Decimal(str(split.get("qty_primary") or "0"))
+                if q_split <= DEC0:
+                    continue
 
-        grand += line_total
+                code = (split.get("code") or "").strip().lower()
+                cont = containers_by_code.get(code)
+                if cont is None:
+                    raise ValueError("حاوية غير معروفة في مرتجع المورد.")
+
+                InvSV.record_provider_return_item(
+                    actor=actor,
+                    product=product,
+                    unit_index=unit_idx,
+                    qty_primary=-q3(q_split),  # stock out per container
+                    unit_cost=cost_u1,
+                    source_app="billing",
+                    source_model="ProviderReturn",
+                    source_id=pret.id,
+                    container=cont,
+                )
+        else:
+            # legacy: single movement in the given container
+            InvSV.record_provider_return_item(
+                actor=actor,
+                product=product,
+                unit_index=unit_idx,
+                qty_primary=-qty_primary,
+                unit_cost=cost_u1,
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=pret.id,
+                container=container,
+            )
+
+        grand = q3(grand + line_total)
 
     pret.total = q3(grand)
     pret.save(update_fields=["total"])
@@ -415,6 +550,7 @@ def create_return(
         source=("billing", "ProviderReturn", pret.id),
     )
     return pret
+
 
 
 
@@ -533,103 +669,67 @@ def collect_manual_debt_partial(*, actor, entry_id: int, amount: Decimal) -> Cre
 
 def compute_bill_fifo_left(bill: Bill) -> dict[int, Decimal]:
     """
-    Compute remaining quantity per BillItem using full FIFO over ProductMovement.
+    Compute remaining quantity per BillItem using StockFifoLayer.
+
+    Instead of reconstructing FIFO from ProductMovement, we trust the
+    stock app's FIFO layers, which already track how much of each batch
+    is left, regardless of which container it's currently in.
 
     Returns:
         { bill_item_id: left_qty_primary }
     """
-    # Collect items by product
-    items = list(bill.items.select_related("product"))
+    from collections import defaultdict
+    from stock.models import StockFifoLayer
+
+    items = list(bill.items.all())
     if not items:
         return {}
 
-    by_product: dict[int, list] = defaultdict(list)
-    for it in items:
-        if not it.product_id:
-            continue
-        by_product[it.product_id].append(it)
+    item_ids = [it.id for it in items]
+    item_ids_set = set(item_ids)
+
+    layers = (
+        StockFifoLayer.objects
+        .filter(
+            source_app="billing",
+            source_model="BillItem",
+            source_id__in=[str(i) for i in item_ids],
+        )
+    )
 
     left_by_item: dict[int, Decimal] = defaultdict(lambda: DEC0)
 
-    # Process each product separately
-    for product_id, product_items in by_product.items():
-        # All movements for this product, oldest → newest
-        mv_qs = (
-            ProductMovement.objects
-            .filter(product_id=product_id)
-            .order_by("created_at", "id")
-        )
+    # Try multiple possible field names for "qty left" to stay compatible
+    qty_field_candidates = (
+        "qty_left_primary",
+        "qty_left",
+        "qty_remaining",
+        "qty_primary_left",
+    )
 
-        inflow_remaining: dict[int, Decimal] = {}
-        inflow_map: dict[int, ProductMovement] = {}
-        fifo_queue: list[ProductMovement] = []
+    for layer in layers:
+        try:
+            item_id = int(layer.source_id or "0")
+        except (TypeError, ValueError):
+            continue
 
-        for mv in mv_qs:
-            qty = q3(mv.qty_primary or DEC0)
+        if item_id not in item_ids_set:
+            continue
 
-            # ===== FIX: provider returns must ALWAYS be treated as OUT (negative) =====
-            # In older data, some ProviderReturn movements may have been saved with +qty.
-            # For the FIFO "what is left from each BillItem", a provider return is ALWAYS
-            # stock OUT, so we flip the sign to negative if needed.
-            from inventory.models import ProductMovement as PM
+        qty_raw = None
+        for fname in qty_field_candidates:
+            if hasattr(layer, fname):
+                qty_raw = getattr(layer, fname)
+                break
 
-            if (
-                mv.movement_type == PM.MovementType.PROVIDER_RETURN
-                and qty > DEC0
-            ):
-                qty = -qty
+        qty = q3(qty_raw or DEC0)
+        if qty <= DEC0:
+            continue
 
-            if qty > DEC0:
-                # Inflow (purchase, sale_return, adjustment positive, ...)
-                inflow_remaining[mv.id] = qty
-                inflow_map[mv.id] = mv
-                fifo_queue.append(mv)
-
-            elif qty < DEC0:
-                # Outflow (sale, provider_return, adjustment negative, ...)
-                need = -qty
-                while need > DEC0 and fifo_queue:
-                    first = fifo_queue[0]
-                    first_id = first.id
-                    rem = inflow_remaining.get(first_id, DEC0)
-
-                    if rem <= DEC0:
-                        # no left in this batch, pop and continue
-                        fifo_queue.pop(0)
-                        continue
-
-                    if rem <= need:
-                        # consume entire batch
-                        need = q3(need - rem)
-                        inflow_remaining[first_id] = DEC0
-                        fifo_queue.pop(0)
-                    else:
-                        # consume part of this batch
-                        inflow_remaining[first_id] = q3(rem - need)
-                        need = DEC0
-
-
-
-        # Map remaining inflows that belong to BillItems of THIS bill
-        item_ids_for_product = {it.id for it in product_items}
-
-        for mv_id, rem in inflow_remaining.items():
-            rem = q3(rem or DEC0)
-            if rem <= DEC0:
-                continue
-            mv = inflow_map[mv_id]
-            if mv.source_app != "billing" or mv.source_model != "BillItem":
-                # Not a purchase line tied to a BillItem → ignore for our per-bill left
-                continue
-            try:
-                item_id = int(mv.source_id or "0")
-            except (TypeError, ValueError):
-                continue
-
-            if item_id in item_ids_for_product:
-                left_by_item[item_id] = q3(left_by_item[item_id] + rem)
+        left_by_item[item_id] = q3(left_by_item[item_id] + qty)
 
     return left_by_item
+
 
 
 def get_bill_status_flags(bill: Bill) -> tuple[dict[int, Decimal], bool, bool]:

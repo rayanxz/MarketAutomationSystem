@@ -1,0 +1,511 @@
+{% extends "manager/base_manager.html" %}
+{% load static l10n formatting %}
+
+{% block title %}مرتجع فاتورة شراء{% endblock %}
+
+{% block extra_head %}
+<style>
+  .bill-wrap{
+    display:grid;
+    grid-template-rows:auto auto auto;
+    gap:12px;
+    width:100%;
+    max-width:1400px;
+    margin:0 auto;
+    padding:0 12px;
+    box-sizing:border-box;
+  }
+  .card{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+  }
+  .row{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .field{ flex:1 1 220px; }
+  .badge{
+    padding:10px 12px;
+    border:1px dashed #c7cad1;
+    border-radius:10px;
+    background:#f8fafc;
+  }
+  .muted{ color:#6b7280; font-size:12px; }
+
+  /* table */
+  .ret-table-wrap{
+    max-height:360px;
+    overflow-y:auto;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+  }
+  table.ret-table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+  }
+  table.ret-table th,
+  table.ret-table td{
+    border-bottom:1px solid #eef2f7;
+    padding:6px 8px;
+    white-space:normal;
+    border-right:1px solid #e5e7eb;
+    font-size:13px;
+  }
+  table.ret-table th:last-child,
+  table.ret-table td:last-child{
+    border-right:none;
+  }
+  table.ret-table thead th{
+    background:#f8fafc;
+    position:sticky;
+    top:0;
+    z-index:1;
+  }
+  .input{
+    width:100%;
+    box-sizing:border-box;
+  }
+
+  /* column colors */
+  .col-store  { background:#eff6ff; }  /* light blue */
+  .col-wh1    { background:#ecfdf3; }  /* light green */
+  .col-wh2    { background:#fef2f2; }  /* light red */
+
+  .cell-center{
+    text-align:center;
+  }
+
+  /* delete button */
+  .btn-mini{
+    display:inline-block;
+    padding:4px 8px;
+    border-radius:8px;
+    border:1px solid #d1d5db;
+    font-size:11px;
+    background:#f3f4f6;
+    cursor:pointer;
+  }
+  .btn-mini:hover{
+    background:#e5e7eb;
+  }
+
+  .btn{
+    padding:8px 14px;
+    border-radius:10px;
+    border:1px solid #e5e7eb;
+    background:#f8fafc;
+    cursor:pointer;
+  }
+  .btn:hover{ background:#eef2ff; }
+
+  .btn-primary{
+    background:#4f46e5;
+    color:#fff;
+    border-color:#4f46e5;
+  }
+  .btn-primary:hover{
+    background:#4338ca;
+  }
+
+  .total-box{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:10px 12px;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    margin-bottom:10px;
+  }
+  .total-amt{
+    font-size:22px;
+    font-weight:800;
+  }
+
+  .pay-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+    align-items:center;
+  }
+  .pay-row label{
+    font-size:13px;
+  }
+  #retRemainingLabel{
+    font-size:12px;
+    color:#4b5563;
+    margin-inline-start:8px;
+  }
+  .err-msg{
+    margin-top:6px;
+    font-size:12px;
+    color:#b91c1c;
+  }
+
+  /* disabled inputs for zero containers */
+  .ret-input-disabled{
+    background:#f3f4f6;
+    cursor:not-allowed;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bill-wrap" dir="rtl">
+
+  {# HEADER: bill info #}
+  <section class="card">
+    <h4 style="margin:0 0 8px;">مرتجع فاتورة شراء</h4>
+    <div class="row">
+      <div class="field">
+        <label class="muted">سيريل الفاتورة</label>
+        <div class="badge">{{ bill.serial|human_number }}</div>
+      </div>
+      <div class="field">
+        <label class="muted">المورد</label>
+        <div class="badge">{{ bill.provider.name }}</div>
+      </div>
+      <div class="field">
+        <label class="muted">تاريخ الفاتورة</label>
+        <div class="badge">{{ bill.created_at|date:"Y-m-d H:i" }}</div>
+      </div>
+    </div>
+  </section>
+
+  {# ITEMS TABLE #}
+  <section class="card">
+    <form id="retForm" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="items_ids" value="{{ items_ids }}">
+
+      <div class="ret-table-wrap">
+        <table class="ret-table">
+          <thead>
+            <tr>
+              <th>حذف</th>
+              <th>المنتج</th>
+              <th>كلفة الوحدة الأولى</th>
+              <th>الكمية المتبقية</th>
+
+              <th class="col-store">المتاح في المتجر</th>
+              <th class="col-store">المرتجع من المتجر</th>
+
+              <th class="col-wh1">المتاح في مستودع 1</th>
+              <th class="col-wh1">المرتجع من مستودع 1</th>
+
+              <th class="col-wh2">المتاح في مستودع 2</th>
+              <th class="col-wh2">المرتجع من مستودع 2</th>
+
+              <th>كلفة المرتجع / و١</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for r in rows %}
+            <tr data-item-id="{{ r.item_id }}">
+              <td class="cell-center">
+                <button type="button" class="btn-mini btn-row-delete">
+                  حذف
+                </button>
+              </td>
+
+              <td>{{ r.product_name }}</td>
+              <td class="cell-center">{{ r.cost|human_number }}</td>
+              <td class="cell-center">{{ r.left_qty_str }}</td>
+
+              {# store #}
+              <td class="cell-center col-store">{{ r.store_qty_str }}</td>
+              <td class="col-store">
+                <input
+                    type="number"
+                    class="input ret-qty input-store {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
+                    name="ret_store_{{ r.item_id }}"
+                    min="0"
+                    step="0.001"
+                    {% if r.store_qty <= 0 %}disabled{% endif %}
+                    placeholder="0.000"
+                    value="{{ r.ret_store_raw|default_if_none:'' }}"
+                >
+                </td>
+
+
+              {# wh1 #}
+              <td class="cell-center col-wh1">{{ r.wh1_qty_str }}</td>
+              <td class="col-wh1">
+                <input
+                    type="number"
+                    class="input ret-qty input-wh1 {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
+                    name="ret_wh1_{{ r.item_id }}"
+                    min="0"
+                    step="0.001"
+                    {% if r.wh1_qty <= 0 %}disabled{% endif %}
+                    placeholder="0.000"
+                    value="{{ r.ret_wh1_raw|default_if_none:'' }}"
+                >
+                </td>
+
+
+              {# wh2 #}
+              <td class="cell-center col-wh2">{{ r.wh2_qty_str }}</td>
+              <td class="col-wh2">
+                <input
+                    type="number"
+                    class="input ret-qty input-wh2 {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
+                    name="ret_wh2_{{ r.item_id }}"
+                    min="0"
+                    step="0.001"
+                    {% if r.wh2_qty <= 0 %}disabled{% endif %}
+                    placeholder="0.000"
+                    value="{{ r.ret_wh2_raw|default_if_none:'' }}"
+                >
+                </td>
+
+
+              <td>
+                <input
+                    type="number"
+                    class="input ret-cost"
+                    name="ret_cost_{{ r.item_id }}"
+                    min="0"
+                    step="0.0001"
+                    value="{% if r.ret_cost_raw %}{{ r.ret_cost_raw }}{% else %}{{ r.cost|unlocalize }}{% endif %}"
+                >
+                </td>
+
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# TOTAL + PAY SECTION #}
+      <div class="total-box" style="margin-top:10px;">
+        <div class="muted">إجمالي قيمة المرتجع</div>
+        <div id="retTotalBox" class="total-amt">0.000</div>
+      </div>
+
+      <div class="pay-row" style="margin-top:8px;">
+        <span class="muted">حالة الدفع للمرتجع</span>
+
+        <label>
+            <input
+                type="radio"
+                name="return_status"
+                id="retPaid"
+                value="paid"
+                {% if return_status_selected == "paid" %}checked{% endif %}
+            >
+            مدفوعة بالكامل
+        </label>
+
+        <label>
+            <input
+                type="radio"
+                name="return_status"
+                id="retPartial"
+                value="partial"
+                {% if return_status_selected == "partial" %}checked{% endif %}
+            >
+            مدفوعة جزئياً
+        </label>
+
+        <label>
+            <input
+                type="radio"
+                name="return_status"
+                id="retUnpaid"
+                value="unpaid"
+                {% if return_status_selected == "unpaid" %}checked{% endif %}
+            >
+            غير مدفوعة
+        </label>
+
+
+        <div style="display:flex; align-items:center; gap:6px;">
+          <input
+            type="number"
+            id="returnPaidAmount"
+            name="return_paid_amount"
+            class="input"
+            style="width:200px;"
+            min="0"
+            step="0.001"
+            placeholder="المبلغ المدفوع"
+            value="{{ return_paid_amount_raw }}"
+            {% if return_status_selected != "partial" %}disabled{% endif %}
+            />
+
+
+          <span id="retRemainingLabel"></span>
+        </div>
+      </div>
+
+      {% if error_msg %}
+        <div class="err-msg">{{ error_msg }}</div>
+      {% endif %}
+
+      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">حفظ المرتجع</button>
+        <a class="btn" href="{% url 'billing_bill_view' bill.id %}?items={{ items_ids }}">
+          رجوع إلى الفاتورة
+        </a>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <span class="muted">
+      لاحظ أن حذف صف من الجدول يعني تجاهل هذا المنتج في هذا المرتجع فقط،
+      ولن يؤثر على الفاتورة الأصلية.
+    </span>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    "use strict";
+
+    const form = document.getElementById("retForm");
+    if (!form) return;
+
+    const totalBox     = document.getElementById("retTotalBox");
+    const paidInput    = document.getElementById("returnPaidAmount");
+    const lblRemaining = document.getElementById("retRemainingLabel");
+
+    const statusPaid    = document.getElementById("retPaid");
+    const statusPartial = document.getElementById("retPartial");
+    const statusUnpaid  = document.getElementById("retUnpaid");
+
+    function getCurrentStatus() {
+      if (statusPaid && statusPaid.checked)      return "paid";
+      if (statusUnpaid && statusUnpaid.checked)  return "unpaid";
+      if (statusPartial && statusPartial.checked)return "partial";
+      return "none"; // nothing selected
+    }
+
+    function fmt(num) {
+      if (!isFinite(num)) return "0.000";
+      return num.toFixed(3);
+    }
+
+    function recalcTotal() {
+      let total = 0;
+
+      const rows = form.querySelectorAll("tbody tr");
+      rows.forEach(function (tr) {
+        if (tr.style.display === "none") return;
+
+        const iid = tr.getAttribute("data-item-id");
+        if (!iid) return;
+
+        const qStore = parseFloat(form["ret_store_" + iid]?.value || "0") || 0;
+        const qWh1   = parseFloat(form["ret_wh1_" + iid]?.value   || "0") || 0;
+        const qWh2   = parseFloat(form["ret_wh2_" + iid]?.value   || "0") || 0;
+        const cost   = parseFloat(form["ret_cost_" + iid]?.value  || "0") || 0;
+
+        const qtyTotal = qStore + qWh1 + qWh2;
+        if (qtyTotal <= 0 || cost < 0) return;
+
+        total += qtyTotal * cost;
+      });
+
+      if (totalBox) totalBox.textContent = fmt(total);
+      return total;
+    }
+
+    function updateRemainingLabel() {
+      const total = recalcTotal();
+      let remaining = total;
+
+      const status = getCurrentStatus();
+
+      let paid = 0;
+      if (status === "paid") {
+        paid = total;
+        if (paidInput) paidInput.value = fmt(total);
+      } else if (status === "partial") {
+        if (paidInput) {
+          const v = parseFloat(paidInput.value || "0") || 0;
+          paid = v < 0 ? 0 : v;
+        }
+      } else {
+        paid = 0;
+        // leave paidInput as-is (especially when disabled)
+      }
+
+      remaining = total - paid;
+      if (remaining < 0) remaining = 0;
+
+      if (lblRemaining) {
+        if (total <= 0) {
+          lblRemaining.textContent = "";
+        } else {
+          lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);
+        }
+      }
+    }
+
+    function handleStatusChange() {
+      const status = getCurrentStatus();
+      if (!paidInput) {
+        updateRemainingLabel();
+        return;
+      }
+
+      if (status === "partial") {
+        paidInput.disabled = false;
+        // keep the value user already typed
+      } else {
+        paidInput.value = "";
+        paidInput.disabled = true;
+      }
+
+      updateRemainingLabel();
+    }
+
+    // quantities & cost inputs
+    form.addEventListener("input", function (e) {
+      if (
+        e.target.classList.contains("ret-qty")  ||
+        e.target.classList.contains("ret-cost") ||
+        e.target === paidInput
+      ) {
+        updateRemainingLabel();
+      }
+    });
+
+    // delete row buttons
+    form.querySelectorAll(".btn-row-delete").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const tr = btn.closest("tr");
+        if (!tr) return;
+        const iid = tr.getAttribute("data-item-id");
+        if (iid) {
+          if (form["ret_store_" + iid]) form["ret_store_" + iid].value = "";
+          if (form["ret_wh1_" + iid])   form["ret_wh1_" + iid].value   = "";
+          if (form["ret_wh2_" + iid])   form["ret_wh2_" + iid].value   = "";
+        }
+        tr.style.display = "none";
+        updateRemainingLabel();
+      });
+    });
+
+    // status radios
+    [statusPaid, statusPartial, statusUnpaid].forEach(function (r) {
+      if (!r) return;
+      r.addEventListener("change", function () {
+        handleStatusChange();
+      });
+    });
+
+    // initial state (respect backend-selected status)
+    handleStatusChange();
+  })();
+</script>
+
+{% endblock %}

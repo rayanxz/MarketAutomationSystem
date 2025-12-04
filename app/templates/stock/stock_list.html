@@ -1,6 +1,7 @@
 {# app/templates/stock/stock_list.html #}
 {% extends "manager/base_manager.html" %}
 {% load static %}
+{% load formatting %}
 
 {% block menu_secondary %}
   <div class="tabs-row">
@@ -149,15 +150,15 @@
         </span>
         <span class="badge-chip">
           عدد بنود المخزون:
-          <strong>{{ stats.total_products }}</strong>
+          <strong>{{ stats.total_products|human_number }}</strong>
         </span>
         <span class="badge-chip badge-neg">
           سالب:
-          <strong>{{ stats.negative_count }}</strong>
+          <strong>{{ stats.negative_count|human_number }}</strong>
         </span>
         <span class="badge-chip badge-zero">
           صفر:
-          <strong>{{ stats.zero_count }}</strong>
+          <strong>{{ stats.zero_count|human_number }}</strong>
         </span>
         <span class="muted" style="margin-inline-start:auto;">
           <span class="legend-box legend-neg"></span> كمية سالبة
@@ -272,7 +273,7 @@
                                 {{ b.created_at }}
                               </td>
                               <td class="num col-qty">
-                                {{ b.qty }}
+                                {{ b.qty|human_number }}
                               </td>
                               <td class="col-uom">
                                 {% if p.get_unit_primary_display %}
@@ -282,7 +283,7 @@
                                 {% endif %}
                               </td>
                               <td class="num">
-                                {{ b.unit_cost }}
+                                {{ b.unit_cost|human_number }}
                               </td>
                               <td class="num">
                                 —  {# السعر من المنتج نفسه، لا من الدفعة #}
@@ -334,7 +335,7 @@
                           </td>
 
                           <td class="num col-qty">
-                            {{ item.qty_display }}
+                            {{ item.qty_display|human_number }}
                           </td>
 
                           <td class="col-uom">
@@ -346,11 +347,11 @@
                           </td>
 
                           <td class="num">
-                            {{ item.cost_display }}
+                            {{ item.cost_display|human_number }}
                           </td>
 
                           <td class="num">
-                            {{ item.price_display }}
+                            {{ item.price_display|human_number }}
                           </td>
                         </tr>
                       {% endif %}
@@ -385,8 +386,8 @@
     }
 
     .row-set td {
-      background: #f1f5f9;
-      padding-inline-start: 24px;
+      background: #f1f59;
+            padding-inline-start: 24px;
       padding-block: 4px;
       font-weight: 500;
     }

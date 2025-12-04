@@ -249,13 +249,14 @@ def transfer_from_batch(
         * OUT ADJUSTMENT movement from batch.container
         * IN  ADJUSTMENT movement into to_container
     - Decreases batch.qty_remaining
-    - Creates a new FIFO layer in the target container with the same cost.
+    - Creates a new FIFO layer in the target container with the same cost
+      AND PRESERVES the original source_app/source_model/source_id
+      so we can track the originating bill item across containers.
     """
     qty = q3(Decimal(str(qty_primary or DEC0)))
     if qty <= DEC0:
         raise ValueError("Quantity must be positive for transfer.")
 
-    # Source container & product come from the batch
     from_container = batch.container
     product = batch.product
 
@@ -292,15 +293,15 @@ def transfer_from_batch(
     batch.qty_remaining = q3(current_remain - qty)
     batch.save(update_fields=["qty_remaining"])
 
-    # Create FIFO layer in destination container with same cost
+    # 🔥 HERE: new FIFO layer in destination with SAME origin identity as the original batch
     fifo_add_incoming(
         product=product,
         container=to_container,
         qty_primary=qty,
         unit_cost=unit_cost,
-        source_app="stock",
-        source_model="TransferBatch",
-        source_id=f"{ref}-IN",
+        source_app=batch.source_app or "",
+        source_model=batch.source_model or "",
+        source_id=batch.source_id or "",
     )
 
     # IN movement: positive ADJUSTMENT in target container
@@ -318,6 +319,7 @@ def transfer_from_batch(
     )
 
     return mv_out, mv_in
+
 
 
 @transaction.atomic

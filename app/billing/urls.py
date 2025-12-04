@@ -28,12 +28,13 @@ urlpatterns = [
     path("bills/<int:bill_id>/", v.bill_view, name="billing_bill_view"),
 
     # Provider returns (receivables)
-    path("returns/", V.providers_returns_page, name="billing_returns"),
     path("returns/list/", V.providers_returns_list_page, name="billing_returns_list"),
-    path("api/returns/save/", V.api_return_save, name="billing_api_return_save"),
     path("api/returns/list/", V.api_returns_list, name="billing_api_returns_list"),
     path("returns/<int:ret_id>/", V.return_view, name="billing_return_view"),
-    path("api/returns/next-serial/", V.api_return_next_serial, name="billing_api_return_next_serial"),
     path("returns/<int:ret_id>/collect-full/", V.collect_return_full, name="billing_collect_full"),
     path("returns/<int:ret_id>/collect-batch/", V.collect_return_batch, name="billing_collect_batch"),
+
+    path("bills/<int:bill_id>/", v.bill_view, name="billing_bill_view"),
+    path("bills/<int:bill_id>/returns-wizard/",v.bill_return_wizard,name="billing_bill_return_wizard"),
+
 ]

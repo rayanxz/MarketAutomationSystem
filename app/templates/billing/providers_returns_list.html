@@ -11,7 +11,6 @@
     <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
     <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
     <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
     <a class="btn-sec active" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
 
   </div>
@@ -65,6 +64,11 @@
         <input class="input" name="serial" id="fSerial" inputmode="numeric" placeholder="مثال: 1024">
       </div>
       <div class="field" style="max-width:160px;">
+        <label class="muted">سيريال فاتورة الشراء</label>
+        <input class="input" name="bill_serial" id="fBillSerial" inputmode="numeric" placeholder="مثال: 2048">
+      </div>
+
+      <div class="field" style="max-width:160px;">
         <label class="muted">ID المرتجع</label>
         <input class="input" name="id" id="fId" inputmode="numeric" placeholder="مثال: 321">
       </div>
@@ -96,6 +100,7 @@
       <thead>
         <tr>
           <th style="width:120px;">السيريال</th>
+          <th style="width:120px;">سيريال فاتورة الشراء</th>
           <th>المورد</th>
           <th style="width:160px;">الإجمالي</th>
           <th style="width:160px;">الحالة</th>

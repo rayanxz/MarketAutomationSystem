@@ -45,4 +45,5 @@ def return_row(r: ProviderReturn) -> Dict[str, Any]:
         "remaining": str(r.remaining),
         "status": r.status,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+        "source_bill_serial": r.source_bill_serial,
     }

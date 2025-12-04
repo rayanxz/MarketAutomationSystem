@@ -31,6 +31,7 @@
   return `
       <tr data-id="${r.id}">
         <td>${r.serial ?? ""}</td>
+        <td>${r.source_bill_serial ?? ""}</td>   <!-- سيريال فاتورة الشراء -->
         <td>${r.provider?.name ?? ""}</td>
         <td>${nfmt(r.total)}</td>
         <td>${pill(r.status)}</td>
@@ -42,6 +43,7 @@
       </tr>
     `;
 };
+
 
   function readFilters(includeCursor=true){
     const fd = new FormData(form);

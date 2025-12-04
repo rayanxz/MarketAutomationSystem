@@ -165,6 +165,14 @@ class ProviderReturn(models.Model):
     serial   = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="returns")
 
+     # 👇 NEW: link to the purchase bill via its serial number
+    source_bill_serial = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="سيريال فاتورة الشراء الأصلية إن وجد.",
+    )
+
     total          = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
                                          validators=[MinValueValidator(0)])
     initial_paid   = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),

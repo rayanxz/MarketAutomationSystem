@@ -11,43 +11,261 @@
   <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
   <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
   <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
-  <a class="btn-sec" href="{% url 'billing_returns' %}">إضافة مرتجع</a>
   <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
 </div>
 {% endblock %}
 
 {% block extra_head %}
 <style>
-  .bill-wrap{ display:grid; grid-template-rows:auto auto 1fr auto; gap:12px; }
-  .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
-  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .bill-wrap{
+    display:grid;
+    grid-template-rows:auto auto auto 1fr auto;
+    gap:12px;
+    width:100%;
+    max-width:1400px;
+    margin:0 auto;
+    padding-left:12px;
+    padding-right:12px;
+    box-sizing:border-box;
+    overflow-x:hidden;
+  }
+  .card{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+  }
+  .row{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
   .field{ flex:1 1 220px; }
-  .badge{ padding:10px 12px; border:1px dashed #c7cad1; border-radius:10px; background:#f8fafc; }
+  .badge{
+    padding:10px 12px;
+    border:1px dashed #c7cad1;
+    border-radius:10px;
+    background:#f8fafc;
+  }
   .muted{ color:#6b7280; font-size:12px; }
-  .items{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
 
-  table.bill{ width:100%; border-collapse:collapse; }
-  table.bill th, table.bill td{ border-bottom:1px solid #eef2f7; padding:8px; }
-  table.bill thead th{ background:#f8fafc; position:sticky; top:0; z-index:1; }
+  /* ========== TABLE ========== */
+  .items{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+  }
+  .bill-table-wrap{
+    height:420px;          /* fixed height */
+    max-height:420px;
+    overflow-y:auto;       /* vertical scroll */
+    overflow-x:auto;
+  }
+
+  table.bill{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+  }
+  table.bill th,
+  table.bill td{
+    border-bottom:1px solid #eef2f7;
+    padding:6px 8px;
+    white-space:normal;
+    border-right:1px solid #e5e7eb;
+  }
+  table.bill th:last-child,
+  table.bill td:last-child{
+    border-right:none;
+  }
+  table.bill thead th{
+    background:#f8fafc;
+    position:sticky;
+    top:0;
+    z-index:1;
+  }
 
   .total-box{
-      display:flex; justify-content:space-between;
-      padding:10px 12px; border:1px solid #e5e7eb;
-      border-radius:10px; background:#f8fafc; margin-bottom:10px;
+    display:flex;
+    justify-content:space-between;
+    padding:10px 12px;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    margin-bottom:10px;
   }
-  .total-amt{ font-size:24px; font-weight:800; }
-  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
+  .total-amt{
+    font-size:24px;
+    font-weight:800;
+  }
+  .btn{
+    padding:10px 14px;
+    border-radius:10px;
+    border:1px solid #e5e7eb;
+    background:#f8fafc;
+    cursor:pointer;
+  }
   .btn:hover{ background:#eef2ff; }
+
+  /* highlight unit used in creation */
+  .hl-unit{
+    background:#eef2ff;
+    font-weight:600;
+  }
+
+  .btn-mini{
+    display:inline-block;
+    padding:4px 8px;
+    border-radius:8px;
+    border:1px solid #d1d5db;
+    font-size:11px;
+    background:#f3f4f6;
+    cursor:pointer;
+    text-decoration:none;
+    color:#111827;
+  }
+  .btn-mini:hover{
+    background:#e5e7eb;
+  }
+  .btn-mini.disabled{
+    opacity:0.5;
+    pointer-events:none;
+    cursor:default;
+  }
+
+  .col-orange { background:#fff7ed; }
+  .col-purple { background:#f5f3ff; }
+  .col-red    { background:#fef2f2; }
+
+  /* selection mode (checkbox column) – kept for wizard */
+  .select-col { display:none; }
+  .bill-view.bill-select-active .select-col{
+    display:table-cell;
+  }
+  .return-select-controls{
+    display:none;
+    gap:8px;
+    flex-wrap:wrap;
+    align-items:center;
+    margin-top:8px;
+  }
+  .bill-view.bill-select-active .return-select-controls{
+    display:flex;
+  }
+
+    /* hide "add return" when in selection mode */
+  .bill-view.bill-select-active #btnStartReturn{
+    display:none;
+  }
+
+
+  /* ========== SEARCH BAR ========== */
+  .bill-search-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px;
+    align-items:flex-end;
+  }
+  .bill-search-main{
+    flex:1 1 260px;
+    position:relative;
+  }
+  .bill-search-main label{
+    display:block;
+    margin-bottom:4px;
+  }
+  .bill-search-input{
+    width:100%;
+  }
+  .bill-search-modes{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    font-size:13px;
+    color:#374151;
+  }
+  .bill-search-modes label{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    cursor:pointer;
+  }
+
+  .search-suggest-list{
+    position:absolute;
+    right:0;
+    left:0;
+    top:100%;
+    margin-top:4px;
+    background:#fff;
+    border-radius:8px;
+    border:1px solid #e5e7eb;
+    box-shadow:var(--card-shadow);
+    max-height:220px;
+    overflow-y:auto;
+    z-index:30;
+  }
+  .search-suggest-item{
+    padding:6px 10px;
+    cursor:pointer;
+    font-size:13px;
+  }
+  .search-suggest-item:hover{
+    background:#eef2ff;
+  }
+  .search-suggest-item.is-active{
+    background:#e5e7ff;
+    font-weight:600;
+  }
+
+
+  .cell-highlight{
+    background:#dcfce7 !important;
+  }
+
+  /* ========== BOTTOM STATS ========== */
+  .bill-stats-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:10px;
+    margin-top:8px;
+  }
+  .stat-card{
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid #e5e7eb;
+    background:#f9fafb;
+  }
+  .stat-label{
+    font-size:12px;
+    color:#6b7280;
+    margin-bottom:4px;
+  }
+  .stat-value{
+    font-size:14px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+  }
 </style>
 
 <script>
-  window.__BILLING__ = { billId: {{ bill.id }} };
+  window.__BILLING__ = {
+    billId: {{ bill.id }},
+    wizardUrl: "{% url 'billing_bill_return_wizard' bill.id %}",
+    selectedItems: "{{ selected_items|join:',' }}"
+  };
 </script>
 <script defer src="{% static 'js/billing_bill_view.js' %}"></script>
 {% endblock %}
 
 {% block content %}
-<div class="bill-wrap" dir="rtl">
+<div id="billView"
+     class="bill-wrap bill-view{% if selected_items %} bill-select-active{% endif %}"
+     dir="rtl">
 
   {% if error_msg %}
   <section class="card" style="border:1px solid #fecaca; background:#fef2f2; color:#991b1b;">
@@ -74,141 +292,208 @@
     </div>
   </section>
 
-  <!-- ITEMS -->
-  <section class="items" style="min-height:40vh;">
-    <form id="billReturnForm" method="post">{% csrf_token %}
+  <!-- SEARCH IN BILL -->
+  <section class="card">
+    <div class="bill-search-row">
+      <div class="bill-search-main">
+        <label class="muted" for="billSearchInput">البحث داخل الفاتورة</label>
+        <input
+          id="billSearchInput"
+          type="text"
+          class="input bill-search-input"
+          placeholder="اكتب للبحث عن منتج..."
+        >
+        <div id="billSearchSuggest" class="search-suggest-list" style="display:none;"></div>
+      </div>
+
+      <div class="bill-search-modes">
+        <label>
+          <input type="radio" name="billSearchMode" value="name" checked>
+          بالاسم
+        </label>
+        <label>
+          <input type="radio" name="billSearchMode" value="id">
+          بالمعرّف (ID)
+        </label>
+        <label>
+          <input type="radio" name="billSearchMode" value="code">
+          بالكود
+        </label>
+        <label>
+          <input type="radio" name="billSearchMode" value="barcode">
+          بالباركود
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ITEMS TABLE -->
+  <section class="items">
+    <div class="bill-table-wrap">
       <table class="bill">
         <thead>
           <tr>
+            <th class="select-col" style="width:36px;"></th>
             <th>المنتج</th>
-            <th>الكلفة/و١</th>
-            <th>السعر/و١</th>
-
-            <th>كمية و١</th>
-            <th>و١</th>
-
-            <th>كمية و٢</th>
-            <th>و٢</th>
-
+            <th>كلفة الوحدة الأولى</th>
+            <th>سعر الوحدة الأولى</th>
+            <th>الكمية (الوحدة الأولى)</th>
+            <th>الكمية (الوحدة الثانية)</th>
             <th>الكلفة الإجمالية</th>
-            <th>المتبقي</th>
 
-            <th>كمية المرتجع</th>
-            <th>كلفة المرتجع/و١</th>
+            <th class="col-orange">المتبقي</th>
+            <th class="col-orange">المتجر</th>
+            <th class="col-orange">مستودع 1</th>
+            <th class="col-orange">مستودع 2</th>
+
+            <th class="col-purple">المباع</th>
+
+            <th class="col-red">إجمالي المرتجع</th>
+            <th class="col-red">المرتجعات</th>
           </tr>
         </thead>
-                <tbody>
+        <tbody>
         {% for row in items_rows %}
           <tr
             data-item-id="{{ row.item_id }}"
             data-left="{{ row.left_qty|unlocalize }}"
+            data-code="{{ row.code }}"
+            data-unitid="{{ row.unit_id }}"
+            data-barcode="{{ row.barcode }}"
           >
+            <!-- selection checkbox (for wizard later) -->
+            <td class="select-col" style="text-align:center;">
+              {% if row.can_return and can_return %}
+                <input
+                  type="checkbox"
+                  class="return-select"
+                  value="{{ row.item_id }}"
+                  {% if row.item_id in selected_items %}checked{% endif %}
+                >
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
 
-            <!-- المنتج -->
+            <!-- product -->
             <td class="pname">
               {{ row.product_name }}
             </td>
 
-            <!-- الكلفة و السعر -->
+            <!-- cost / price -->
             <td>{{ row.cost|human_number }}</td>
             <td>{{ row.price|human_number }}</td>
 
-            <!-- كمية الوحدة الأولى -->
-            <td>{{ row.qty_u1|human_number }}</td>
-            <td>{{ row.unit1_label }}</td>
-
-            <!-- كمية الوحدة الثانية (إن وجدت) -->
-            <td>
-              {% if row.qty_u2 %}
-                {{ row.qty_u2|human_number }}
-              {% else %}
-                —
-              {% endif %}
+            <!-- qty u1 / u2 -->
+            <td class="{% if row.highlight_unit == 1 %}hl-unit{% endif %}">
+              {{ row.qty_u1_str }}
             </td>
-            <td>
-              {% if row.unit2_label %}
-                {{ row.unit2_label }}
+            <td class="{% if row.highlight_unit == 2 %}hl-unit{% endif %}">
+              {% if row.qty_u2_str %}
+                {{ row.qty_u2_str }}
               {% else %}
                 —
               {% endif %}
             </td>
 
-            <!-- الكلفة الإجمالية + المتبقي -->
+            <!-- totals -->
             <td>{{ row.line_total|human_number }}</td>
-            <td>{{ row.left_qty|human_number }}</td>
 
-            <!-- مدخلات المرتجع -->
-            <td>
-              {% if row.can_return and can_return %}
-                <input
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  class="input input-return-qty"
-                  name="return_qty_{{ row.item_id }}"
-                  data-max="{{ row.left_qty|unlocalize }}"
-                  disabled
+            <!-- left + containers -->
+            <td class="col-orange">{{ row.left_qty_str }}</td>
+            <td class="col-orange">{{ row.store_qty_str }}</td>
+            <td class="col-orange">{{ row.wh1_qty_str }}</td>
+            <td class="col-orange">{{ row.wh2_qty_str }}</td>
+
+            <!-- sold -->
+            <td class="col-purple">{{ row.sold_qty_str }}</td>
+
+            <!-- total returned -->
+            <td class="col-red">{{ row.returned_qty_str }}</td>
+
+            <!-- show returns -->
+            <td class="col-red">
+              {% if row.has_returns %}
+                <button
+                  type="button"
+                  class="btn-mini btn-show-return"
+                  data-returns-url="{% url 'billing_returns_list' %}?bill_serial={{ bill.serial }}"
                 >
+                  عرض المرتجعات
+                </button>
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
             </td>
-
-            <td>
-              {% if row.can_return and can_return %}
-                <input
-                  type="number"
-                  min="0"
-                  step="0.0001"
-                  class="input input-return-cost"
-                  name="return_cost_{{ row.item_id }}"
-                  value="{{ row.cost|unlocalize }}"
-                  disabled
-                >
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-
           </tr>
         {% empty %}
           <tr>
-            <td colspan="11" style="text-align:center; color:#6b7280;">
+            <td colspan="14" style="text-align:center; color:#6b7280;">
               لا توجد عناصر
             </td>
           </tr>
         {% endfor %}
         </tbody>
-
       </table>
-    </form>
+    </div>
   </section>
 
-  <!-- FOOTER -->
+  <!-- FOOTER / STATS -->
   <section class="card">
 
-    <div class="total-box">
-      <div class="muted">الإجمالي</div>
-      <div class="total-amt">{{ bill.total|human_number }}</div>
-    </div>
-
-    <div style="display:flex; gap:24px; flex-wrap:wrap;">
-      <div>
-        <div class="muted">الحالة عند الإنشاء</div>
-        <span class="pill {{ bill.initial_status }}">{{ bill.get_initial_status_display }}</span>
-        <small class="muted">المدفوع: {{ bill.initial_paid_amount|human_number }}</small>
+    <div id="billStats">
+      <div class="total-box">
+        <div class="muted">الإجمالي</div>
+        <div class="total-amt">{{ bill.total|human_number }}</div>
       </div>
 
-      <div>
-        <div class="muted">الوضع الحالي</div>
-        <span class="pill {{ bill.status }}">{{ bill.get_status_display }}</span>
-        <small class="muted">
-          {{ bill.paid_amount|human_number }} / {{ bill.remaining|human_number }}
-        </small>
+      <div class="bill-stats-grid">
+        <!-- payment method at creation -->
+        <div class="stat-card">
+          <div class="stat-label">طريقة الدفع عند إنشاء الفاتورة</div>
+          <div class="stat-value">
+            {% with st=initial_status|default:bill.status %}
+              <span class="pill pill-{{ st }}">
+                {% if st == 'paid' %}
+                  مدفوعة بالكامل
+                {% elif st == 'partial' %}
+                  مدفوعة جزئياً
+                {% else %}
+                  غير مدفوعة
+                {% endif %}
+              </span>
+            {% endwith %}
+          </div>
+        </div>
+
+        <!-- current bill status -->
+        <div class="stat-card">
+          <div class="stat-label">الحالة الحالية للفاتورة</div>
+          <div class="stat-value">
+            <span class="pill pill-{{ bill.status }}">
+              {% if bill.status == 'paid' %}
+                مدفوعة بالكامل
+              {% elif bill.status == 'partial' %}
+                مدفوعة جزئياً
+              {% else %}
+                غير مدفوعة
+              {% endif %}
+            </span>
+          </div>
+        </div>
+
+        <!-- current debt amounts -->
+        <div class="stat-card">
+          <div class="stat-label">حالة الدين الحالية</div>
+          <div class="stat-value">
+            <span>المدفوع حالياً: {{ bill.paid_amount|human_number }}</span>
+            <span>المتبقي حالياً: {{ bill.remaining|human_number }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
       <a class="btn" href="{% url 'billing_list' %}">رجوع</a>
 
       {% if has_debt_now %}
@@ -217,9 +502,10 @@
 
       {% if can_return %}
         <button type="button" class="btn" id="btnStartReturn">إضافة مرتجع</button>
-        <button type="submit" form="billReturnForm" class="btn" id="btnSaveReturn" style="display:none;">
-          حفظ المرتجع
-        </button>
+        <div class="return-select-controls" id="returnSelectControls">
+          <button type="button" class="btn" id="btnProceedReturn">متابعة</button>
+          <button type="button" class="btn" id="btnCancelReturnSelection">إلغاء التحديد</button>
+        </div>
       {% else %}
         <span class="muted">الفاتورة مغلقة</span>
       {% endif %}

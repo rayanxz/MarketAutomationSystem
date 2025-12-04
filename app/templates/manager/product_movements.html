@@ -1,5 +1,6 @@
 {% extends "manager/base_manager.html" %}
 {% load static %}
+{% load formatting %}
 
 {% block title %}حركة المواد{% endblock %}
 
@@ -10,7 +11,6 @@
     <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
   </div>
 {% endblock %}
-
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'inventory/product_movements.css' %}">
@@ -79,17 +79,15 @@
       <label class="mv-field">
         الحاوية
         <select name="container" id="mvContainer">
-            <option value="">كل الحاويات</option>
-            {% for c in containers %}
+          <option value="">كل الحاويات</option>
+          {% for c in containers %}
             <option value="{{ c.code }}"
                     {% if filters.container == c.code %}selected{% endif %}>
-                {{ c.display_label }}
+              {{ c.display_label }}
             </option>
-            {% endfor %}
+          {% endfor %}
         </select>
-        </label>
-
-
+      </label>
 
       {# type (grouped: buy / sale / customer returns / provider returns / all) #}
       <label class="mv-field">النوع
@@ -122,7 +120,7 @@
           <th>الكلفة للوحدة</th>
           <th>السعر للوحدة</th>
           <th>النوع</th>
-          <th>الحاوية</th>           {# NEW #}
+          <th>الحاوية</th>
           <th>اسم المادة</th>
           <th>الزمرة / المجموعة</th>
           <th>نوع الجهة الأخرى</th>
@@ -133,8 +131,12 @@
         {% if rows %}
           {% for row in rows %}
             <tr>
-              <td class="col-date" dir="ltr">{{ row.date|date:"Y-m-d H:i" }}</td>
+              {# التاريخ #}
+              <td class="col-date" dir="ltr">
+                {{ row.date|date:"Y-m-d H:i" }}
+              </td>
 
+              {# الكمية مع السهم، منسّقة بـ human_number #}
               <td class="qty-cell {% if row.direction == 'up' %}qty-up{% elif row.direction == 'down' %}qty-down{% endif %}">
                 <span class="qty-inner">
                   {% if row.direction == 'up' %}
@@ -145,11 +147,12 @@
                     <span class="arrow">•</span>
                   {% endif %}
                   <span class="qty-text" dir="ltr">
-                    {{ row.qty_abs|default:row.qty }}
+                    {{ row.qty_abs|default:row.qty|human_number }}
                   </span>
                 </span>
               </td>
 
+              {# الاتجاه نصاً #}
               <td>
                 {% if row.direction == 'up' %}
                   زيادة
@@ -160,34 +163,43 @@
                 {% endif %}
               </td>
 
-              <td>{{ row.cost }}</td>
-              <td>{{ row.price }}</td>
+              {# الكلفة للوحدة (منسّقة) #}
+              <td>{{ row.cost|human_number }}</td>
+
+              {# السعر للوحدة (منسّق) #}
+              <td>{{ row.price|human_number }}</td>
+
+              {# النوع (label من choices) #}
               <td>{{ row.movement_type_label }}</td>
 
+              {# الحاوية #}
               <td>
                 {% if row.container %}
-                    {{ row.container.display_label }}
+                  {{ row.container.display_label }}
                 {% else %}
-                    <span class="muted">غير محدد</span>
+                  <span class="muted">غير محدد</span>
                 {% endif %}
               </td>
 
-
-
+              {# اسم المادة #}
               <td>{{ row.product.name }}</td>
 
+              {# الزمرة / المجموعة #}
               <td>
                 {% if row.collection %}{{ row.collection.name }} / {% endif %}
                 {% if row.set %}{{ row.set.name }}{% endif %}
               </td>
 
+              {# نوع و اسم الجهة الأخرى #}
               <td>{{ row.other_party_type }}</td>
               <td>{{ row.other_party_name }}</td>
             </tr>
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="11" class="mv-empty">لا توجد حركات مطابقة للفلاتر الحالية.</td>
+            <td colspan="11" class="mv-empty">
+              لا توجد حركات مطابقة للفلاتر الحالية.
+            </td>
           </tr>
         {% endif %}
       </tbody>

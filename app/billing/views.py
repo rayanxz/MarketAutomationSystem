@@ -14,8 +14,20 @@ from django.contrib.auth.decorators import login_required
 
 from billing import services as BillingSV
 
-from inventory.models import DEC0
+from inventory.models import DEC0 , q3 , ProductMovement
 
+DEC2 = Decimal("0.01")
+
+
+def _fmt2(x: Decimal | None) -> str:
+    """
+    Format a Decimal with 2 decimal places for display.
+    """
+    q = (x if x is not None else DEC0).quantize(DEC2)
+    return f"{q:.2f}"
+
+from django.db.models import Sum
+from stock.models import StockFifoLayer
 
 from accounts.models import AccountProfile
 from catalog.views import role_required
@@ -32,8 +44,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 from datetime import date
-from stock.models import ProductContainer  # ⬅️ NEW
 
+from typing import Any
 
 # ---------- Page views ----------
 
@@ -478,102 +490,242 @@ def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
 @login_required
 def bill_view(request, bill_id: int):
     bill = get_object_or_404(
-        Bill.objects.prefetch_related("items__product", "provider"),
+        Bill.objects.prefetch_related(
+            "items__product",
+            "provider",
+            "items__product__barcodes",
+            "items__product__unit_ids",
+        ),
         pk=bill_id,
     )
 
-    # FIFO: left quantity per BillItem, and flags
-    left_map, is_closed, untouched = BillingSV.get_bill_status_flags(bill)
+    # ===== FIFO: left quantity per BillItem + per-container breakdown =====
+    item_qs = bill.items.all().select_related("product")
+    item_ids = [it.id for it in item_qs]
+
+    left_map: dict[int, Decimal] = {it.id: DEC0 for it in item_qs}
+    stock_by_item: dict[int, list[dict]] = {it.id: [] for it in item_qs}
+
+    if item_ids:
+        qty_field_candidates = (
+            "qty_left_primary",
+            "qty_left",
+            "qty_remaining",
+            "qty_primary_left",
+        )
+
+        layers = (
+            StockFifoLayer.objects
+            .filter(
+                source_app="billing",
+                source_model="BillItem",
+                source_id__in=[str(i) for i in item_ids],
+            )
+            .select_related("container")
+        )
+
+        for layer in layers:
+            try:
+                iid = int(layer.source_id or "0")
+            except (TypeError, ValueError):
+                continue
+            if iid not in left_map:
+                continue
+
+            qty_raw = None
+            for fname in qty_field_candidates:
+                if hasattr(layer, fname):
+                    qty_raw = getattr(layer, fname)
+                    break
+
+            qty = q3(qty_raw or DEC0)
+            if qty <= DEC0:
+                continue
+
+            left_map[iid] = q3(left_map.get(iid, DEC0) + qty)
+
+            cont = getattr(layer, "container", None)
+            code = getattr(cont, "code", "") or ""
+            name = getattr(cont, "name", "") or ""
+
+            lst = stock_by_item.setdefault(iid, [])
+            existing = None
+            for c in lst:
+                if c["code"] == code and c["name"] == name:
+                    existing = c
+                    break
+
+            if existing is not None:
+                existing["left_qty"] = q3((existing["left_qty"] or DEC0) + qty)
+            else:
+                lst.append(
+                    {
+                        "code": code,
+                        "name": name,
+                        "left_qty": qty,
+                    }
+                )
+
+    total_original = sum((it.qty_primary or DEC0) for it in item_qs)
+    total_left_now = sum(left_map.values(), DEC0)
+
+    untouched = (total_left_now == total_original)
+    is_closed = (total_left_now <= DEC0)
+
+    # ===== TOTAL RETURNED PER PRODUCT for this bill =====
+    from billing.models import ProviderReturnItem
+
+    product_ids = list({it.product_id for it in item_qs if it.product_id})
+    returned_by_product: dict[int, Decimal] = {}
+    if product_ids and bill.serial:
+        ret_rows = (
+            ProviderReturnItem.objects
+            .filter(
+                ret__source_bill_serial=bill.serial,
+                product_id__in=product_ids,
+            )
+            .values("product_id")
+            .annotate(total_ret=Sum("qty_primary"))
+        )
+        for rr in ret_rows:
+            pid = rr["product_id"]
+            returned_by_product[pid] = q3(rr["total_ret"] or DEC0)
+
+    # original container map (kept if you ever need it)
+    origin_by_item: dict[int, ProductMovement] = {}
+    if item_ids:
+        mv_rows = (
+            ProductMovement.objects
+            .filter(
+                source_app="billing",
+                source_model="BillItem",
+                source_id__in=item_ids,
+            )
+            .select_related("container")
+            .order_by("id")
+        )
+        for mv in mv_rows:
+            iid = int(mv.source_id)
+            if iid not in origin_by_item and mv.container_id:
+                origin_by_item[iid] = mv
 
     error_msg = None
 
-    # ----- Handle POST: create ProviderReturn from this bill -----
+    # NOTE: old inline-return POST kept as-is (no form now, so practically unused)
     if request.method == "POST":
-        if is_closed:
-            error_msg = "لا يمكن إنشاء مرتجع: الفاتورة مغلقة (لا توجد كميات متبقية)."
-        else:
-            try:
-                # 1) read and validate items from form
-                items_payload = _build_return_items_from_form(request, bill, left_map)
+        error_msg = "هذه الصفحة تستخدم الآن معالج المرتجعات الجديد."
 
-                # 2) try to reuse same container as the original purchase
-                from inventory.models import ProductMovement
-                mv_container = None
-                item_ids = list(bill.items.values_list("id", flat=True))
-                if item_ids:
-                    mv = (
-                        ProductMovement.objects
-                        .filter(
-                            source_app="billing",
-                            source_model="BillItem",
-                            source_id__in=item_ids,
-                        )
-                        .select_related("container")
-                        .first()
-                    )
-                    if mv and mv.container_id:
-                        mv_container = mv.container
-
-                # 3) create ProviderReturn (we treat it as UNPAID by default)
-                pret = SV.create_return(
-                    actor=request.user,
-                    provider_id=bill.provider_id,
-                    status="unpaid",
-                    paid_amount=Decimal("0"),
-                    items=items_payload,
-                    container=mv_container,
-                )
-
-                # You can redirect to the return view if you have a URL name for it.
-                # For now, go to the returns list.
-                return redirect("billing_returns_list")
-            except ValueError as ve:
-                error_msg = str(ve)
-            except Exception:
-                logger.exception("bill_view: failed to create ProviderReturn from bill")
-                error_msg = "فشل حفظ المرتجع، حدث خطأ غير متوقع."
-
-        # if we fall through, we re-render the page with error_msg
-
-    # Build rows for template (GET or POST with errors)
+    # ===== Build rows for template =====
     items_rows = []
-    for it in bill.items.all():
+    for it in item_qs:
         prod = it.product
-        left_qty = left_map.get(it.id, DEC0)
-        can_return = left_qty > DEC0
+        if not prod:
+            continue
 
-        # qty_u1 is the stored primary qty
-        qty_u1 = it.qty_primary
+        unit1_label = prod.get_unit_primary_display() or ""
+        unit2_label = (
+            prod.get_unit_secondary_display()
+            if getattr(prod, "unit_secondary", None)
+            else ""
+        )
 
-        # qty_u2 depends on conversion_factor and unit_index
-        qty_u2 = None
+        qty_primary = q3(it.qty_primary or DEC0)
+        cf = getattr(prod, "conversion_factor", None)
         try:
-            if prod and prod.conversion_factor and prod.conversion_factor > 0 and it.unit_index == 1:
-                qty_u2 = it.qty_primary / prod.conversion_factor
+            cf_val = Decimal(str(cf)) if cf else None
         except Exception:
-            qty_u2 = None
+            cf_val = None
+
+        qty_u1 = qty_primary
+
+        if cf_val and cf_val != 0:
+            try:
+                qty_u2 = q3(qty_primary / cf_val)
+            except Exception:
+                qty_u2 = DEC0
+        else:
+            qty_u2 = DEC0
+
+        highlight_unit = 1 if int(it.unit_index) == 1 else 2
+        left_qty = q3(left_map.get(it.id, DEC0))
+        total_returned = q3(returned_by_product.get(it.product_id, DEC0))
+        has_returns = total_returned > DEC0
+
+        containers = stock_by_item.get(it.id, [])
+        store_qty = DEC0
+        wh1_qty = DEC0
+        wh2_qty = DEC0
+        for c in containers:
+            code = (c.get("code") or "").lower()
+            q_left = q3(c.get("left_qty") or DEC0)
+            if code == "store":
+                store_qty = q3(store_qty + q_left)
+            elif code == "wh1":
+                wh1_qty = q3(wh1_qty + q_left)
+            elif code == "wh2":
+                wh2_qty = q3(wh2_qty + q_left)
+
+        sold_qty = q3(qty_primary - left_qty - total_returned)
+        if sold_qty < DEC0:
+            sold_qty = DEC0
+
+        # product identifiers for search
+        prod_code = getattr(prod, "product_number", "") or ""
+        barcode_val = ""
+        try:
+            for b in getattr(prod, "barcodes", []).all():
+                val = getattr(b, "barcode", None) or getattr(b, "code", None)
+                if val:
+                    barcode_val = str(val)
+                    break
+        except Exception:
+            barcode_val = ""
+
+        unit_id_val = ""
+        try:
+            for uid in getattr(prod, "unit_ids", []).all():
+                val = getattr(uid, "value", "") or ""
+                if val:
+                    unit_id_val = str(val)
+                    break
+        except Exception:
+            unit_id_val = ""
 
         items_rows.append(
             {
                 "item_id": it.id,
                 "product_name": getattr(prod, "name", "") or "",
-                "unit1_label": prod.get_unit_primary_display() if prod else "",
-                "unit2_label": (
-                    prod.get_unit_secondary_display()
-                    if (prod and getattr(prod, "unit_secondary", None))
-                    else ""
-                ),
+                "unit1_label": unit1_label,
+                "unit2_label": unit2_label,
                 "cost": it.cost,
                 "price": it.price,
                 "qty_u1": qty_u1,
+                "qty_u1_str": f"{_fmt2(qty_u1)} {unit1_label}",
                 "qty_u2": qty_u2,
+                "qty_u2_str": f"{_fmt2(qty_u2)} {unit2_label}" if unit2_label else "",
+                "highlight_unit": highlight_unit,
                 "line_total": it.line_total,
                 "left_qty": left_qty,
-                "can_return": can_return,
+                "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
+                "returned_qty": total_returned,
+                "returned_qty_str": f"{_fmt2(total_returned)} {unit1_label}",
+                "has_returns": has_returns,
+                "can_return": left_qty > DEC0,
+                "store_qty": store_qty,
+                "store_qty_str": f"{_fmt2(store_qty)} {unit1_label}",
+                "wh1_qty": wh1_qty,
+                "wh1_qty_str": f"{_fmt2(wh1_qty)} {unit1_label}",
+                "wh2_qty": wh2_qty,
+                "wh2_qty_str": f"{_fmt2(wh2_qty)} {unit1_label}",
+                "sold_qty": sold_qty,
+                "sold_qty_str": f"{_fmt2(sold_qty)} {unit1_label}",
+                # for search
+                "code": prod_code,
+                "barcode": barcode_val,
+                "unit_id": unit_id_val,
             }
         )
 
-    # Existing "has_debt_now" logic – keep whatever you had before
     has_debt_now = False
     try:
         if bill.serial:
@@ -581,17 +733,358 @@ def bill_view(request, bill_id: int):
     except Exception:
         has_debt_now = False
 
+    # parse selected items (when coming back from wizard with ?items=1,2,3)
+    raw_sel = (request.GET.get("items") or "").strip()
+    selected_items: list[int] = []
+    for part in raw_sel.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            selected_items.append(int(part))
+        except ValueError:
+            continue
+
+    # initial status at creation (if field exists, otherwise use current)
+    initial_status = getattr(bill, "initial_status", None) or (bill.status or "")
+
     ctx = {
         "bill": bill,
         "items_rows": items_rows,
         "is_closed": is_closed,
         "untouched": untouched,
-        "can_delete": untouched,       # bill can be deleted only if untouched
-        "can_return": not is_closed,   # if closed → no more returns
+        "can_delete": untouched,
+        "can_return": not is_closed,
         "has_debt_now": has_debt_now,
         "error_msg": error_msg,
+        "selected_items": selected_items,
+        "initial_status": initial_status,
     }
     return render(request, "billing/bill_view.html", ctx)
+
+
+
+
+@role_required(AccountProfile.Role.MANAGER)
+@login_required
+def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
+    """
+    Second page: choose per-container returned qty + cost for selected items
+    from a purchase bill.
+    """
+    bill = get_object_or_404(
+        Bill.objects.prefetch_related("items__product", "provider"),
+        pk=bill_id,
+    )
+
+    # ----- base queryset -----
+    item_qs = bill.items.all().select_related("product")
+    item_ids = [it.id for it in item_qs]
+
+    # ===== FIFO: left qty per BillItem + per-container breakdown =====
+    left_map: dict[int, Decimal] = {it.id: DEC0 for it in item_qs}
+    stock_by_item: dict[int, list[dict]] = {it.id: [] for it in item_qs}
+
+    if item_ids:
+        qty_field_candidates = (
+            "qty_left_primary",
+            "qty_left",
+            "qty_remaining",
+            "qty_primary_left",
+        )
+
+        layers = (
+            StockFifoLayer.objects
+            .filter(
+                source_app="billing",
+                source_model="BillItem",
+                source_id__in=[str(i) for i in item_ids],
+            )
+            .select_related("container")
+        )
+
+        for layer in layers:
+            try:
+                iid = int(layer.source_id or "0")
+            except (TypeError, ValueError):
+                continue
+            if iid not in left_map:
+                continue
+
+            qty_raw = None
+            for fname in qty_field_candidates:
+                if hasattr(layer, fname):
+                    qty_raw = getattr(layer, fname)
+                    break
+
+            qty = q3(qty_raw or DEC0)
+            if qty <= DEC0:
+                continue
+
+            left_map[iid] = q3(left_map.get(iid, DEC0) + qty)
+
+            cont = getattr(layer, "container", None)
+            code = getattr(cont, "code", "") or ""
+            name = getattr(cont, "name", "") or ""
+
+            lst = stock_by_item.setdefault(iid, [])
+            existing = None
+            for c in lst:
+                if c["code"] == code and c["name"] == name:
+                    existing = c
+                    break
+            if existing is not None:
+                existing["left_qty"] = q3((existing["left_qty"] or DEC0) + qty)
+            else:
+                lst.append(
+                    {
+                        "code": code,
+                        "name": name,
+                        "left_qty": qty,
+                    }
+                )
+
+    # check bill closed
+    total_left_now = sum(left_map.values(), DEC0)
+    is_closed = (total_left_now <= DEC0)
+    if is_closed:
+        # nothing to return, go back
+        return redirect("billing_bill_view", bill_id=bill.id)
+
+    # parse selected items (GET or POST)
+    if request.method == "POST":
+        raw_items = (request.POST.get("items_ids") or "").strip()
+    else:
+        raw_items = (request.GET.get("items") or "").strip()
+
+    selected_ids: set[int] = set()
+    for part in raw_items.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            selected_ids.add(int(part))
+        except ValueError:
+            continue
+
+    # filter items to selected with remaining qty
+    item_qs = [it for it in item_qs if it.id in selected_ids and left_map.get(it.id, DEC0) > DEC0]
+    if not item_qs:
+        return redirect("billing_bill_view", bill_id=bill.id)
+
+    # ===== build simple rows =====
+    rows = []
+    for it in item_qs:
+        prod = it.product
+        if not prod:
+            continue
+
+        unit1_label = prod.get_unit_primary_display() or ""
+
+        left_qty = q3(left_map.get(it.id, DEC0))
+
+        containers = stock_by_item.get(it.id, [])
+        store_qty = DEC0
+        wh1_qty = DEC0
+        wh2_qty = DEC0
+        for c in containers:
+            code = (c.get("code") or "").lower()
+            q_left = q3(c.get("left_qty") or DEC0)
+            if code == "store":
+                store_qty = q3(store_qty + q_left)
+            elif code == "wh1":
+                wh1_qty = q3(wh1_qty + q_left)
+            elif code == "wh2":
+                wh2_qty = q3(wh2_qty + q_left)
+
+        rows.append(
+            {
+                "item_id": it.id,
+                "product_name": getattr(prod, "name", "") or "",
+                "unit1_label": unit1_label,
+                "cost": it.cost,
+                "left_qty": left_qty,
+                "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
+                "store_qty": store_qty,
+                "store_qty_str": f"{_fmt2(store_qty)} {unit1_label}",
+                "wh1_qty": wh1_qty,
+                "wh1_qty_str": f"{_fmt2(wh1_qty)} {unit1_label}",
+                "wh2_qty": wh2_qty,
+                "wh2_qty_str": f"{_fmt2(wh2_qty)} {unit1_label}",
+            }
+        )
+#=========================from here ================================================================
+    #<-- this vertical 
+    error_msg: str | None = None
+
+    # keep what user selected for status / amount (so we can re-fill on error)
+    if request.method == "POST":
+        return_status_selected = (request.POST.get("return_status") or "").lower().strip()
+        return_paid_amount_raw = (request.POST.get("return_paid_amount") or "").strip()
+    else:
+        # initial GET → nothing chosen, box empty
+        return_status_selected = ""
+        return_paid_amount_raw = ""
+
+    if request.method == "POST":
+        # 1) copy all raw inputs from POST into rows so we can re-render them on error
+        for r in rows:
+            iid = r["item_id"]
+            key_store = f"ret_store_{iid}"
+            key_wh1 = f"ret_wh1_{iid}"
+            key_wh2 = f"ret_wh2_{iid}"
+            key_cost = f"ret_cost_{iid}"
+
+            r["ret_store_raw"] = (request.POST.get(key_store) or "").strip()
+            r["ret_wh1_raw"] = (request.POST.get(key_wh1) or "").strip()
+            r["ret_wh2_raw"] = (request.POST.get(key_wh2) or "").strip()
+            r["ret_cost_raw"] = (request.POST.get(key_cost) or "").strip()
+
+        # 2) build payload + validate
+        items_payload: list[dict[str, Any]] = []
+        total_return_cost = DEC0  # إجمالي قيمة المرتجع (كل الصفوف)
+
+        try:
+            for r in rows:
+                iid = r["item_id"]
+                it = next(i for i in item_qs if i.id == iid)
+                prod = it.product
+
+                key_store = f"ret_store_{iid}"
+                key_wh1 = f"ret_wh1_{iid}"
+                key_wh2 = f"ret_wh2_{iid}"
+                key_cost = f"ret_cost_{iid}"
+
+                # use the raw values we already copied into row
+                q_store = _dec(r.get("ret_store_raw"), "0")
+                q_wh1 = _dec(r.get("ret_wh1_raw"), "0")
+                q_wh2 = _dec(r.get("ret_wh2_raw"), "0")
+
+                if q_store < DEC0 or q_wh1 < DEC0 or q_wh2 < DEC0:
+                    raise ValueError("لا يمكن إدخال كميات سالبة للمرتجع.")
+
+                qty_total = q3(q_store + q_wh1 + q_wh2)
+                if qty_total <= DEC0:
+                    # no return for this row, skip
+                    continue
+
+                # check against available per container
+                if q_store > r["store_qty"]:
+                    raise ValueError(f"الكمية المرتجعة من المتجر للمنتج '{prod.name}' أكبر من المتاح.")
+                if q_wh1 > r["wh1_qty"]:
+                    raise ValueError(f"الكمية المرتجعة من مستودع 1 للمنتج '{prod.name}' أكبر من المتاح.")
+                if q_wh2 > r["wh2_qty"]:
+                    raise ValueError(f"الكمية المرتجعة من مستودع 2 للمنتج '{prod.name}' أكبر من المتاح.")
+
+                # also total vs left
+                if qty_total > r["left_qty"]:
+                    raise ValueError(f"إجمالي الكمية المرتجعة للمنتج '{prod.name}' أكبر من الكمية المتبقية.")
+
+                # cost: use raw if provided, otherwise default to item cost
+                raw_cost = r.get("ret_cost_raw") or str(it.cost or "0")
+                cost = _dec(raw_cost, str(it.cost or "0"))
+
+                # accumulate total return cost (cost * qty_total)
+                total_return_cost = q3(total_return_cost + (cost * qty_total))
+
+                container_splits: list[dict[str, str]] = []
+                if q_store > DEC0:
+                    container_splits.append(
+                        {"code": "store", "qty_primary": str(q_store)}
+                    )
+                if q_wh1 > DEC0:
+                    container_splits.append(
+                        {"code": "wh1", "qty_primary": str(q_wh1)}
+                    )
+                if q_wh2 > DEC0:
+                    container_splits.append(
+                        {"code": "wh2", "qty_primary": str(q_wh2)}
+                    )
+
+                items_payload.append(
+                    {
+                        "product_id": it.product_id,
+                        "unit_index": 1,
+                        "qty_primary": str(qty_total),
+                        "cost": str(cost),
+                        "container_splits": container_splits,
+                    }
+                )
+
+            if not items_payload:
+                raise ValueError("لم يتم إدخال أي كميات مرتجعة.")
+
+            # 3) pay status + amount validation
+            raw_status = (return_status_selected or "").lower()
+            if raw_status not in {"paid", "unpaid", "partial"}:
+                # user didn’t pick any radio
+                raise ValueError("يجب اختيار حالة دفع للمرتجع.")
+
+            paid_amount = _dec(return_paid_amount_raw or "0", "0")
+
+            if paid_amount < DEC0:
+                paid_amount = -paid_amount
+
+            status = raw_status
+
+            if status == "partial":
+                # partial + no amount → treat as unpaid
+                if paid_amount <= DEC0:
+                    status = "unpaid"
+                    paid_amount = DEC0
+                else:
+                    if total_return_cost <= DEC0:
+                        raise ValueError("لا يمكن تحديد حالة الدفع جزئية مع إجمالي مرتجع صفري.")
+                    if paid_amount > total_return_cost:
+                        raise ValueError("المبلغ المدفوع لا يمكن أن يتجاوز إجمالي قيمة المرتجع.")
+                    if paid_amount == total_return_cost:
+                        status = "paid"
+
+            elif status == "paid":
+                if total_return_cost <= DEC0:
+                    raise ValueError("لا يمكن تحديد حالة الدفع مدفوعة بالكامل مع إجمالي مرتجع صفري.")
+                if paid_amount == DEC0:
+                    # if manager leaves box empty with 'paid', assume full amount
+                    paid_amount = total_return_cost
+                elif paid_amount > total_return_cost:
+                    raise ValueError("المبلغ المدفوع لا يمكن أن يتجاوز إجمالي قيمة المرتجع.")
+
+            else:  # unpaid
+                paid_amount = DEC0
+
+            # 4) create ProviderReturn
+            pret = SV.create_return(
+                actor=request.user,
+                provider_id=bill.provider_id,
+                status=status,
+                paid_amount=paid_amount,
+                items=items_payload,
+                container=None,  # using per-item container_splits
+                source_bill_serial=bill.serial,
+            )
+
+            return redirect("billing_returns_list")
+
+        except ValueError as ve:
+            error_msg = str(ve)
+        except Exception:
+            logger.exception("bill_return_wizard: failed to create ProviderReturn")
+            error_msg = "فشل حفظ المرتجع، حدث خطأ غير متوقع."
+
+
+    selected_ids_str = ",".join(str(r["item_id"]) for r in rows)
+
+    ctx = {
+        "bill": bill,
+        "rows": rows,
+        "error_msg": error_msg,
+        "items_ids": selected_ids_str,
+        "return_status_selected": return_status_selected,
+        "return_paid_amount_raw": return_paid_amount_raw,
+    }
+
+    return render(request, "billing/bill_return_wizard.html", ctx)
+
 
 
 
@@ -629,112 +1122,6 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
 # ----------- Provider Returns (receivables) ---------------
 
 @role_required(AccountProfile.Role.MANAGER)
-def providers_returns_page(request: HttpRequest) -> HttpResponse:
-    containers = (
-        ProductContainer.objects
-        .filter(is_active=True)
-        .order_by("sort_order", "name")
-    )
-    ctx = {"containers": containers}
-    return render(request, "billing/providers_returns.html", ctx)
-
-
-@require_GET
-@role_required(AccountProfile.Role.MANAGER)
-def api_return_next_serial(request: HttpRequest) -> JsonResponse:
-    from django.db.models import Max
-    m_ret  = ProviderReturn.objects.aggregate(m=Max("serial"))["m"] or 0
-    m_cred = CreditorEntry.objects.aggregate(m=Max("doc_serial"))["m"] or 0
-    return JsonResponse({"ok": True, "next_serial": int(max(int(m_ret or 0), int(m_cred or 0))) + 1})
-
-
-
-@require_POST
-@role_required(AccountProfile.Role.MANAGER)
-def api_return_save(request: HttpRequest) -> JsonResponse:
-    try:
-        payload = json.loads(request.body.decode("utf-8") or "{}")
-    except Exception:
-        return _bad("bad json")
-
-    items = payload.get("items") or []
-    if not items:
-        return _bad("no items")
-
-    provider = payload.get("provider") or {}
-    pid = provider.get("id")
-    if not pid:
-        return _bad("provider must be selected from list")
-
-    # ---- Container handling (same style as api_bill_save) ----
-    # Accept:
-    #   payload["container_code"] = "store"
-    #   payload["container"] = {"code": "store"}
-    #   payload["container"] = "store"
-    raw_container = payload.get("container")
-    container_code = (payload.get("container_code") or "")
-
-    if not container_code:
-        if isinstance(raw_container, dict):
-            container_code = (raw_container.get("code") or "")
-        else:
-            container_code = (raw_container or "")
-
-    if isinstance(container_code, str):
-        container_code = container_code.strip()
-    else:
-        container_code = ""
-
-    if not container_code:
-        container_code = "store"
-
-    from stock.models import ProductContainer  # local import
-
-    try:
-        container = ProductContainer.objects.get(code=container_code)
-    except ProductContainer.DoesNotExist:
-        return _bad("invalid container", 400)
-
-    # ---- Pay section ----
-    pay = payload.get("pay") or {}
-    status = (pay.get("status") or "unpaid").lower()
-    if status not in {"paid", "unpaid", "partial"}:
-        status = "unpaid"
-    paid_amount = _dec(pay.get("paid_amount"), "0")
-
-    try:
-        # Try new signature with container kwarg
-        try:
-            pret = SV.create_return(
-                actor=request.user,
-                provider_id=int(pid),
-                status=status,
-                paid_amount=paid_amount,
-                items=items,
-                container=container,
-            )
-        except TypeError:
-            # Fallback for older create_return without container parameter
-            pret = SV.create_return(
-                actor=request.user,
-                provider_id=int(pid),
-                status=status,
-                paid_amount=paid_amount,
-                items=items,
-            )
-
-        return JsonResponse({"ok": True, "ret": return_row(pret)})
-    except ValueError as ve:
-        return _bad(str(ve))
-    except Product.DoesNotExist:
-        return _bad("product not found", 404)
-    except Exception as e:
-        logger.exception("api_return_save failed")
-        return _bad(f"save failed: {e.__class__.__name__}: {e}", 500)
-
-
-
-@role_required(AccountProfile.Role.MANAGER)
 def providers_returns_list_page(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/providers_returns_list.html")
 
@@ -745,6 +1132,7 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
     serial = request.GET.get("serial")
     rid = request.GET.get("id")
+    bill_serial = request.GET.get("bill_serial")
     date_from = (request.GET.get("date_from") or "").strip()
     date_to = (request.GET.get("date_to") or "").strip()
     status = (request.GET.get("status") or "").lower()  # property-based
@@ -754,7 +1142,18 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
     except ValueError:
         page_size = 30
 
-    qs = S.returns_list_filters(q, serial, rid, status, date_from, date_to, cursor, page_size)
+    qs = S.returns_list_filters(
+        q,
+        serial,
+        rid,
+        bill_serial,
+        status,
+        date_from,
+        date_to,
+        cursor,
+        page_size,
+    )
+
     items = list(qs)
 
     # Python-level status filter (since status is property now)
