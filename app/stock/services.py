@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import Iterable
 
 from django.db import transaction
+from django.db.models import Sum
+from django.conf import settings
 
 from catalog.models import Product
 from inventory.models import ProductMovement, q3 , q4
@@ -12,6 +14,87 @@ from stock.models import ProductContainer, StockEntry , StockFifoLayer, DEC0
 
 from django.utils import timezone
 from inventory import services as InvSV
+
+
+
+def _fifo_sum_for(product: Product, container: ProductContainer) -> Decimal:
+    """
+    Sum of remaining FIFO quantity for given product in given container.
+    This is the single source of truth for stock.
+    """
+    agg = (
+        StockFifoLayer.objects
+        .filter(product=product, container=container)
+        .aggregate(s=Sum("qty_remaining"))
+    )
+    return (agg["s"] or DEC0).quantize(Decimal("0.001"))
+
+
+def sync_entry_from_fifo(product: Product, container: ProductContainer) -> StockEntry:
+    """
+    Recalculate StockEntry.qty_primary from FIFO layers and save.
+    This function should be called after ANY operation that changes stock.
+    """
+    total = _fifo_sum_for(product, container)
+
+    entry, _ = StockEntry.objects.get_or_create(
+        product=product,
+        container=container,
+        defaults={"qty_primary": DEC0, "avg_unit_cost": DEC0},
+    )
+    if entry.qty_primary != total:
+        entry.qty_primary = total
+        entry.save(update_fields=["qty_primary"])
+
+    return entry
+
+
+def assert_entry_matches_fifo(product: Product, container: ProductContainer) -> None:
+    """
+    Debug-time guard: if StockEntry and FIFO diverge, blow up (in DEBUG)
+    or at least log + fix in production.
+    """
+    total_fifo = _fifo_sum_for(product, container)
+    entry = (
+        StockEntry.objects
+        .filter(product=product, container=container)
+        .first()
+    )
+
+    if entry is None:
+        # if no entry, fifo sum must be zero
+        if total_fifo != DEC0:
+            msg = (
+                f"Stock inconsistency: no StockEntry for product={product.id}, "
+                f"container={container.code}, but FIFO total={total_fifo}"
+            )
+            if settings.DEBUG:
+                raise RuntimeError(msg)
+            # In production, auto-create entry
+            StockEntry.objects.create(
+                product=product,
+                container=container,
+                qty_primary=total_fifo,
+                avg_unit_cost=DEC0,
+            )
+        return
+
+    if entry.qty_primary != total_fifo:
+        msg = (
+            f"Stock inconsistency for product={product.id}, container={container.code}: "
+            f"StockEntry.qty_primary={entry.qty_primary}, FIFO total={total_fifo}"
+        )
+        if settings.DEBUG:
+            # explode loudly while developing
+            raise RuntimeError(msg)
+        else:
+            # in production: log + auto-fix instead of killing the cashier
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(msg + " – auto-syncing entry from FIFO.")
+            entry.qty_primary = total_fifo
+            entry.save(update_fields=["qty_primary"])
+
 
 
 # ===================== FIFO helpers =====================
@@ -42,14 +125,19 @@ def fifo_add_incoming(
     uc = q4(Decimal(str(unit_cost or DEC0)))
 
     StockFifoLayer.objects.create(
-        product=product,
-        container=container,
-        qty_remaining=qty,
-        unit_cost=uc,
-        source_app=source_app or "",
-        source_model=source_model or "",
-        source_id=str(source_id or ""),
+    product=product,
+    container=container,
+    qty_remaining=qty,
+    unit_cost=uc,
+    source_app=source_app or "",
+    source_model=source_model or "",
+    source_id=str(source_id or ""),
     )
+
+    # لا نلمس StockEntry هنا.
+    # StockEntry يتم تحديثه من خلال ProductMovement عبر apply_movement في inventory.
+
+
 
 
 @transaction.atomic
@@ -117,7 +205,13 @@ def fifo_consume(
         return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
 
     eff_uc = total_cost / need
-    return q4(eff_uc)
+    eff_uc = q4(eff_uc)
+
+    # لا نلمس StockEntry هنا أيضاً.
+    # الحركات (ProductMovement) هي التي تعدّل StockEntry.
+    return eff_uc
+
+
 
 
 @transaction.atomic
@@ -318,9 +412,13 @@ def transfer_from_batch(
         container=to_container,
     )
 
+    # 🔥 after FIFO + movements: force StockEntry to match FIFO on both sides
+    sync_entry_from_fifo(product, from_container)
+    sync_entry_from_fifo(product, to_container)
+    assert_entry_matches_fifo(product, from_container)
+    assert_entry_matches_fifo(product, to_container)
+
     return mv_out, mv_in
-
-
 
 @transaction.atomic
 def transfer_between_containers(

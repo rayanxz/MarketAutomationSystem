@@ -174,11 +174,13 @@ thead th{
 }
 th, td{ padding:10px 12px; border-bottom:1px dashed var(--row-border); }
 tbody tr:hover{ background:var(--hover); }
-.col-name{ width:36%; }
+.col-name{ width:32%; }
 .col-qty{ width:10%; text-align:center; }
-.col-unit{ width:14%; text-align:center; }
-.col-disc{ width:12%; text-align:center; }
-.col-total{ width:16%; text-align:left; font-variant-numeric:tabular-nums; }
+.col-unit{ width:12%; text-align:center; }
+.col-unitprice{ width:14%; text-align:left; font-variant-numeric:tabular-nums; }
+.col-disc{ width:10%; text-align:center; }
+.col-total{ width:14%; text-align:left; font-variant-numeric:tabular-nums; }
+
 
 .bill-footer{
   border-top:var(--line);
@@ -467,3 +469,40 @@ tbody tr:hover{ background:var(--hover); }
 }
 
 .pos-overlay[hidden] { display: none !important; }
+
+/* ===== Product inquiry highlight (price + stock) ===== */
+.pos-inq-highlight{
+  margin-top:10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+.pos-inq-card{
+  flex:1;
+  min-width: 0;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--accent);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 20%, transparent), transparent 55%),
+    var(--panel-2);
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:4px;
+}
+
+.pos-inq-label{
+  font-size:11px;
+  color:var(--muted);
+}
+
+.pos-inq-value{
+  font-size:20px;
+  font-weight:800;
+  letter-spacing:.3px;
+  font-variant-numeric:tabular-nums;
+  color:var(--accent-2);
+}

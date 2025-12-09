@@ -97,6 +97,53 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
   setInterval(tick, 1000);
 })();
 
+
+const newBillBtn = document.getElementById("posNewBillBtn");
+
+
+/* ===== POS error modal (generic) ===== */
+const posErrorOverlay    = document.getElementById("posErrorOverlay");
+const posErrorMsgEl      = document.getElementById("posErrorMessage");
+const posErrorDetailsEl  = document.getElementById("posErrorDetails");
+const posErrorOkBtn      = document.getElementById("posErrorOk");
+
+function showPosError(message, detailsHtml) {
+  if (!posErrorOverlay || !posErrorMsgEl || !posErrorDetailsEl) {
+    // fallback if template missing: ugly but works
+    alert(message || "حدث خطأ غير معروف.");
+    return;
+  }
+  posErrorMsgEl.textContent = message || "";
+  posErrorDetailsEl.innerHTML = detailsHtml || "";
+  posErrorOverlay.hidden = false;
+
+  if (posErrorOkBtn) {
+    posErrorOkBtn.focus();
+  }
+}
+
+function hidePosError() {
+  if (posErrorOverlay) {
+    posErrorOverlay.hidden = true;
+  }
+}
+
+// OK button click
+if (posErrorOkBtn) {
+  posErrorOkBtn.addEventListener("click", () => {
+    hidePosError();
+  });
+}
+
+// Enter / Esc while error modal is open → close it
+document.addEventListener("keydown", (e) => {
+  if (!posErrorOverlay || posErrorOverlay.hidden) return;
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    hidePosError();
+  }
+});
+
 /* ===== POS State ===== */
 const initialBillState = {
   id: null,
@@ -197,11 +244,175 @@ function setBillLocked(locked) {
     }
   }
 
-  // Show / hide "new bill" button
-  if (closeBillBtn) {
-    closeBillBtn.style.display = locked ? "inline-flex" : "none";
+}
+
+/* ===== Stock lookup helpers (store container) ===== */
+
+// call /stock/api/product-stock/?product_id=...
+async function fetchStoreStockQty(productId) {
+  if (!productId) return 0;
+
+  try {
+    const url = `/manager/stock/api/product-stock/?product_id=${encodeURIComponent(productId)}`;
+    const res = await fetch(url, { method: "GET", credentials: "same-origin" });
+    if (!res.ok) return 0;
+
+    const data = await res.json();
+    if (!data.ok) return 0;
+
+    const containers = data.containers || [];
+    const storeRow = containers.find(c => c.code === "store");
+    if (!storeRow) return 0;
+
+    const qty = parseFloat(storeRow.qty);
+    return isNaN(qty) ? 0 : qty;
+  } catch (err) {
+    console.error("fetchStoreStockQty error:", err);
+    return 0;
   }
 }
+
+/**
+ * Ensure product has >0 qty in store container before adding to bill rows.
+ * Used only in "add" mode, not in "inq".
+ */
+async function ensureProductAvailableInStore(product) {
+  if (!product || !product.id) return true;
+
+  const storeQty = await fetchStoreStockQty(product.id);
+
+  if (storeQty <= 0) {
+    const name = product.name || `#${product.id}`;
+    const msg = `لا يمكن إضافة المنتج «${name}» لأن كميته في المتجر صفر أو سالبة.`;
+    const details = `
+      <div>الكمية المتوفرة حالياً في المتجر: <strong>${storeQty.toFixed(3)}</strong></div>
+      <div style="margin-top:4px;">الرجاء إدخال فاتورة شراء أو نقل كمية من المستودع إلى المتجر أولاً.</div>
+    `;
+    showPosError(msg, details);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Validate that the edited row's quantity does NOT exceed store stock.
+ * Uses current form values (qty + uom) + row.conv to compute primary qty.
+ * Returns true if OK, false if not.
+ */
+async function validateRowStockBeforeSave(idx) {
+  const row = state.rows[idx];
+  if (!row || !row.id) return true; // nothing to validate
+
+  // read current form values (what cashier just edited)
+  const qEl  = document.getElementById("qty");
+  const uEl  = document.getElementById("uom");
+
+  const qty      = Number(qEl?.value || 0);
+  const uomIndex = Number(uEl?.value || 1);
+  const conv     = Number(row.conv || 1);
+
+  // convert to primary units like inventory does
+  const qtyPrimary = qty * (uomIndex === 2 ? conv : 1);
+
+  // if zero/negative, just allow (they might be clearing row / making it tiny)
+  if (qtyPrimary <= 0) {
+    return true;
+  }
+
+  // fetch available qty in store
+  const storeQty = await fetchStoreStockQty(row.id);
+
+  // if no stock data, just allow – backend will still block on finalize if needed
+  if (!isFinite(storeQty)) return true;
+
+  if (qtyPrimary > storeQty + 1e-9) {
+    const name = row.name || `#${row.id}`;
+    const msg = `لا يمكن تحديد كمية أكبر من المخزون للمنتج «${name}».`;
+    const details = `
+      <div>الكمية المتوفرة حالياً في المتجر: <strong>${fmt(storeQty)}</strong></div>
+      <div>الكمية المطلوبة في هذه الفاتورة: <strong>${fmt(qtyPrimary)}</strong></div>
+      <div style="margin-top:4px;">خفّض الكمية أو أدخل فاتورة شراء / نقل مخزون قبل المتابعة.</div>
+    `;
+    showPosError(msg, details);
+    return false;
+  }
+
+  return true;
+}
+
+
+
+/* ===== Product inquiry overlay ===== */
+const inqOverlayEl   = document.getElementById("posInquiryOverlay");
+const inqNameEl      = document.getElementById("posInqName");
+const inqPriceEl     = document.getElementById("posInqPrice");
+const inqStoreQtyEl  = document.getElementById("posInqStoreQty");
+const inqU1El        = document.getElementById("posInqU1");
+const inqU2El        = document.getElementById("posInqU2");
+const inqConvEl      = document.getElementById("posInqConv");
+const inqCloseBtn    = document.getElementById("posInqClose");
+
+function closeInquiryOverlay() {
+  if (!inqOverlayEl) return;
+  inqOverlayEl.hidden = true;
+  // رجّع الفوكس للباركود للسكّانر
+  setTimeout(() => barcode?.focus(), 0);
+}
+
+async function openInquiryOverlay(product) {
+  if (!inqOverlayEl || !product) return;
+
+  // 1) كمية المتجر
+  let storeQty = 0;
+  try {
+    storeQty = await fetchStoreStockQty(product.id);
+  } catch (err) {
+    console.error("inquiry store qty error:", err);
+  }
+  if (!isFinite(storeQty)) storeQty = 0;
+
+  // 2) الوحدات + عامل التحويل
+  const u1Label = product.units?.primary?.label || "الوحدة الأولى";
+  const u2Label = product.units?.secondary?.label || "";
+  const convRaw = product.units?.conversion_factor;
+  const conv    = convRaw != null ? String(convRaw) : null;
+
+  // 3) السعر: نستخدم نفس price القادم من الـ API (سعر للوحدة الأولى)
+  const priceNum = Number(product.price || 0);
+
+  if (inqNameEl)     inqNameEl.textContent     = product.name || "";
+  if (inqPriceEl)    inqPriceEl.textContent    = `${fmt(priceNum)} / ${u1Label}`;
+  if (inqStoreQtyEl) inqStoreQtyEl.textContent = fmt(storeQty);
+  if (inqU1El)       inqU1El.textContent       = u1Label;
+  if (inqU2El)       inqU2El.textContent       = u2Label || "—";
+  if (inqConvEl)     inqConvEl.textContent     = conv || "—";
+
+  inqOverlayEl.hidden = false;
+  inqCloseBtn?.focus();
+}
+
+// زر إغلاق
+inqCloseBtn?.addEventListener("click", (e) => {
+  e.preventDefault();
+  closeInquiryOverlay();
+});
+
+// كليك برا المودال → إغلاق
+inqOverlayEl?.addEventListener("click", (e) => {
+  if (e.target === inqOverlayEl) {
+    closeInquiryOverlay();
+  }
+});
+
+// Enter / Esc ونافذة الاستعلام مفتوحة → إغلاق
+document.addEventListener("keydown", (e) => {
+  if (!inqOverlayEl || inqOverlayEl.hidden) return;
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closeInquiryOverlay();
+  }
+});
 
 
 /* ===== Render bill rows ===== */
@@ -215,19 +426,37 @@ function renderRows() {
     tr.dataset.index = idx;
     if (state.editing && idx === state.selectedIndex) tr.classList.add("is-active");
 
-    const tdName = document.createElement("td"); tdName.textContent = r.name;
-    const tdQty  = document.createElement("td"); tdQty.className = "col-qty";  tdQty.textContent = fmt(r.qty);
-    const tdUnit = document.createElement("td"); tdUnit.className = "col-unit";
+    const tdName = document.createElement("td"); 
+    tdName.textContent = r.name;
+
+    const tdQty  = document.createElement("td"); 
+    tdQty.className = "col-qty";  
+    tdQty.textContent = fmt(r.qty);
+
+    const tdUnit = document.createElement("td"); 
+    tdUnit.className = "col-unit";
     tdUnit.textContent = (r.uomIndex === 2 ? r.u2Label : r.u1Label) || (r.uomIndex === 2 ? "الوحدة الثانية" : "الوحدة الأولى");
 
+    // NEW: unit price (always price per الوحدة الأساسية)
+    const tdPrice = document.createElement("td");
+    tdPrice.className = "col-unitprice";
+    tdPrice.textContent = fmt(r.price);
+
     // always show discount as AMOUNT in the middle table
-    const tdDisc = document.createElement("td"); tdDisc.className = "col-disc";
+    const tdDisc = document.createElement("td"); 
+    tdDisc.className = "col-disc";
     const discAmount = Math.max(Number(r.discAmt || 0), 0);
     tdDisc.textContent = discAmount > 0 ? fmt(discAmount) : "—";
 
-    const tdTotal = document.createElement("td"); tdTotal.className = "col-total"; tdTotal.textContent = fmt(rowTotal(r));
-    const tdNotes = document.createElement("td"); tdNotes.textContent = r.notes || "—";
-    tr.append(tdName, tdQty, tdUnit, tdDisc, tdTotal, tdNotes);
+    const tdTotal = document.createElement("td"); 
+    tdTotal.className = "col-total"; 
+    tdTotal.textContent = fmt(rowTotal(r));
+
+    const tdNotes = document.createElement("td"); 
+    tdNotes.textContent = r.notes || "—";
+
+    tr.append(tdName, tdQty, tdUnit, tdPrice, tdDisc, tdTotal, tdNotes);
+
 
     tr.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -274,10 +503,6 @@ const roStatusEl     = document.getElementById("roPayStatus");
 const roPaidEl       = document.getElementById("roPaid");
 const roLeftEl       = document.getElementById("roLeft");
 const roCustEl       = document.getElementById("roCustomer");
-
-// close button in mid header
-const closeBillBtn   = document.getElementById("posBillClose");
-
 
 function updateGrandTotal() {
   const t = state.rows.reduce((s, r) => s + rowTotal(r), 0);
@@ -356,17 +581,43 @@ function goIdle() {
   setTimeout(() => document.getElementById("barcode")?.focus(), 0);
 }
 
-function saveEditAndGoIdle() {
+async function saveEditAndGoIdle() {
   if (state.selectedIndex >= 0) {
+    // 🔍 check stock for this row before saving
+    const ok = await validateRowStockBeforeSave(state.selectedIndex);
+    if (!ok) {
+      // stay in edit mode, keep form as-is
+      return;
+    }
+
+    // OK → save edits and re-render
     saveRightToRow(state.selectedIndex);
     renderRows();
   }
   goIdle();
 }
 
+
 /* ===== Mode switch ===== */
 document.getElementById("modeAdd")?.addEventListener("change", () => { state.mode = "add"; });
 document.getElementById("modeInq")?.addEventListener("change", () => { state.mode = "inq"; });
+
+function togglePosMode() {
+  const addR = document.getElementById("modeAdd");
+  const inqR = document.getElementById("modeInq");
+  if (!addR || !inqR) return;
+
+  if (addR.checked) {
+    inqR.checked = true;
+    state.mode = "inq";
+    // fire change for any listeners, just in case
+    inqR.dispatchEvent(new Event("change"));
+  } else {
+    addR.checked = true;
+    state.mode = "add";
+    addR.dispatchEvent(new Event("change"));
+  }
+}
 
 /* ===== Barcode flow ===== */
 const bcInput = document.getElementById("barcode");
@@ -389,7 +640,7 @@ bcInput?.addEventListener("keydown", (e) => {
 async function lookupByBarcode(code) {
   if (state.bill.locked) return;
   bcErr.style.display = "none";
-  try {
+    try {
     const res = await fetch(`/pos/api/barcode/${encodeURIComponent(code)}/`);
     const j = await res.json();
     if (!j.ok) {
@@ -397,16 +648,18 @@ async function lookupByBarcode(code) {
       bcErr.style.display = "block";
       return;
     }
+    
     const p = j.product;
 
     if (state.mode === "inq") {
-      const temp = toRow(p);
-      loadRowToRight(temp);
-      state.editing = true;
-      setEditingLock(true);
-      document.getElementById("qty")?.focus();
+      await openInquiryOverlay(p);
       return;
     }
+
+    // ADD: stock check for ADD mode
+    const ok = await ensureProductAvailableInStore(p);
+
+    if (!ok) return;
 
     const row = toRow(p);
     row.qty = 1;
@@ -422,6 +675,7 @@ async function lookupByBarcode(code) {
   } finally {
     bcInput.value = "";
   }
+
 }
 
 function toRow(p) {
@@ -445,13 +699,14 @@ function toRow(p) {
 // Enter inside any right-panel input => save and go idle
 ["qty","uom","discPct","discAmt","notes"].forEach((id) => {
   const el = document.getElementById(id);
-  el?.addEventListener("keydown", (e) => {
+  el?.addEventListener("keydown", async (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      saveEditAndGoIdle();
+      await saveEditAndGoIdle();
     }
   });
 });
+
 
 // Two-way discount sync and live render
 const qtyEl  = document.getElementById("qty");
@@ -535,12 +790,13 @@ notesEl?.addEventListener("input", () => { pushFormToStateAndRender(); });
 
 // If we're editing and the user presses Enter anywhere in the right panel, save.
 const rightPanel = document.querySelector(".right-panel");
-rightPanel?.addEventListener("keydown", (e) => {
+rightPanel?.addEventListener("keydown", async (e) => {
   if (e.key === "Enter" && state.editing) {
     if (!["TEXTAREA"].includes(e.target.tagName)) e.preventDefault();
-    saveEditAndGoIdle();
+    await saveEditAndGoIdle();
   }
 });
+
 
 /* ===== Bill footer: pay status + customer ===== */
 
@@ -639,6 +895,17 @@ custNewEl?.addEventListener("change", () => {
 document.addEventListener("keydown", (e) => {
   if (e.code !== "Space" || e.ctrlKey || e.altKey || e.metaKey) return;
 
+  // let Space behave normally ONLY inside customer name + product name
+  const t = e.target;
+  if (
+    t &&
+    (t.tagName === "INPUT" || t.tagName === "TEXTAREA") &&
+    ["custName", "pname"].includes(t.id)
+  ) {
+    // no preventDefault, no row editing — just type the space
+    return;
+  }
+
   // if editing, ignore Space entirely (do NOT jump to qty)
   if (state.editing) return;
 
@@ -665,6 +932,8 @@ document.addEventListener("keydown", (e) => {
     }
   }
 });
+
+
 
 
 /* ===== Left panel: today's bills ===== */
@@ -716,7 +985,7 @@ function renderLeftBills() {
       border-radius:6px;
     `;
 
-    div.dataset.id = b.id;
+    div.dataset.id = String(b.id);
 
     const main = document.createElement("div");
     main.style.display = "flex";
@@ -747,9 +1016,10 @@ function renderLeftBills() {
     `;
 
     if (b.parked) {
-      div.style.border = "1px dashed var(--accent)";
-      div.style.background = "rgba(59,130,246,0.06)";
+      div.style.border = "1px dashed #dc8c53ff"; // orange border
+      div.style.background = "rgba(255,180,80,0.15)"; // light orange
     }
+
 
     div.appendChild(main);
     div.appendChild(amounts);
@@ -757,6 +1027,14 @@ function renderLeftBills() {
     div.addEventListener("click", () => {
       loadBillFromBackend(b.id);
     });
+
+    const activeId = state.selectedBillId ? String(state.selectedBillId) : null;
+    const isActive = String(b.id) === activeId;
+
+    if (isActive) {
+        div.style.background = "var(--accent-light)";
+        div.style.border = "2px solid var(--accent)";
+    }
 
     leftListEl.appendChild(div);
   });
@@ -800,24 +1078,30 @@ async function loadBillFromBackend(id) {
     state.bill.customerName = b.customer_name || "";
     state.bill.customerId   = b.customer_id || null;
     state.bill.createdAt    = b.created_at;
-    state.selectedBillId    = b.id;
+    state.selectedBillId    = String(b.id);
 
     state.editing = false;
     state.selectedIndex = -1;
     setEditingLock(false);
 
-    renderRows();          // will also recompute total & left based on rows
+       renderRows();          // will also recompute total & left based on rows
     syncFooterFromBill();  // push bill state to footer inputs
 
     // locked if NOT parked (saved/final)
     setBillLocked(!state.bill.parked);
 
     clearRightPanel();
+
+    // update left list highlight so currently opened bill is clearly marked
+    if (typeof renderLeftBills === "function") {
+      renderLeftBills();
+    }
   } catch (err) {
     console.error(err);
     alert("تعذر تحميل الفاتورة.");
   }
 }
+
 
 /* ===== Global shortcuts (idle only) =====
    - Ctrl+Enter: save bill
@@ -829,7 +1113,31 @@ async function loadBillFromBackend(id) {
 ================================================ */
 document.addEventListener("keydown", (e) => {
   // If modal is open, ignore global shortcuts (modal traps Enter/Esc)
-  if (overlayEl && !overlayEl.hidden) return;
+  const errOverlay = document.getElementById("posErrorOverlay");
+  if (
+    (overlayEl && !overlayEl.hidden) ||
+    (errOverlay && !errOverlay.hidden) ||
+    (inqOverlayEl && !inqOverlayEl.hidden)
+  ) {
+    return;
+  }
+    // Alt + A / Alt + ش => toggle between "add" and "inq" modes
+  if (
+    e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    (
+      e.code === "KeyA" ||              // physical A key
+      e.key === "a" || e.key === "A" || // Latin
+      e.key === "ش"                     // Arabic keyboard
+    )
+  ) {
+    e.preventDefault();
+    togglePosMode();
+    return;
+  }
+
+
 
    if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
     if (state.bill.locked) {
@@ -921,18 +1229,23 @@ function showSuggestions(items) {
   suggest.style.display = "block";
 }
 
-function chooseName(i) {
-  const it = suggestItems[i]; if (!it || state.bill.locked) return;
-  fetch(`/pos/api/lookup/id/${it.id}/`).then(r => r.json()).then(j => {
+async function chooseName(i) {
+  const it = suggestItems[i]; 
+  if (!it || state.bill.locked) return;
+
+  try {
+    const r = await fetch(`/pos/api/lookup/id/${it.id}/`);
+    const j = await r.json();
     if (!j.ok) return;
+
     const p = j.product;
-    if (state.mode === "inq") {
-      const temp = toRow(p);
-      loadRowToRight(temp);
-      state.editing = true;
-      setEditingLock(true);
-      document.getElementById("qty")?.focus();
+
+     if (state.mode === "inq") {
+      await openInquiryOverlay(p);
     } else {
+      const ok = await ensureProductAvailableInStore(p);
+      if (!ok) return;
+
       const row = toRow(p);
       row.qty = 1;
       row.uomIndex = 1;
@@ -942,10 +1255,14 @@ function chooseName(i) {
       clearRightPanel();
       focusBarcodeSoon();
     }
-  });
-  nameInput.value = "";
-  suggest.style.display = "none";
+  } catch (err) {
+    console.error(err);
+  } finally {
+    nameInput.value = "";
+    suggest.style.display = "none";
+  }
 }
+
 
 let nameTimer = null;
 nameInput?.addEventListener("input", () => {
@@ -974,20 +1291,25 @@ function highlightSuggest() {
 }
 
 /* ===== Code/ID quick lookup (Enter to add/load) ===== */
-document.getElementById("pcode")?.addEventListener("keydown", (e) => {
+document.getElementById("pcode")?.addEventListener("keydown", async (e) => {
   if (e.code === "Enter" || e.code === "NumpadEnter") {
     if (state.bill.locked) return;
-    const v = e.target.value.trim(); if (!v) return;
-    fetch(`/pos/api/lookup/code/${encodeURIComponent(v)}/`).then(r => r.json()).then(j => {
+    const v = e.target.value.trim(); 
+    if (!v) return;
+
+    try {
+      const r = await fetch(`/pos/api/lookup/code/${encodeURIComponent(v)}/`);
+      const j = await r.json();
       if (!j.ok) return;
+
       const p = j.product;
+
       if (state.mode === "inq") {
-        const temp = toRow(p);
-        loadRowToRight(temp);
-        state.editing = true;
-        setEditingLock(true);
-        document.getElementById("qty")?.focus();
+        await openInquiryOverlay(p);
       } else {
+        const ok = await ensureProductAvailableInStore(p);
+        if (!ok) return;
+
         const row = toRow(p);
         row.qty = 1;
         row.uomIndex = Number(p.matched_unit_index || 1);
@@ -996,25 +1318,37 @@ document.getElementById("pcode")?.addEventListener("keydown", (e) => {
         state.selectedIndex = state.rows.length - 1;
         renderRows();
         clearRightPanel();
+        focusBarcodeSoon();
       }
-    }).finally(() => e.target.value = "");
+
+    } catch (err) {
+      console.error(err);
+    } finally {
+      e.target.value = "";
+    }
   }
 });
 
-document.getElementById("pid")?.addEventListener("keydown", (e) => {
+
+document.getElementById("pid")?.addEventListener("keydown", async (e) => {
   if (e.code === "Enter" || e.code === "NumpadEnter") {
     if (state.bill.locked) return;
-    const v = parseInt(e.target.value.trim() || "0", 10); if (!v) return;
-    fetch(`/pos/api/lookup/id/${v}/`).then(r => r.json()).then(j => {
+    const v = parseInt(e.target.value.trim() || "0", 10); 
+    if (!v) return;
+
+    try {
+      const r = await fetch(`/pos/api/lookup/id/${v}/`);
+      const j = await r.json();
       if (!j.ok) return;
+
       const p = j.product;
+
       if (state.mode === "inq") {
-        const temp = toRow(p);
-        loadRowToRight(temp);
-        state.editing = true;
-        setEditingLock(true);
-        document.getElementById("qty")?.focus();
+        await openInquiryOverlay(p);
       } else {
+        const ok = await ensureProductAvailableInStore(p);
+        if (!ok) return;
+
         const row = toRow(p);
         row.qty = 1;
         row.uomIndex = 1;
@@ -1022,19 +1356,27 @@ document.getElementById("pid")?.addEventListener("keydown", (e) => {
         state.selectedIndex = state.rows.length - 1;
         renderRows();
         clearRightPanel();
+        focusBarcodeSoon();
       }
-    }).finally(() => e.target.value = "");
+
+    } catch (err) {
+      console.error(err);
+    } finally {
+      e.target.value = "";
+    }
   }
 });
 
+
 /* ===== Click outside to save & return to barcode ===== */
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
   if (!state.editing) return;
   if (state.bill.locked) return;
   const ignore = e.target.closest("input, textarea, select, button, .btn, [role='button'], #nameSuggest, #posContextMenu");
   if (ignore) return;
-  saveEditAndGoIdle();
+  await saveEditAndGoIdle();
 });
+
 
 /* ===== Context menu (delete row) ===== */
 const ctx = document.getElementById("posContextMenu");
@@ -1149,12 +1491,14 @@ function deleteWholeBill(){
   clearRightPanel();
   setEditingLock(false);
   syncFooterFromBill();
-}
 
-closeBillBtn?.addEventListener("click", () => {
-  deleteWholeBill();
-  setTimeout(() => document.getElementById("barcode")?.focus(), 0);
-});
+  // no bill is selected in left panel now
+  state.selectedBillId = null;
+  // refresh left-list highlight (active bill)
+  if (typeof renderLeftBills === "function") {
+    renderLeftBills();
+  }
+}
 
 
 function deleteLastRow(){
@@ -1243,11 +1587,27 @@ async function sendBillToBackend(options) {
     body: JSON.stringify(payload),
   });
 
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  const j = await res.json();
-  if (!j.ok) throw new Error(j.error || "Failed to save bill");
+  let j = null;
+  try {
+    j = await res.json();
+  } catch (err) {
+    // no JSON body or parse error
+  }
+
+  if (!res.ok || !j || !j.ok) {
+    const err = new Error((j && j.error) || ("HTTP " + res.status));
+
+    if (j && j.error === "INSUFFICIENT_STOCK") {
+      err.code = "INSUFFICIENT_STOCK";
+      err.items = j.items || [];
+    }
+
+    throw err;
+  }
+
   return j;
 }
+
 
 async function handleParkBill() {
   if (state.bill.locked) return;
@@ -1268,22 +1628,92 @@ async function handleParkBill() {
 
 async function handleSaveBill() {
   if (state.bill.locked) return;
-  if (!validateBillBeforeSave({parked:false})) return;
+  if (!validateBillBeforeSave({ parked: false })) return;
 
   try {
-    const j = await sendBillToBackend({parked:false});
+    const j = await sendBillToBackend({ parked: false });
     state.bill.id = j.bill.id;
     state.bill.parked = false;
 
-    setBillLocked(true);
+    // ✅ بدال ما نوقف على الفاتورة ونقفلها، نحدّث قائمة الفواتير
     await loadTodayBills();
 
     alert("تم حفظ الفاتورة بنجاح.");
+
+    // ✅ نبدأ فاتورة جديدة مباشرة
+    deleteWholeBill();  // يمسح الصفوف + يرجّع الحالة لبيل جديدة
+    setTimeout(() => document.getElementById("barcode")?.focus(), 0);
+
   } catch (err) {
     console.error(err);
+
+    if (err.code === "INSUFFICIENT_STOCK") {
+      const items = err.items || [];
+      const rowsHtml = items.map((it) => `
+        <tr>
+          <td>${it.product_name || it.product_id}</td>
+          <td>${it.available}</td>
+          <td>${it.needed}</td>
+        </tr>
+      `).join("");
+
+      const details = `
+        <p>الكمية المتوفرة في المتجر أقل من الكمية المطلوبة لبعض المواد:</p>
+        <table class="pos-error-table" style="width:100%; border-collapse:collapse; margin-top:4px;">
+          <thead>
+            <tr>
+              <th style="border-bottom:1px solid #ddd; padding:4px;">المادة</th>
+              <th style="border-bottom:1px solid #ddd; padding:4px;">المتوفر</th>
+              <th style="border-bottom:1px solid #ddd; padding:4px;">المطلوب</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || '<tr><td colspan="3" style="padding:4px;">لا توجد تفاصيل إضافية.</td></tr>'}
+          </tbody>
+        </table>
+        <p style="margin-top:6px;">قُم بتعديل الكميات أو إدخال فاتورة شراء جديدة ثم حاول مرة أخرى.</p>
+      `;
+
+      showPosError("لا يمكن حفظ الفاتورة بسبب نفاد المخزون.", details);
+      // لا نمس الفاتورة، يظل كل شيء كما هو ليعدل الكاشير
+      return;
+    }
+
     alert("حدث خطأ أثناء حفظ الفاتورة.");
   }
 }
+
+
+
+async function handleNewBillClick() {
+  // 1) Saved bill view: bill is locked (finalized)
+  if (state.bill.locked) {
+    state.selectedBillId = null;
+    renderLeftBills();
+    deleteWholeBill();
+    setTimeout(() => document.getElementById("barcode")?.focus(), 0);
+    return;
+  }
+
+  // 2) Pending bill OR new unsaved bill
+  await handleParkBill();
+
+  // 🚀 FIX: clear highlight from the pending bill we just parked
+  state.selectedBillId = null;
+  renderLeftBills();
+
+  // 🚀 FIX: start a brand-new empty bill immediately
+  deleteWholeBill();
+
+  setTimeout(() => document.getElementById("barcode")?.focus(), 0);
+}
+
+
+newBillBtn?.addEventListener("click", (e) => {
+  e.preventDefault();
+  handleNewBillClick();
+});
+
 
 parkBtn?.addEventListener("click", (e) => {
   e.preventDefault();

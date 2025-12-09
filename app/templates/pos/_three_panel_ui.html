@@ -61,10 +61,20 @@
         <div>
           <label>الخصم</label>
           <div class="discount-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-            <input class="input" id="discPct" type="number" min="0" step="0.01" placeholder="% نسبة" />
-            <input class="input" id="discAmt" type="number" min="0" step="0.001" placeholder="قيمة" />
+
+            <div>
+              <div class="muted" style="font-size:11px; margin-top:2px;">نسبة مئوية</div>
+              <input class="input" id="discPct" type="number" min="0" step="0.01" placeholder="% نسبة" />
+            </div>
+
+            <div>
+              <div class="muted" style="font-size:11px; margin-top:2px;">مبلغ</div>
+              <input class="input" id="discAmt" type="number" min="0" step="0.001" placeholder="قيمة" />
+            </div>
+
           </div>
         </div>
+
 
         <div>
           <label for="notes">ملاحظات</label>
@@ -77,19 +87,11 @@
   <!-- Middle Section: Bill Table + Footer -->
   <section class="panel mid-panel mid">
     <div class="list-head">
-      <div class="section-title">محتوى الفاتورة</div>
-      <div class="spacer"></div>
+  <div class="section-title">محتوى الفاتورة</div>
+  <div class="spacer"></div>
+  <div class="muted" style="font-size:12px">سريعة وخفيفة – واجهة الكاشير</div>
+</div>
 
-      <!-- Shown only when viewing a saved (locked) bill -->
-      <button id="posBillClose"
-              type="button"
-              class="btn"
-              style="display:none; font-size:11px; padding:2px 8px;">
-        فاتورة جديدة
-      </button>
-
-      <div class="muted" style="font-size:12px">سريعة وخفيفة – واجهة الكاشير</div>
-    </div>
 
     <div class="table-wrap">
       <table>
@@ -98,6 +100,7 @@
             <th class="col-name">اسم المنتج</th>
             <th class="col-qty">الكمية</th>
             <th class="col-unit">وحدة القياس</th>
+            <th class="col-unitprice">سعر الوحدة الأساسية</th>
             <th class="col-disc">الخصم</th>
             <th class="col-total">السعر الإجمالي</th>
             <th>ملاحظات</th>
@@ -227,11 +230,24 @@
   </section>
 
   <!-- Left Section: Today's Bills -->
-  <aside class="panel left-panel">
+    <aside class="panel left-panel">
     <div class="list-head" style="border-bottom:1px solid var(--border);">
       <div class="section-title">فواتير اليوم</div>
       <div class="spacer"></div>
-      <input class="input" id="leftSearch" type="text" placeholder="بحث..." style="max-width:160px;">
+
+      <div class="row" style="gap:8px; align-items:center;">
+        <button id="posNewBillBtn"
+                type="button"
+                class="btn success"
+                style="white-space:nowrap; font-size:12px; padding-inline:10px;">
+          فاتورة جديدة
+        </button>
+        <input class="input"
+               id="leftSearch"
+               type="text"
+               placeholder="بحث..."
+               style="max-width:160px;">
+      </div>
     </div>
 
     <div class="bill-list" id="leftBills">
@@ -245,6 +261,7 @@
       <span id="posClockDate">----/--/--</span>
     </div>
   </aside>
+
 
   <!-- Custom context menu -->
   <div id="posContextMenu" class="panel" style="position:fixed; z-index:100; display:none; padding:6px 0; min-width:160px;">
@@ -264,5 +281,70 @@
     </div>
 
     <p class="muted" style="margin-top:6px">Enter = تأكيد • Esc = إلغاء</p>
+  </div>
+</div>
+<!-- Generic POS error overlay (stock issues, etc.) -->
+<div id="posErrorOverlay" class="pos-overlay" hidden>
+  <div class="pos-modal" role="alertdialog" aria-modal="true" aria-labelledby="posErrorTitle">
+    <h3 id="posErrorTitle" style="margin-top:0">لا يمكن تنفيذ العملية</h3>
+    <p id="posErrorMessage" class="muted"></p>
+
+    <div id="posErrorDetails" class="muted" style="margin-top:8px; max-height:260px; overflow:auto;">
+      <!-- optional extra HTML (table of items, etc.) -->
+    </div>
+
+    <div class="btns" style="margin-top:12px">
+      <button id="posErrorOk" class="btn primary" autofocus>حسناً</button>
+    </div>
+
+    <p class="muted" style="margin-top:6px; font-size:11px;">
+      Enter = إغلاق • Esc = إغلاق
+    </p>
+  </div>
+</div>
+
+<!-- Product inquiry overlay -->
+<div id="posInquiryOverlay" class="pos-overlay" hidden>
+  <div class="pos-modal" role="dialog" aria-modal="true" aria-labelledby="posInqTitle">
+    <h3 id="posInqTitle" style="margin-top:0">معلومات المادة</h3>
+
+    <!-- Basic info table (lighter, less important) -->
+    <table class="pos-inq-table" style="width:100%; border-collapse:collapse; margin-top:4px;">
+      <tbody>
+        <tr>
+          <th style="text-align:right; padding:4px;">اسم المادة</th>
+          <td id="posInqName" style="padding:4px;">—</td>
+        </tr>
+        <tr>
+          <th style="text-align:right; padding:4px;">الوحدة الأولى</th>
+          <td id="posInqU1" style="padding:4px;">—</td>
+        </tr>
+        <tr>
+          <th style="text-align:right; padding:4px;">الوحدة الثانية</th>
+          <td id="posInqU2" style="padding:4px;">—</td>
+        </tr>
+        <tr>
+          <th style="text-align:right; padding:4px;">عامل التحويل</th>
+          <td id="posInqConv" style="padding:4px;">—</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Strong highlight area: PRICE + STOCK at the bottom -->
+    <div class="pos-inq-highlight" style="margin-top:10px;">
+      <div class="pos-inq-card">
+        <div class="pos-inq-label">السعر</div>
+        <div id="posInqPrice" class="pos-inq-value">—</div>
+      </div>
+
+      <div class="pos-inq-card">
+        <div class="pos-inq-label">الكمية في المتجر</div>
+        <div id="posInqStoreQty" class="pos-inq-value">—</div>
+      </div>
+    </div>
+
+    <div class="btns" style="margin-top:12px;">
+      <button id="posInqClose" class="btn primary">إغلاق (Enter / Esc)</button>
+    </div>
   </div>
 </div>

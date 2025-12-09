@@ -1,13 +1,39 @@
 // ===== Customer name fixes & autocomplete (separate from pos.js) =====
 
-// 1) Stop Space from triggering global "edit latest row" when typing customer name.
+// 1) Stop Space / Ctrl+Backspace from triggering global shortcuts
+//    when typing in certain inputs (custName, pname).
 // Use capture phase so this runs BEFORE pos.js document keydown handler.
 document.addEventListener("keydown", (e) => {
-  if (e.code === "Space" && e.target && e.target.id === "custName") {
-    // Allow the space to be typed, just stop it from bubbling to document.
+  const t = e.target;
+
+  const spaceSafeIds = ["custName", "pname"]; // Space behaves normally only here
+  const backspaceSafeIds = ["custName", "pname", "barcode", "pcode", "pid"]; // Ctrl+Backspace safe in all 5
+
+  const id = t && t.id;
+
+  // Space: allow typing in custName/pname, but don't bubble to document
+  // so it won't trigger "edit last row".
+  if (e.code === "Space" && id && spaceSafeIds.includes(id)) {
     e.stopPropagation();
+    return;
+  }
+
+  // Ctrl+Backspace: allow browser default (delete word) in all 4 search boxes + custName/pname,
+  // but don't bubble to document so it won't open the "delete whole bill" modal.
+  if (
+    e.code === "Backspace" &&
+    e.ctrlKey &&
+    !e.altKey &&
+    !e.metaKey &&
+    id &&
+    backspaceSafeIds.includes(id)
+  ) {
+    // DO NOT call preventDefault → keep native word-delete behavior
+    e.stopPropagation();
+    return;
   }
 }, true);
+
 
 // 2) Customer autocomplete dropdown
 (function () {
@@ -147,7 +173,7 @@ document.addEventListener("keydown", (e) => {
 
 // ===== Extra POS enhancements (parked styling, auto-new-after-park, protect saved bills) =====
 
-// 1) Stronger highlight for parked bills in left panel
+// 1) Stronger highlight for parked bills in left panel + active-bill highlight
 (function () {
   if (typeof renderLeftBills !== "function") return;
   const originalRenderLeftBills = renderLeftBills;
@@ -165,18 +191,29 @@ document.addEventListener("keydown", (e) => {
         byId.set(String(b.id), b);
       });
 
+      const activeId = state.selectedBillId != null
+        ? String(state.selectedBillId)
+        : null;
+
       leftListEl.querySelectorAll("button.btn").forEach((btn) => {
         const id = btn.dataset.id;
         const bill = byId.get(String(id));
         if (!bill) return;
 
-        if (bill.parked) {
-          // Super obvious "pending" style
-          btn.style.border = "2px solid #f97316";                 // orange border
-          btn.style.background = "rgba(249,115,22,0.12)";          // orange-ish bg
+        const isActive = activeId && activeId === String(bill.id);
+
+        if (isActive) {
+          // Active bill (currently opened in middle) -> green-ish highlight
+          btn.style.border = "2px solid #22c55e";
+          btn.style.background = "rgba(34,197,94,0.16)";
+          btn.style.boxShadow = "0 0 0 1px rgba(34,197,94,0.4)";
+        } else if (bill.parked) {
+          // Pending/parked bill -> orange highlight
+          btn.style.border = "2px solid #f97316";
+          btn.style.background = "rgba(249,115,22,0.12)";
           btn.style.boxShadow = "0 0 0 1px rgba(249,115,22,0.4)";
         } else {
-          // Reset to normal (let original styles show)
+          // Normal saved bill, not currently active
           btn.style.border = "";
           btn.style.background = "";
           btn.style.boxShadow = "";
@@ -188,42 +225,46 @@ document.addEventListener("keydown", (e) => {
   };
 })();
 
+
 // 2) After parking a bill → start a new empty bill automatically
 (function () {
   if (typeof handleParkBill !== "function") return;
 
   // Replace the original handleParkBill with an extended version
   window.handleParkBill = async function () {
-    if (state.bill.locked) return;
-    if (!validateBillBeforeSave({ parked: true })) return;
+  if (state.bill.locked) return;
+  if (!validateBillBeforeSave({ parked: true })) return;
 
-    try {
-      const j = await sendBillToBackend({ parked: true });
-      state.bill.id = j.bill.id;
-      state.bill.parked = true;
+  try {
+    const j = await sendBillToBackend({ parked: true });
+    state.bill.id = j.bill.id;
+    state.bill.parked = true;
 
-      await loadTodayBills();
-      alert("تم تعليق الفاتورة بنجاح.");
+    await loadTodayBills();
+    alert("تم تعليق الفاتورة بنجاح.");
 
-      // ---- Start a fresh empty bill for the cashier ----
-      state.rows = [];
-      state.selectedIndex = -1;
-      state.editing = false;
+    // ---- Start a fresh empty bill for the cashier ----
+    state.rows = [];
+    state.selectedIndex = -1;
+    state.editing = false;
 
-      resetBillState();         // reset bill meta (id, amounts, customer, etc.)
-      setBillLocked(false);     // unlock inputs
-      renderRows();             // clear table UI
-      clearRightPanel();        // clear right panel inputs
-      setEditingLock(false);    // allow barcode/name again
-      syncFooterFromBill();     // reset footer (pay status, amounts, customer)
+    resetBillState();         // reset bill meta (id, amounts, customer, etc.)
+    state.selectedBillId = null;  // no active selection in left
 
-      // Focus barcode for new bill
-      setTimeout(() => document.getElementById("barcode")?.focus(), 0);
-    } catch (err) {
-      console.error(err);
-      alert("حدث خطأ أثناء تعليق الفاتورة.");
-    }
-  };
+    setBillLocked(false);     // unlock inputs
+    renderRows();             // clear table UI
+    clearRightPanel();        // clear right panel inputs
+    setEditingLock(false);    // allow barcode/name again
+    syncFooterFromBill();     // reset footer (pay status, amounts, customer)
+
+    // Focus barcode for new bill
+    setTimeout(() => document.getElementById("barcode")?.focus(), 0);
+  } catch (err) {
+    console.error(err);
+    alert("حدث خطأ أثناء تعليق الفاتورة.");
+  }
+};
+
 })();
 
 // 3) Prevent deleting finalized (saved) bills – no modal, no delete

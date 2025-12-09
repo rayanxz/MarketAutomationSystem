@@ -72,24 +72,108 @@ def providers_list(request: HttpRequest) -> HttpResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
-    """Read-only details page for a ProviderReturn."""
+    """
+    تفاصيل مرتجع مورد:
+    - بيانات الهيدر (المورد، السيريال، التاريخ)
+    - جدول المنتجات مع توزيع الكميات على الحاويات
+    - ملخص الدفع (عند الإنشاء / الوضع الحالي)
+    """
+    from collections import defaultdict
+
+    # ----- حمل المرتجع مع العناصر والمورد -----
     pret = (
         ProviderReturn.objects
         .select_related("provider")
-        .prefetch_related("items", "items__product")
+        .prefetch_related("items__product")
         .get(pk=ret_id)
     )
 
     created_status = pret.initial_status
     created_paid = pret.initial_paid
 
+    # ----- حاول ربط المرتجع بفاتورة الشراء الأصلية (إن وجدت) -----
+    source_bill = None
+    if pret.source_bill_serial:
+        source_bill = (
+            Bill.objects
+            .select_related("provider")
+            .filter(serial=pret.source_bill_serial)
+            .first()
+        )
+
+    # ====== توزيع الكميات على الحاويات (store / wh1 / wh2 / other) ======
+    per_prod_cont: dict[int, dict[str, Decimal]] = defaultdict(
+        lambda: {"store": DEC0, "wh1": DEC0, "wh2": DEC0, "other": DEC0}
+    )
+
+    mv_qs = (
+        ProductMovement.objects
+        .filter(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=pret.id,
+        )
+        .select_related("product", "container")
+    )
+
+    for mv in mv_qs:
+        pid = mv.product_id
+        code = (getattr(mv.container, "code", "") or "").lower()
+
+        # الكمية في الـ ProductMovement تكون سالبة في المرتجع → نعرضها موجبة
+        qty_raw = q3(getattr(mv, "qty_primary", DEC0) or DEC0)
+        qty = q3(-qty_raw if qty_raw < DEC0 else qty_raw)
+
+        if qty <= DEC0:
+            continue
+
+        bucket = code if code in ("store", "wh1", "wh2") else "other"
+        per_prod_cont[pid][bucket] = q3(per_prod_cont[pid][bucket] + qty)
+
+    # ====== بناء صفوف العناصر للـ template ======
+    item_rows: list[dict[str, Any]] = []
+    for it in pret.items.all():
+        prod = it.product
+        unit_label = prod.get_unit_primary_display() or "الوحدة الأولى"
+
+        cont = per_prod_cont.get(it.product_id, {})
+        store_qty = cont.get("store", DEC0)
+        wh1_qty   = cont.get("wh1", DEC0)
+        wh2_qty   = cont.get("wh2", DEC0)
+        other_qty = cont.get("other", DEC0)
+
+        item_rows.append(
+            {
+                "item": it,
+                "product_name": getattr(prod, "name", "") or "",
+                "unit_label": unit_label,
+                "store_qty": store_qty,
+                "wh1_qty": wh1_qty,
+                "wh2_qty": wh2_qty,
+                "other_qty": other_qty,
+            }
+        )
+
+    # ====== لابل الحالة الحالية (paid / partial / unpaid) ======
+    status_code = (pret.status or "").lower()
+    try:
+        current_status_label = ProviderReturn.Status(status_code).label
+    except Exception:
+        # fallback لو كان في شيء غريب في الداتابيس
+        current_status_label = status_code or "—"
+
+    # ====== السياق للـ template ======
     ctx = {
         "pret": pret,
         "created_status": created_status,
         "created_paid": created_paid,
         "has_credit_now": pret.remaining > 0,
+        "item_rows": item_rows,
+        "source_bill": source_bill,
+        "current_status_label": current_status_label,
     }
     return render(request, "billing/return_view.html", ctx)
+
 
 # ---------- Helpers ----------
 

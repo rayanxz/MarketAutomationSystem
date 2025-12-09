@@ -20,6 +20,8 @@ def _parse_decimal(x):
         return Decimal("0")
 
 
+# app/pos/api_bills.py
+
 @login_required
 @require_POST
 def api_bill_save(request: HttpRequest):
@@ -43,11 +45,26 @@ def api_bill_save(request: HttpRequest):
         customer_name = (payload.get("customer_name") or "").strip()
         create_new_customer = bool(payload.get("create_new_customer"))
 
+        # =====================
+        # Rows from payload (validate BEFORE touching DB)
+        # =====================
+        rows = payload.get("rows") or []
+
+        if not parked and not rows:
+            # finalized bill with no rows → reject, but do NOT touch DB
+            return JsonResponse(
+                {"ok": False, "error": "EMPTY_FINAL_BILL"},
+                status=400,
+            )
+
+        # =====================
+        # Customer handling
+        # =====================
         customer_obj = None
         if create_new_customer and customer_name:
             customer_obj = CustomerProfile.objects.create(
                 name=customer_name,
-                created_at=timezone.now(),
+                # created_at is auto_now_add; no need to pass it explicitly
                 created_by=request.user if request.user.is_authenticated else None,
             )
         elif customer_name:
@@ -56,18 +73,44 @@ def api_bill_save(request: HttpRequest):
                 name__iexact=customer_name
             ).first()
 
+        # =====================
+        # Existing vs new bill
+        # =====================
         if bill_id:
-            bill = SalesBill.objects.select_for_update().get(pk=bill_id)
-            # if already finalized, don't allow editing here
-            if bill.finalized and not parked:
-                return JsonResponse({"ok": False, "error": "Bill already finalized."}, status=400)
+            try:
+                bill = SalesBill.objects.select_for_update().get(pk=bill_id)
+            except SalesBill.DoesNotExist:
+                return JsonResponse(
+                    {"ok": False, "error": "BILL_NOT_FOUND"},
+                    status=404,
+                )
+
+            # HARD RULE: finalized bills are read-only in POS
+            if bill.finalized:
+                return JsonResponse(
+                    {"ok": False, "error": "BILL_FINALIZED_READONLY"},
+                    status=400,
+                )
+
+            # Ownership / permissions (POS-level only for now)
+            # Cashier can only edit their own bills; superuser can edit any
+            if bill.cashier and bill.cashier != request.user and not request.user.is_superuser:
+                return JsonResponse(
+                    {"ok": False, "error": "PERMISSION_DENIED"},
+                    status=403,
+                )
+
             # wipe rows and rewrite
             bill.rows.all().delete()
         else:
+            # new bill → bind cashier to current user
             bill = SalesBill(
                 cashier=request.user if request.user.is_authenticated else None,
             )
 
+        # =====================
+        # Update bill fields
+        # =====================
         bill.customer = customer_obj
         bill.customer_name = customer_name
         bill.pay_status = pay_status
@@ -77,7 +120,9 @@ def api_bill_save(request: HttpRequest):
         bill.finalized = not parked
         bill.save()
 
-        rows = payload.get("rows") or []
+        # =====================
+        # Rewrite rows
+        # =====================
         for r in rows:
             SalesBillRow.objects.create(
                 bill=bill,
@@ -92,9 +137,36 @@ def api_bill_save(request: HttpRequest):
                 notes=r.get("notes") or "",
             )
 
-        # If bill is NOT parked → finalize: create inventory movements (SALE from store)
+        # =====================
+        # Finalize to inventory (sale from store)
+        # =====================
         if not bill.parked:
-            POSSV.finalize_pos_bill(bill=bill, actor=request.user)
+            try:
+                POSSV.finalize_pos_bill(bill=bill, actor=request.user)
+            except POSSV.InsufficientStockError as e:
+                # Mark the transaction for rollback: we do NOT want to keep
+                # this bill/rows if stock is insufficient.
+                transaction.set_rollback(True)
+
+                items = []
+                for it in getattr(e, "items", []):
+                    items.append(
+                        {
+                            "product_id": it.get("product_id"),
+                            "product_name": it.get("product_name", ""),
+                            "needed": str(it.get("needed")),
+                            "available": str(it.get("available")),
+                        }
+                    )
+
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": "INSUFFICIENT_STOCK",
+                        "items": items,
+                    },
+                    status=400,
+                )
 
 
         return JsonResponse({
@@ -106,6 +178,8 @@ def api_bill_save(request: HttpRequest):
         })
 
 
+
+
 @login_required
 @require_GET
 def api_bills_today(request: HttpRequest):
@@ -113,9 +187,19 @@ def api_bills_today(request: HttpRequest):
     List today's bills for left panel.
     URL: /pos/api/bills/today/
     Optional ?q= for customer name search.
+
+    For now:
+      - superuser → sees all today's bills
+      - normal user → sees only their own bills (cashier=request.user)
     """
-    today = date.today()
+    # 🔥 use Django local date, not plain date.today()
+    today = timezone.localdate()
+
     qs = SalesBill.objects.filter(created_at__date=today)
+
+    # scope by cashier
+    if not request.user.is_superuser:
+        qs = qs.filter(cashier=request.user)
 
     q = request.GET.get("q", "").strip()
     if q:
@@ -138,17 +222,30 @@ def api_bills_today(request: HttpRequest):
     return JsonResponse({"ok": True, "bills": bills})
 
 
+
 @login_required
 @require_GET
 def api_bill_detail(request: HttpRequest, bill_id: int):
     """
     Single bill detail for loading into middle section when left item is clicked.
     URL: /pos/api/bill/<bill_id>/
+
+    For now:
+      - superuser → can view any bill
+      - normal user → can view only their own bills
     """
     try:
         bill = SalesBill.objects.select_related("customer").get(pk=bill_id)
     except SalesBill.DoesNotExist:
         return JsonResponse({"ok": False, "error": "Bill not found"}, status=404)
+
+    # permissions: same spirit as save/delete
+    if not request.user.is_superuser:
+        if bill.cashier and bill.cashier != request.user:
+            return JsonResponse(
+                {"ok": False, "error": "PERMISSION_DENIED"},
+                status=403,
+            )
 
     rows = []
     for r in bill.rows.all():
@@ -162,7 +259,6 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
             "disc_amount": str(r.disc_amount),
             "disc_pct": str(r.disc_pct),
             "notes": r.notes,
-            # if later you want units, add conv/u1_label/u2_label here
         })
 
     dt = timezone.localtime(bill.created_at)
@@ -178,6 +274,7 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
         "rows": rows,
     }
     return JsonResponse({"ok": True, "bill": data})
+
 
 
 @login_required
@@ -212,6 +309,10 @@ def api_bill_delete(request, pk: int):
     """
     Delete a parked POS bill (used by Ctrl+Backspace on parked bills).
     Finalized bills are NOT deletable from POS.
+
+    For now:
+      - cashier can delete only their own parked bills
+      - superuser can delete any parked bill
     """
     try:
         bill = SalesBill.objects.get(pk=pk)
@@ -225,7 +326,12 @@ def api_bill_delete(request, pk: int):
             status=400,
         )
 
-    # (optional) you can also check bill.cashier == request.user here
+    # ownership / permissions
+    if bill.cashier and bill.cashier != request.user and not request.user.is_superuser:
+        return JsonResponse(
+            {"ok": False, "error": "PERMISSION_DENIED"},
+            status=403,
+        )
 
     bill.delete()
     return JsonResponse({"ok": True})
