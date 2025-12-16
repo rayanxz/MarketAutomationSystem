@@ -85,17 +85,389 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
   if (!tEl || !dEl) return;
 
   const locale = "ar";
-  const timeFmt = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
-  const dateFmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit", weekday: "long" });
+  const timeFmt = new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  const dateFmt = new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "long",
+  });
+
+  // NEW: track the logical "day" in JS and refresh today's bills when it flips
+  let lastDateKey = null;
 
   function tick() {
     const now = new Date();
     tEl.textContent = timeFmt.format(now);
     dEl.textContent = dateFmt.format(now);
+
+    // YYYY-MM-DD key so we can detect date change
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const key = `${y}-${m}-${d}`;
+
+    if (lastDateKey && key !== lastDateKey) {
+      // Day just changed → refresh today's bills if function exists
+      if (typeof loadTodayBills === "function") {
+        try { loadTodayBills(); } catch (err) { console.error(err); }
+      }
+    }
+    lastDateKey = key;
   }
+
   tick();
   setInterval(tick, 1000);
 })();
+
+
+/* ===== Login session closing (backend) ===== */
+(function () {
+  // global one-shot guard
+  if (window.__POS_LOGIN_CLOSE_INIT__) return;
+  window.__POS_LOGIN_CLOSE_INIT__ = true;
+
+  let sent = false;
+
+  async function closeLoginOnce(reason) {
+    if (sent) return;
+    sent = true;
+
+    try {
+      await fetch("/pos/api/login/end/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": window.CSRF_TOKEN || "",
+        },
+        body: JSON.stringify({ reason }),
+        keepalive: true,
+      });
+    } catch (err) {
+      // ignore - never block navigation/logout
+      console.error("login end tracking failed:", err);
+    }
+  }
+
+  // Logout button: close session BEFORE django logs out
+  const form = document.querySelector("form.logout-form");
+  if (form) {
+    form.addEventListener("submit", async () => {
+      // best effort: end shift first (optional)
+      try {
+        if (window.POS_ACTIVE_SHIFT_ID) {
+          await fetch("/pos/api/shift/end/", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRFToken": window.CSRF_TOKEN || "",
+            },
+            body: JSON.stringify({ id: window.POS_ACTIVE_SHIFT_ID }),
+            keepalive: true,
+          });
+        }
+      } catch (err) {
+        console.error("shift end on logout failed:", err);
+      }
+
+      await closeLoginOnce("logout_btn");
+      // allow the form to continue normally
+    });
+  }
+
+  // Tab close / refresh
+  window.addEventListener("beforeunload", () => {
+    closeLoginOnce("tab_close");
+  });
+
+  // Hidden (fires earlier sometimes)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      closeLoginOnce("hidden");
+    }
+  });
+})();
+
+
+
+/* ===== Shift box (start/end + stopwatch, with backend) ===== */
+(function () {
+  const box         = document.getElementById("shiftBox");
+  const startBtn    = document.getElementById("shiftStartBtn");
+  const activeBox   = document.getElementById("shiftActive");
+  const startTimeEl = document.getElementById("shiftStartTime");
+  const elapsedEl   = document.getElementById("shiftElapsed");
+  const endBtn      = document.getElementById("shiftEndBtn");
+
+  // confirm modal bits (you already have these in HTML)
+  const shiftOverlay    = document.getElementById("shiftConfirmOverlay");
+  const shiftStartLbl   = document.getElementById("shiftConfirmStart");
+  const shiftElapsedLbl = document.getElementById("shiftConfirmElapsed");
+  const shiftYesBtn     = document.getElementById("shiftConfirmYes");
+  const shiftNoBtn      = document.getElementById("shiftConfirmNo");
+
+  if (!box || !startBtn || !activeBox) return;
+
+  // keep same key for backwards compatibility (old value was plain ISO string)
+  const STORAGE_KEY = "posShiftStartISO";
+
+  let startDate = null;
+  let timerId   = null;
+  let currentShiftId = null;
+
+  // expose active shift globally so bills can use it
+  window.POS_ACTIVE_SHIFT_ID = null;
+
+  const timeFmt = new Intl.DateTimeFormat("ar", {
+    hour:   "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  function setActiveUI(isActive) {
+    if (isActive) {
+      startBtn.style.display  = "none";
+      activeBox.style.display = "flex";
+    } else {
+      activeBox.style.display = "none";
+      startBtn.style.display  = "inline-flex";
+    }
+  }
+
+  function formatElapsed(ms) {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(totalSec / 3600)).padStart(2, "0");
+    const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+    const s = String(totalSec % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  }
+
+  function tick() {
+    if (!startDate || !elapsedEl) return;
+    const diff = Date.now() - startDate.getTime();
+    elapsedEl.textContent = formatElapsed(diff);
+  }
+
+  function startTimer() {
+    if (timerId) clearInterval(timerId);
+    timerId = setInterval(tick, 1000);
+    tick(); // instant update
+  }
+
+  function stopTimer() {
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = null;
+    }
+  }
+
+  function saveShiftState() {
+    try {
+      if (startDate && currentShiftId) {
+        const data = {
+          started_at: startDate.toISOString(),
+          id: currentShiftId,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (err) {
+      console.warn("shift localStorage failed:", err);
+    }
+  }
+
+  function activate(startIso, shiftId) {
+    startDate = startIso ? new Date(startIso) : new Date();
+    currentShiftId = shiftId || currentShiftId || null;
+    window.POS_ACTIVE_SHIFT_ID = currentShiftId;
+
+    if (startTimeEl) {
+      startTimeEl.textContent = timeFmt.format(startDate);
+    }
+
+    setActiveUI(true);
+    startTimer();
+    saveShiftState();
+  }
+
+  function deactivate() {
+    stopTimer();
+    startDate = null;
+    currentShiftId = null;
+    window.POS_ACTIVE_SHIFT_ID = null;
+
+    setActiveUI(false);
+    if (elapsedEl)   elapsedEl.textContent   = "00:00:00";
+    if (startTimeEl) startTimeEl.textContent = "--:--:--";
+
+    saveShiftState();
+  }
+
+  async function startShiftOnServer() {
+    try {
+      const res = await fetch("/pos/api/shift/start/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": window.CSRF_TOKEN || "",
+        },
+        body: JSON.stringify({}),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.ok) {
+        throw new Error(j.error || ("HTTP " + res.status));
+      }
+      activate(j.started_at, j.id);
+    } catch (err) {
+      console.error("shift start failed:", err);
+      alert("تعذر بدء الدوام من الخادم. حاول مرة أخرى.");
+    }
+  }
+
+  async function endShiftOnServer() {
+    if (!startDate) {
+      deactivate();
+      return;
+    }
+
+    if (!currentShiftId) {
+      // no id? just local stop
+      deactivate();
+      return;
+    }
+
+    try {
+      const res = await fetch("/pos/api/shift/end/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": window.CSRF_TOKEN || "",
+        },
+        body: JSON.stringify({ id: currentShiftId }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.ok) {
+        throw new Error(j.error || ("HTTP " + res.status));
+      }
+    } catch (err) {
+      console.error("shift end failed:", err);
+      alert("تعذر إنهاء الدوام من الخادم، سيتم إيقاف المؤقت محلياً.");
+    } finally {
+      deactivate();
+    }
+  }
+
+  // Start shift
+  startBtn.addEventListener("click", () => {
+    if (startDate) return; // already running
+    startShiftOnServer();
+  });
+
+  // End shift (with your existing confirmation modal)
+  endBtn?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!startDate) return;
+
+    // If modal HTML not present for some reason, just end directly
+    if (!shiftOverlay || !shiftYesBtn || !shiftNoBtn) {
+      endShiftOnServer();
+      return;
+    }
+
+    // Fill labels
+    if (shiftStartLbl && startTimeEl) {
+      shiftStartLbl.textContent = startTimeEl.textContent || "--:--:--";
+    }
+    if (shiftElapsedLbl && elapsedEl) {
+      shiftElapsedLbl.textContent = elapsedEl.textContent || "00:00:00";
+    }
+
+    // Show overlay
+    shiftOverlay.hidden = false;
+    shiftYesBtn.focus();
+
+    // Key trap: Enter = confirm, Esc = cancel
+    function keyTrap(ev) {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        onYes();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        onNo();
+      }
+    }
+    document.addEventListener("keydown", keyTrap);
+
+    function cleanup() {
+      document.removeEventListener("keydown", keyTrap);
+    }
+
+    function closeOverlay() {
+      shiftOverlay.hidden = true;
+      cleanup();
+    }
+
+    async function onYes() {
+      closeOverlay();
+      await endShiftOnServer(); // 🔥 now hits backend
+    }
+
+    function onNo() {
+      closeOverlay();
+    }
+
+    shiftYesBtn.addEventListener("click", onYes, { once: true });
+    shiftNoBtn.addEventListener("click", onNo, { once: true });
+
+    // Optional: click outside to cancel
+    shiftOverlay.addEventListener("click", function onBgClick(ev) {
+      if (ev.target === shiftOverlay) {
+        shiftOverlay.removeEventListener("click", onBgClick);
+        onNo();
+      }
+    });
+  });
+
+  // Restore running shift from localStorage if tab reloads
+  let savedRaw = null;
+  try {
+    savedRaw = localStorage.getItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn("shift localStorage read failed:", err);
+  }
+
+  if (savedRaw) {
+    try {
+      let data;
+      try {
+        data = JSON.parse(savedRaw);
+      } catch {
+        // old format: plain ISO string
+        data = { started_at: savedRaw, id: null };
+      }
+      if (data.started_at) {
+        currentShiftId = data.id || null;
+        window.POS_ACTIVE_SHIFT_ID = currentShiftId;
+        activate(data.started_at, currentShiftId);
+      } else {
+        setActiveUI(false);
+      }
+    } catch (err) {
+      console.error("shift restore failed:", err);
+      deactivate();
+    }
+  } else {
+    setActiveUI(false);
+  }
+})();
+
 
 
 const newBillBtn = document.getElementById("posNewBillBtn");
@@ -170,7 +542,11 @@ const state = {
   bill: { ...initialBillState },
   todayBills: [],
   selectedBillId: null,
+
+  // NEW: left-panel loading flag
+  leftLoading: false,
 };
+
 
 function resetBillState() {
   Object.assign(state.bill, initialBillState);
@@ -341,8 +717,6 @@ async function validateRowStockBeforeSave(idx) {
   return true;
 }
 
-
-
 /* ===== Product inquiry overlay ===== */
 const inqOverlayEl   = document.getElementById("posInquiryOverlay");
 const inqNameEl      = document.getElementById("posInqName");
@@ -413,7 +787,6 @@ document.addEventListener("keydown", (e) => {
     closeInquiryOverlay();
   }
 });
-
 
 /* ===== Render bill rows ===== */
 const tbody = document.getElementById("billRows");
@@ -510,9 +883,13 @@ function updateGrandTotal() {
   if (el) el.textContent = fmt(t);
 
   state.bill.totalAmount = t;
-  // recompute left based on current paid amount
+
+  // clamp paid to total whenever total changes
+  state.bill.paidAmount = Math.max(0, Math.min(state.bill.paidAmount, state.bill.totalAmount));
+
   state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
   if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
+
 }
 
 /* ===== Right panel load/save ===== */
@@ -596,7 +973,6 @@ async function saveEditAndGoIdle() {
   }
   goIdle();
 }
-
 
 /* ===== Mode switch ===== */
 document.getElementById("modeAdd")?.addEventListener("change", () => { state.mode = "add"; });
@@ -707,7 +1083,6 @@ function toRow(p) {
   });
 });
 
-
 // Two-way discount sync and live render
 const qtyEl  = document.getElementById("qty");
 const uomEl  = document.getElementById("uom");
@@ -797,9 +1172,7 @@ rightPanel?.addEventListener("keydown", async (e) => {
   }
 });
 
-
 /* ===== Bill footer: pay status + customer ===== */
-
 function paymentStatusLabel(value) {
   switch (value) {
     case "full":    return "مدفوعة بالكامل";
@@ -818,8 +1191,6 @@ function updateReadonlyFooter() {
   if (roStatusEl) roStatusEl.textContent = paymentStatusLabel(state.bill.payStatus);
   if (roCustEl)   roCustEl.textContent   = state.bill.customerName || "—";
 }
-
-
 
 function syncBillFromFooter() {
   // pay status
@@ -852,25 +1223,19 @@ function syncFooterFromBill() {
 
 payRadios.forEach((r) => {
   r.addEventListener("change", () => {
-    syncBillFromFooter();
+    // only set status — DO NOT overwrite the textbox
+    payRadios.forEach((x) => { if (x.checked) state.bill.payStatus = x.value; });
 
-    if (state.bill.payStatus === "full") {
-      state.bill.paidAmount = state.bill.totalAmount;
-      state.bill.leftAmount = 0;
-      if (partAmtEl) partAmtEl.value = fmt(state.bill.paidAmount);
-      if (leftAmtEl) leftAmtEl.textContent = fmt(0);
-    } else if (state.bill.payStatus === "none") {
-      state.bill.paidAmount = 0;
-      state.bill.leftAmount = state.bill.totalAmount;
-      if (partAmtEl) partAmtEl.value = "";
-      if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
-    } else {
-      // partial: don't auto-change paid amount, just recompute left
-      state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
-      if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
-    }
+    // keep "math" behavior: paidAmount follows textbox
+    const typed = Number(partAmtEl?.value || 0);
+    state.bill.paidAmount = Math.max(0, Math.min(typed, state.bill.totalAmount));
+
+    // left always reflects typed amount
+    state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
+    if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
   });
 });
+
 
 partAmtEl?.addEventListener("input", () => {
   state.bill.paidAmount = Number(partAmtEl.value || 0);
@@ -933,32 +1298,68 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-
-
-
 /* ===== Left panel: today's bills ===== */
 const leftListEl   = document.getElementById("leftBills");
 const leftSearchEl = document.getElementById("leftSearch");
 
 async function loadTodayBills() {
   try {
+    // 🔥 mark as loading and render skeleton
+    state.leftLoading = true;
+    renderLeftBills();
+
     const q = leftSearchEl?.value.trim() || "";
     const url = q
       ? `/pos/api/bills/today/?q=${encodeURIComponent(q)}`
       : "/pos/api/bills/today/";
+
+
     const res = await fetch(url);
     const j = await res.json();
     if (!j.ok) throw new Error(j.error || "failed");
+
     state.todayBills = j.bills || [];
-    renderLeftBills();
   } catch (err) {
     console.error(err);
+  } finally {
+    // ✅ done loading
+    state.leftLoading = false;
+    renderLeftBills();
   }
 }
 
 function renderLeftBills() {
   if (!leftListEl) return;
   leftListEl.innerHTML = "";
+
+  // NEW: loading skeleton when refreshing
+  if (state.leftLoading) {
+    for (let i = 0; i < 3; i++) {
+      const sk = document.createElement("div");
+      sk.style.cssText = `
+        padding:8px 12px;
+        margin:2px 0;
+        border-radius:6px;
+        background:linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+        background-size:200% 100%;
+        animation: pos-skeleton 1.2s infinite linear;
+      `;
+      leftListEl.appendChild(sk);
+    }
+    // tiny inline keyframes (only once)
+    if (!document.getElementById("posSkeletonStyle")) {
+      const style = document.createElement("style");
+      style.id = "posSkeletonStyle";
+      style.textContent = `
+        @keyframes pos-skeleton {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    return;
+  }
 
   if (!state.todayBills.length) {
     const empty = document.createElement("div");
@@ -1015,11 +1416,11 @@ function renderLeftBills() {
       <div class="muted">${fmt(b.paid_amount || 0)} مدفوع</div>
     `;
 
+    // base parked styling (gets enhanced by pos_customers.js override)
     if (b.parked) {
       div.style.border = "1px dashed #dc8c53ff"; // orange border
       div.style.background = "rgba(255,180,80,0.15)"; // light orange
     }
-
 
     div.appendChild(main);
     div.appendChild(amounts);
@@ -1032,8 +1433,8 @@ function renderLeftBills() {
     const isActive = String(b.id) === activeId;
 
     if (isActive) {
-        div.style.background = "var(--accent-light)";
-        div.style.border = "2px solid var(--accent)";
+      div.style.background = "var(--accent-light)";
+      div.style.border = "2px solid var(--accent)";
     }
 
     leftListEl.appendChild(div);
@@ -1053,21 +1454,57 @@ async function loadBillFromBackend(id) {
     const b = j.bill;
     resetBillState();
 
+    const rawRows = b.rows || [];
+
+    // 🔥 Hydrate each row with product info (conv + unit labels)
+    const hydratedRows = await Promise.all(
+      rawRows.map(async (r) => {
+        let conv = 1;
+        let u1Label = "الوحدة الأولى";
+        let u2Label = null;
+        let price = Number(r.unit_price || 0);
+
+        try {
+          const pRes = await fetch(`/pos/api/lookup/id/${r.product_id}/`);
+          const pJson = await pRes.json();
+          if (pJson.ok && pJson.product) {
+            const p = pJson.product;
+            // conv from product payload
+            const convRaw = p.units?.conversion_factor;
+            if (convRaw != null) {
+              conv = Number(convRaw) || 1;
+            }
+            u1Label = p.units?.primary?.label || "الوحدة الأولى";
+            u2Label = p.units?.secondary?.label || null;
+
+            // If for some reason unit_price is 0, fall back to product price
+            if (!price) {
+              price = Number(p.price || 0);
+            }
+          }
+        } catch (err) {
+          console.error("hydrate row product fetch failed:", err);
+        }
+
+        return {
+          id: r.product_id,
+          name: r.name,
+          number: r.number,
+          price: price,
+          qty: Number(r.qty || 0),
+          uomIndex: Number(r.uom_index || 1),
+          conv: conv,
+          u1Label: u1Label,
+          u2Label: u2Label,
+          discAmt: Number(r.disc_amount || 0),
+          discPct: Number(r.disc_pct || 0),
+          notes: r.notes || "",
+        };
+      })
+    );
+
     // fill rows
-    state.rows = (b.rows || []).map((r) => ({
-      id: r.product_id,
-      name: r.name,
-      number: r.number,
-      price: Number(r.unit_price || 0),
-      qty: Number(r.qty || 0),
-      uomIndex: Number(r.uom_index || 1),
-      conv: Number(r.conv || 1),
-      u1Label: r.u1_label || "الوحدة الأولى",
-      u2Label: r.u2_label || null,
-      discAmt: Number(r.disc_amount || 0),
-      discPct: Number(r.disc_pct || 0),
-      notes: r.notes || "",
-    }));
+    state.rows = hydratedRows;
 
     state.bill.id           = b.id;
     state.bill.parked       = !!b.parked;
@@ -1084,8 +1521,8 @@ async function loadBillFromBackend(id) {
     state.selectedIndex = -1;
     setEditingLock(false);
 
-       renderRows();          // will also recompute total & left based on rows
-    syncFooterFromBill();  // push bill state to footer inputs
+    renderRows();         // will also recompute total & left based on rows
+    syncFooterFromBill(); // push bill state to footer inputs
 
     // locked if NOT parked (saved/final)
     setBillLocked(!state.bill.parked);
@@ -1102,7 +1539,6 @@ async function loadBillFromBackend(id) {
   }
 }
 
-
 /* ===== Global shortcuts (idle only) =====
    - Ctrl+Enter: save bill
    - Ctrl+Space: park bill
@@ -1113,14 +1549,17 @@ async function loadBillFromBackend(id) {
 ================================================ */
 document.addEventListener("keydown", (e) => {
   // If modal is open, ignore global shortcuts (modal traps Enter/Esc)
-  const errOverlay = document.getElementById("posErrorOverlay");
+  const errOverlay   = document.getElementById("posErrorOverlay");
+  const shiftOverlay = document.getElementById("shiftConfirmOverlay");
   if (
-    (overlayEl && !overlayEl.hidden) ||
-    (errOverlay && !errOverlay.hidden) ||
-    (inqOverlayEl && !inqOverlayEl.hidden)
+    (overlayEl && !overlayEl.hidden)     || // delete bill modal
+    (errOverlay && !errOverlay.hidden)   || // error modal
+    (inqOverlayEl && !inqOverlayEl.hidden) || // inquiry modal
+    (shiftOverlay && !shiftOverlay.hidden)   // NEW: shift end confirm
   ) {
     return;
   }
+
     // Alt + A / Alt + ش => toggle between "add" and "inq" modes
   if (
     e.altKey &&
@@ -1206,7 +1645,6 @@ document.addEventListener("keydown", (e) => {
 
 });
 
-
 /* ===== Name autocomplete ===== */
 const nameInput = document.getElementById("pname");
 const suggest   = document.getElementById("nameSuggest");
@@ -1262,7 +1700,6 @@ async function chooseName(i) {
     suggest.style.display = "none";
   }
 }
-
 
 let nameTimer = null;
 nameInput?.addEventListener("input", () => {
@@ -1329,7 +1766,6 @@ document.getElementById("pcode")?.addEventListener("keydown", async (e) => {
   }
 });
 
-
 document.getElementById("pid")?.addEventListener("keydown", async (e) => {
   if (e.code === "Enter" || e.code === "NumpadEnter") {
     if (state.bill.locked) return;
@@ -1367,7 +1803,6 @@ document.getElementById("pid")?.addEventListener("keydown", async (e) => {
   }
 });
 
-
 /* ===== Click outside to save & return to barcode ===== */
 document.addEventListener("click", async (e) => {
   if (!state.editing) return;
@@ -1376,7 +1811,6 @@ document.addEventListener("click", async (e) => {
   if (ignore) return;
   await saveEditAndGoIdle();
 });
-
 
 /* ===== Context menu (delete row) ===== */
 const ctx = document.getElementById("posContextMenu");
@@ -1392,7 +1826,6 @@ document.getElementById("ctxDeleteRow")?.addEventListener("click", () => {
 function showContextMenu(x, y) { ctx.style.display = "block"; ctx.style.left = `${x}px`; ctx.style.top = `${y}px`; }
 function hideContextMenu() { ctx.style.display = "none"; }
 document.addEventListener("click", (e) => { if (ctx.style.display === "block" && !ctx.contains(e.target)) hideContextMenu(); });
-
 
 /* ===== Delete whole bill modal ===== */
 const overlayEl = document.getElementById("billConfirmOverlay");
@@ -1479,7 +1912,6 @@ async function handleBillDeleteConfirm() {
   }
 }
 
-
 function deleteWholeBill(){
   // clear current bill and start a fresh one
   state.rows = [];
@@ -1500,7 +1932,6 @@ function deleteWholeBill(){
   }
 }
 
-
 function deleteLastRow(){
   if (!state.rows.length) return;
   if (state.bill.locked) return;
@@ -1514,6 +1945,22 @@ function deleteLastRow(){
 const parkBtn     = document.getElementById("parkBtn");
 const payPrintBtn = document.getElementById("payPrintBtn");
 
+function finalizePaidForSave() {
+  // 🔥 enforce save rules (ignore textbox for full/none)
+  if (state.bill.payStatus === "full") {
+    state.bill.paidAmount = state.bill.totalAmount;
+    state.bill.leftAmount = 0;
+    return;
+  }
+  if (state.bill.payStatus === "none") {
+    state.bill.paidAmount = 0;
+    state.bill.leftAmount = state.bill.totalAmount;
+    return;
+  }
+  // partial: keep whatever user typed (already in state.bill.paidAmount)
+  state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
+}
+
 function validateBillBeforeSave(options) {
   const parked = !!(options && options.parked);
 
@@ -1523,6 +1970,9 @@ function validateBillBeforeSave(options) {
   }
 
   syncBillFromFooter();
+
+  // ✅ apply the real rules BEFORE validations that depend on paid/left
+  finalizePaidForSave();
 
   if (state.bill.payStatus !== "full") {
     if (!state.bill.customerName) {
@@ -1544,18 +1994,20 @@ function validateBillBeforeSave(options) {
     }
   }
 
-  if (state.bill.payStatus === "none") {
-    state.bill.paidAmount = 0;
-    state.bill.leftAmount = state.bill.totalAmount;
-  }
-
   state.bill.parked = parked;
-
   return true;
 }
 
+
 async function sendBillToBackend(options) {
   const parked = !!(options && options.parked);
+
+  // enforce save rules right before sending (bulletproof)
+  syncBillFromFooter();
+  finalizePaidForSave();
+
+  // grab current shift from global set by shift box
+  const shiftId = window.POS_ACTIVE_SHIFT_ID || null;
 
   const payload = {
     id: state.bill.id,
@@ -1565,6 +2017,7 @@ async function sendBillToBackend(options) {
     total_amount: state.rows.reduce((s,r)=> s + rowTotal(r), 0),
     customer_name: state.bill.customerName || null,
     create_new_customer: state.bill.createNewCustomer,
+    shift_id: shiftId,   // 🔥 NEW
     rows: state.rows.map((r) => ({
       product_id: r.id,
       name: r.name,
@@ -1683,8 +2136,6 @@ async function handleSaveBill() {
   }
 }
 
-
-
 async function handleNewBillClick() {
   // 1) Saved bill view: bill is locked (finalized)
   if (state.bill.locked) {
@@ -1708,12 +2159,10 @@ async function handleNewBillClick() {
   setTimeout(() => document.getElementById("barcode")?.focus(), 0);
 }
 
-
 newBillBtn?.addEventListener("click", (e) => {
   e.preventDefault();
   handleNewBillClick();
 });
-
 
 parkBtn?.addEventListener("click", (e) => {
   e.preventDefault();
@@ -1724,7 +2173,6 @@ payPrintBtn?.addEventListener("click", (e) => {
   e.preventDefault();
   handleSaveBill();
 });
-
 
 // initial render + initial state
 resetBillState();

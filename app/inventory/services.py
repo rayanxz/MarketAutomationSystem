@@ -196,36 +196,51 @@ def record_sale_item(
     """
     Logs a SALE movement (stock goes OUT of the container) using FIFO cost.
 
-    Caller passes:
-      - qty_primary > 0 (primary unit)
-      - unit_cost: IGNORED for FIFO if container is set
-    We:
-      - Turn qty_primary into NEGATIVE for ProductMovement.
-      - Compute effective unit cost from FIFO layers (if container is known).
-      - Store that cost on the ProductMovement (unit_cost/total_cost).
+    - Creates ONE ProductMovement (summary, weighted avg cost)
+    - Creates MULTIPLE SaleCostPart rows (true FIFO breakdown)
     """
+
+    from inventory.models import SaleCostPart
+    from stock.services import fifo_consume_with_parts
+
     qty_pos = Decimal(str(qty_primary or 0))
     if qty_pos <= 0:
-        # nothing or weird; keep old behavior but guard sign
         qty_pos = abs(qty_pos) if qty_pos != 0 else Decimal("0")
 
-    # Figure out cost: FIFO per-container if container known, else fallback
-    eff_cost = unit_cost
+    # -----------------------------
+    # FIFO consume WITH PARTS
+    # -----------------------------
+    parts = []
     if container is not None and qty_pos > 0:
-        eff_cost = StockSV.fifo_consume(
+        parts = fifo_consume_with_parts(
             product=product,
             container=container,
             qty_out_primary=qty_pos,
         )
 
-    # Stock out = NEGATIVE qty in movements table
-    qty_signed = -qty_pos if qty_pos > 0 else Decimal("0")
+    # -----------------------------
+    # Compute weighted average cost
+    # -----------------------------
+    total_cost = DEC0
+    total_qty = DEC0
 
-    return record_movement(
+    for p in parts:
+        total_cost += p["total_cost"]
+        total_qty += p["qty_primary"]
+
+    if total_qty > DEC0:
+        eff_cost = q4(total_cost / total_qty)
+    else:
+        eff_cost = q4(Decimal(str(unit_cost or DEC0)))
+
+    # -----------------------------
+    # Create ProductMovement
+    # -----------------------------
+    mv = record_movement(
         actor=actor,
         product=product,
         unit_index=unit_index,
-        qty_primary=qty_signed,
+        qty_primary=-qty_pos,  # SALE = stock out
         unit_cost=eff_cost,
         movement_type=ProductMovement.MovementType.SALE,
         source_app=source_app,
@@ -233,4 +248,19 @@ def record_sale_item(
         source_id=source_id,
         container=container,
     )
+
+    # -----------------------------
+    # Save FIFO cost parts
+    # -----------------------------
+    for p in parts:
+        SaleCostPart.objects.create(
+            movement=mv,
+            fifo_layer=p["fifo_layer"],
+            qty_primary=p["qty_primary"],
+            unit_cost=p["unit_cost"],
+            total_cost=p["total_cost"],
+        )
+
+    return mv
+
 

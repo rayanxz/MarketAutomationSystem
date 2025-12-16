@@ -212,6 +212,90 @@ def fifo_consume(
     return eff_uc
 
 
+def fifo_consume_with_parts(
+    *,
+    product: Product,
+    container: ProductContainer,
+    qty_out_primary: Decimal,
+) -> list[dict]:
+    """
+    Consume FIFO layers and RETURN detailed cost parts.
+
+    Returns:
+    [
+      {
+        "fifo_layer": StockFifoLayer | None,
+        "qty_primary": Decimal,
+        "unit_cost": Decimal,
+        "total_cost": Decimal,
+      },
+      ...
+    ]
+    """
+    if not container:
+        # fallback: single fake part using product cost
+        uc = q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+        qty = q3(qty_out_primary or DEC0)
+        return [{
+            "fifo_layer": None,
+            "qty_primary": qty,
+            "unit_cost": uc,
+            "total_cost": q3(qty * uc),
+        }]
+
+    need = q3(Decimal(str(qty_out_primary or DEC0)))
+    if need <= DEC0:
+        return []
+
+    layers = (
+        StockFifoLayer.objects
+        .select_for_update()
+        .filter(product=product, container=container, qty_remaining__gt=DEC0)
+        .order_by("created_at", "id")
+    )
+
+    remaining = need
+    parts: list[dict] = []
+    last_cost: Decimal | None = None
+
+    for layer in layers:
+        if remaining <= DEC0:
+            break
+
+        avail = q3(layer.qty_remaining)
+        if avail <= DEC0:
+            continue
+
+        use = avail if avail <= remaining else remaining
+        uc = q4(layer.unit_cost)
+
+        parts.append({
+            "fifo_layer": layer,
+            "qty_primary": q3(use),
+            "unit_cost": uc,
+            "total_cost": q3(use * uc),
+        })
+
+        layer.qty_remaining = q3(avail - use)
+        layer.save(update_fields=["qty_remaining"])
+
+        remaining -= use
+        last_cost = uc
+
+    # fallback if FIFO not enough
+    if remaining > DEC0:
+        uc = q4(
+            last_cost if last_cost is not None
+            else Decimal(str(getattr(product, "cost", DEC0) or DEC0))
+        )
+        parts.append({
+            "fifo_layer": None,
+            "qty_primary": q3(remaining),
+            "unit_cost": uc,
+            "total_cost": q3(remaining * uc),
+        })
+
+    return parts
 
 
 @transaction.atomic

@@ -16,7 +16,7 @@
 
     <div class="spacer"></div>
 
-    <div class="top-actions">
+      <div class="top-actions">
       <div class="user-chip" title="المستخدم الحالي">
         <strong>{{ request.user.username }}</strong>
         {% if request.user.account_profile %}
@@ -25,6 +25,53 @@
           <small>كاشير</small>
         {% endif %}
       </div>
+
+      <!-- ===== Shift box ===== -->
+      <div id="shiftBox"
+           style="
+             margin-inline:12px;
+             padding:6px 10px;
+             border:1px solid var(--border);
+             border-radius:999px;
+             display:flex;
+             align-items:center;
+             gap:8px;
+             min-width:210px;
+             justify-content:center;
+             flex-wrap:wrap;
+           ">
+
+        <!-- initial state: just start button -->
+        <button id="shiftStartBtn"
+                type="button"
+                class="btn success"
+                style="font-size:11px; padding-inline:12px;">
+          بدء الدوام
+        </button>
+
+        <!-- active shift state -->
+        <div id="shiftActive"
+             style="display:none; align-items:center; gap:10px; flex-wrap:wrap;">
+
+          <div style="display:flex; flex-direction:column; font-size:11px;">
+            <span class="muted">بداية الدوام</span>
+            <span id="shiftStartTime">--:--:--</span>
+          </div>
+
+          <div style="display:flex; flex-direction:column; font-size:11px;">
+            <span class="muted">المدة</span>
+            <span id="shiftElapsed">00:00:00</span>
+          </div>
+
+          <button id="shiftEndBtn"
+                  type="button"
+                  class="btn danger"
+                  style="font-size:11px; padding-inline:10px;">
+            إنهاء الدوام
+          </button>
+        </div>
+      </div>
+      <!-- ===== /Shift box ===== -->
 
       <button id="posNotifBtn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="الإشعارات">
         <span class="bell" aria-hidden="true">🔔</span>
@@ -35,7 +82,8 @@
         {% csrf_token %}
         <button type="submit" class="btn danger">تسجيل الخروج</button>
       </form>
-    </div>
+  </div>
+
 
     <!-- Notifications dropdown (UI only for now) -->
     <div id="posNotifPanel" class="notif-panel" hidden>
@@ -55,6 +103,33 @@
   </div>
 
   {% block content %}{% endblock %}
+
+
+  <!-- Shift end confirmation overlay -->
+<div id="shiftConfirmOverlay" class="pos-overlay" hidden>
+  <div class="pos-modal" role="dialog" aria-modal="true" aria-labelledby="shiftConfirmTitle">
+    <h3 id="shiftConfirmTitle" style="margin-top:0">إنهاء الدوام؟</h3>
+
+    <p class="muted">
+      بداية الدوام:
+      <strong id="shiftConfirmStart">--:--:--</strong>
+    </p>
+    <p class="muted" style="margin-top:4px;">
+      المدة حتى الآن:
+      <strong id="shiftConfirmElapsed">00:00:00</strong>
+    </p>
+
+    <div class="btns" style="margin-top:10px;">
+      <button id="shiftConfirmYes" class="btn danger" autofocus>إنهاء الدوام</button>
+      <button id="shiftConfirmNo"  class="btn">إلغاء</button>
+    </div>
+
+    <p class="muted" style="margin-top:6px; font-size:11px;">
+      Enter = إنهاء • Esc = إلغاء
+    </p>
+  </div>
+</div>
+
 
   <!-- Expose CSRF token for AJAX calls in pos.js -->
   <script>

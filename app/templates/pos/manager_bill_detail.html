@@ -1,0 +1,340 @@
+{# app/templates/pos/manager_bill_detail.html #}
+{% extends "manager/base_manager.html" %}
+{% load l10n formatting %}
+
+{% block title %}تفاصيل فاتورة بيع #{{ bill.id }}{% endblock %}
+
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <a class="btn-sec" href="{% url 'pos:pos_manager_overview' %}">رجوع لسجلات POS</a>
+    <span class="tab-current">فاتورة #{{ bill.id }}</span>
+  </div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* Break out of the global centered wrapper for THIS page only */
+  .viewport-center .center-box{
+    width: 100%;
+    max-width: none;
+    padding: 0 10px;
+  }
+
+  /* Main panel uses almost full viewport width */
+  .bill-page{
+    width: calc(100vw - 150px);
+    max-width: 1600px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: var(--card-shadow);
+    box-sizing: border-box;
+  }
+
+  .bill-head{
+    display:flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .bill-title{
+    font-size: 16px;
+    font-weight: 900;
+    margin: 0;
+  }
+
+  .meta-grid{
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .meta-card{
+    background:#fafafa;
+    border:1px solid #eee;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .meta-card b{ color:#000; }
+
+  @media (max-width: 1100px){
+    .meta-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px){
+    .meta-grid{ grid-template-columns: 1fr; }
+  }
+
+  .warn{
+    background:#fff7e6;
+    border: 1px solid #ffd59a;
+    color:#7a4a00;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  /* ===== TABLE (fixed height + vertical scroll) ===== */
+  .table-wrap{
+    margin-top: 14px;
+    border:1px solid #eee;
+    border-radius: 10px;
+    overflow: hidden; /* no horizontal scroll */
+  }
+
+  .table-scroll{
+    max-height: 320px;     /* change this height as you like */
+    overflow-y: auto;      /* vertical scroll when too many rows */
+  }
+
+  table{
+    width:100%;
+    min-width: 0;
+    border-collapse: collapse;
+    font-size: 12px;
+    table-layout: fixed;
+  }
+
+  thead th{
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #f4f6ff;
+  }
+
+  th, td{
+    border-bottom: 1px solid #eee;
+    padding: 8px 8px;
+    text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  td.name, td.notes{ text-align: right; }
+
+  .pill{
+    display:inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid #ddd;
+    font-size: 11px;
+    background:#fff;
+  }
+
+  .profit{
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .profit.pos{ color: #0a8a3a; }
+  .profit.neg{ color: #c62828; }
+
+  .arrow{ font-size: 12px; line-height: 1; }
+  .actions-col{ color:#999; }
+
+  /* ===== TOTALS SECTION (below table) ===== */
+  .totals{
+    margin-top: 12px;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    background: #fafafa;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+  }
+  .totals .t-item{
+    background:#fff;
+    border:1px solid #eee;
+    border-radius:10px;
+    padding:10px 12px;
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .totals .t-item b{ color:#000; }
+  .totals .t-val{ font-weight: 900; }
+
+  @media (max-width: 900px){
+    .totals{ grid-template-columns: 1fr; }
+  }
+
+  .note{
+    font-size: 12px;
+    color:#666;
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bill-page">
+  <div class="bill-head">
+    <h2 class="bill-title">تفاصيل فاتورة بيع #{{ bill.id }}</h2>
+    <div>
+      {% if bill.parked %}
+        <span class="pill">الحالة: معلّقة</span>
+      {% else %}
+        <span class="pill">الحالة: نهائية</span>
+      {% endif %}
+      <span class="pill">الدفع: {{ pay_label }}</span>
+    </div>
+  </div>
+
+  <div class="meta-grid">
+    <div class="meta-card">
+      <div><b>تاريخ الإنشاء:</b> {% if created_dt %}{{ created_dt|date:"Y-m-d" }}{% else %}—{% endif %}</div>
+      <div><b>الوقت:</b> {% if created_dt %}{{ created_dt|date:"H:i:s" }}{% else %}—{% endif %}</div>
+      <div><b>آخر تعديل:</b> {% if updated_dt %}{{ updated_dt|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</div>
+    </div>
+
+    <div class="meta-card">
+      <div><b>الكاشير:</b> {{ cashier_name }}</div>
+      <div><b>اليوم:</b> {% if day_date %}{{ day_date }}{% else %}—{% endif %}</div>
+      <div><b>جلسة الدخول:</b> {% if session_id %}#{{ session_id }}{% else %}—{% endif %}</div>
+      <div><b>الوردية:</b> {% if shift_id %}#{{ shift_id }}{% else %}—{% endif %}</div>
+    </div>
+
+    <div class="meta-card">
+      <div><b>العميل:</b> {% if bill.customer_name %}{{ bill.customer_name }}{% else %}بدون عميل{% endif %}</div>
+      <div><b>ID العميل:</b> {% if bill.customer_id %}{{ bill.customer_id }}{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  {% if not has_cost_movements and not bill.parked and bill.finalized %}
+    <div class="warn">
+      ملاحظة: لم يتم العثور على تفاصيل تكلفة (FIFO) لهذه الفاتورة.
+    </div>
+  {% endif %}
+
+  <div class="table-wrap">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 44px;">#</th>
+            <th style="width: 220px;">المادة</th>
+            <th style="width: 80px;">الكمية</th>
+            <th style="width: 80px;">الوحدة</th>
+            <th style="width: 105px;">سعر البيع</th>
+            <th style="width: 95px;">خصم</th>
+            <th style="width: 115px;">إجمالي السعر</th>
+            <th style="width: 160px;">ملاحظات</th>
+            <th style="width: 105px;">تكلفة الوحدة</th>
+            <th style="width: 110px;">إجمالي التكلفة</th>
+            <th style="width: 115px;">الربح</th>
+            <th style="width: 80px;">إجراءات</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for r in sold_rows %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+
+              <td class="name" title="{{ r.name }}">{{ r.name }}</td>
+
+              <td>{{ r.qty|human_number }}</td>
+              <td title="{{ r.uom_label }}">{{ r.uom_label }}</td>
+
+              <td>{{ r.unit_price|human_number }}</td>
+
+              <td title="{% if r.disc_pct and r.disc_pct != 0 %}{{ r.disc_amount|human_number }} ({{ r.disc_pct|human_number }}%){% else %}{{ r.disc_amount|human_number }}{% endif %}">
+                {{ r.disc_amount|human_number }}
+              </td>
+
+              <td>{{ r.line_total|human_number }}</td>
+
+              <td class="notes" title="{{ r.notes }}">{{ r.notes }}</td>
+
+              <td>
+                {% if r.unit_cost is not None %}
+                  {{ r.unit_cost|human_number }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>
+                {% if r.total_cost is not None %}
+                  {{ r.total_cost|human_number }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>
+                {% if r.profit is not None %}
+                  {% if r.profit_is_pos %}
+                    <span class="profit pos" title="profit">
+                      <span class="arrow">▲</span>
+                      +{{ r.profit|human_number }}
+                    </span>
+                  {% else %}
+                    <span class="profit neg" title="loss">
+                      <span class="arrow">▼</span>
+                      {{ r.profit|human_number }}
+                    </span>
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td class="actions-col">
+                {% if r.purchase_bill_url %}
+                    <a
+                    href="{{ r.purchase_bill_url }}"
+                    class="btn-mini"
+                    title="عرض فاتورة الشراء"
+                    >
+                    عرض فاتورةالشراء
+                    </a>
+                {% else %}
+                    —
+                {% endif %}
+                </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="12">لا يوجد مواد داخل هذه الفاتورة.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Totals section below the table -->
+  <div class="totals">
+    <div class="t-item">
+      <b>الإجمالي</b>
+      <span class="t-val">{{ total_amount|human_number }}</span>
+    </div>
+    <div class="t-item">
+      <b>المدفوع</b>
+      <span class="t-val">{{ paid_amount|human_number }}</span>
+    </div>
+    <div class="t-item">
+      <b>المتبقي</b>
+      <span class="t-val">{{ left_amount|human_number }}</span>
+    </div>
+  </div>
+
+  <div class="note">
+    إذا تم استهلاك المادة من أكثر من دفعة FIFO، ستظهر المادة على أكثر من سطر (سطر لكل دفعة) حتى يبقى الجدول مرتب.
+  </div>
+</div>
+{% endblock %}

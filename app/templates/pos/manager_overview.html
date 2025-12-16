@@ -1,0 +1,743 @@
+{# app/templates/pos/manager_overview.html #}
+{% extends "manager/base_manager.html" %}
+{% load l10n %}
+
+{% block title %}إدارة نقاط البيع — السجلات{% endblock %}
+
+{% block menu_secondary %}
+  <div class="tabs-row">
+    <span class="tab-current">سجلات POS</span>
+  </div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+
+
+/* base_dash.html clamps width through .center-box */
+.viewport-center{
+  width: 100%;
+}
+
+.center-box{
+  width: 100%;
+  max-width: 1650px;          /* add your +150px here */
+  margin: 0 auto;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+
+
+
+  .pos-mgr-page{
+  width: 100%;
+  max-width: none; 
+  margin: 0;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: var(--card-shadow);
+  box-sizing: border-box;
+}
+
+
+
+  .pos-mgr-layout{
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr); /* left fixed, right grows */
+  gap: 16px;
+}
+
+
+  .pos-mgr-panel {
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 10px 12px;
+    border: 1px solid #eee;
+    display: flex;
+    flex-direction: column;
+    max-height: none;
+    height: calc(100vh - 220px);
+  }
+
+  .pos-mgr-panel h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+  }
+
+  .pos-mgr-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+
+  .pos-mgr-filters label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+
+  .pos-mgr-filters input[type="date"],
+  .pos-mgr-filters input[type="time"],
+  .pos-mgr-filters select {
+    padding: 3px 5px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 12px;
+  }
+
+  .pos-mgr-filters .btn-main {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .pos-mgr-scroll {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-gutter: stable;
+  }
+
+  /* days table (left panel) */
+  .pos-mgr-days-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .pos-mgr-days-table th,
+  .pos-mgr-days-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #eee;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .pos-mgr-days-table th {
+    background: #f2f5ff;
+    font-weight: 600;
+  }
+
+  .pos-mgr-day-row a {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .pos-mgr-day-selected {
+    background: #e7f0ff !important;
+  }
+
+  .pos-mgr-empty {
+    font-size: 12px;
+    color: #777;
+    text-align: center;
+    padding: 12px 0;
+  }
+
+  /* timeline */
+  .pos-mgr-timeline-filters {
+    border-bottom: 1px solid #e1e1e1;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+
+  .pos-mgr-timeline-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+  }
+
+  .pos-mgr-event {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 4px;
+    border-bottom: 1px dashed #eee;
+  }
+
+  .pos-mgr-event-time {
+    min-width: 60px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #555;
+    text-align: center;
+  }
+
+  .pos-mgr-event-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pos-mgr-event-user {
+    font-weight: 700;
+    margin-left: 4px;
+  }
+
+  .pos-mgr-event-label {
+    font-weight: 600;
+  }
+
+  .pos-mgr-event-meta-inline {
+    font-size: 12px;
+    color: #777;
+    margin-right: 8px;
+    white-space: nowrap;
+  }
+
+  .pos-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1.4;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+
+  .pos-tag-login { background: #e3f6d8; border: 1px solid #b4d89a; }
+  .pos-tag-logout { background: #ffdede; border: 1px solid #f1a3a3; }
+  .pos-tag-shift { background: #e7ecff; border: 1px solid #b0baf2; }
+
+  /* TREE LEVELS */
+  .pos-mgr-event.lvl-0 { margin-right: 0; }
+
+  .pos-mgr-event.lvl-1 {
+    margin-right: 18px;
+    padding-right: 14px;
+    border-right: 2px solid #c7d3ff;
+  }
+
+  .pos-mgr-event.lvl-2 {
+    margin-right: 36px;
+    padding-right: 14px;
+    border-right: 2px dashed #d9e0ff;
+  }
+
+  /* BILL TABLE */
+  .bill-row {
+    display: grid;
+    grid-template-columns: 60px 70px 90px 110px 1fr 1fr 1fr 1.6fr 70px;
+    gap: 6px;
+    align-items: center;
+    font-size: 12px;
+    width: 100%;
+  }
+
+  .bill-id { font-weight: 700; text-align: center; }
+  .bill-time { font-family: monospace; text-align: center; color: #444; }
+  .bill-col { text-align: center; }
+  .bill-status-closed { color: #2e7d32; font-weight: 700; }
+  .bill-status-pending { color: #e65100; font-weight: 700; }
+  .bill-customer { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bill-customer-empty { color: #aaa; }
+
+  .bill-actions {
+    text-align: center;
+    font-size: 11px;
+    color: #3366cc;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .bill-header-li { border-bottom: none; padding-bottom: 0; }
+
+  .bill-header-row {
+    background: #f4f6ff;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-weight: 700;
+  }
+
+  .bill-header-row span { text-align: center; }
+
+  /* ===== BILL MODAL ===== */
+.pos-modal-backdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.35);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.pos-modal-backdrop.open{ display:flex; }
+
+.pos-modal{
+  width: min(980px, calc(100vw - 24px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.25);
+  border: 1px solid #eee;
+}
+
+.pos-modal-head{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #eee;
+}
+.pos-modal-title{
+  font-weight: 800;
+  font-size: 14px;
+}
+.pos-modal-close{
+  cursor:pointer;
+  user-select:none;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fafafa;
+}
+
+.pos-modal-body{
+  padding: 12px 14px;
+}
+
+.pos-bill-meta{
+  display:flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  font-size: 12px;
+  color: #444;
+  margin-bottom: 10px;
+}
+.pos-bill-meta b{ color:#000; }
+
+.pos-bill-rows{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.pos-bill-rows th, .pos-bill-rows td{
+  border-bottom: 1px solid #eee;
+  padding: 6px 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+.pos-bill-rows th{
+  background: #f4f6ff;
+  font-weight: 700;
+}
+.pos-bill-rows td.name{
+  text-align: right;
+  white-space: normal;
+}
+.pos-modal-error{
+  color: #b00020;
+  font-size: 12px;
+  padding: 10px 0;
+}
+
+/* ===== Timeline row highlights ===== */
+.pos-mgr-event.ev-login{
+  background: #e8ffe8;              /* light green */
+  border-radius: 8px;
+}
+
+.pos-mgr-event.ev-logout{
+  background: #ffe7e7;              /* light red */
+  border-radius: 8px;
+}
+
+.pos-mgr-event.ev-shift-start{
+  background: #e6fbff;              /* light blue (different from your header/identifier blues) */
+  border-radius: 8px;
+}
+
+.pos-mgr-event.ev-shift-end{
+  background: #ffd8fcff;              /* light orange */
+  border-radius: 8px;
+}
+
+/* optional: keep the dashed separator subtle when rows are colored */
+.pos-mgr-event.ev-login,
+.pos-mgr-event.ev-logout,
+.pos-mgr-event.ev-shift-start,
+.pos-mgr-event.ev-shift-end{
+  border-bottom-color: rgba(0,0,0,0.06);
+}
+
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pos-mgr-page">
+  <div class="pos-mgr-layout">
+
+    {# ============= LEFT PANEL: DAYS LIST ============= #}
+    <div class="pos-mgr-panel">
+      <h3>الأيام</h3>
+
+      <form method="get" class="pos-mgr-filters">
+        <label>
+          من:
+          <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}">
+        </label>
+        <label>
+          إلى:
+          <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}">
+        </label>
+
+        {# preserve selected day when updating range (optional) #}
+        {% if selected_day %}
+          <input type="hidden" name="day" value="{{ selected_day.id }}">
+        {% endif %}
+
+        <button type="submit" class="btn-main">تحديث الأيام</button>
+      </form>
+
+      <div class="pos-mgr-scroll">
+        {% if days %}
+          <table class="pos-mgr-days-table">
+            <thead>
+              <tr>
+                <th>اليوم</th>
+                <th>الفواتير</th>
+                <th>الإجمالي</th>
+                <th>المدفوع</th>
+                <th>المتبقي</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for d in days %}
+              {% with day_obj=d.obj %}
+                <tr class="pos-mgr-day-row {% if selected_day and day_obj.id == selected_day.id %}pos-mgr-day-selected{% endif %}">
+                  <td>
+                    <a href="?from={{ date_from|date:'Y-m-d' }}&to={{ date_to|date:'Y-m-d' }}&day={{ day_obj.id }}">
+                      {{ day_obj.date }}
+                    </a>
+                  </td>
+                  <td>{{ d.total_bills }}</td>
+                  <td>{{ d.total_amount|localize }}</td>
+                  <td>{{ d.paid_amount|localize }}</td>
+                  <td>{{ d.left_amount|localize }}</td>
+                </tr>
+              {% endwith %}
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="pos-mgr-empty">لا يوجد سجلات في الفترة المحددة.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ============= RIGHT PANEL: DAILY TIMELINE ============= #}
+    <div class="pos-mgr-panel">
+      <h3>
+        الجدول الزمني لليوم
+        {% if selected_day %}
+          ({{ selected_day.date }})
+        {% else %}
+          — لا يوجد يوم محدد
+        {% endif %}
+      </h3>
+
+      {# RIGHT PANEL FILTERS (restore) #}
+      <div class="pos-mgr-timeline-filters">
+        {% if selected_day %}
+          <form method="get" class="pos-mgr-filters">
+            <input type="hidden" name="from" value="{{ date_from|date:'Y-m-d' }}">
+            <input type="hidden" name="to" value="{{ date_to|date:'Y-m-d' }}">
+            <input type="hidden" name="day" value="{{ selected_day.id }}">
+            <input type="hidden" name="timeline_filters" value="1">
+
+            <label>
+              الحساب:
+              <select name="actor">
+                <option value="">جميع الحسابات</option>
+                {% for acc in actors %}
+                  {% with uid=acc.id|stringformat:"s" %}
+                    <option value="{{ uid }}" {% if uid == selected_actor_id %}selected{% endif %}>
+                      {{ acc.get_full_name|default:acc.username }}
+                    </option>
+                  {% endwith %}
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              من الساعة:
+              <input type="time" name="time_from"
+                     value="{% if time_from %}{{ time_from|time:'H:i' }}{% endif %}">
+            </label>
+
+            <label>
+              إلى:
+              <input type="time" name="time_to"
+                     value="{% if time_to %}{{ time_to|time:'H:i' }}{% endif %}">
+            </label>
+
+            <label>
+              <input type="checkbox" name="show_logins" value="1" {% if show_logins %}checked{% endif %}>
+              الدخول / الخروج
+            </label>
+
+            <label>
+              <input type="checkbox" name="show_shifts" value="1" {% if show_shifts %}checked{% endif %}>
+              الورديات
+            </label>
+
+            <label>
+              <input type="checkbox" name="show_bills" value="1" {% if show_bills %}checked{% endif %}>
+              فواتير البيع
+            </label>
+
+            <button type="submit" class="btn-main">تطبيق الفلتر</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="pos-mgr-scroll" id="timelineScroll">
+        {% if not selected_day %}
+          <div class="pos-mgr-empty">اختر يوماً من اللوحة اليسرى لعرض التفاصيل.</div>
+        {% else %}
+          {% if timeline_events %}
+            <ul class="pos-mgr-timeline-list" id="timelineList">
+               {% include "pos/_manager_overview_timeline_items.html" with timeline_events=timeline_events %}
+            </ul>
+
+          {% else %}
+            <div class="pos-mgr-empty">
+              لا يوجد أحداث (جلسات / ورديات / فواتير) مطابقة للفلتر في هذا اليوم.
+            </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="pos-modal-backdrop" id="billModalBackdrop" aria-hidden="true">
+  <div class="pos-modal" role="dialog" aria-modal="true" aria-labelledby="billModalTitle">
+    <div class="pos-modal-head">
+      <div class="pos-modal-title" id="billModalTitle">تفاصيل فاتورة</div>
+      <div class="pos-modal-close" id="billModalClose">إغلاق</div>
+    </div>
+
+    <div class="pos-modal-body">
+      <div class="pos-bill-meta" id="billMeta"></div>
+
+      <table class="pos-bill-rows">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>المادة</th>
+            <th>الكمية</th>
+            <th>سعر</th>
+            <th>خصم</th>
+            <th>إجمالي</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody id="billRows"></tbody>
+      </table>
+
+      <div class="pos-modal-error" id="billModalError" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function () {
+  const scrollBox = document.getElementById("timelineScroll");
+  const list = document.getElementById("timelineList");
+  if (!scrollBox || !list) return;
+
+  const hasMoreInitial = {{ has_more|yesno:"true,false" }};
+  let hasMore = hasMoreInitial;
+  let isLoading = false;
+  let nextOffset = {{ timeline_events|length }};
+
+
+  function buildUrl() {
+  const base = "{% url 'pos:pos_manager_overview_timeline' %}";
+  const url = new URL(base, window.location.origin);
+
+  // Copy filters from current page
+  const cur = new URL(window.location.href);
+  cur.searchParams.forEach((v, k) => url.searchParams.set(k, v));
+
+  url.searchParams.set("day", "{{ selected_day.id|default:'' }}");
+  url.searchParams.set("offset", String(nextOffset));
+  url.searchParams.set("limit", "200");
+
+  return url.toString();
+}
+
+
+  async function loadMore() {
+    if (!hasMore || isLoading) return;
+    isLoading = true;
+
+    try {
+      const res = await fetch(buildUrl(), {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        hasMore = false;
+        return;
+      }
+
+      if (data.html) {
+        list.insertAdjacentHTML("beforeend", data.html);
+      }
+
+      nextOffset = data.next_offset || (nextOffset + 200);
+      hasMore = !!data.has_more;
+    } catch (e) {
+      // don’t spam requests if network fails
+      hasMore = false;
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  function onScroll() {
+    // When near bottom, load next chunk
+    const threshold = 180;
+    const remaining = scrollBox.scrollHeight - (scrollBox.scrollTop + scrollBox.clientHeight);
+    if (remaining < threshold) loadMore();
+  }
+
+  scrollBox.addEventListener("scroll", onScroll);
+
+  // If panel starts already short, try loading until it fills a bit
+  setTimeout(() => {
+    if (scrollBox.scrollHeight <= scrollBox.clientHeight + 50) loadMore();
+  }, 150);
+
+
+
+    // ===== Bill modal =====
+  const backdrop = document.getElementById("billModalBackdrop");
+  const btnClose = document.getElementById("billModalClose");
+  const metaBox = document.getElementById("billMeta");
+  const rowsBox = document.getElementById("billRows");
+  const errBox = document.getElementById("billModalError");
+  const titleBox = document.getElementById("billModalTitle");
+
+  function openModal() {
+    if (!backdrop) return;
+    backdrop.classList.add("open");
+    backdrop.setAttribute("aria-hidden", "false");
+  }
+
+  function closeModal() {
+    if (!backdrop) return;
+    backdrop.classList.remove("open");
+    backdrop.setAttribute("aria-hidden", "true");
+  }
+
+  function escListener(e) {
+    if (e.key === "Escape") closeModal();
+  }
+
+  if (btnClose) btnClose.addEventListener("click", closeModal);
+  if (backdrop) {
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) closeModal();
+    });
+  }
+  document.addEventListener("keydown", escListener);
+
+  function money(x) {
+    if (x === null || x === undefined) return "0";
+    return String(x);
+  }
+
+  function renderBill(bill) {
+    if (!bill) return;
+
+    if (titleBox) titleBox.textContent = `فاتورة #${bill.id}`;
+
+    const cust = bill.customer_name ? bill.customer_name : "بدون عميل";
+    const status = bill.parked ? "معلقة" : "مغلقة";
+
+    metaBox.innerHTML = `
+      <div><b>الوقت:</b> ${bill.created_at ? bill.created_at.replace("T"," ").slice(0,16) : ""}</div>
+      <div><b>الحالة:</b> ${status}</div>
+      <div><b>العميل:</b> ${cust}</div>
+      <div><b>الإجمالي:</b> ${money(bill.total_amount)}</div>
+      <div><b>المدفوع:</b> ${money(bill.paid_amount)}</div>
+        <div><b>المتبقي:</b> ${money((((parseFloat(bill.total_amount) || 0) - (parseFloat(bill.paid_amount) || 0))).toFixed(3)))}</div>
+
+    `;
+
+    rowsBox.innerHTML = "";
+    const rows = bill.rows || [];
+    rows.forEach((r, idx) => {
+      const qty = money(r.qty);
+      const price = money(r.unit_price);
+      const disc = money(r.disc_amount);
+      const lineTotal = (parseFloat(r.qty || "0") * parseFloat(r.unit_price || "0")) - parseFloat(r.disc_amount || "0");
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${idx + 1}</td>
+        <td class="name">${(r.name || "")}</td>
+        <td>${qty}</td>
+        <td>${price}</td>
+        <td>${disc}</td>
+        <td>${money(lineTotal.toFixed ? lineTotal.toFixed(3) : lineTotal)}</td>
+        <td class="name">${(r.notes || "")}</td>
+      `;
+      rowsBox.appendChild(tr);
+    });
+  }
+
+  async function openBillById(id) {
+    if (!id) return;
+
+    errBox.style.display = "none";
+    errBox.textContent = "";
+    metaBox.innerHTML = "<div>تحميل...</div>";
+    rowsBox.innerHTML = "";
+
+    openModal();
+
+    try {
+      const url = "{% url 'pos:api_bill_detail' 0 %}".replace("/0/", `/${id}/`);
+      const res = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const data = await res.json();
+
+      if (!data.ok) {
+        throw new Error(data.error || "FAILED");
+      }
+      renderBill(data.bill);
+    } catch (e) {
+      metaBox.innerHTML = "";
+      errBox.textContent = "فشل تحميل الفاتورة (صلاحيات أو خطأ شبكة).";
+      errBox.style.display = "block";
+    }
+  }
+
+  // Click "عرض" (works for dynamically appended chunks too)
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest(".bill-actions");
+    if (!btn) return;
+    const id = btn.getAttribute("data-bill-id");
+    if (!id) return;
+    openBillById(id);
+  });
+
+
+})();
+</script>
+
+{% endblock %}

@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class CustomerProfile(models.Model):
@@ -34,6 +35,95 @@ class CustomerProfile(models.Model):
         return self.name
 
 
+class PosDay(models.Model):
+    """
+    A logical POS work day (local calendar date).
+    Used to group bills, login sessions and shifts.
+    """
+    date = models.DateField(unique=True)
+    opened_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = "POS work day"
+        verbose_name_plural = "POS work days"
+        ordering = ("-date",)
+
+    def __str__(self) -> str:
+        return f"POS day {self.date}"
+
+
+class PosLoginSession(models.Model):
+    """
+    One POS login-usage window for a cashier.
+
+    For now this is 'best-effort':
+    - we open it when the user starts using POS
+    - later we can explicitly close it on logout / timeout.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pos_login_sessions",
+    )
+    day = models.ForeignKey(
+        PosDay,
+        on_delete=models.CASCADE,
+        related_name="login_sessions",
+    )
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    closed_reason = models.CharField(max_length=32, blank=True)
+
+    class Meta:
+        verbose_name = "POS login session"
+        verbose_name_plural = "POS login sessions"
+        ordering = ("-started_at",)
+
+    def __str__(self) -> str:
+        return f"Login session #{self.pk or 'new'} — {self.user} on {self.day.date}"
+
+
+class PosShift(models.Model):
+    """
+    A formal cashier shift (subset of a POS work day,
+    optionally inside one login session).
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pos_shifts",
+    )
+    day = models.ForeignKey(
+        PosDay,
+        on_delete=models.CASCADE,
+        related_name="shifts",
+    )
+    login_session = models.ForeignKey(
+        PosLoginSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="shifts",
+    )
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    title = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        verbose_name = "POS shift"
+        verbose_name_plural = "POS shifts"
+        ordering = ("-started_at",)
+
+    def __str__(self) -> str:
+        return f"Shift #{self.pk or 'new'} — {self.user} on {self.day.date}"
+
+
 class SalesBill(models.Model):
     """
     One POS bill. This is *only* the POS layer; real accounting/billing happens elsewhere.
@@ -48,6 +138,29 @@ class SalesBill(models.Model):
         (PAY_NONE, "Unpaid"),
         (PAY_PARTIAL, "Partially paid"),
     ]
+
+    # NEW: container links
+    work_day = models.ForeignKey(
+        PosDay,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bills",
+    )
+    login_session = models.ForeignKey(
+        PosLoginSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bills",
+    )
+    shift = models.ForeignKey(
+        PosShift,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bills",
+    )
 
     customer = models.ForeignKey(
         CustomerProfile,
@@ -96,9 +209,6 @@ class SalesBill(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    # if you ever wanted JSON meta, we’d use TextField here instead
-    # meta = models.TextField(blank=True, default="")
 
     class Meta:
         verbose_name = "Sales bill (POS)"

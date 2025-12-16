@@ -53,7 +53,7 @@ TEMPLATES = [{
 }]
 
 LANGUAGE_CODE = "ar"
-TIME_ZONE = "UTC"
+TIME_ZONE = "Asia/Damascus"
 USE_I18N = True
 USE_TZ = True
 

@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST, require_GET
 from django.utils import timezone
 from django.db import transaction
 
-from .models import SalesBill, SalesBillRow, CustomerProfile
+from .models import SalesBill, SalesBillRow, CustomerProfile, PosShift
 from . import services as POSSV
 
 
@@ -19,8 +19,6 @@ def _parse_decimal(x):
     except Exception:
         return Decimal("0")
 
-
-# app/pos/api_bills.py
 
 @login_required
 @require_POST
@@ -44,6 +42,18 @@ def api_bill_save(request: HttpRequest):
         paid_amount = _parse_decimal(payload.get("paid_amount"))
         customer_name = (payload.get("customer_name") or "").strip()
         create_new_customer = bool(payload.get("create_new_customer"))
+
+        # optional shift id (from POS shift box)
+        shift = None
+        shift_id = payload.get("shift_id")
+        if shift_id:
+            try:
+                shift_obj = PosShift.objects.get(pk=int(shift_id))
+                # small safety: only owner or superuser can bind to this shift
+                if shift_obj.user_id == request.user.id or request.user.is_superuser:
+                    shift = shift_obj
+            except (ValueError, PosShift.DoesNotExist):
+                shift = None
 
         # =====================
         # Rows from payload (validate BEFORE touching DB)
@@ -103,10 +113,21 @@ def api_bill_save(request: HttpRequest):
             # wipe rows and rewrite
             bill.rows.all().delete()
         else:
-            # new bill → bind cashier to current user
+            # NEW BILL:
+            # - bind cashier to current user
+            # - attach to current work day + login session container
+            cashier = request.user if request.user.is_authenticated else None
             bill = SalesBill(
-                cashier=request.user if request.user.is_authenticated else None,
+                cashier=cashier,
             )
+
+            session = POSSV.get_or_create_login_session(cashier)
+            if session is not None:
+                bill.login_session = session
+                bill.work_day = session.day
+            else:
+                # fallback: at least make sure the bill is tied to a work day
+                bill.work_day = POSSV.get_or_create_work_day()
 
         # =====================
         # Update bill fields
@@ -118,6 +139,7 @@ def api_bill_save(request: HttpRequest):
         bill.paid_amount = paid_amount
         bill.parked = parked
         bill.finalized = not parked
+        bill.shift = shift
         bill.save()
 
         # =====================
@@ -168,7 +190,6 @@ def api_bill_save(request: HttpRequest):
                     status=400,
                 )
 
-
         return JsonResponse({
             "ok": True,
             "bill": {
@@ -176,8 +197,6 @@ def api_bill_save(request: HttpRequest):
                 "parked": bill.parked,
             }
         })
-
-
 
 
 @login_required
@@ -222,7 +241,6 @@ def api_bills_today(request: HttpRequest):
     return JsonResponse({"ok": True, "bills": bills})
 
 
-
 @login_required
 @require_GET
 def api_bill_detail(request: HttpRequest, bill_id: int):
@@ -239,13 +257,13 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
     except SalesBill.DoesNotExist:
         return JsonResponse({"ok": False, "error": "Bill not found"}, status=404)
 
-    # permissions: same spirit as save/delete
-    if not request.user.is_superuser:
+    # permissions:
+    # - superuser OR staff can view any bill
+    # - normal user can view only their own bills
+    if not (request.user.is_superuser or request.user.is_staff):
         if bill.cashier and bill.cashier != request.user:
-            return JsonResponse(
-                {"ok": False, "error": "PERMISSION_DENIED"},
-                status=403,
-            )
+            return JsonResponse({"ok": False, "error": "PERMISSION_DENIED"}, status=403)
+
 
     rows = []
     for r in bill.rows.all():
@@ -300,7 +318,6 @@ def api_customers_search(request: HttpRequest):
         for c in qs
     ]
     return JsonResponse({"ok": True, "hits": hits})
-
 
 
 @login_required

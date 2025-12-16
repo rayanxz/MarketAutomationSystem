@@ -6,12 +6,13 @@ from collections import defaultdict
 from typing import Tuple
 
 from django.db import transaction
+from django.utils import timezone
 
 from catalog.models import Product
 from inventory import services as InvSV
 from inventory.models import ProductMovement, DEC0, q3
 from stock.models import ProductContainer, StockEntry  # ⬅ added StockEntry
-from .models import SalesBill, SalesBillRow
+from .models import SalesBill, SalesBillRow, PosDay, PosLoginSession , PosShift
 
 
 class InsufficientStockError(Exception):
@@ -30,6 +31,78 @@ class InsufficientStockError(Exception):
     def __init__(self, items: list[dict]):
         self.items = items
         super().__init__("INSUFFICIENT_STOCK")
+
+
+def get_or_create_work_day(now=None) -> PosDay:
+    """
+    Ensure we have a PosDay for the current local calendar date.
+    """
+    if now is None:
+        now = timezone.now()
+    today = timezone.localdate(now)
+    day, _ = PosDay.objects.get_or_create(
+        date=today,
+        defaults={"opened_at": now},
+    )
+    return day
+
+
+def get_or_create_login_session(user, now=None) -> PosLoginSession | None:
+    """
+    Best-effort "login → usage" session for this user and day.
+
+    - If user is anonymous → returns None.
+    - If there is an open session for this user+day → reuse it.
+    - Otherwise create a new one starting now.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return None
+
+    if now is None:
+        now = timezone.now()
+
+    day = get_or_create_work_day(now)
+
+    sess = (
+        PosLoginSession.objects
+        .filter(user=user, day=day, ended_at__isnull=True)
+        .order_by("-started_at")
+        .first()
+    )
+    if sess:
+        return sess
+
+    return PosLoginSession.objects.create(
+        user=user,
+        day=day,
+        started_at=now,
+    )
+
+
+def close_login_session(user, *, now=None, reason: str = "logout") -> bool:
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+
+    now = now or timezone.now()
+
+    sess = (
+        PosLoginSession.objects
+        .filter(user=user, ended_at__isnull=True)
+        .order_by("-started_at")
+        .first()
+    )
+    if not sess:
+        return False
+
+    sess.ended_at = now
+    sess.closed_reason = (reason or "")[:32]
+    sess.save(update_fields=["ended_at", "closed_reason"])
+
+    # OPTIONAL but recommended: close any open shift too
+    PosShift.objects.filter(user=user, ended_at__isnull=True).update(ended_at=now)
+
+    return True
+
 
 
 def _get_store_container() -> ProductContainer | None:

@@ -15,10 +15,26 @@ from .api_bills import (
     api_bill_delete,
 )
 
+from .api_shifts import (
+    api_shift_start,
+    api_shift_end,
+)
+
+from .api_sessions import api_login_end
+
+
 app_name = "pos"
 
 urlpatterns = [
+    # cashier POS screen
     path("", views.pos_screen, name="pos_screen"),
+
+    # MANAGER POS OVERVIEW
+    path("manager/overview/", views.pos_manager_overview, name="pos_manager_overview"),
+    path("manager/overview/timeline/", views.pos_manager_overview_timeline, name="pos_manager_overview_timeline"),
+
+    path("manager/bill/<int:bill_id>/", views.pos_manager_bill_detail, name="pos_manager_bill_detail"),
+
 
     # product lookup APIs
     path("api/barcode/<str:value>/", api_barcode_lookup, name="api_barcode_lookup"),
@@ -30,9 +46,15 @@ urlpatterns = [
     path("api/bill/save/", api_bill_save, name="api_bill_save"),
     path("api/bills/today/", api_bills_today, name="api_bills_today"),
     path("api/bill/<int:bill_id>/", api_bill_detail, name="api_bill_detail"),
+    path("api/bill/<int:pk>/delete/", api_bill_delete, name="api_bill_delete"),
 
     # customers autocomplete
     path("api/customers/search/", api_customers_search, name="api_customers_search"),
-    
-    path("api/bill/<int:pk>/delete/", api_bill_delete, name="api_bill_delete"),
+
+    # shifts
+    path("api/shift/start/", api_shift_start, name="api_shift_start"),
+    path("api/shift/end/", api_shift_end, name="api_shift_end"),
+
+    path("api/login/end/", api_login_end, name="api_login_end"),
+
 ]

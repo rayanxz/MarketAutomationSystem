@@ -1,0 +1,142 @@
+{# app/templates/pos/_manager_overview_timeline_items.html #}
+{% load l10n %}
+
+{% for ev in timeline_events %}
+
+  {% if ev.type == "bill_header" %}
+    <li class="pos-mgr-event lvl-2 bill-header-li">
+      <div class="pos-mgr-event-time"></div>
+      <div class="pos-mgr-event-body">
+        <div class="bill-row bill-header-row">
+          <span class="bill-id">#</span>
+          <span class="bill-time">الوقت</span>
+          <span class="bill-col">الحالة</span>
+          <span class="bill-col">الكاشير</span>
+          <span class="bill-col">الإجمالي</span>
+          <span class="bill-col">المدفوع</span>
+          <span class="bill-col">المتبقي</span>
+          <span class="bill-customer">العميل</span>
+          <span class="bill-actions">إجراء</span>
+        </div>
+      </div>
+    </li>
+
+  {% else %}
+
+    <li class="pos-mgr-event
+    {% if ev.type == 'login_start' %}ev-login
+    {% elif ev.type == 'login_end' %}ev-logout
+    {% elif ev.type == 'shift_start' %}ev-shift-start
+    {% elif ev.type == 'shift_end' %}ev-shift-end
+    {% endif %}
+    {% if ev.type == 'login_start' or ev.type == 'login_end' %}lvl-0
+    {% elif ev.type == 'shift_start' or ev.type == 'shift_end' %}lvl-1
+    {% elif ev.type == 'bill' %}lvl-2
+    {% else %}lvl-0{% endif %}">
+
+      <div class="pos-mgr-event-time">
+        {% if ev.type != "bill" %}
+          {{ ev.time|date:"H:i" }}
+        {% endif %}
+      </div>
+
+      <div class="pos-mgr-event-body">
+
+        {% if ev.type == "login_start" %}
+          {% if ev.user %}
+            <span class="pos-mgr-event-user">{{ ev.user.get_full_name|default:ev.user.username }}</span>
+          {% endif %}
+          <span class="pos-mgr-event-label">سجّل الدخول إلى POS</span>
+          <span class="pos-tag pos-tag-login">دخول</span>
+          {% if ev.session %}
+            <span class="pos-mgr-event-meta-inline">جلسة دخول #{{ ev.session.id }}</span>
+          {% endif %}
+
+        {% elif ev.type == "login_end" %}
+          {% if ev.user %}
+            <span class="pos-mgr-event-user">{{ ev.user.get_full_name|default:ev.user.username }}</span>
+          {% endif %}
+          <span class="pos-mgr-event-label">سجّل الخروج من POS</span>
+          <span class="pos-tag pos-tag-logout">خروج</span>
+          {% if ev.session %}
+            <span class="pos-mgr-event-meta-inline">جلسة دخول #{{ ev.session.id }}</span>
+          {% endif %}
+
+        {% elif ev.type == "shift_start" %}
+          {% if ev.user %}
+            <span class="pos-mgr-event-user">{{ ev.user.get_full_name|default:ev.user.username }}</span>
+          {% endif %}
+          {% if ev.shift %}
+            <span class="pos-mgr-event-label">بدأ الوردية #{{ ev.shift.id }}</span>
+            <span class="pos-tag pos-tag-shift">بداية وردية</span>
+            {% if ev.shift.day %}
+              <span class="pos-mgr-event-meta-inline">اليوم: {{ ev.shift.day.date }}</span>
+            {% endif %}
+          {% else %}
+            <span class="pos-mgr-event-label">بدأ الوردية</span>
+            <span class="pos-tag pos-tag-shift">بداية وردية</span>
+          {% endif %}
+
+        {% elif ev.type == "shift_end" %}
+          {% if ev.user %}
+            <span class="pos-mgr-event-user">{{ ev.user.get_full_name|default:ev.user.username }}</span>
+          {% endif %}
+          {% if ev.shift %}
+            <span class="pos-mgr-event-label">أنهى الوردية #{{ ev.shift.id }}</span>
+            <span class="pos-tag pos-tag-shift">نهاية وردية</span>
+            {% if ev.shift.started_at and ev.shift.ended_at %}
+              <span class="pos-mgr-event-meta-inline">المدة: {{ ev.shift.started_at|timesince:ev.shift.ended_at }}</span>
+            {% endif %}
+          {% else %}
+            <span class="pos-mgr-event-label">أنهى الوردية</span>
+            <span class="pos-tag pos-tag-shift">نهاية وردية</span>
+          {% endif %}
+
+        {% elif ev.type == "bill" %}
+          {% with b=ev.bill %}
+            <div class="bill-row">
+              <span class="bill-id">#{{ b.id }}</span>
+              <span class="bill-time">{{ ev.time|date:"H:i" }}</span>
+
+              <span class="bill-col">
+                {% if b.parked %}
+                  <span class="bill-status-pending">معلقة</span>
+                {% else %}
+                  <span class="bill-status-closed">مغلقة</span>
+                {% endif %}
+              </span>
+
+              <span class="bill-col">
+                {% if ev.user %}
+                  {{ ev.user.get_full_name|default:ev.user.username }}
+                {% else %}
+                  —
+                {% endif %}
+              </span>
+
+              <span class="bill-col">{{ b.total_amount|localize }}</span>
+              <span class="bill-col">{{ b.paid_amount|localize }}</span>
+              <span class="bill-col">{{ b.left_amount|localize }}</span>
+
+              <span class="bill-customer">
+                {% if b.customer_name %}
+                  {{ b.customer_name }}
+                {% else %}
+                  <span class="bill-customer-empty">بدون عميل</span>
+                {% endif %}
+              </span>
+
+              <a class="bill-actions" href="{% url 'pos:pos_manager_bill_detail' b.id %}">عرض</a>
+            </div>
+          {% endwith %}
+
+        {% else %}
+          <span class="pos-mgr-event-label">حدث غير معروف</span>
+        {% endif %}
+
+      </div>
+    </li>
+
+  {% endif %}
+
+{% endfor %}

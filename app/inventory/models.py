@@ -9,7 +9,7 @@ from django.db import models
 from django.utils import timezone
 
 from catalog.models import Product
-
+from stock.models import StockFifoLayer
 
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
@@ -129,3 +129,21 @@ class ProductMovement(models.Model):
     def save(self, *args, **kwargs):
         self.clean()
         return super().save(*args, **kwargs)
+
+
+# inventory/models.py
+class SaleCostPart(models.Model):
+    movement = models.ForeignKey(
+        ProductMovement,
+        on_delete=models.CASCADE,
+        related_name="cost_parts",
+    )
+    fifo_layer = models.ForeignKey(
+        StockFifoLayer,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    qty_primary = models.DecimalField(max_digits=14, decimal_places=3)
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=4)
+    total_cost = models.DecimalField(max_digits=14, decimal_places=3)
