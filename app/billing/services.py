@@ -99,7 +99,7 @@ def create_bill(
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
-    bill = Bill(provider=provider, total=DEC0)
+    bill = Bill(provider=provider, total=DEC0, created_by=actor)
     bill.save()
 
     # ====== Add items & update stock via inventory layer ======
@@ -407,6 +407,7 @@ def create_return(
         provider=provider,
         total=DEC0,
         source_bill_serial=source_bill_serial,
+        created_by=actor,
     )
     pret.save()
 

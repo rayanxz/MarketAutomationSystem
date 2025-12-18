@@ -73,10 +73,18 @@ def providers_ac(q: str):
 # ---------- Bills (commercial docs) ----------
 
 def bills_base():
-    # Note: no status/paid_amount fields anymore; these are properties resolved from DebtorEntry.
     return (
-        Bill.objects.select_related("provider")
-        .only("id", "serial", "total", "created_at", "provider__id", "provider__name")
+        Bill.objects
+        .select_related("provider", "created_by")
+        .only(
+            "id", "serial", "total", "created_at",
+            "provider__id", "provider__name",
+            "created_by__id",
+            "created_by__username",
+            # if you want full name and your user model supports it, it's still safe
+            "created_by__first_name",
+            "created_by__last_name",
+        )
     )
 
 def bills_list_filters(qs, q, serial, status, date_from, date_to, cursor, page_size):

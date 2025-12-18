@@ -30,31 +30,38 @@
     const label = status === "paid" ? "مدفوعة" : (status === "partial" ? "مدفوعة جزئياً" : "غير مدفوعة");
     return `<span class="status ${cls}">${label}</span>`;
   }
-    function row(b){
-    const dt = new Date(b.created_at).toLocaleString();
-    const viewUrl = `${window.__BILLING__.billViewBase}${b.id}/`;
+  function row(b){
+  const dt = new Date(b.created_at).toLocaleString();
+  const viewUrl = `${window.__BILLING__.billViewBase}${b.id}/`;
 
-    let deleteBtn = "";
-    if (b.can_delete) {
-      deleteBtn = `<button class="btn danger" data-del="${b.id}" data-label="${b.serial ?? b.id}">حذف</button>`;
-    } else {
-      deleteBtn = `<button class="btn danger" type="button" disabled title="لا يمكن حذف هذه الفاتورة (تم استخدام كميتها)">حذف</button>`;
-    }
+  const creator =
+    b.created_by_name ||
+    (b.created_by && b.created_by.name) ||
+    "—";
 
-    return `
-      <tr data-id="${b.id}">
-        <td>${b.serial ?? ""}</td>
-        <td>${b.provider?.name ?? ""}</td>
-        <td>${nfmt(b.total)}</td>
-        <td>${pill(b.status)}</td>
-        <td>${dt}</td>
-        <td class="left">
-          <a class="btn" href="${viewUrl}">عرض</a>
-          ${deleteBtn}
-        </td>
-      </tr>
-    `;
+  let deleteBtn = "";
+  if (b.can_delete) {
+    deleteBtn = `<button class="btn danger" data-del="${b.id}" data-label="${b.serial ?? b.id}">حذف</button>`;
+  } else {
+    deleteBtn = `<button class="btn danger" type="button" disabled title="لا يمكن حذف هذه الفاتورة (تم استخدام كميتها)">حذف</button>`;
   }
+
+  return `
+    <tr data-id="${b.id}">
+      <td>${b.serial ?? ""}</td>
+      <td>${b.provider?.name ?? ""}</td>
+      <td>${creator}</td>
+      <td>${nfmt(b.total)}</td>
+      <td>${pill(b.status)}</td>
+      <td>${dt}</td>
+      <td class="left">
+        <a class="btn" href="${viewUrl}">عرض</a>
+        ${deleteBtn}
+      </td>
+    </tr>
+  `;
+}
+
 
   function readFilters(includeCursor=true){
     const fd = new FormData(form);

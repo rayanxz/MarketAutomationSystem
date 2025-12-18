@@ -20,12 +20,14 @@ INSTALLED_APPS = [
     "pos",
     "inventory",
     "stock",
+    "audit_log",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",  # keep here (works in dev too)
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "audit_log.middleware.AuditRequestContextMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -33,6 +35,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.RequireLoginMiddleware",
     'notifications.middleware.NotificationsOnLoginMiddleware',
+
 
 
 ]

@@ -10,7 +10,7 @@ from django.db.models.functions import Lower
 from catalog.models import Product
 
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
-
+from django.conf import settings
 
 DEC0 = Decimal("0.000")
 
@@ -57,6 +57,13 @@ class Bill(models.Model):
     # NOTE: Debt state (paid/remaining/status) lives in DebtorEntry now.
     serial   = models.PositiveIntegerField(unique=True, db_index=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="bills")
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.PROTECT,
+        related_name="created_bills",
+    )
 
     total      = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
                                      validators=[MinValueValidator(0)])
@@ -164,6 +171,13 @@ class ProviderReturn(models.Model):
     # NOTE: Debt state (collected/remaining/status) lives in CreditorEntry now.
     serial   = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="returns")
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.PROTECT,
+        related_name="created_provider_returns",
+    )
 
      # 👇 NEW: link to the purchase bill via its serial number
     source_bill_serial = models.PositiveIntegerField(

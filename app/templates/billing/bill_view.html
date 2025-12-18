@@ -273,24 +273,39 @@
   </section>
   {% endif %}
 
-  <!-- HEADER -->
-  <section class="card">
-    <h4 style="margin:0 0 8px;">بيانات الفاتورة</h4>
-    <div class="row">
-      <div class="field">
-        <label class="muted">السيريال</label>
-        <div class="badge">{{ bill.serial|human_number }}</div>
-      </div>
-      <div class="field">
-        <label class="muted">المورد</label>
-        <div class="badge">{{ bill.provider.name }}</div>
-      </div>
-      <div class="field">
-        <label class="muted">تاريخ الإنشاء</label>
-        <div class="badge">{{ bill.created_at|date:"Y-m-d H:i" }}</div>
+<!-- HEADER -->
+<section class="card">
+  <h4 style="margin:0 0 8px;">بيانات الفاتورة</h4>
+
+  <div class="row">
+    <div class="field">
+      <label class="muted">السيريال</label>
+      <div class="badge">{{ bill.serial|human_number }}</div>
+    </div>
+
+    <div class="field">
+      <label class="muted">المورد</label>
+      <div class="badge">{{ bill.provider.name }}</div>
+    </div>
+
+    <div class="field">
+      <label class="muted">تاريخ الإنشاء</label>
+      <div class="badge">{{ bill.created_at|date:"Y-m-d H:i" }}</div>
+    </div>
+
+    <div class="field">
+      <label class="muted">أُنشئت بواسطة</label>
+      <div class="badge">
+        {% if bill.created_by %}
+          {{ bill.created_by.get_full_name|default:bill.created_by.username }}
+        {% else %}
+          —
+        {% endif %}
       </div>
     </div>
-  </section>
+  </div>
+</section>
+
 
   <!-- SEARCH IN BILL -->
   <section class="card">

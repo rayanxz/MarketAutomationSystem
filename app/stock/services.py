@@ -344,30 +344,31 @@ def rebuild_fifo_from_inventory() -> None:
 
 
 
+# app/stock/services.py
+
 @transaction.atomic
 def apply_movement(mv: ProductMovement) -> StockEntry | None:
     """
-    Apply a single ProductMovement to stock snapshot.
+    Apply movement to StockEntry by syncing from FIFO.
 
-    - If mv.container is None => do nothing (legacy / not routed yet).
-    - Otherwise, adjust StockEntry for (product, container) by mv.qty_primary.
+    IMPORTANT:
+    - FIFO layers are the source of truth.
+    - StockEntry is a cache derived from FIFO.
+    - Therefore we do NOT do qty += mv.qty_primary here.
     """
     container = getattr(mv, "container", None)
     if not container:
         return None
 
-    qty = q3(Decimal(str(mv.qty_primary or DEC0)))
+    # Just sync cache from FIFO
+    entry = sync_entry_from_fifo(mv.product, container)
 
-    entry, _ = StockEntry.objects.select_for_update().get_or_create(
-        product=mv.product,
-        container=container,
-        defaults={"qty_primary": DEC0},
-    )
+    # optional guard in DEBUG
+    if settings.DEBUG:
+        assert_entry_matches_fifo(mv.product, container)
 
-    entry.qty_primary = q3((entry.qty_primary or DEC0) + qty)
-    # We are NOT touching avg_unit_cost yet – we’ll design costing rules later.
-    entry.save(update_fields=["qty_primary", "updated_at"])
     return entry
+
 
 
 @transaction.atomic

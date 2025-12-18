@@ -92,6 +92,7 @@ def login_view(request: HttpRequest) -> HttpResponse:
 
     if request.method == "POST" and login_form.is_valid():
         user = login_form.get_user()
+        request.session["audit_entrypoint"] = selected_role.lower()
         login(request, user)
         request.session.set_expiry(0)  # expire on browser close
 
