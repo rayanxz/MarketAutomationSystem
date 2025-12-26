@@ -53,13 +53,6 @@
     return u.toString();
   }
 
-  function mapStatus(s){
-    const v = (s||"").toLowerCase();
-    if (v === "unpaid" || v === "partial") return "open";
-    if (v === "paid") return "closed";
-    return "";
-  }
-
   function params(reset=false){
     const p = {
       page_size: 30,
@@ -67,7 +60,7 @@
       serial:   (fSerial.value||"").trim(),
       date_from: fFrom.value || "",
       date_to:   fTo.value || "",
-      status:   mapStatus(fStatus.value || ""),
+      status: (fStatus.value || ""),
     };
     if (!reset && cursor) p.cursor = cursor;
     return p;

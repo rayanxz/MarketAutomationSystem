@@ -25,7 +25,6 @@ urlpatterns = [
     # Payments (payables)
     path("bills/<int:bill_id>/pay-full/", v.pay_debt_full, name="pay_debt_full"),
     path("bills/<int:bill_id>/pay-batch/", v.pay_debt_batch, name="pay_debt_batch"),
-    path("bills/<int:bill_id>/", v.bill_view, name="billing_bill_view"),
 
     # Provider returns (receivables)
     path("returns/list/", V.providers_returns_list_page, name="billing_returns_list"),

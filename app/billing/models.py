@@ -27,7 +27,7 @@ class Provider(models.Model):
     name       = models.CharField(max_length=128, unique=False, db_index=True)
     phone      = models.CharField(max_length=64, blank=True)
     notes      = models.TextField(blank=True)
-    created_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     is_active  = models.BooleanField(default=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
@@ -82,10 +82,14 @@ class Bill(models.Model):
         PARTIAL = "partial", "مدفوعة جزئياً"
 
     @property
-    def debtor_entry(self) -> "DebtorEntry | None":
+    def debtor_entry(self):
+        cached = getattr(self, "_debtor_entry_cached", None)
+        if cached is not None:
+            return cached
         return DebtorEntry.objects.filter(
             source_app="billing", source_model="Bill", source_id=str(self.id)
         ).first()
+
 
     @property
     def paid_amount(self) -> Decimal:

@@ -56,6 +56,15 @@ def _date(val):
         return date.fromisoformat(s[:10])
     except Exception:
         return None
+    
+    
+def _int_or_none(s):
+    try:
+        s = (s or "").strip()
+        return int(s) if s else None
+    except Exception:
+        return None
+
 
 def _entry_details(direction: str, entry_id: int) -> dict:
     """
@@ -140,13 +149,30 @@ def api_debts_list(request: HttpRequest) -> JsonResponse:
         status = raw_status
     else:
         status = ""
-    cursor = request.GET.get("cursor")
+    cursor_raw = request.GET.get("cursor")
+    try:
+        cursor = int(cursor_raw) if cursor_raw not in (None, "") else None
+    except ValueError:
+        cursor = None
+
     try:
         page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
     except ValueError:
         page_size = 30
 
-    qs = S.debtors_list(q=q, status=status, cursor=cursor, page_size=page_size)
+    serial = _int_or_none(request.GET.get("serial"))
+    date_from = _date(request.GET.get("date_from"))
+    date_to   = _date(request.GET.get("date_to"))
+
+    qs = S.debtors_list(
+        q=q,
+        status=status,
+        cursor=cursor,
+        page_size=page_size,
+        serial=serial,
+        date_from=date_from,
+        date_to=date_to,
+    )
     items = list(qs)
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [debtor_row(d) for d in items], "next_cursor": nxt})
@@ -155,14 +181,40 @@ def api_debts_list(request: HttpRequest) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_creditors_list(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
-    status = (request.GET.get("status") or "").lower()
-    cursor = request.GET.get("cursor")
+    raw_status = (request.GET.get("status") or "").lower().strip()
+    if raw_status in {"unpaid", "partial"}:
+        status = "open"
+    elif raw_status == "paid":
+        status = "closed"
+    elif raw_status in {"open", "closed", ""}:
+        status = raw_status
+    else:
+        status = ""
+
+    cursor_raw = request.GET.get("cursor")
+    try:
+        cursor = int(cursor_raw) if cursor_raw not in (None, "") else None
+    except ValueError:
+        cursor = None
+
     try:
         page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
     except ValueError:
         page_size = 30
 
-    qs = S.creditors_list(q=q, status=status, cursor=cursor, page_size=page_size)
+    serial = _int_or_none(request.GET.get("serial"))
+    date_from = _date(request.GET.get("date_from"))
+    date_to   = _date(request.GET.get("date_to"))
+
+    qs = S.creditors_list(
+        q=q,
+        status=status,
+        cursor=cursor,
+        page_size=page_size,
+        serial=serial,
+        date_from=date_from,
+        date_to=date_to,
+    )
     items = list(qs)
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [creditor_row(c) for c in items], "next_cursor": nxt})
@@ -229,14 +281,21 @@ def api_manual_debt_pay_batch(request: HttpRequest, entry_id: int) -> JsonRespon
     try:
         amount = _dec(request.POST.get("amount"), "0")
     except Exception:
-        return _bad("invalid amount")
+        return _bad("invalid amount", 400)
+
+    if amount <= 0:
+        return _bad("Enter a positive amount.", 400)
+
     try:
         SV.pay_debt(actor=request.user, entry_id=entry_id, amount=amount, full=False)
         return JsonResponse({"ok": True})
     except ValueError as e:
         return _bad(str(e), 400)
+    except DebtorEntry.DoesNotExist:
+        return _bad("not found", 404)
     except Exception:
         return _bad("server error", 500)
+
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -255,7 +314,7 @@ def api_manual_creditor_collect_batch(request: HttpRequest, entry_id: int) -> Js
     except Exception:
         return _bad("invalid amount")
     if amount <= 0:
-        return _bad("Enter a positive amount.")
+        return _bad("Enter a positive amount." , 400)
     try:
         SV.collect_debt(actor=request.user, entry_id=entry_id, amount=amount, full=False)
         return JsonResponse({"ok": True})

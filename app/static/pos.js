@@ -41,6 +41,19 @@ document.addEventListener("keydown", (e) => {
 });
 
 
+function getCookie(name) {
+  const v = document.cookie.split(";").map(s => s.trim());
+  for (const c of v) {
+    if (c.startsWith(name + "=")) return decodeURIComponent(c.slice(name.length + 1));
+  }
+  return "";
+}
+
+function csrfToken() {
+  return getCookie("csrftoken");
+}
+
+
 /* ===== Notifications dropdown (UI only) ===== */
 (function () {
   const btn = document.getElementById("posNotifBtn");
@@ -134,30 +147,59 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
 
   let sent = false;
 
-  async function closeLoginOnce(reason) {
-    if (sent) return;
-    sent = true;
+  function sendLoginEndBeacon(reason) {
+  try {
+    const url = "/pos/api/login/end/";
 
-    try {
-      await fetch("/pos/api/login/end/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": window.CSRF_TOKEN || "",
-        },
-        body: JSON.stringify({ reason }),
-        keepalive: true,
-      });
-    } catch (err) {
-      // ignore - never block navigation/logout
-      console.error("login end tracking failed:", err);
+    const token = csrfToken();
+
+    // Django accepts csrfmiddlewaretoken in POST body (form-encoded)
+    const params = new URLSearchParams();
+    params.set("reason", reason || "");
+    params.set("csrfmiddlewaretoken", token || "");
+
+    const blob = new Blob([params.toString()], {
+      type: "application/x-www-form-urlencoded",
+    });
+
+    if (navigator.sendBeacon) {
+      return navigator.sendBeacon(url, blob);
     }
+  } catch {}
+  return false;
+}
+
+
+  async function closeLoginOnce(reason) {
+  if (sent) return;
+  sent = true;
+
+  // try beacon first (most reliable on unload)
+  if (sendLoginEndBeacon(reason)) return;
+
+  // fallback
+  try {
+    await fetch("/pos/api/login/end/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken() || "",
+      },
+      body: JSON.stringify({ reason }),
+      keepalive: true,
+    });
+  } catch (err) {
+    console.error("login end tracking failed:", err);
   }
+}
+
 
   // Logout button: close session BEFORE django logs out
   const form = document.querySelector("form.logout-form");
   if (form) {
-    form.addEventListener("submit", async () => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault(); // ✅ IMPORTANT: stop navigation until we finish best-effort calls
+
       // best effort: end shift first (optional)
       try {
         if (window.POS_ACTIVE_SHIFT_ID) {
@@ -165,7 +207,7 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "X-CSRFToken": window.CSRF_TOKEN || "",
+              "X-CSRFToken": csrfToken() || "",
             },
             body: JSON.stringify({ id: window.POS_ACTIVE_SHIFT_ID }),
             keepalive: true,
@@ -175,10 +217,14 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
         console.error("shift end on logout failed:", err);
       }
 
+      // ✅ this will use sendBeacon first (fast + reliable)
       await closeLoginOnce("logout_btn");
-      // allow the form to continue normally
+
+      // ✅ now continue the real logout
+      form.submit();
     });
   }
+
 
   // Tab close / refresh
   window.addEventListener("beforeunload", () => {
@@ -193,6 +239,83 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
   });
 })();
 
+function clearEl(el) {
+  while (el && el.firstChild) el.removeChild(el.firstChild);
+}
+
+function el(tag, opts = {}) {
+  const n = document.createElement(tag);
+  if (opts.className) n.className = opts.className;
+  if (opts.text != null) n.textContent = String(opts.text);
+  if (opts.html != null) n.innerHTML = opts.html; // use ONLY for static trusted HTML
+  if (opts.attrs) for (const [k,v] of Object.entries(opts.attrs)) n.setAttribute(k, v);
+  return n;
+}
+
+function showInsufficientStockError(items) {
+  if (!posErrorOverlay || !posErrorMsgEl || !posErrorDetailsEl) {
+    alert("لا يمكن حفظ الفاتورة بسبب نفاد المخزون.");
+    return;
+  }
+
+  posErrorMsgEl.textContent = "لا يمكن حفظ الفاتورة بسبب نفاد المخزون.";
+  clearEl(posErrorDetailsEl);
+
+  posErrorDetailsEl.appendChild(
+    el("p", { text: "الكمية المتوفرة في المتجر أقل من الكمية المطلوبة لبعض المواد:" })
+  );
+
+  const table = el("table", {
+    className: "pos-error-table",
+    attrs: { style: "width:100%; border-collapse:collapse; margin-top:4px;" }
+  });
+
+  const thead = el("thead");
+  const trh = el("tr");
+  ["المادة", "المتوفر", "المطلوب"].forEach((h) => {
+    trh.appendChild(el("th", { text: h, attrs: { style: "border-bottom:1px solid #ddd; padding:4px;" } }));
+  });
+  thead.appendChild(trh);
+
+  const tbody = el("tbody");
+
+  if (!items || !items.length) {
+    const tr = el("tr");
+    tr.appendChild(el("td", {
+      text: "لا توجد تفاصيل إضافية.",
+      attrs: { colspan: "3", style: "padding:4px;" }
+    }));
+    tbody.appendChild(tr);
+  } else {
+    items.forEach((it) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", {
+        text: it.product_name || it.product_id,
+        attrs: { style: "padding:4px; border-bottom:1px solid #eee;" }
+      }));
+      tr.appendChild(el("td", {
+        text: it.available,
+        attrs: { style: "padding:4px; border-bottom:1px solid #eee;" }
+      }));
+      tr.appendChild(el("td", {
+        text: it.needed,
+        attrs: { style: "padding:4px; border-bottom:1px solid #eee;" }
+      }));
+      tbody.appendChild(tr);
+    });
+  }
+
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  posErrorDetailsEl.appendChild(table);
+
+  posErrorDetailsEl.appendChild(
+    el("p", { text: "قُم بتعديل الكميات أو إدخال فاتورة شراء جديدة ثم حاول مرة أخرى.", attrs: { style: "margin-top:6px;" } })
+  );
+
+  posErrorOverlay.hidden = false;
+  posErrorOkBtn?.focus();
+}
 
 
 /* ===== Shift box (start/end + stopwatch, with backend) ===== */
@@ -316,7 +439,7 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-CSRFToken": window.CSRF_TOKEN || "",
+          "X-CSRFToken": csrfToken() || "",
         },
         body: JSON.stringify({}),
       });
@@ -348,7 +471,7 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-CSRFToken": window.CSRF_TOKEN || "",
+          "X-CSRFToken": csrfToken() || "",
         },
         body: JSON.stringify({ id: currentShiftId }),
       });
@@ -426,13 +549,11 @@ routeWheel(document.querySelector(".left-panel"), document.querySelector(".bill-
     shiftYesBtn.addEventListener("click", onYes, { once: true });
     shiftNoBtn.addEventListener("click", onNo, { once: true });
 
-    // Optional: click outside to cancel
-    shiftOverlay.addEventListener("click", function onBgClick(ev) {
-      if (ev.target === shiftOverlay) {
-        shiftOverlay.removeEventListener("click", onBgClick);
-        onNo();
-      }
-    });
+    function onBgClick(ev) {
+    if (ev.target === shiftOverlay) onNo();
+  }
+  shiftOverlay.addEventListener("click", onBgClick, { once: true });
+
   });
 
   // Restore running shift from localStorage if tab reloads
@@ -652,24 +773,46 @@ async function fetchStoreStockQty(productId) {
  * Ensure product has >0 qty in store container before adding to bill rows.
  * Used only in "add" mode, not in "inq".
  */
+function rowQtyPrimary(r) {
+  const qty = Number(r.qty || 0);
+  const conv = Number(r.conv || 1);
+  return qty * (r.uomIndex === 2 ? conv : 1);
+}
+
+function sumOtherRowsPrimary(productId, excludeIdx = null) {
+  let s = 0;
+  state.rows.forEach((r, i) => {
+    if (excludeIdx != null && i === excludeIdx) return;
+    if (String(r.id) === String(productId)) s += rowQtyPrimary(r);
+  });
+  return s;
+}
+
+
 async function ensureProductAvailableInStore(product) {
   if (!product || !product.id) return true;
 
   const storeQty = await fetchStoreStockQty(product.id);
 
-  if (storeQty <= 0) {
+  // how much already requested in this bill for same product
+  const already = sumOtherRowsPrimary(product.id, null);
+  const remaining = storeQty - already;
+
+  if (remaining <= 0) {
     const name = product.name || `#${product.id}`;
-    const msg = `لا يمكن إضافة المنتج «${name}» لأن كميته في المتجر صفر أو سالبة.`;
-    const details = `
-      <div>الكمية المتوفرة حالياً في المتجر: <strong>${storeQty.toFixed(3)}</strong></div>
-      <div style="margin-top:4px;">الرجاء إدخال فاتورة شراء أو نقل كمية من المستودع إلى المتجر أولاً.</div>
-    `;
-    showPosError(msg, details);
+    showPosError(
+      `لا يمكن إضافة المنتج «${name}» لأن الكمية المتبقية في المتجر غير كافية.`,
+      `
+        <div>المخزون في المتجر: <strong>${fmt(storeQty)}</strong></div>
+        <div>مطلوب بالفعل في هذه الفاتورة: <strong>${fmt(already)}</strong></div>
+        <div>المتبقي: <strong>${fmt(remaining)}</strong></div>
+      `
+    );
     return false;
   }
-
   return true;
 }
+
 
 /**
  * Validate that the edited row's quantity does NOT exceed store stock.
@@ -698,20 +841,23 @@ async function validateRowStockBeforeSave(idx) {
 
   // fetch available qty in store
   const storeQty = await fetchStoreStockQty(row.id);
+  const alreadyOther = sumOtherRowsPrimary(row.id, idx);
+  const remaining = storeQty - alreadyOther;
 
   // if no stock data, just allow – backend will still block on finalize if needed
-  if (!isFinite(storeQty)) return true;
+  if (qtyPrimary > remaining + 1e-9) {
+  const name = row.name || `#${row.id}`;
 
-  if (qtyPrimary > storeQty + 1e-9) {
-    const name = row.name || `#${row.id}`;
-    const msg = `لا يمكن تحديد كمية أكبر من المخزون للمنتج «${name}».`;
-    const details = `
-      <div>الكمية المتوفرة حالياً في المتجر: <strong>${fmt(storeQty)}</strong></div>
-      <div>الكمية المطلوبة في هذه الفاتورة: <strong>${fmt(qtyPrimary)}</strong></div>
-      <div style="margin-top:4px;">خفّض الكمية أو أدخل فاتورة شراء / نقل مخزون قبل المتابعة.</div>
-    `;
-    showPosError(msg, details);
-    return false;
+  showPosError(
+    `لا يمكن تحديد كمية أكبر من المخزون للمنتج «${name}».`,
+    `
+      <div>المخزون في المتجر: <strong>${fmt(storeQty)}</strong></div>
+      <div>مطلوب في سطور أخرى: <strong>${fmt(alreadyOther)}</strong></div>
+      <div>المتبقي لهذه الإضافة: <strong>${fmt(remaining)}</strong></div>
+      <div>المطلوب في هذا السطر: <strong>${fmt(qtyPrimary)}</strong></div>
+    `
+  );
+  return false;
   }
 
   return true;
@@ -1015,44 +1161,90 @@ bcInput?.addEventListener("keydown", (e) => {
 
 async function lookupByBarcode(code) {
   if (state.bill.locked) return;
-  bcErr.style.display = "none";
-    try {
+  if (bcErr) bcErr.style.display = "none";
+
+  try {
     const res = await fetch(`/pos/api/barcode/${encodeURIComponent(code)}/`);
     const j = await res.json();
     if (!j.ok) {
       try { new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABYAAA==").play(); } catch {}
-      bcErr.style.display = "block";
+      if (bcErr) bcErr.style.display = "block";
       return;
     }
-    
+
     const p = j.product;
 
+    // INQ mode
     if (state.mode === "inq") {
       await openInquiryOverlay(p);
       return;
     }
 
-    // ADD: stock check for ADD mode
-    const ok = await ensureProductAvailableInStore(p);
+    // Determine unit index that this barcode matched
+    const matchedUomIndex = Number(p.matched_unit_index || 1);
 
-    if (!ok) return;
+    // Find existing row with same product + same uomIndex
+    const existingIdx = state.rows.findIndex(r =>
+      String(r.id) === String(p.id) &&
+      Number(r.uomIndex || 1) === matchedUomIndex
+    );
 
+    // Helper: how much 1 scan adds in PRIMARY units
+    const conv = Number(p.units?.conversion_factor || 1);
+    const addPrimary = 1 * (matchedUomIndex === 2 ? conv : 1);
+
+    // Fetch store qty once
+    const storeQty = await fetchStoreStockQty(p.id);
+
+    // How much already requested (ALL rows for that product)
+    const already = sumOtherRowsPrimary(p.id, null);
+
+    // If existing row -> we are increasing total requested by addPrimary
+    const remainingAfter = storeQty - (already + addPrimary);
+
+    if (remainingAfter < -1e-9) {
+      const name = p.name || `#${p.id}`;
+      showPosError(
+        `لا يمكن زيادة كمية المنتج «${name}» لأن المخزون في المتجر غير كافٍ.`,
+        `
+          <div>المخزون في المتجر: <strong>${fmt(storeQty)}</strong></div>
+          <div>مطلوب بالفعل في هذه الفاتورة: <strong>${fmt(already)}</strong></div>
+          <div>الإضافة المطلوبة الآن: <strong>${fmt(addPrimary)}</strong></div>
+          <div>المتبقي بعد الإضافة: <strong>${fmt(remainingAfter)}</strong></div>
+        `
+      );
+      return;
+    }
+
+    // OK: increment if exists
+    if (existingIdx >= 0) {
+      state.rows[existingIdx].qty = Number(state.rows[existingIdx].qty || 0) + 1;
+      state.selectedIndex = existingIdx;
+      renderRows();
+      clearRightPanel();
+      focusBarcodeSoon();
+      return;
+    }
+
+    // Otherwise add a new row
     const row = toRow(p);
     row.qty = 1;
-    row.uomIndex = Number(p.matched_unit_index || 1);
+    row.uomIndex = matchedUomIndex;
     row.lastBarcode = code;
+
     state.rows.push(row);
     state.selectedIndex = state.rows.length - 1;
     renderRows();
-    clearRightPanel();   // wipe old right-panel data when adding a new row
+    clearRightPanel();
     focusBarcodeSoon();
+
   } catch (err) {
     console.error(err);
   } finally {
     bcInput.value = "";
   }
-
 }
+
 
 function toRow(p) {
   return {
@@ -1441,9 +1633,12 @@ function renderLeftBills() {
   });
 }
 
+let leftSearchTimer = null;
 leftSearchEl?.addEventListener("input", () => {
-  loadTodayBills();
+  clearTimeout(leftSearchTimer);
+  leftSearchTimer = setTimeout(loadTodayBills, 200);
 });
+
 
 async function loadBillFromBackend(id) {
   try {
@@ -1891,7 +2086,7 @@ async function handleBillDeleteConfirm() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-CSRFToken": window.CSRF_TOKEN || "",
+          "X-CSRFToken": csrfToken() || "",
         },
         body: JSON.stringify({}),
       });
@@ -1961,23 +2156,92 @@ function finalizePaidForSave() {
   state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
 }
 
-function validateBillBeforeSave(options) {
+function pruneZeroRows() {
+  state.rows = state.rows.filter(r => rowQtyPrimary(r) > 0);
+}
+
+async function validateBillBeforeSave(options) {
   const parked = !!(options && options.parked);
+
+  // 0) Don’t save while a row is being edited — commit it first
+  if (state.editing && state.selectedIndex >= 0) {
+    // try to save edits (this already validates stock for that row)
+    await saveEditAndGoIdle();
+
+    // if still editing, it means validation failed and user must fix it
+    if (state.editing) return false;
+  }
+
+  // 1) remove zero/negative rows
+  pruneZeroRows();
 
   if (!state.rows.length) {
     alert("لا يمكن حفظ فاتورة فارغة.");
     return false;
   }
 
+  // 2) row sanity checks (fast, local)
+  for (let i = 0; i < state.rows.length; i++) {
+    const r = state.rows[i];
+
+    const qty = Number(r.qty || 0);
+    const uomIndex = Number(r.uomIndex || 1);
+    const conv = Number(r.conv || 1);
+    const price = Number(r.price || 0);
+    const discAmt = Math.max(Number(r.discAmt || 0), 0);
+
+    if (!isFinite(qty) || qty <= 0) {
+      showPosError("كمية غير صالحة.", `السطر رقم <strong>${i + 1}</strong> يحتوي كمية غير صحيحة.`);
+      return false;
+    }
+
+    if (![1, 2].includes(uomIndex)) {
+      showPosError("وحدة قياس غير صالحة.", `السطر رقم <strong>${i + 1}</strong> يحتوي uomIndex غير صحيح.`);
+      return false;
+    }
+
+    if (!isFinite(conv) || conv <= 0) {
+      // conv matters only when uomIndex=2 but keep it sane anyway
+      showPosError("عامل تحويل غير صالح.", `السطر رقم <strong>${i + 1}</strong> يحتوي conv غير صحيح.`);
+      return false;
+    }
+
+    if (!isFinite(price) || price < 0) {
+      showPosError("سعر غير صالح.", `السطر رقم <strong>${i + 1}</strong> يحتوي سعر غير صحيح.`);
+      return false;
+    }
+
+    // discount clamp safety for any hydrated/old data
+    const base = rowBase(r);
+    if (!isFinite(base) || base < 0) {
+      showPosError("خطأ في حساب السطر.", `السطر رقم <strong>${i + 1}</strong> لا يمكن حساب قيمته.`);
+      return false;
+    }
+    if (!isFinite(discAmt) || discAmt < 0) {
+      showPosError("حسم غير صالح.", `السطر رقم <strong>${i + 1}</strong> يحتوي حسم غير صحيح.`);
+      return false;
+    }
+    if (discAmt > base + 1e-9) {
+      // clamp it rather than failing hard (your choice)
+      r.discAmt = base;
+      r.discPct = base > 0 ? 100 : 0;
+    }
+  }
+
+  // 3) sync footer -> bill state
   syncBillFromFooter();
 
-  // ✅ apply the real rules BEFORE validations that depend on paid/left
+  // guard: paidAmount must be numeric
+  if (!isFinite(state.bill.paidAmount)) state.bill.paidAmount = 0;
+
+  // 4) apply your save rules (full/none override textbox)
   finalizePaidForSave();
 
+  // 5) your business rules
   if (state.bill.payStatus !== "full") {
     if (!state.bill.customerName) {
       alert("يجب إدخال اسم الزبون أو إنشاء بطاقة زبون عندما تكون الفاتورة غير مدفوعة بالكامل.");
-      if (custNameEl) custNameEl.focus();
+      custNameEl?.focus();
       return false;
     }
   }
@@ -1994,9 +2258,11 @@ function validateBillBeforeSave(options) {
     }
   }
 
+  // 6) set parked flag
   state.bill.parked = parked;
   return true;
 }
+
 
 
 async function sendBillToBackend(options) {
@@ -2035,7 +2301,7 @@ async function sendBillToBackend(options) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-CSRFToken": window.CSRF_TOKEN || "",
+      "X-CSRFToken": csrfToken() || "",
     },
     body: JSON.stringify(payload),
   });
@@ -2064,7 +2330,8 @@ async function sendBillToBackend(options) {
 
 async function handleParkBill() {
   if (state.bill.locked) return;
-  if (!validateBillBeforeSave({parked:true})) return;
+  if (!await validateBillBeforeSave({ parked: true })) return;
+
 
   try {
     const j = await sendBillToBackend({parked:true});
@@ -2081,7 +2348,7 @@ async function handleParkBill() {
 
 async function handleSaveBill() {
   if (state.bill.locked) return;
-  if (!validateBillBeforeSave({ parked: false })) return;
+  if (!await validateBillBeforeSave({ parked: false })) return;
 
   try {
     const j = await sendBillToBackend({ parked: false });
@@ -2101,36 +2368,10 @@ async function handleSaveBill() {
     console.error(err);
 
     if (err.code === "INSUFFICIENT_STOCK") {
-      const items = err.items || [];
-      const rowsHtml = items.map((it) => `
-        <tr>
-          <td>${it.product_name || it.product_id}</td>
-          <td>${it.available}</td>
-          <td>${it.needed}</td>
-        </tr>
-      `).join("");
-
-      const details = `
-        <p>الكمية المتوفرة في المتجر أقل من الكمية المطلوبة لبعض المواد:</p>
-        <table class="pos-error-table" style="width:100%; border-collapse:collapse; margin-top:4px;">
-          <thead>
-            <tr>
-              <th style="border-bottom:1px solid #ddd; padding:4px;">المادة</th>
-              <th style="border-bottom:1px solid #ddd; padding:4px;">المتوفر</th>
-              <th style="border-bottom:1px solid #ddd; padding:4px;">المطلوب</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml || '<tr><td colspan="3" style="padding:4px;">لا توجد تفاصيل إضافية.</td></tr>'}
-          </tbody>
-        </table>
-        <p style="margin-top:6px;">قُم بتعديل الكميات أو إدخال فاتورة شراء جديدة ثم حاول مرة أخرى.</p>
-      `;
-
-      showPosError("لا يمكن حفظ الفاتورة بسبب نفاد المخزون.", details);
-      // لا نمس الفاتورة، يظل كل شيء كما هو ليعدل الكاشير
+      showInsufficientStockError(err.items || []);
       return;
-    }
+}
+
 
     alert("حدث خطأ أثناء حفظ الفاتورة.");
   }

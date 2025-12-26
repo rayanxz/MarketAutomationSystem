@@ -207,6 +207,20 @@ class SalesBill(models.Model):
         help_text="If True, this bill was saved as final and should not be edited from POS.",
     )
 
+    is_deleted = models.BooleanField(
+        default=False,
+        help_text="Soft-delete flag (only for parked bills).",
+    )
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pos_bills_deleted",
+    )
+
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

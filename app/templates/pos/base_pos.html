@@ -130,12 +130,6 @@
   </div>
 </div>
 
-
-  <!-- Expose CSRF token for AJAX calls in pos.js -->
-  <script>
-    window.CSRF_TOKEN = "{{ csrf_token }}";
-  </script>
-
   <script src="{% static 'pos.js' %}"></script>
    <!-- Extra POS enhancements (customers autocomplete, key fixes, etc.) -->
   <script src="{% static 'pos_customers.js' %}"></script>

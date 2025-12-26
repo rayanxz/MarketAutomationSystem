@@ -171,7 +171,7 @@ function rowHtml(src){
     mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)}؟`;
     openModal(mFull); return;
   }
-  if (e.target.classList.Contains?.("js-batch") || e.target.classList.contains("js-batch")){
+  if (e.target.classList.contains("js-batch")){
     mBatchText.textContent = `أدخل الدفعة للمورد (${target.provider})`;
     mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
     mBatchAmount.value = "";

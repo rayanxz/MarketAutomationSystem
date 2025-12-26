@@ -9,7 +9,6 @@ from django.db import models
 from django.utils import timezone
 
 from catalog.models import Product
-from stock.models import StockFifoLayer
 
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
@@ -98,6 +97,12 @@ class ProductMovement(models.Model):
     source_model = models.CharField(max_length=64)
     source_id = models.CharField(max_length=36)
 
+    # Original batch identity (for FIFO traceability across transfers)
+    origin_source_app = models.CharField(max_length=32, blank=True, default="")
+    origin_source_model = models.CharField(max_length=64, blank=True, default="")
+    origin_source_id = models.CharField(max_length=36, blank=True, default="")
+
+
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -115,6 +120,8 @@ class ProductMovement(models.Model):
             models.Index(fields=["movement_type"]),
             models.Index(fields=["source_app", "source_model", "source_id"]),
             models.Index(fields=["container", "product"]),  # NEW
+            models.Index(fields=["origin_source_app", "origin_source_model", "origin_source_id"]),
+
         ]
 
     def __str__(self) -> str:
@@ -139,11 +146,33 @@ class SaleCostPart(models.Model):
         related_name="cost_parts",
     )
     fifo_layer = models.ForeignKey(
-        StockFifoLayer,
+        "stock.StockFifoLayer",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
     )
-    qty_primary = models.DecimalField(max_digits=14, decimal_places=3)
-    unit_cost = models.DecimalField(max_digits=12, decimal_places=4)
-    total_cost = models.DecimalField(max_digits=14, decimal_places=3)
+
+    qty_primary = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    unit_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    total_cost = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["movement"]),
+            models.Index(fields=["fifo_layer"]),
+        ]
+

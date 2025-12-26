@@ -12,10 +12,6 @@ DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
 
 
-def q3(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC3)
-
-
 class ProductContainer(models.Model):
     """
     Physical/Logical stock location: store, warehouse1, warehouse2, etc.

@@ -18,16 +18,9 @@ from debts.models import (
 from billing.models import Provider
 from ledger import services as LSV
 
-# ====== Decimals / helpers ======
-DEC0 = Decimal("0")
-DEC3 = Decimal("0.001")
-DEC4 = Decimal("0.0001")
+from inventory.models import DEC0 , q3 , q4
 
-def q3(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC3)
-
-def q4(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC4)
+from django.db.models import Q
 
 def minor(x: Decimal) -> int:
     return LSV.to_minor(q3(x or DEC0))
@@ -115,6 +108,27 @@ def create_creditor_entry(
 # MANUAL DEBTS (no commercial doc)
 # =======================================================================
 
+def _next_bill_serial_locked_local() -> int:
+    from django.db.models import Max
+    from billing.models import Bill
+    from debts.models import DebtorDebt
+
+    m_bill = Bill.objects.select_for_update().aggregate(m=Max("serial"))["m"] or 0
+    m_debt = DebtorDebt.objects.select_for_update().aggregate(m=Max("doc_serial"))["m"] or 0
+    return int(max(int(m_bill or 0), int(m_debt or 0))) + 1
+
+
+def _next_return_serial_locked_local() -> int:
+    from django.db.models import Max
+    from billing.models import ProviderReturn
+    from debts.models import CreditorDebt
+
+    m_ret = ProviderReturn.objects.select_for_update().aggregate(m=Max("serial"))["m"] or 0
+    m_debt = CreditorDebt.objects.select_for_update().aggregate(m=Max("doc_serial"))["m"] or 0
+    return int(max(int(m_ret or 0), int(m_debt or 0))) + 1
+
+
+
 @transaction.atomic
 def create_manual_debt(
     *,
@@ -133,7 +147,6 @@ def create_manual_debt(
       - direction='creditor' → SAFE OUT  (volt down) because we gave cash and they now owe
     Settlement later uses pay/collect as before.
     """
-    from billing.services import _next_bill_serial_locked, _next_return_serial_locked
 
     amt = q3(amount or DEC0)
     if amt <= 0:
@@ -151,7 +164,7 @@ def create_manual_debt(
         raise ValueError("direction must be 'debtor' or 'creditor'")
 
     if dirn == "debtor":
-        serial = _next_bill_serial_locked()
+        serial = _next_bill_serial_locked_local()
         entry = DebtorDebt.objects.create(
             provider=provider,
             source_app="debts",
@@ -171,7 +184,7 @@ def create_manual_debt(
             LSV.post_safe_in(
                 actor=actor,
                 amount_minor=minor(amt),
-                description=f"Manual debtor debt created (#{entry.doc_serial}) from {entry.party_name}",
+                description=f"Manual debt created: we owe {entry.party_name} (#{entry.doc_serial})",
                 source=("debts", "DebtorDebt", str(entry.id)),
             )
             # If you also model the payable increase in ledger, call your payable-increase helper here.
@@ -180,7 +193,7 @@ def create_manual_debt(
 
 
     else:
-        serial = _next_return_serial_locked()
+        serial = _next_return_serial_locked_local()
         entry = CreditorDebt.objects.create(
             provider=provider,
             source_app="debts",
@@ -200,7 +213,7 @@ def create_manual_debt(
             LSV.post_safe_out(
                 actor=actor,
                 amount_minor=minor(amt),
-                description=f"Manual creditor debt created (#{entry.doc_serial}) to {entry.party_name}",
+                description=f"Manual debt created: {entry.party_name} owes us (#{entry.doc_serial})",
                 source=("debts", "CreditorDebt", str(entry.id)),
             )
             # If you also model the receivable increase, call that helper here.
@@ -247,7 +260,7 @@ def pay_debt(
         LSV.post_safe_out(
             actor=actor,
             amount_minor=minor(amt),
-            description=f"Cover manual debtor debt {entry.party_name}",
+            description=f"Pay debt to {entry.party_name} (#{entry.doc_serial or entry.id})",
             source=("debts", "DebtorDebt", str(entry.id)),
         )
 
@@ -289,7 +302,7 @@ def collect_debt(
         LSV.post_safe_in(
             actor=actor,
             amount_minor=minor(amt),
-            description=f"Collect manual creditor debt {entry.party_name}",
+            description=f"Collect debt from {entry.party_name} (#{entry.doc_serial or entry.id})",
             source=("debts", "CreditorDebt", str(entry.id)),
         )
 
@@ -314,6 +327,10 @@ def set_reminder(
 
     if dirn == "debtor":
         obj = get_object_or_404(DebtorDebt.objects.select_for_update(), pk=debt_id)
+
+        # keep only ONE reminder per debt (replace old one)
+        DebtReminder.objects.filter(direction="debtor", debtor=obj).delete()
+
         return DebtReminder.objects.create(
             direction="debtor",
             debtor=obj,
@@ -323,6 +340,9 @@ def set_reminder(
         )
 
     obj = get_object_or_404(CreditorDebt.objects.select_for_update(), pk=debt_id)
+
+    DebtReminder.objects.filter(direction="creditor", creditor=obj).delete()
+
     return DebtReminder.objects.create(
         direction="creditor",
         creditor=obj,
@@ -332,21 +352,20 @@ def set_reminder(
     )
 
 
+
 def get_reminders_due(
     *,
     as_of: Optional[date] = None,
     include_closed: bool = False,
 ):
-    """Return reminders due on/before `as_of`."""
     as_of = as_of or timezone.now().date()
     qs = DebtReminder.objects.filter(due_date__lte=as_of)
 
     if not include_closed:
-        qs = qs.exclude(
-            direction="debtor",
-            debtor__status=DebtorDebt.Status.CLOSED,
-        ).exclude(
-            direction="creditor",
-            creditor__status=CreditorDebt.Status.CLOSED,
+        qs = qs.filter(
+            Q(direction="debtor", debtor__status=DebtorDebt.Status.OPEN) |
+            Q(direction="creditor", creditor__status=CreditorDebt.Status.OPEN)
         )
+
     return qs
+

@@ -33,6 +33,10 @@ from debts import services as DebtSV  # NEW unified debts layer
 from inventory import services as InvSV
 from stock.models import ProductContainer
 
+from audit_log.services import log_create, log_update, log_delete
+from audit_log.services import snap_instance  # the helper above
+
+
 
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
@@ -68,17 +72,6 @@ def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) ->
     return intended
 
 
-# =======================================================================
-# SERIAL HELPERS
-# =======================================================================
-
-@transaction.atomic
-def _next_bill_serial_locked() -> int:
-    from debts.models import DebtorDebt
-    m_bill = Bill.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
-    m_debt = DebtorDebt.objects.select_for_update().aggregate(m=Max("doc_serial")).get("m") or 0
-    return int(max(int(m_bill or 0), int(m_debt or 0))) + 1
-
 
 # =======================================================================
 # BILLS (Purchases)
@@ -97,8 +90,17 @@ def create_bill(
     """
     Create a Bill, increase stock via inventory movements, post GL, and register DebtorDebt.
     """
+
+    if container is None:
+        # either default:
+        container = ProductContainer.objects.select_for_update().get(code="store")
+        # OR if you prefer strict:
+        # raise ValueError("container is required for purchase bills")
+
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
     intended_paid = q3(paid_amount)
+    items = list(items)
+
     bill = Bill(provider=provider, total=DEC0, created_by=actor)
     bill.save()
 
@@ -155,7 +157,7 @@ def create_bill(
             unit_cost=cost_u1,
             source_app="billing",
             source_model="BillItem",   # ⬅️ tie movement to BillItem
-            source_id=item.id,         # ⬅️ so FIFO can map back
+            source_id=str(item.id),         # ⬅️ so FIFO can map back
             container=container,
             extra_product_updates=extra_updates or None,
         )
@@ -187,15 +189,31 @@ def create_bill(
         provider_id=provider.id,
         source=("billing", "Bill", bill.id),
     )
+
+    # ====== AUDIT ======
+    log_create(
+        actor=actor,
+        target=bill,
+        title="Create purchase bill",
+        message=f"Purchase bill #{bill.serial} provider={provider.name} total={bill.total}",
+        after={
+            "serial": bill.serial,
+            "provider_id": provider.id,
+            "provider_name": provider.name,
+            "status": (status or "").lower(),
+            "paid_amount": str(final_paid),
+            "total": str(bill.total),
+            "container": getattr(container, "code", None) if container else None,
+            "items_count": len(items),
+        },
+    )
+
     return bill
-
-
 
 @transaction.atomic
 def delete_bill(*, actor, bill_id: int) -> None:
     from debts.models import DebtorDebt, DebtorPayment
     from inventory.models import ProductMovement  # local import to avoid cycles
-    from stock.models import StockFifoLayer
     from ledger import services as LSV
 
     # Lock bill + related rows
@@ -206,6 +224,20 @@ def delete_bill(*, actor, bill_id: int) -> None:
         .prefetch_related("items", "items__product")
         .get(pk=bill_id)
     )
+
+    # ====== AUDIT (snapshot before delete) ======
+    before_bill = {
+        "id": bill.id,
+        "serial": bill.serial,
+        "provider_id": bill.provider_id,
+        "provider_name": bill.provider.name if bill.provider_id else "",
+        "total": str(q3(bill.total or DEC0)),
+        "items": [
+            {"id": it.id, "product_id": it.product_id, "qty_primary": str(q3(it.qty_primary or DEC0)), "cost": str(q4(it.cost or DEC0))}
+            for it in bill.items.all()
+        ],
+    }
+
 
     # ==========================
     # 1) Enforce FIFO "untouched"
@@ -234,13 +266,14 @@ def delete_bill(*, actor, bill_id: int) -> None:
 
     # Prefer new-style movements tied to BillItem
     item_ids = list(bill.items.values_list("id", flat=True))
+    item_ids_str = [str(i) for i in item_ids]
     if item_ids:
         mv = (
             ProductMovement.objects
             .filter(
                 source_app="billing",
                 source_model="BillItem",
-                source_id__in=item_ids,
+                source_id__in=item_ids_str,
             )
             .select_related("container")
             .first()
@@ -264,36 +297,94 @@ def delete_bill(*, actor, bill_id: int) -> None:
             mv_container = mv_old.container
 
     # ==========================================
-    # 4) Reverse stock movements + FIFO layers
+    # 4) Reverse stock movements (FIFO-safe)
     # ==========================================
+    from django.db.models import Sum
+    from stock.models import StockFifoLayer
+    from stock import services as StockSV
+
+    touched_codes: set[str] = set()
+
     for it in bill.items.all():
         product = it.product
 
-        # 4.a) Reverse inventory movement: purchase_reversal (NEGATIVE qty)
-        InvSV.record_movement(
-            actor=actor,
-            product=product,
-            unit_index=int(it.unit_index),
-            qty_primary=-(it.qty_primary or DEC0),
-            unit_cost=it.cost or DEC0,
-            movement_type="purchase_reversal",
-            source_app="billing",
-            source_model="Bill",
-            source_id=bill.id,
-            container=mv_container,          # same container used at purchase
-            extra_product_updates=None,
-        )
-
-        # 4.b) Remove FIFO layers created from this BillItem (only if we know container)
-        if mv_container is not None:
-            StockFifoLayer.objects.filter(
+        # Find remaining FIFO qty for THIS BillItem, grouped per container
+        qs = (
+            StockFifoLayer.objects
+            .select_for_update()
+            .filter(
                 product=product,
-                container=mv_container,
                 source_app="billing",
                 source_model="BillItem",
                 source_id=str(it.id),
-            ).delete()
+                qty_remaining__gt=DEC0,
+            )
+            .values("container_id")
+            .annotate(qty=Sum("qty_remaining"))
+        )
 
+        rows = list(qs)
+
+        container_ids = [r["container_id"] for r in rows if r["container_id"]]
+        containers = {
+            c.id: c
+            for c in ProductContainer.objects.select_for_update().filter(id__in=container_ids)
+        }
+
+        
+
+        for row in rows:
+            cid = row["container_id"]
+            qty_out = q3(row["qty"] or DEC0)
+            if not cid or qty_out <= DEC0:
+                continue
+
+            cont = containers.get(cid)
+            if cont is None:
+                continue
+
+            touched_codes.add(cont.code)
+
+            # 1) FIFO FIRST: consume ONLY from this BillItem batch in this container
+            eff_cost = StockSV.fifo_consume_scoped(
+                product=product,
+                container=cont,
+                qty_out_primary=qty_out,
+                scope_source_app="billing",
+                scope_source_model="BillItem",
+                scope_source_id=str(it.id),
+            )
+
+            # 2) THEN movement
+            InvSV.record_movement(
+                actor=actor,
+                product=product,
+                unit_index=int(it.unit_index),
+                qty_primary=-qty_out,
+                unit_cost=eff_cost,
+                movement_type=ProductMovement.MovementType.PURCHASE_REVERSAL,
+                source_app="billing",
+                source_model="BillItem",
+                source_id=str(it.id),
+                container=cont,
+                extra_product_updates=None,
+                origin_source_app="billing",
+                origin_source_model="BillItem",
+                origin_source_id=str(it.id),
+
+            )
+
+
+        # Optional cleanup: delete zero FIFO layers for this bill item
+        StockFifoLayer.objects.filter(
+            product=product,
+            source_app="billing",
+            source_model="BillItem",
+            source_id=str(it.id),
+            qty_remaining__lte=DEC0,
+        ).delete()
+
+    
     # ==========================
     # 5) Ledger reversal (GL)
     # ==========================
@@ -322,6 +413,20 @@ def delete_bill(*, actor, bill_id: int) -> None:
     if entry:
         DebtorPayment.objects.filter(entry=entry).delete()
         entry.delete()
+
+    # ====== AUDIT ======
+    log_delete(
+        actor=actor,
+        target=bill,
+        title="Delete purchase bill",
+        message=f"Deleted purchase bill #{bill.serial}",
+        before=before_bill,
+        meta={
+            "mv_container": getattr(mv_container, "code", None) if mv_container else None,
+            "paid_amount": str(paid_amount),
+            "touched_containers": sorted(touched_codes),
+        },
+    )
 
     # ==========================
     # 7) Delete the bill itself
@@ -401,6 +506,15 @@ def create_return(
        In this mode `container` is ignored and we use `container_splits`.
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
+    
+    items = list(items)
+
+    # ✅ legacy mode needs a container (FIFO requires container)
+    if container is None and not any((row.get("container_splits") or []) for row in items):
+        container = ProductContainer.objects.select_for_update().get(code="store")
+        # OR enforce strict:
+        # raise ValueError("container is required in legacy return mode")
+
     intended_paid = q3(paid_amount)
 
     pret = ProviderReturn(
@@ -487,6 +601,11 @@ def create_return(
 
         # ---------- Inventory movements ----------
         if container_splits:
+
+            bill_item_id = row.get("bill_item_id")
+            if not bill_item_id:
+                raise ValueError("bill_item_id مفقود في بيانات المرتجع (wizard).")
+
             # wizard: multiple negative movements, one per container
             for split in container_splits:
                 q_split = Decimal(str(split.get("qty_primary") or "0"))
@@ -508,7 +627,13 @@ def create_return(
                     source_model="ProviderReturn",
                     source_id=pret.id,
                     container=cont,
+                    fifo_scope={  # ✅ enforce returning from SAME purchase bill item
+                        "source_app": "billing",
+                        "source_model": "BillItem",
+                        "source_id": str(bill_item_id),
+                    },
                 )
+
         else:
             # legacy: single movement in the given container
             InvSV.record_provider_return_item(
@@ -550,11 +675,27 @@ def create_return(
         provider_id=provider.id,
         source=("billing", "ProviderReturn", pret.id),
     )
+
+    # ====== AUDIT ======
+    log_create(
+        actor=actor,
+        target=pret,
+        title="Create provider return",
+        message=f"Provider return #{pret.serial} provider={provider.name} total={pret.total}",
+        after={
+            "serial": pret.serial,
+            "provider_id": provider.id,
+            "provider_name": provider.name,
+            "status": (status or "").lower(),
+            "collected_amount": str(final_collected),
+            "total": str(pret.total),
+            "source_bill_serial": source_bill_serial,
+            "legacy_container": getattr(container, "code", None) if container else None,
+            "wizard_mode": bool(any((row.get("container_splits") or []) for row in items)),
+        },
+    )
+
     return pret
-
-
-
-
 
 @transaction.atomic
 def pay_full(*, actor, bill_id: int) -> Bill:
@@ -575,6 +716,16 @@ def pay_full(*, actor, bill_id: int) -> Bill:
         ),
     )
     DebtSV.pay_debt(actor=actor, entry_id=entry.id, full=True)
+
+    log_update(
+        actor=actor,
+        target=bill,
+        title="Pay purchase bill",
+        message=f"Pay full for bill #{bill.serial}",
+        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "full"},
+    )
+
+
     return bill
 
 
@@ -604,7 +755,18 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
         raise ValueError(f"amount exceeds remaining ({q3(entry.remaining)})")
 
     DebtSV.pay_debt(actor=actor, entry_id=entry.id, amount=amt, full=False)
+
+    log_update(
+        actor=actor,
+        target=bill,
+        title="Pay purchase bill",
+        message=f"Pay partial for bill #{bill.serial} amount={amt}",
+        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt)},
+    )
+
+
     return bill
+
 
 
 # =======================================================================
@@ -614,12 +776,33 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
 @transaction.atomic
 def collect_full(*, actor, return_id: int) -> ProviderReturn:
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
-    entry = CreditorDebt.objects.select_for_update().get(
-        source_app="billing", source_model="ProviderReturn", source_id=str(pret.id)
+    entry, _ = CreditorDebt.objects.select_for_update().get_or_create(
+        provider=pret.provider,
+        source_app="billing",
+        source_model="ProviderReturn",
+        source_id=str(pret.id),
+        defaults=dict(
+            total=q3(pret.total or DEC0),
+            collected=DEC0,
+            status=CreditorDebt.Status.OPEN,
+            party_type=PartyType.PROVIDER,
+            party_name=pret.provider.name if pret.provider_id else "",
+            doc_serial=pret.serial,
+        ),
     )
-    DebtSV.collect_debt(actor=actor, entry_id=entry.id, full=True)
-    return pret
 
+    DebtSV.collect_debt(actor=actor, entry_id=entry.id, full=True)
+
+    log_update(
+        actor=actor,
+        target=pret,
+        title="Collect provider return",
+        message=f"Collect full for return #{pret.serial}",
+        meta={"return_id": pret.id, "entry_id": entry.id, "mode": "full"},
+    )
+
+
+    return pret
 
 @transaction.atomic
 def collect_partial(*, actor, return_id: int, amount: Decimal) -> ProviderReturn:
@@ -628,15 +811,35 @@ def collect_partial(*, actor, return_id: int, amount: Decimal) -> ProviderReturn
         raise ValueError("amount must be positive")
 
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
-    entry = CreditorDebt.objects.select_for_update().get(
-        source_app="billing", source_model="ProviderReturn", source_id=str(pret.id)
+    entry, _ = CreditorDebt.objects.select_for_update().get_or_create(
+        provider=pret.provider,
+        source_app="billing",
+        source_model="ProviderReturn",
+        source_id=str(pret.id),
+        defaults=dict(
+            total=q3(pret.total or DEC0),
+            collected=DEC0,
+            status=CreditorDebt.Status.OPEN,
+            party_type=PartyType.PROVIDER,
+            party_name=pret.provider.name if pret.provider_id else "",
+            doc_serial=pret.serial,
+        ),
     )
+
     if amt > q3(entry.remaining):
         raise ValueError(f"amount exceeds remaining ({q3(entry.remaining)})")
 
     DebtSV.collect_debt(actor=actor, entry_id=entry.id, amount=amt, full=False)
-    return pret
 
+    log_update(
+        actor=actor,
+        target=pret,
+        title="Collect provider return",
+        message=f"Collect partial for return #{pret.serial} amount={amt}",
+        meta={"return_id": pret.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt)},
+    )
+
+    return pret
 
 # =======================================================================
 # MANUAL-DEBT wrappers (views already call SV.*)

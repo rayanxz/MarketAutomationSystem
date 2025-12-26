@@ -87,8 +87,7 @@ def build_timeline_events_for_day(
     )
 
     user_ids |= set(
-        SalesBill.objects
-        .filter(work_day=selected_day)
+        SalesBill.objects.filter(work_day=selected_day, is_deleted=False)
         .values_list("cashier_id", flat=True)
     )
 
@@ -152,8 +151,7 @@ def build_timeline_events_for_day(
 
     if show_bills:
         for b in (
-            SalesBill.objects
-            .filter(work_day=selected_day)
+            SalesBill.objects.filter(work_day=selected_day, is_deleted=False)
             .select_related("cashier", "shift")
             .order_by("created_at")
         ):

@@ -1,9 +1,10 @@
 // static/js/billing_bills.js
 (() => {
   const API_LIST = window.__BILLING__?.billsListUrl;
-  const API_DELETE_BASE = window.__BILLING__?.billDeleteBase;
+  const DELETE_TPL = window.__BILLING__?.billDeleteUrlTemplate;
 
-  if (!API_LIST || !API_DELETE_BASE) {
+
+  if (!API_LIST || !DELETE_TPL) {
     console.error("Missing __BILLING__ URLs; ensure template injected them.");
     return;
   }
@@ -164,7 +165,7 @@
     if (!pendingDeleteId) return;
     btnConfirm.disabled = true;
     try{
-      const url = `${API_DELETE_BASE}/${pendingDeleteId}/delete`;
+      const url = DELETE_TPL.replace("123456", String(pendingDeleteId));
       const res = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': getCsrf() } });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'delete failed');

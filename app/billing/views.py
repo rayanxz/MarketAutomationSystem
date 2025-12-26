@@ -8,13 +8,12 @@ from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 from django.utils import timezone
-from django.db.models import Q  # needed for products search filters
 
 from django.contrib.auth.decorators import login_required
 
 from billing import services as BillingSV
 
-from inventory.models import DEC0 , q3 , ProductMovement
+from inventory.models import DEC0 , q3 , ProductMovement , q4
 
 DEC2 = Decimal("0.01")
 
@@ -26,7 +25,7 @@ def _fmt2(x: Decimal | None) -> str:
     q = (x if x is not None else DEC0).quantize(DEC2)
     return f"{q:.2f}"
 
-from django.db.models import Sum
+from django.db.models import Sum , Q
 from stock.models import StockFifoLayer
 
 from accounts.models import AccountProfile
@@ -46,6 +45,8 @@ logger = logging.getLogger(__name__)
 from datetime import date
 
 from typing import Any
+
+from django.conf import settings
 
 # ---------- Page views ----------
 
@@ -111,7 +112,7 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
         .filter(
             source_app="billing",
             source_model="ProviderReturn",
-            source_id=pret.id,
+            source_id=str(pret.id),
         )
         .select_related("product", "container")
     )
@@ -289,12 +290,15 @@ def api_provider_create(request: HttpRequest) -> JsonResponse:
     # uses ActiveProviderManager
     if Provider.active.filter(name__iexact=name).exists():
         return _bad("الاسم موجود مسبقا", 409)
-    p = Provider.objects.create(
+    from billing.services_provider import create_provider
+
+    p = create_provider(
+        actor=request.user,
         name=name,
         phone=(payload.get("phone") or "").strip(),
         notes=(payload.get("notes") or "").strip(),
-        is_active=True,
     )
+
     return JsonResponse({"ok": True, "provider": {"id": p.id, "name": p.name}})
 
 
@@ -311,9 +315,13 @@ def api_provider_delete(request: HttpRequest, pid: int) -> JsonResponse:
 
     if not p.is_active:
         return JsonResponse({"ok": True})
-    p.is_active = False
-    p.deleted_at = timezone.now()
-    p.save(update_fields=["is_active", "deleted_at"])
+    from billing.services_provider import delete_provider
+
+    delete_provider(
+        actor=request.user,
+        provider=p,
+    )
+
     return JsonResponse({"ok": True})
 
 
@@ -404,7 +412,6 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
 
 # ---------- Bills APIs ----------
 # - Bills: next serial (preview) -
-from django.db.models import Max
 
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
@@ -436,15 +443,14 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     #   payload["container_code"] = "store"
     #   payload["container"] = {"code": "store"}
     #   payload["container"] = "store"
-    container_code = (
-        (payload.get("container_code") or "")
-        or (payload.get("container") or {}).get("code", "") if isinstance(payload.get("container"), dict) else payload.get("container", "")
-    )
+    container_code = (payload.get("container_code") or "").strip()
 
-    if isinstance(container_code, str):
-        container_code = container_code.strip()
-    else:
-        container_code = ""
+    if not container_code:
+        c = payload.get("container")
+        if isinstance(c, dict):
+            container_code = (c.get("code") or "").strip()
+        elif isinstance(c, str):
+            container_code = c.strip()
 
     # Default to 'store' if nothing sent
     if not container_code:
@@ -492,8 +498,9 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
     except Exception as e:
         logger.exception("api_bill_save failed")
+        if settings.DEBUG:
+            return _bad(f"save failed: {e}", 500)
         return _bad("save failed", 500)
-
 
 
 @require_GET
@@ -501,8 +508,12 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
 def api_bills_list(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
     serial = request.GET.get("serial")
-    date_from = (request.GET.get("date_from") or "").strip()
-    date_to = (request.GET.get("date_to") or "").strip()
+
+    raw_from = (request.GET.get("date_from") or "").strip()
+    raw_to   = (request.GET.get("date_to") or "").strip()
+    date_from = _date(raw_from)
+    date_to   = _date(raw_to)
+    
     status = (request.GET.get("status") or "").lower()  # NOTE: evaluated at Python-level via properties
     cursor = request.GET.get("cursor")
 
@@ -523,6 +534,21 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     )
     qs = qs.order_by("-id")[:page_size]
     items = list(qs)
+
+    bill_ids = [b.id for b in items]
+
+    debts = DebtorEntry.objects.filter(
+        source_app="billing",
+        source_model="Bill",
+        source_id__in=[str(i) for i in bill_ids],
+    )
+
+    debt_map = {int(d.source_id): d for d in debts if (d.source_id or "").isdigit()}
+
+    # attach cached debtor entry to each bill to avoid per-row queries
+    for b in items:
+        b._debtor_entry_cached = debt_map.get(b.id)
+
 
     # Optional status filter at Python-level (since status is now a property)
     if status in {"paid", "unpaid", "partial"}:
@@ -678,12 +704,15 @@ def bill_view(request, bill_id: int):
     # original container map (kept if you ever need it)
     origin_by_item: dict[int, ProductMovement] = {}
     if item_ids:
+
+        item_ids_str = [str(i) for i in item_ids]
+
         mv_rows = (
             ProductMovement.objects
             .filter(
                 source_app="billing",
                 source_model="BillItem",
-                source_id__in=item_ids,
+                source_id__in=item_ids_str,
             )
             .select_related("container")
             .order_by("id")
@@ -694,6 +723,31 @@ def bill_view(request, bill_id: int):
                 origin_by_item[iid] = mv
 
     error_msg = None
+    from collections import defaultdict
+    from inventory.models import SaleCostPart
+
+    sold_by_item: dict[int, Decimal] = defaultdict(lambda: DEC0)
+
+    if item_ids:
+        item_ids_str = [str(i) for i in item_ids]
+
+        sold_rows = (
+            SaleCostPart.objects
+            .filter(
+                fifo_layer__source_app="billing",
+                fifo_layer__source_model="BillItem",
+                fifo_layer__source_id__in=item_ids_str,
+            )
+            .values("fifo_layer__source_id")
+            .annotate(q=Sum("qty_primary"))
+        )
+
+        for r in sold_rows:
+            try:
+                iid = int(r["fifo_layer__source_id"] or "0")
+            except (TypeError, ValueError):
+                continue
+            sold_by_item[iid] = q3(r["q"] or DEC0)
 
     # NOTE: old inline-return POST kept as-is (no form now, so practically unused)
     if request.method == "POST":
@@ -749,9 +803,8 @@ def bill_view(request, bill_id: int):
             elif code == "wh2":
                 wh2_qty = q3(wh2_qty + q_left)
 
-        sold_qty = q3(qty_primary - left_qty - total_returned)
-        if sold_qty < DEC0:
-            sold_qty = DEC0
+        # left_qty already reflects sales + provider returns (both consume FIFO)
+        sold_qty = q3(sold_by_item.get(it.id, DEC0))
 
         # product identifiers for search
         prod_code = getattr(prod, "product_number", "") or ""
@@ -813,7 +866,12 @@ def bill_view(request, bill_id: int):
     has_debt_now = False
     try:
         if bill.serial:
-            has_debt_now = DebtorEntry.objects.filter(doc_serial=bill.serial).exists()
+            has_debt_now = DebtorEntry.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+            ).exists()
+
     except Exception:
         has_debt_now = False
 
@@ -953,6 +1011,8 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
     # filter items to selected with remaining qty
     item_qs = [it for it in item_qs if it.id in selected_ids and left_map.get(it.id, DEC0) > DEC0]
+    items_by_id = {it.id: it for it in item_qs}
+
     if not item_qs:
         return redirect("billing_bill_view", bill_id=bill.id)
 
@@ -1031,7 +1091,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         try:
             for r in rows:
                 iid = r["item_id"]
-                it = next(i for i in item_qs if i.id == iid)
+                it = items_by_id[iid]
                 prod = it.product
 
                 key_store = f"ret_store_{iid}"
@@ -1069,7 +1129,9 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 cost = _dec(raw_cost, str(it.cost or "0"))
 
                 # accumulate total return cost (cost * qty_total)
-                total_return_cost = q3(total_return_cost + (cost * qty_total))
+                line_total = q3(q4(cost) * q3(qty_total))
+                total_return_cost = q3(total_return_cost + line_total)
+
 
                 container_splits: list[dict[str, str]] = []
                 if q_store > DEC0:
@@ -1087,6 +1149,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
                 items_payload.append(
                     {
+                        "bill_item_id": it.id,
                         "product_id": it.product_id,
                         "unit_index": 1,
                         "qty_primary": str(qty_total),
@@ -1217,8 +1280,11 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
     serial = request.GET.get("serial")
     rid = request.GET.get("id")
     bill_serial = request.GET.get("bill_serial")
-    date_from = (request.GET.get("date_from") or "").strip()
-    date_to = (request.GET.get("date_to") or "").strip()
+    raw_from = (request.GET.get("date_from") or "").strip()
+    raw_to   = (request.GET.get("date_to") or "").strip()
+    date_from = _date(raw_from)
+    date_to   = _date(raw_to)
+
     status = (request.GET.get("status") or "").lower()  # property-based
     cursor = request.GET.get("cursor")
     try:

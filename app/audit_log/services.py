@@ -89,3 +89,16 @@ def log_update(**kwargs): return log_event(action=AuditAction.UPDATE, **kwargs)
 def log_delete(**kwargs): return log_event(action=AuditAction.DELETE, **kwargs)
 def log_info(**kwargs):   return log_event(action=AuditAction.INFO, **kwargs)
 def log_error(**kwargs):  return log_event(action=AuditAction.ERROR, **kwargs)
+
+
+def snap_instance(obj, fields: list[str] | None = None) -> dict:
+    """
+    Small safe snapshot for audit. Avoids dumping the whole object / relations.
+    """
+    if obj is None:
+        return {}
+    data = {"id": str(getattr(obj, "pk", "") or "")}
+    if fields:
+        for f in fields:
+            data[f] = getattr(obj, f, None)
+    return data

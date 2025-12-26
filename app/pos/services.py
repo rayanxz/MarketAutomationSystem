@@ -163,9 +163,7 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
 
     container = _get_store_container()
     if container is None:
-        # No store container: for now, silently skip posting
-        # (you may later turn this into a hard error)
-        return
+        raise RuntimeError("NO_STORE_CONTAINER")
 
     rows: list[SalesBillRow] = list(bill.rows.all())
     if not rows:
@@ -205,6 +203,14 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
     # 2) Load current stock for these products in the store container
     #    and lock rows to avoid race conditions.
     # ==========================
+    # Ensure StockEntry rows exist so select_for_update actually locks something
+    for pid in needed_by_product.keys():
+        StockEntry.objects.get_or_create(
+            product_id=pid,
+            container=container,
+            defaults={"qty_primary": DEC0},
+        )
+
     entries = (
         StockEntry.objects
         .select_for_update()
@@ -270,6 +276,6 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             unit_cost=unit_cost,
             source_app="pos",
             source_model="SalesBill",
-            source_id=bill.id,
+            source_id=str(bill.id),
             container=container,
         )

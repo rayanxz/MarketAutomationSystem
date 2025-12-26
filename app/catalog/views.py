@@ -31,6 +31,9 @@ from catalog.models import (
     ProductUnitId,
 )
 
+from audit_log.services import log_create, log_update, log_delete, snap_instance
+
+
 # -------- constants --------
 PAGE_SIZE = 20  # products per "slide" in the left pane
 
@@ -53,6 +56,58 @@ def _go(url_name: str, qs: str | None = None) -> HttpResponseRedirect:
     """small redirect helper (handles query strings safely)"""
     base = reverse(url_name)
     return HttpResponseRedirect(f"{base}?{qs}" if qs else base)
+
+
+def _snap_collection(col: ProductCollection) -> dict:
+    d = snap_instance(col, ["name", "code"])
+    return d
+
+
+def _snap_set(st: ProductSet) -> dict:
+    d = snap_instance(st, ["name", "code", "collection_id"])
+    d["collection_code"] = getattr(st.collection, "code", None) if getattr(st, "collection", None) else None
+    d["collection_name"] = getattr(st.collection, "name", None) if getattr(st, "collection", None) else None
+    return d
+
+
+def _snap_product(p: Product) -> dict:
+    d = snap_instance(
+        p,
+        [
+            "name",
+            "product_number",
+            "is_active",
+            "set_id",
+            "unit_primary",
+            "unit_secondary",
+            "conversion_factor",
+            "cost",
+            "price",
+            "notes",
+        ],
+    )
+    # nice-to-have context (doesn't change business logic)
+    try:
+        d["display_code"] = p.display_code
+    except Exception:
+        pass
+    try:
+        d["set_code"] = getattr(p.set, "code", None)
+        d["set_name"] = getattr(p.set, "name", None)
+        d["collection_id"] = getattr(p.set, "collection_id", None)
+        d["collection_code"] = getattr(p.set.collection, "code", None)
+        d["collection_name"] = getattr(p.set.collection, "name", None)
+    except Exception:
+        pass
+    try:
+        d["barcodes_count"] = p.barcodes.count()
+    except Exception:
+        pass
+    try:
+        d["unit_ids_count"] = p.unit_ids.count()
+    except Exception:
+        pass
+    return d
 
 
 # ---------- role gate (manager; owner allowed by default) ----------
@@ -90,7 +145,24 @@ def manager_collections(request: HttpRequest) -> HttpResponse:
         form = CollectionCreateForm(request.POST)
         show_add = True
         if form.is_valid():
-            form.save()
+            col = form.save()
+
+            # AUDIT: create collection
+            try:
+                log_create(
+                    actor=request.user,
+                    request=request,
+                    target=col,
+                    title="Create collection",
+                    message=f"Collection created: {col.name}",
+                    before=None,
+                    after=_snap_collection(col),
+                    meta={"source": "catalog.manager_collections"},
+                )
+            except Exception:
+                # never break UX if audit fails
+                pass
+
             messages.success(request, "تم إنشاء الزمرة.")
             return _go("manager_collections")
         messages.error(request, "حدث خطأ. يرجى التحقق من الاسم.")
@@ -117,6 +189,8 @@ def collection_rename(request: HttpRequest, pk: int) -> HttpResponse:
         return _go("manager_collections")
 
     col = get_object_or_404(ProductCollection, pk=pk)
+    before = _snap_collection(col)
+
     new_name = (request.POST.get("name") or "").strip()
     if not new_name:
         messages.error(request, "يرجى إدخال اسم صالح.")
@@ -139,6 +213,22 @@ def collection_rename(request: HttpRequest, pk: int) -> HttpResponse:
     col.name = new_name
     try:
         col.save()
+
+        # AUDIT: rename/update collection
+        try:
+            log_update(
+                actor=request.user,
+                request=request,
+                target=col,
+                title="Rename collection",
+                message=f"Collection renamed to: {col.name}",
+                before=before,
+                after=_snap_collection(col),
+                meta={"source": "catalog.collection_rename"},
+            )
+        except Exception:
+            pass
+
         messages.success(request, "تم تعديل اسم الزمرة.")
     except IntegrityError:
         messages.error(request, "اسم الزمرة موجود مسبقاً.")
@@ -156,8 +246,26 @@ def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, "لا يمكن حذف الزمرة لوجود منتجات ضمنها.")
         return _go("manager_collections", "edit=1")
 
+    before = _snap_collection(col)
+
     ProductSet.objects.filter(collection=col).delete()
     col.delete()
+
+    # AUDIT: delete collection (hard)
+    try:
+        log_delete(
+            actor=request.user,
+            request=request,
+            target=col,
+            title="Delete collection",
+            message=f"Collection deleted: {before.get('name')}",
+            before=before,
+            after=None,
+            meta={"source": "catalog.collection_delete", "soft_delete": False},
+        )
+    except Exception:
+        pass
+
     messages.success(request, "تم حذف الزمرة.")
     return _go("manager_collections", "edit=1")
 
@@ -222,6 +330,7 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
         "total_pages": total_pages
     })
 
+
 def _page_for_product_in_collection(prod: Product) -> int:
     n = (
         _products_qs_for_collection(prod.set.collection_id)
@@ -260,43 +369,37 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             "unit_secondary": p.unit_secondary or "",
             "unit_secondary_label": p.get_unit_secondary_display() if p.unit_secondary else "",
             "conversion_factor": str(p.conversion_factor or ""),
-    }
-
-
+        }
 
     if not q:
         return JsonResponse({"ok": True, "items": []})
+
+    items: list[dict] = []
 
     try:
         if mode == "barcode":
             pb = (
                 ProductBarcode.objects
                 .select_related("product__set__collection")
-                .filter(barcode=q , product__is_active=True)
+                .filter(barcode=q, product__is_active=True)
                 .first()
             )
             if pb:
                 item = fmt(pb.product)
                 item["matched_unit"] = int(pb.unit_index)  # 1 or 2
                 items = [item]
-            else:
-                items = []
-
 
         elif mode == "name":
             max_total = 8
 
-            # Products FIRST (so slicing never drops them)
             prods = (
                 Product.objects
                 .select_related("set__collection")
-                .filter(name__icontains=q , is_active=True)
+                .filter(name__icontains=q, is_active=True)
                 .order_by("name")[:max_total]
             )
-            prod_items = [fmt(p) for p in prods]   # keeps cost, price, units, cf
+            prod_items = [fmt(p) for p in prods]
 
-            # Collections / Sets are useful for the manager search page,
-            # but billing UI filters to type='product' anyway.
             cols = (
                 ProductCollection.objects
                 .filter(name__icontains=q)
@@ -327,24 +430,19 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 "col_name": s.collection.name,
             } for s in sets]
 
-            # Put PRODUCTS first, then the rest; then slice.
             items = (prod_items + col_items + set_items)[:max_total]
-
 
         elif mode == "id":
             uid = (
                 ProductUnitId.objects
                 .select_related("product__set__collection")
-                .filter(value__iexact=q , product__is_active=True)
+                .filter(value__iexact=q, product__is_active=True)
                 .first()
             )
             if uid:
                 item = fmt(uid.product)
                 item["matched_unit"] = int(uid.unit_index)  # 1 or 2
                 items = [item]
-            else:
-                items = []
-
 
         elif mode == "code":
             items = []
@@ -357,7 +455,8 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                     .first()
                 )
                 if p:
-                    items = [fmt(p)]; got = True
+                    items = [fmt(p)]
+                    got = True
 
             if not got and q.startswith("#") and "-" not in q:
                 col = (
@@ -369,7 +468,8 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 if col:
                     p = _products_qs_for_collection(col.id).first()
                     if p:
-                        items = [fmt(p)]; got = True
+                        items = [fmt(p)]
+                        got = True
 
             if not got and q.startswith("@") and "-" not in q:
                 st = (
@@ -381,12 +481,13 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 if st:
                     p = (
                         Product.objects.select_related("set__collection")
-                        .filter(set=st, is_active=True )
+                        .filter(set=st, is_active=True)
                         .order_by("product_number")
                         .first()
                     )
                     if p:
-                        items = [fmt(p)]; got = True
+                        items = [fmt(p)]
+                        got = True
 
             if not got and "-" in q:
                 parts = q.split("-")
@@ -461,11 +562,26 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             )
         if not st and create_parent:
             st = ProductSet.objects.create(collection=col, name=s_name or "مجموعة جديدة")
+            # AUDIT: create set via product page (only when actually created)
+            try:
+                log_create(
+                    actor=request.user,
+                    request=request,
+                    target=st,
+                    title="Create set",
+                    message=f"Set created: {st.name}",
+                    before=None,
+                    after=_snap_set(st),
+                    meta={"source": "catalog.manager_product_new", "via": "create_parent"},
+                )
+            except Exception:
+                pass
+
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             return render(request, "manager/product_new.html", {"form": form, "editing": False})
 
-        # Build product instance (name already normalized & CI-checked in form.clean_name)
+        # Build product instance
         p = Product(
             name=form.cleaned_data["name"],
             set=st,
@@ -509,7 +625,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
 
                 # ---- Barcodes (lists or textarea fallback) ----
                 bar_u1 = _post_list(request, "barcodes_u1") or ProductCreateForm.parse_barcodes(
-                form.cleaned_data.get("barcodes_u1", "")
+                    form.cleaned_data.get("barcodes_u1", "")
                 )
                 bar_u2 = _post_list(request, "barcodes_u2") or ProductCreateForm.parse_barcodes(
                     form.cleaned_data.get("barcodes_u2", "")
@@ -536,8 +652,24 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                         product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
                     )
 
+            # AUDIT: create product (after everything is done)
+            try:
+                # refresh relations counts if needed
+                p = Product.objects.select_related("set__collection").prefetch_related("barcodes", "unit_ids").get(pk=p.pk)
+                log_create(
+                    actor=request.user,
+                    request=request,
+                    target=p,
+                    title="Create product",
+                    message=f"Product created: {p.name} ({p.display_code})",
+                    before=None,
+                    after=_snap_product(p),
+                    meta={"source": "catalog.manager_product_new"},
+                )
+            except Exception:
+                pass
+
         except ValidationError as ve:
-            # Map model validation messages back onto the form where possible
             mapping = {
                 "conversion_factor": "conversion_factor",
                 "unit_secondary": "unit_secondary",
@@ -607,17 +739,34 @@ def api_sets_search(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "items": items})
 
 
-# --- Delete product ---
+# --- Delete product (soft archive) ---
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def manager_product_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    p = get_object_or_404(Product, pk=pk)
+    p = get_object_or_404(Product.objects.select_related("set__collection"), pk=pk)
+    before = _snap_product(p)
+
     name = p.name
     try:
-        # Soft-delete for safety (future billing references will require this)
         if p.is_active:
             p.is_active = False
             p.save(update_fields=["is_active"])
+
+            # AUDIT: archive product (update)
+            try:
+                log_update(
+                    actor=request.user,
+                    request=request,
+                    target=p,
+                    title="Archive product",
+                    message=f"Product archived: {name}",
+                    before=before,
+                    after=_snap_product(p),
+                    meta={"source": "catalog.manager_product_delete", "soft_delete": True},
+                )
+            except Exception:
+                pass
+
             messages.success(request, f"تمت أرشفة المنتج «{name}».")
         else:
             messages.info(request, f"المنتج «{name}» مؤرشف مسبقاً.")
@@ -626,18 +775,18 @@ def manager_product_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("manager_collections")
 
 
-
 @role_required(AccountProfile.Role.MANAGER)
 def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
     p = get_object_or_404(
-            Product.objects
-            .select_related("set__collection")
-            .prefetch_related("unit_ids" , "barcodes"),
-             pk=pk
-        )
+        Product.objects
+        .select_related("set__collection")
+        .prefetch_related("unit_ids", "barcodes"),
+        pk=pk
+    )
 
     if request.method == "POST":
-        # Pass instance so name uniqueness ignores self
+        before = _snap_product(p)
+
         form = ProductCreateForm(request.POST, instance=p)
         if not form.is_valid():
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
@@ -673,6 +822,21 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             )
         if not st and create_parent:
             st = ProductSet.objects.create(collection=col, name=s_name or "مجموعة جديدة")
+            # AUDIT: create set via edit page
+            try:
+                log_create(
+                    actor=request.user,
+                    request=request,
+                    target=st,
+                    title="Create set",
+                    message=f"Set created: {st.name}",
+                    before=None,
+                    after=_snap_set(st),
+                    meta={"source": "catalog.manager_product_edit", "via": "create_parent"},
+                )
+            except Exception:
+                pass
+
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p})
@@ -689,7 +853,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
         try:
             with transaction.atomic():
-                p.full_clean()  # ensure model-level validation on edit as well
+                p.full_clean()
                 p.save()
 
                 # ---- Unit IDs (replace when lists posted) ----
@@ -748,9 +912,26 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                         if ProductBarcode.objects.filter(barcode=bc).exclude(product=p).exists():
                             messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
                             raise IntegrityError("duplicate barcode")
+
                         ProductBarcode.objects.create(
                             product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
                         )
+
+            # AUDIT: update product
+            try:
+                p2 = Product.objects.select_related("set__collection").prefetch_related("barcodes", "unit_ids").get(pk=p.pk)
+                log_update(
+                    actor=request.user,
+                    request=request,
+                    target=p2,
+                    title="Update product",
+                    message=f"Product updated: {p2.name} ({p2.display_code})",
+                    before=before,
+                    after=_snap_product(p2),
+                    meta={"source": "catalog.manager_product_edit"},
+                )
+            except Exception:
+                pass
 
         except IntegrityError as e:
             if "product.name" in str(e).lower():
@@ -774,7 +955,6 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "cost": p.cost,
         "price": p.price,
         "notes": p.notes or "",
-        # Barcodes textareas left empty so we don't replace unless user types
         "barcodes_u1": "",
         "barcodes_u2": "",
     }
@@ -785,21 +965,25 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
 # ========================
 #     Autocomplete APIs
 # ========================
-
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
 def api_collection_stats(request: HttpRequest, pk: int) -> JsonResponse:
     col = get_object_or_404(ProductCollection, pk=pk)
     sets_cnt = ProductSet.objects.filter(collection=col).count()
     prods_cnt = Product.objects.filter(set__collection=col).count()
-    return JsonResponse({"ok": True, "collection": {"id": col.id, "name": col.name, "code": col.code},
-                         "counts": {"sets": sets_cnt, "products": prods_cnt}})
+    return JsonResponse({
+        "ok": True,
+        "collection": {"id": col.id, "name": col.name, "code": col.code},
+        "counts": {"sets": sets_cnt, "products": prods_cnt},
+    })
+
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
 def api_collection_cascade_delete(request: HttpRequest, pk: int) -> JsonResponse:
     col = get_object_or_404(ProductCollection, pk=pk)
-    from catalog.models import ProductSet, ProductBarcode, ProductUnitId, Product
+    before = _snap_collection(col)
+
     try:
         with transaction.atomic():
             ProductBarcode.objects.filter(product__set__collection=col).delete()
@@ -807,10 +991,26 @@ def api_collection_cascade_delete(request: HttpRequest, pk: int) -> JsonResponse
             Product.objects.filter(set__collection=col).delete()
             ProductSet.objects.filter(collection=col).delete()
             col.delete()
+
+        # AUDIT: cascade delete collection (hard)
+        try:
+            log_delete(
+                actor=request.user,
+                request=request,
+                target=col,
+                title="Cascade delete collection",
+                message=f"Collection cascade deleted: {before.get('name')}",
+                before=before,
+                after=None,
+                meta={"source": "catalog.api_collection_cascade_delete", "cascade": True, "soft_delete": False},
+            )
+        except Exception:
+            pass
+
     except Exception:
         return JsonResponse({"ok": False, "error": "delete failed"}, status=500)
-    return JsonResponse({"ok": True})
 
+    return JsonResponse({"ok": True})
 
 
 @require_GET
@@ -866,4 +1066,21 @@ def api_sets_create(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": "exists"}, status=409)
 
     st = ProductSet.objects.create(collection=col, name=name)
+
+    # AUDIT: create set via API
+    try:
+        st2 = ProductSet.objects.select_related("collection").get(pk=st.pk)
+        log_create(
+            actor=request.user,
+            request=request,
+            target=st2,
+            title="Create set",
+            message=f"Set created: {st2.name}",
+            before=None,
+            after=_snap_set(st2),
+            meta={"source": "catalog.api_sets_create"},
+        )
+    except Exception:
+        pass
+
     return JsonResponse({"ok": True, "item": {"id": st.id, "name": st.name, "code": st.code}})

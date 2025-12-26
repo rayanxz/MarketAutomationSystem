@@ -6,7 +6,6 @@ from django.core.validators import MinValueValidator, RegexValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models.functions import Lower
 
-
 # =========================
 #   Collections (زُمَر)
 # =========================

@@ -83,7 +83,7 @@ def import_update_row(request: HttpRequest) -> HttpResponse:
 def import_commit(request: HttpRequest) -> HttpResponse:
     sid = request.POST.get("staging_id") or ""
     try:
-        summary = commit_stage(sid)
+        summary = commit_stage(sid, actor=request.user, request=request)
         return JsonResponse({"ok": True, **summary})
     except StageError as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)

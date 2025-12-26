@@ -27,6 +27,9 @@ def record_movement(
     source_id: str | int,
     container: ProductContainer | None = None,
     extra_product_updates: Optional[Dict[str, Any]] = None,
+    origin_source_app: str = "",
+    origin_source_model: str = "",
+    origin_source_id: str | int = "",
 ) -> ProductMovement:
     """
     Core helper: logs a product movement AND updates product.stock_qty (and optional fields).
@@ -51,30 +54,36 @@ def record_movement(
         source_id=str(source_id),
         actor=actor if getattr(actor, "is_authenticated", False) else None,
         container=container,
+        origin_source_app=(origin_source_app or ""),
+        origin_source_model=(origin_source_model or ""),
+        origin_source_id=str(origin_source_id or ""),
     )
 
-    # Update product stock + optional fields
-    current = product.stock_qty or DEC0
-    product.stock_qty = q3(current + qty_primary_q)
+    # Collect product fields to update, then save ONCE
+    update_fields: set[str] = set()
 
-    update_fields = ["stock_qty"]
-
+    # Apply allowed product updates (never stock_qty)
     if extra_product_updates:
-        for field_name, value in extra_product_updates.items():
-            setattr(product, field_name, value)
-            update_fields.append(field_name)
+        for k, v in extra_product_updates.items():
+            if k == "stock_qty":
+                continue
+            if hasattr(product, k):
+                setattr(product, k, v)
+                update_fields.add(k)
 
-    if hasattr(product, "updated_at"):
-        product.updated_at = timezone.now()
-        update_fields.append("updated_at")
-
-    # no duplicates in update_fields
-    product.save(update_fields=list(dict.fromkeys(update_fields)))
-
+    # Apply movement to FIFO/StockEntry cache, then update stock_qty cache
     if container is not None:
         StockSV.apply_movement(mv)
+        product.stock_qty = q3(StockSV.total_stock_primary(product))
+        update_fields.add("stock_qty")
+
+    # Save product once (if anything changed)
+    if update_fields:
+        product.save(update_fields=sorted(update_fields))
 
     return mv
+
+
 
 
 @transaction.atomic
@@ -99,7 +108,23 @@ def record_purchase_item(
     - Updates StockEntry snapshot (via StockSV.apply_movement inside record_movement).
     - Adds a FIFO layer per (product, container) if container is set.
     """
-    # First, create the movement
+
+    if container is None:
+        raise ValueError("container is required for purchases")
+
+    # 1) FIFO FIRST (so StockEntry sync can see it)
+    if container is not None:
+        StockSV.fifo_add_incoming(
+            product=product,
+            container=container,
+            qty_primary=qty_primary,
+            unit_cost=unit_cost,
+            source_app=source_app,
+            source_model=source_model,
+            source_id=source_id,
+        )
+
+    # 2) THEN movement (this triggers apply_movement -> sync_entry_from_fifo)
     mv = record_movement(
         actor=actor,
         product=product,
@@ -112,23 +137,12 @@ def record_purchase_item(
         source_id=source_id,
         container=container,
         extra_product_updates=extra_product_updates,
+        origin_source_app=source_app,
+        origin_source_model=source_model,
+        origin_source_id=source_id,
     )
 
-    # Then, create FIFO layer for this incoming stock (per container)
-    if container is not None:
-        StockSV.fifo_add_incoming(
-            product=product,
-            container=container,
-            qty_primary=qty_primary,
-            unit_cost=unit_cost,
-            source_app=source_app,
-            source_model=source_model,
-            source_id=source_id,
-        )
-
     return mv
-
-
 
 @transaction.atomic
 def record_provider_return_item(
@@ -142,6 +156,7 @@ def record_provider_return_item(
     source_model: str,
     source_id: str | int,
     container: ProductContainer | None = None,
+    fifo_scope: dict[str, str] | None = None,
 ) -> ProductMovement:
     """
     Provider return (goods go BACK to provider):
@@ -149,6 +164,11 @@ def record_provider_return_item(
     - qty_primary should be NEGATIVE (stock goes OUT).
     - We consume FIFO layers from this container and compute effective unit cost.
     """
+
+    if container is None:
+        # provider returns without container can't use FIFO; block it because it's unsafe
+        raise ValueError("container is required for provider returns (FIFO requires container)")
+
     qty_primary_val = Decimal(str(qty_primary or 0))
     # ALWAYS treat provider return as OUT (negative)
     qty = -abs(qty_primary_val)
@@ -158,11 +178,22 @@ def record_provider_return_item(
 
     eff_cost = unit_cost
     if container is not None:
-        eff_cost = StockSV.fifo_consume(
-            product=product,
-            container=container,
-            qty_out_primary=qty_out,
-        )
+        if fifo_scope:
+            eff_cost = StockSV.fifo_consume_scoped(
+                product=product,
+                container=container,
+                qty_out_primary=qty_out,
+                scope_source_app=fifo_scope.get("source_app", ""),
+                scope_source_model=fifo_scope.get("source_model", ""),
+                scope_source_id=fifo_scope.get("source_id", ""),
+            )
+        else:
+            eff_cost = StockSV.fifo_consume(
+                product=product,
+                container=container,
+                qty_out_primary=qty_out,
+            )
+
 
     return record_movement(
         actor=actor,
@@ -175,6 +206,9 @@ def record_provider_return_item(
         source_model=source_model,
         source_id=source_id,
         container=container,
+        origin_source_app=(fifo_scope.get("source_app") if fifo_scope else ""),
+        origin_source_model=(fifo_scope.get("source_model") if fifo_scope else ""),
+        origin_source_id=(fifo_scope.get("source_id") if fifo_scope else ""),
     )
 
 
@@ -200,13 +234,18 @@ def record_sale_item(
     - Creates MULTIPLE SaleCostPart rows (true FIFO breakdown)
     """
 
+    if container is None:
+        raise ValueError("container is required for sales (FIFO requires container)")
+
+
     from inventory.models import SaleCostPart
     from stock.services import fifo_consume_with_parts
 
     qty_pos = Decimal(str(qty_primary or 0))
     if qty_pos <= 0:
         qty_pos = abs(qty_pos) if qty_pos != 0 else Decimal("0")
-
+    if qty_pos <= 0:
+        return None
     # -----------------------------
     # FIFO consume WITH PARTS
     # -----------------------------

@@ -24,7 +24,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # project apps (can stay even if empty for now)
     "accounts",
-    "catalog",
+    "catalog.apps.CatalogConfig",
     "billing",
     "ledger",
     "debts",

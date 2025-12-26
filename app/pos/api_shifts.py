@@ -12,6 +12,9 @@ from django.db import transaction
 from .models import PosShift
 from . import services as POSSV
 
+from audit_log import services as AuditSV
+from audit_log.models import AuditAction
+
 
 @login_required
 @require_POST
@@ -43,9 +46,29 @@ def api_shift_start(request: HttpRequest):
                 day=day,
                 login_session=session,
                 started_at=now,
-                title="",     # can be extended later
+                title="",  # can be extended later
             )
             created = True
+
+            # ✅ Audit ONLY when we actually created a new shift
+            meta = {
+                "kind": "pos.shift_started",
+                "shift": {
+                    "id": shift.id,
+                    "day": str(day.date) if day else "",
+                    "login_session_id": shift.login_session_id,
+                    "started_at": shift.started_at.isoformat() if shift.started_at else "",
+                },
+            }
+            transaction.on_commit(lambda: AuditSV.log_event(
+                action=AuditAction.INFO,
+                actor=request.user,
+                request=request,
+                target=shift,
+                title="POS shift started",
+                message="POS shift started",
+                meta=meta,
+            ))
 
     return JsonResponse({
         "ok": True,
@@ -82,9 +105,33 @@ def api_shift_end(request: HttpRequest):
         if shift.user_id and shift.user_id != request.user.id and not request.user.is_superuser:
             return JsonResponse({"ok": False, "error": "PERMISSION_DENIED"}, status=403)
 
+        ended_now = False
         if shift.ended_at is None:
             shift.ended_at = timezone.now()
             shift.save(update_fields=["ended_at"])
+            ended_now = True
+
+        # ✅ Audit ONLY if we actually ended it now (no double logs)
+        if ended_now:
+            meta = {
+                "kind": "pos.shift_ended",
+                "shift": {
+                    "id": shift.id,
+                    "day": str(shift.day.date) if shift.day_id else "",
+                    "login_session_id": shift.login_session_id,
+                    "started_at": shift.started_at.isoformat() if shift.started_at else "",
+                    "ended_at": shift.ended_at.isoformat() if shift.ended_at else "",
+                },
+            }
+            transaction.on_commit(lambda: AuditSV.log_event(
+                action=AuditAction.INFO,
+                actor=request.user,
+                request=request,
+                target=shift,
+                title="POS shift ended",
+                message="POS shift ended",
+                meta=meta,
+            ))
 
     return JsonResponse({
         "ok": True,

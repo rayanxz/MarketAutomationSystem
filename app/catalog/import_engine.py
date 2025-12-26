@@ -17,6 +17,9 @@ from catalog.models import (
 
 from catalog.import_rules import apply_rules
 
+from catalog.io_records import CatalogDataJob
+from audit_log.services import log_create
+
 
 # ========= infra =========
 class StageError(Exception):
@@ -375,7 +378,7 @@ def update_row_in_stage(sid: str, rid: int, field: str, value: Any):
 
 
 # ========= commit (DB writes) =========
-def commit_stage(sid: str) -> Dict[str, Any]:
+def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
     st = json.load(open(_p(sid, ".stage.json"), "r", encoding="utf-8"))
     if any(r["errors"] for r in st["rows"]):
         raise StageError("لا يمكن الإدخال قبل تصفير جميع الأخطاء.")
@@ -518,4 +521,40 @@ def commit_stage(sid: str) -> Dict[str, Any]:
                         msgs.append(f"{field}: {e}")
                 raise StageError(f"سطر {rid}: " + (" ؛ ".join(msgs) or "بيانات غير صالحة."))
 
-    return {"created": created, "updated": updated, "skipped": skipped}
+    # ===== AFTER SUCCESSFUL DB COMMIT: store import record + audit =====
+    job = CatalogDataJob.objects.create(
+        kind=CatalogDataJob.Kind.IMPORT,
+        status=CatalogDataJob.Status.SUCCESS,
+        actor=actor if getattr(actor, "is_authenticated", False) else None,
+    )
+    job.summary_json = {"created": created, "updated": updated, "skipped": skipped}
+    job.meta_json = {
+        "collection_id": collection.id,
+        "staging_id": sid,
+        "import_mode": (st.get("options", {}).get("import_mode") or ""),
+    }
+    # Store EXACT approved rows (can be big; later we can cap / compress)
+    job.rows_json = st.get("rows", [])
+    job.save(update_fields=["summary_text", "meta_text", "rows_text"])
+
+    # Audit entry that points to THIS job row
+    log_create(
+        actor=actor,
+        target=job,  # IMPORTANT: lets audit point to CatalogDataJob
+        title="Catalog Import",
+        message=f"Imported catalog rows. created={created}, updated={updated}, skipped={skipped}",
+        after={
+            "job_id": job.id,
+            "kind": job.kind,
+            "status": job.status,
+            "collection_id": collection.id,
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "rows_total": len(st.get("rows", [])),
+        },
+        request=request,
+    )
+
+    return {"created": created, "updated": updated, "skipped": skipped, "job_id": job.id}
+

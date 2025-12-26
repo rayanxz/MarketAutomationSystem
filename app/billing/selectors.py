@@ -128,6 +128,9 @@ def returns_list_filters(q, serial, rid, bill_serial, status, date_from, date_to
     if date_to:
         qs = qs.filter(created_at__date__lte=date_to)
     if cursor:
-        qs = qs.filter(id__lt=cursor)
+        try:
+            qs = qs.filter(id__lt=cursor)
+        except ValueError:
+            pass
     return qs.order_by("-id")[:page_size]
 

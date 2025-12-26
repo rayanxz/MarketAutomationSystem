@@ -12,6 +12,8 @@ from django.db import transaction
 from .models import SalesBill, SalesBillRow, CustomerProfile, PosShift
 from . import services as POSSV
 
+from audit_log import services as AuditSV
+from audit_log.models import AuditAction
 
 def _parse_decimal(x):
     try:
@@ -59,6 +61,20 @@ def api_bill_save(request: HttpRequest):
         # Rows from payload (validate BEFORE touching DB)
         # =====================
         rows = payload.get("rows") or []
+
+        seen = set()
+        dup = []
+        for r in rows:
+            pid = int(r.get("product_id") or 0)
+            if pid and pid in seen:
+                dup.append(pid)
+            seen.add(pid)
+        if dup:
+            return JsonResponse(
+                {"ok": False, "error": "DUPLICATE_PRODUCT_ROWS_NOT_ALLOWED"},
+                status=400,
+            )
+
 
         if not parked and not rows:
             # finalized bill with no rows → reject, but do NOT touch DB
@@ -109,10 +125,24 @@ def api_bill_save(request: HttpRequest):
                     {"ok": False, "error": "PERMISSION_DENIED"},
                     status=403,
                 )
+            before = {
+                "parked": bool(bill.parked),
+                "finalized": bool(bill.finalized),
+                "is_deleted": bool(getattr(bill, "is_deleted", False)),
+                "total_amount": str(bill.total_amount or Decimal("0")),
+                "paid_amount": str(bill.paid_amount or Decimal("0")),
+            }
+            # revive deleted parked bill if cashier saves it again
+            if bill.is_deleted:
+                bill.is_deleted = False
+                bill.deleted_at = None
+                bill.deleted_by = None
+
 
             # wipe rows and rewrite
             bill.rows.all().delete()
         else:
+            before = None
             # NEW BILL:
             # - bind cashier to current user
             # - attach to current work day + login session container
@@ -189,6 +219,48 @@ def api_bill_save(request: HttpRequest):
                     },
                     status=400,
                 )
+            except RuntimeError as e:
+                transaction.set_rollback(True)
+                return JsonResponse(
+                    {"ok": False, "error": str(e)},
+                    status=400,
+                )
+        def _log_after_commit(*, title: str, kind: str):
+            meta = {
+                "kind": kind,
+                "bill": {
+                    "id": bill.id,
+                    "parked": bool(bill.parked),
+                    "finalized": bool(bill.finalized),
+                    "pay_status": bill.pay_status,
+                    "total_amount": str(bill.total_amount or Decimal("0")),
+                    "paid_amount": str(bill.paid_amount or Decimal("0")),
+                    "customer_name": bill.customer_name or "",
+                    "shift_id": bill.shift_id,
+                    "work_day": str(bill.work_day.date) if bill.work_day else "",
+                },
+            }
+            transaction.on_commit(lambda: AuditSV.log_event(
+                action=AuditAction.INFO,
+                actor=request.user,
+                request=request,
+                target=bill,
+                title=title,
+                message=title,
+                meta=meta,
+            ))
+        # ===== Audit: parked vs saved =====
+        is_new = (before is None)
+
+        # parked event
+        if bill.parked and not bill.finalized:
+            if is_new or (before and not before.get("parked", False)):
+                _log_after_commit(title="POS bill parked", kind="pos.sale_bill_pended")
+
+        # saved event
+        if (not bill.parked) and bill.finalized:
+            if is_new or (before and not before.get("finalized", False)):
+                _log_after_commit(title="POS bill saved", kind="pos.sale_bill_saved")
 
         return JsonResponse({
             "ok": True,
@@ -214,7 +286,7 @@ def api_bills_today(request: HttpRequest):
     # 🔥 use Django local date, not plain date.today()
     today = timezone.localdate()
 
-    qs = SalesBill.objects.filter(created_at__date=today)
+    qs = SalesBill.objects.filter(created_at__date=today, is_deleted=False)
 
     # scope by cashier
     if not request.user.is_superuser:
@@ -264,6 +336,8 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
         if bill.cashier and bill.cashier != request.user:
             return JsonResponse({"ok": False, "error": "PERMISSION_DENIED"}, status=403)
 
+    if bill.is_deleted and not (request.user.is_superuser or request.user.is_staff):
+        return JsonResponse({"ok": False, "error": "NOT_FOUND"}, status=404)
 
     rows = []
     for r in bill.rows.all():
@@ -278,6 +352,7 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
             "disc_pct": str(r.disc_pct),
             "notes": r.notes,
         })
+    
 
     dt = timezone.localtime(bill.created_at)
     data = {
@@ -291,6 +366,7 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
         "parked": bill.parked,
         "rows": rows,
     }
+
     return JsonResponse({"ok": True, "bill": data})
 
 
@@ -349,6 +425,34 @@ def api_bill_delete(request, pk: int):
             {"ok": False, "error": "PERMISSION_DENIED"},
             status=403,
         )
+    with transaction.atomic():
+        bill = SalesBill.objects.select_for_update().get(pk=bill.pk)
 
-    bill.delete()
+        bill.is_deleted = True
+        bill.deleted_at = timezone.now()
+        bill.deleted_by = request.user
+        bill.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+        meta = {
+            "kind": "pos.sale_bill_deleted",
+            "bill": {
+                "id": bill.id,
+                "parked": bool(bill.parked),
+                "finalized": bool(bill.finalized),
+                "total_amount": str(bill.total_amount or Decimal("0")),
+                "paid_amount": str(bill.paid_amount or Decimal("0")),
+                "customer_name": bill.customer_name or "",
+            },
+        }
+
+        transaction.on_commit(lambda: AuditSV.log_event(
+            action=AuditAction.INFO,
+            actor=request.user,
+            request=request,
+            target=bill,
+            title="POS bill deleted (parked)",
+            message="POS bill deleted (parked)",
+            meta=meta,
+        ))
+
     return JsonResponse({"ok": True})

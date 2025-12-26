@@ -13,8 +13,13 @@ from inventory.models import ProductMovement, q3 , q4
 from stock.models import ProductContainer, StockEntry , StockFifoLayer, DEC0
 
 from django.utils import timezone
-from inventory import services as InvSV
 
+from datetime import datetime
+
+
+def total_stock_primary(product) -> Decimal:
+    agg = StockEntry.objects.filter(product=product).aggregate(s=Sum("qty_primary"))
+    return (agg["s"] or DEC0)
 
 
 def _fifo_sum_for(product: Product, container: ProductContainer) -> Decimal:
@@ -99,6 +104,7 @@ def assert_entry_matches_fifo(product: Product, container: ProductContainer) -> 
 
 # ===================== FIFO helpers =====================
 
+
 @transaction.atomic
 def fifo_add_incoming(
     *,
@@ -109,6 +115,7 @@ def fifo_add_incoming(
     source_app: str = "",
     source_model: str = "",
     source_id: str | int = "",
+    created_at: datetime | None = None,
 ) -> None:
     """
     Create a FIFO layer for incoming stock (PURCHASE, SALE_RETURN, positive ADJUSTMENT…).
@@ -124,15 +131,44 @@ def fifo_add_incoming(
 
     uc = q4(Decimal(str(unit_cost or DEC0)))
 
-    StockFifoLayer.objects.create(
-    product=product,
-    container=container,
-    qty_remaining=qty,
-    unit_cost=uc,
-    source_app=source_app or "",
-    source_model=source_model or "",
-    source_id=str(source_id or ""),
+    # Build query for "same logical batch"
+    qs = (
+        StockFifoLayer.objects
+        .select_for_update()
+        .filter(
+            product=product,
+            container=container,
+            source_app=(source_app or ""),
+            source_model=(source_model or ""),
+            source_id=str(source_id or ""),
+            unit_cost=uc,
+            qty_remaining__gt=DEC0,
+        )
     )
+
+    # ✅ If caller provides created_at, we treat that as part of the identity.
+    # This prevents rebuild from merging different historical layers into one.
+    if created_at is not None:
+        qs = qs.filter(created_at=created_at)
+
+    existing = qs.order_by("created_at", "id").first()
+
+
+    if existing:
+        existing.qty_remaining = q3(existing.qty_remaining + qty)
+        existing.save(update_fields=["qty_remaining"])
+    else:
+        StockFifoLayer.objects.create(
+            product=product,
+            container=container,
+            qty_remaining=qty,
+            unit_cost=uc,
+            source_app=source_app or "",
+            source_model=source_model or "",
+            source_id=str(source_id or ""),
+            created_at=created_at or timezone.now(),
+        )
+
 
     # لا نلمس StockEntry هنا.
     # StockEntry يتم تحديثه من خلال ProductMovement عبر apply_movement في inventory.
@@ -212,6 +248,73 @@ def fifo_consume(
     return eff_uc
 
 
+@transaction.atomic
+def fifo_consume_scoped(
+    *,
+    product: Product,
+    container: ProductContainer,
+    qty_out_primary: Decimal,
+    scope_source_app: str,
+    scope_source_model: str,
+    scope_source_id: str | int,
+) -> Decimal:
+    """
+    Consume FIFO ONLY from layers that match the given scope.
+    Used for provider-return-from-specific-bill-item logic.
+    """
+    if not container:
+        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+
+    need = q3(Decimal(str(qty_out_primary or DEC0)))
+    if need <= DEC0:
+        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+
+    layers = (
+        StockFifoLayer.objects
+        .select_for_update()
+        .filter(
+            product=product,
+            container=container,
+            qty_remaining__gt=DEC0,
+            source_app=(scope_source_app or ""),
+            source_model=(scope_source_model or ""),
+            source_id=str(scope_source_id or ""),
+        )
+        .order_by("created_at", "id")
+    )
+
+    remaining = need
+    total_cost = DEC0
+    last_cost: Decimal | None = None
+
+    for layer in layers:
+        if remaining <= DEC0:
+            break
+
+        avail = q3(layer.qty_remaining or DEC0)
+        if avail <= DEC0:
+            continue
+
+        use = avail if avail <= remaining else remaining
+        uc = q4(Decimal(str(layer.unit_cost or DEC0)))
+
+        total_cost += q3(use) * uc
+
+        layer.qty_remaining = q3(avail - use)
+        layer.save(update_fields=["qty_remaining"])
+
+        remaining -= use
+        last_cost = uc
+
+    # IMPORTANT: scoped consume must NOT fallback to other batches
+    if remaining > DEC0:
+        raise ValueError("لا يمكن إرجاع كمية أكبر من المتبقي من نفس فاتورة الشراء (batch محدد).")
+
+    eff_uc = q4(total_cost / need)
+    return eff_uc
+
+
+
 def fifo_consume_with_parts(
     *,
     product: Product,
@@ -282,18 +385,10 @@ def fifo_consume_with_parts(
         remaining -= use
         last_cost = uc
 
-    # fallback if FIFO not enough
-    if remaining > DEC0:
-        uc = q4(
-            last_cost if last_cost is not None
-            else Decimal(str(getattr(product, "cost", DEC0) or DEC0))
-        )
-        parts.append({
-            "fifo_layer": None,
-            "qty_primary": q3(remaining),
-            "unit_cost": uc,
-            "total_cost": q3(remaining * uc),
-        })
+        # fallback if FIFO not enough
+        if remaining > DEC0:
+            raise ValueError("INSUFFICIENT_FIFO_STOCK")
+
 
     return parts
 
@@ -323,51 +418,96 @@ def rebuild_fifo_from_inventory() -> None:
 
         qty = q3(Decimal(str(mv.qty_primary or DEC0)))
         if qty > DEC0:
-            # incoming – treat as one FIFO layer
             fifo_add_incoming(
                 product=mv.product,
                 container=mv.container,
                 qty_primary=qty,
                 unit_cost=mv.unit_cost,
-                source_app=mv.source_app,
-                source_model=mv.source_model,
-                source_id=mv.source_id,
+                source_app=(mv.origin_source_app or mv.source_app or ""),
+                source_model=(mv.origin_source_model or mv.source_model or ""),
+                source_id=(mv.origin_source_id or mv.source_id or ""),
+                created_at=mv.created_at,
             )
+
         elif qty < DEC0:
-            # outgoing – consume FIFO layers (ignore returned cost)
-            fifo_consume(
-                product=mv.product,
-                container=mv.container,
-                qty_out_primary=-qty,
-            )
-
-
+            # outgoing – consume FIFO layers
+            if (mv.origin_source_app or mv.origin_source_model or mv.origin_source_id):
+                fifo_consume_scoped(
+                    product=mv.product,
+                    container=mv.container,
+                    qty_out_primary=-qty,
+                    scope_source_app=(mv.origin_source_app or ""),
+                    scope_source_model=(mv.origin_source_model or ""),
+                    scope_source_id=(mv.origin_source_id or ""),
+                )
+            else:
+                fifo_consume(
+                    product=mv.product,
+                    container=mv.container,
+                    qty_out_primary=-qty,
+                )
 
 
 # app/stock/services.py
-
 @transaction.atomic
 def apply_movement(mv: ProductMovement) -> StockEntry | None:
     """
     Apply movement to StockEntry by syncing from FIFO.
 
-    IMPORTANT:
-    - FIFO layers are the source of truth.
-    - StockEntry is a cache derived from FIFO.
-    - Therefore we do NOT do qty += mv.qty_primary here.
+    HARD INVARIANT:
+    FIFO MUST already reflect this movement.
     """
     container = getattr(mv, "container", None)
     if not container:
         return None
 
-    # Just sync cache from FIFO
-    entry = sync_entry_from_fifo(mv.product, container)
+    fifo_total_after = q3(
+        (StockFifoLayer.objects
+            .filter(product=mv.product, container=container)
+            .aggregate(s=Sum("qty_remaining"))["s"]
+        ) or DEC0
+    )
 
-    # optional guard in DEBUG
+    entry = (
+        StockEntry.objects
+        .select_for_update()
+        .filter(product=mv.product, container=container)
+        .first()
+    )
+
+    # ---- Only warn if mismatch indicates a PRE-EXISTING inconsistency ----
+    if entry is not None:
+        entry_before = q3(entry.qty_primary or DEC0)
+        mv_qty = q3(mv.qty_primary or DEC0)
+        expected_after = q3(entry_before + mv_qty)
+
+        # If entry was consistent BEFORE, then entry_before + mv_qty should match FIFO after.
+        if expected_after != fifo_total_after:
+            import logging
+            logging.getLogger(__name__).warning(
+                "FIFO/StockEntry mismatch BEFORE apply_movement – auto-healing "
+                f"(product={mv.product.id}, container={container.code}, "
+                f"type={mv.movement_type}, mv_qty={mv_qty}, "
+                f"entry_before={entry_before}, expected_after={expected_after}, "
+                f"fifo_after={fifo_total_after}, "
+                f"src={mv.source_app}.{mv.source_model}#{mv.source_id})"
+            )
+
+    # ---- Sync StockEntry to FIFO (authoritative) ----
+    StockEntry.objects.update_or_create(
+        product=mv.product,
+        container=container,
+        defaults={"qty_primary": fifo_total_after, "avg_unit_cost": DEC0},
+    )
+
+    # Optional hard assert in DEBUG
     if settings.DEBUG:
         assert_entry_matches_fifo(mv.product, container)
 
-    return entry
+    # Return fresh entry
+    return StockEntry.objects.get(product=mv.product, container=container)
+
+
 
 
 
@@ -383,15 +523,27 @@ def apply_movements(movements: Iterable[ProductMovement]) -> None:
 @transaction.atomic
 def rebuild_all_from_inventory() -> None:
     """
-    Nuclear option: wipe StockEntry and rebuild from ProductMovement.
-    Safe because inventory is the single source of truth.
+    TRUE nuclear rebuild:
+    1) rebuild FIFO layers from ProductMovement history
+    2) rebuild StockEntry cache from FIFO
     """
+    # 1) rebuild FIFO from inventory movements
+    rebuild_fifo_from_inventory()
+
+    # 2) rebuild cache entries from FIFO
     StockEntry.objects.all().delete()
 
-    # Process movements oldest → newest so aggregates are correct
-    qs = ProductMovement.objects.select_related("product", "container").order_by("created_at", "id")
-    for mv in qs.iterator():
-        apply_movement(mv)
+    pairs = (
+        StockFifoLayer.objects
+        .values_list("product_id", "container_id")
+        .distinct()
+    )
+
+    for product_id, container_id in pairs:
+        sync_entry_from_fifo(
+            product=Product.objects.get(pk=product_id),
+            container=ProductContainer.objects.get(pk=container_id),
+        )
 
 
 def get_stock_for_product(product: Product) -> dict:
@@ -418,6 +570,8 @@ def transfer_from_batch(
     batch: StockFifoLayer,
     to_container: ProductContainer,
     qty_primary: Decimal,
+    ref: str | None = None,
+    line_no : int | None = None,
 ) -> tuple[ProductMovement, ProductMovement]:
     """
     Move qty_primary from a specific FIFO batch (StockFifoLayer) in its current container
@@ -432,6 +586,16 @@ def transfer_from_batch(
       AND PRESERVES the original source_app/source_model/source_id
       so we can track the originating bill item across containers.
     """
+
+    from inventory import services as InvSV
+
+    batch = (
+        StockFifoLayer.objects
+        .select_for_update()
+        .select_related("product", "container")
+        .get(pk=batch.pk)
+    )
+
     qty = q3(Decimal(str(qty_primary or DEC0)))
     if qty <= DEC0:
         raise ValueError("Quantity must be positive for transfer.")
@@ -451,28 +615,17 @@ def transfer_from_batch(
 
     unit_cost = q4(Decimal(str(batch.unit_cost or DEC0)))
 
-    # Just some reference so both legs are logically linked
-    ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
+    # ✅ shared ref: passed from view (group), fallback if called standalone
+    if not ref:
+        ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
+    suffix = f"L{line_no}" if line_no is not None else "ROW"
 
-    # OUT movement: negative ADJUSTMENT in source container
-    mv_out = InvSV.record_movement(
-        actor=actor,
-        product=product,
-        unit_index=ProductMovement.UnitIndex.PRIMARY,
-        qty_primary=-qty,  # stock out from source
-        unit_cost=unit_cost,
-        movement_type=ProductMovement.MovementType.ADJUSTMENT,
-        source_app="stock",
-        source_model="TransferBatch",
-        source_id=f"{ref}-OUT",
-        container=from_container,
-    )
 
-    # Decrease remaining qty on the source batch
+    # 1) FIFO FIRST: decrease source batch
     batch.qty_remaining = q3(current_remain - qty)
     batch.save(update_fields=["qty_remaining"])
 
-    # 🔥 HERE: new FIFO layer in destination with SAME origin identity as the original batch
+    # 2) FIFO: add incoming layer to destination (same origin identity)
     fifo_add_incoming(
         product=product,
         container=to_container,
@@ -481,21 +634,42 @@ def transfer_from_batch(
         source_app=batch.source_app or "",
         source_model=batch.source_model or "",
         source_id=batch.source_id or "",
+        created_at=batch.created_at,
     )
 
-    # IN movement: positive ADJUSTMENT in target container
-    mv_in = InvSV.record_movement(
+    # 3) Now record movements (apply_movement will sync StockEntry from the *updated* FIFO)
+    mv_out = InvSV.record_movement(
         actor=actor,
         product=product,
         unit_index=ProductMovement.UnitIndex.PRIMARY,
-        qty_primary=qty,  # stock in to target
+        qty_primary=-qty,
         unit_cost=unit_cost,
         movement_type=ProductMovement.MovementType.ADJUSTMENT,
         source_app="stock",
         source_model="TransferBatch",
-        source_id=f"{ref}-IN",
-        container=to_container,
+        source_id=f"{ref}-{suffix}-OUT",
+        container=from_container,
+        origin_source_app=batch.source_app or "",
+        origin_source_model=batch.source_model or "",
+        origin_source_id=batch.source_id or "",
     )
+
+    mv_in = InvSV.record_movement(
+        actor=actor,
+        product=product,
+        unit_index=ProductMovement.UnitIndex.PRIMARY,
+        qty_primary=qty,
+        unit_cost=unit_cost,
+        movement_type=ProductMovement.MovementType.ADJUSTMENT,
+        source_app="stock",
+        source_model="TransferBatch",
+        source_id=f"{ref}-{suffix}-IN",
+        container=to_container,
+        origin_source_app=batch.source_app or "",
+        origin_source_model=batch.source_model or "",
+        origin_source_id=batch.source_id or "",
+    )
+
 
     # 🔥 after FIFO + movements: force StockEntry to match FIFO on both sides
     sync_entry_from_fifo(product, from_container)
@@ -520,38 +694,8 @@ def transfer_between_containers(
     Kept for compatibility if you use it somewhere else.
     NOT used by the stock_move UI anymore (that uses transfer_from_batch).
     """
-    qty = q3(Decimal(str(qty_primary or DEC0)))
-    if qty <= DEC0:
-        raise ValueError("Quantity must be positive for transfer.")
-
-    unit_cost = getattr(product, "cost", DEC0) or DEC0
-
-    ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
-
-    mv_out = InvSV.record_movement(
-        actor=actor,
-        product=product,
-        unit_index=ProductMovement.UnitIndex.PRIMARY,
-        qty_primary=-qty,
-        unit_cost=unit_cost,
-        movement_type=ProductMovement.MovementType.ADJUSTMENT,
-        source_app="stock",
-        source_model="Transfer",
-        source_id=f"{ref}-OUT",
-        container=from_container,
+    raise RuntimeError(
+        "transfer_between_containers is forbidden. "
+        "Use transfer_from_batch (FIFO-safe) only."
     )
 
-    mv_in = InvSV.record_movement(
-        actor=actor,
-        product=product,
-        unit_index=ProductMovement.UnitIndex.PRIMARY,
-        qty_primary=qty,
-        unit_cost=unit_cost,
-        movement_type=ProductMovement.MovementType.ADJUSTMENT,
-        source_app="stock",
-        source_model="Transfer",
-        source_id=f"{ref}-IN",
-        container=to_container,
-    )
-
-    return mv_out, mv_in

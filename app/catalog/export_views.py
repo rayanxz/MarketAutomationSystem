@@ -13,6 +13,9 @@ from catalog.views import role_required
 from catalog.models import ProductCollection
 from catalog.export_engine import make_file, DEFAULT_COLUMNS, HEADER_LABELS, TMP_DIR
 
+from catalog.io_records import CatalogDataJob
+from audit_log.services import log_create
+
 @require_GET
 @ensure_csrf_cookie
 @role_required(AccountProfile.Role.MANAGER)
@@ -52,18 +55,57 @@ def export_prepare(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"ok": False, "error": f"export failed: {e}"}, status=500)
 
     headers, sample, rows_count = columns, [], 0
+
+    # read file for preview + count (optional)
     try:
         import pandas as pd
         if path.endswith(".xlsx"):
             df = pd.read_excel(path, engine="openpyxl")
         else:
             df = pd.read_excel(path, engine="odf")
+
         rows_count = int(df.shape[0])
         df = df.astype(object).where(pd.notnull(df), "")
         headers = [str(c) for c in df.columns]
         sample = df.head(30).values.tolist()
     except Exception:
+        # still continue; we can export without preview
         pass
+
+    # ===== store export job + audit =====
+    job = CatalogDataJob.objects.create(
+        kind=CatalogDataJob.Kind.EXPORT,
+        status=CatalogDataJob.Status.SUCCESS,
+        actor=request.user,
+    )
+    job.summary_json = {"rows": rows_count}
+    job.meta_json = {
+        "scope": scope,
+        "ids": ids,
+        "columns": columns,
+        "include_header": include_header,
+        "file_type": file_type,
+        "key": key,
+    }
+    job.rows_json = []  # export rows can be huge
+    job.save(update_fields=["summary_text", "meta_text", "rows_text"])
+
+    log_create(
+        actor=request.user,
+        target=job,
+        title="Catalog Export",
+        message=f"Exported catalog rows. rows={rows_count}",
+        after={
+            "job_id": job.id,
+            "kind": job.kind,
+            "status": job.status,
+            "rows": rows_count,
+            "scope": scope,
+            "file_type": file_type,
+        },
+        request=request,
+    )
+
 
     return JsonResponse(
         {
@@ -73,6 +115,7 @@ def export_prepare(request: HttpRequest) -> HttpResponse:
             "sample": sample,
             "rows": rows_count,
             "download_url": request.build_absolute_uri(f"/manager/products/export/download/{key}/"),
+            "job_id": job.id,
         },
         json_dumps_params={"ensure_ascii": False, "allow_nan": False},
     )

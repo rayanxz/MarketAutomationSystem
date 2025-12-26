@@ -11,7 +11,7 @@ from django.shortcuts import render
 from catalog.views import role_required
 from accounts.models import AccountProfile
 from catalog.models import ProductCollection, ProductSet, Product
-from billing.models import Bill, ProviderReturn
+from billing.models import Bill, ProviderReturn , BillItem
 from inventory.models import ProductMovement
 from stock.models import ProductContainer   # <- NEW
 
@@ -136,6 +136,8 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
     # -------- preload related docs for other party name --------
     bill_ids = set()
     pret_ids = set()
+    bill_item_ids = set()
+
 
     for mv in movements:
         if mv.source_app == "billing" and mv.source_model == "Bill":
@@ -148,6 +150,13 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
                 pret_ids.add(int(mv.source_id))
             except (TypeError, ValueError):
                 pass
+        elif mv.source_app == "billing" and mv.source_model == "BillItem":
+            try:
+                bill_item_ids.add(int(mv.source_id))
+            except (TypeError, ValueError):
+                pass
+
+
 
     bills_map: Dict[int, Bill] = {}
     if bill_ids:
@@ -158,6 +167,18 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
     if pret_ids:
         for r in ProviderReturn.objects.select_related("provider").filter(id__in=pret_ids):
             rets_map[r.id] = r
+
+    bill_item_provider_map: Dict[int, str] = {}
+    if bill_item_ids:
+        qs_items = (
+            BillItem.objects
+            .select_related("bill__provider")
+            .filter(id__in=bill_item_ids)
+        )
+        for it in qs_items:
+            if it.bill and it.bill.provider:
+                bill_item_provider_map[it.id] = it.bill.provider.name
+
 
     rows: List[Dict[str, Any]] = []
     for mv in movements:
@@ -184,7 +205,12 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
                 r = None
             if r and r.provider:
                 other_party_name = r.provider.name
-        # لاحقاً: POS / Customer / CustomerReturn …
+        elif mv.source_app == "billing" and mv.source_model == "BillItem":
+            other_party_type = "مورد"
+            try:
+                other_party_name = bill_item_provider_map.get(int(mv.source_id), "")
+            except (TypeError, ValueError):
+                other_party_name = ""
 
         rows.append(
             {

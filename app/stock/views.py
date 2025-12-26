@@ -15,7 +15,12 @@ from stock.models import ProductContainer, StockEntry, StockFifoLayer, DEC0
 
 from stock import services as StockSV
 
+from django.db import transaction
+from audit_log import services as AuditSV
+from audit_log.models import AuditAction
 
+from django.utils import timezone
+from inventory.models import q3 , q4
 
 def _fmt_decimal(x: Decimal | None) -> str:
     """
@@ -380,15 +385,75 @@ def stock_move(request: HttpRequest) -> HttpResponse:
         note = (request.POST.get("note") or "").strip()
         # note is not stored yet; later you can log it to a journal / ledger doc
 
-        # --- perform transfer if everything valid ---
         if not errors and valid_rows and from_container and to_container:
             try:
-                for batch, qty in valid_rows:
-                    StockSV.transfer_from_batch(
+                note = (request.POST.get("note") or "").strip()
+                ref = timezone.now().strftime("TX%Y%m%d%H%M%S")
+
+                rows_meta = []
+
+                with transaction.atomic():
+                    for i, (batch, qty) in enumerate(valid_rows, start=1):
+                        mv_out, mv_in = StockSV.transfer_from_batch(
+                            actor=request.user,
+                            batch=batch,
+                            to_container=to_container,
+                            qty_primary=qty,
+                            ref=ref,
+                            line_no=i,
+                        )
+
+                        # Keep meta light but useful
+                        rows_meta.append({
+                            "line": i,
+                            "product_id": batch.product_id,
+                            "product_name": getattr(batch.product, "name", "") if hasattr(batch, "product") else "",
+                            "batch_id": batch.id,
+                            "qty_primary": str(q3(qty)),
+                            "unit_cost": str(q4(batch.unit_cost or DEC0)),
+                            "from_container": from_container.code,
+                            "to_container": to_container.code,
+                            "origin": {
+                                "source_app": batch.source_app or "",
+                                "source_model": batch.source_model or "",
+                                "source_id": batch.source_id or "",
+                                "created_at": batch.created_at.isoformat() if batch.created_at else "",
+                            },
+                            "movement_ids": {
+                                "out": str(mv_out.id),
+                                "in": str(mv_in.id),
+                            },
+                            "movement_source_ids": {
+                                "out": mv_out.source_id,
+                                "in": mv_in.source_id,
+                            }
+                        })
+
+                    # ✅ One audit log for the whole transfer operation
+                    AuditSV.log_event(
+                        action=AuditAction.INFO,
                         actor=request.user,
-                        batch=batch,
-                        to_container=to_container,
-                        qty_primary=qty,
+                        request=request,
+                        title="Stock transfer between containers",
+                        message=(
+                            f"Transfer {len(valid_rows)} rows from {from_container.code} to {to_container.code}"
+                        ),
+                        meta={
+                            "kind": "stock.container_transfer",
+                            "ref": ref,
+                            "note": note,
+                            "from": {
+                                "id": from_container.id,
+                                "code": from_container.code,
+                                "name": from_container.display_label,
+                            },
+                            "to": {
+                                "id": to_container.id,
+                                "code": to_container.code,
+                                "name": to_container.display_label,
+                            },
+                            "rows": rows_meta,
+                        },
                     )
 
                 messages.success(
@@ -400,6 +465,7 @@ def stock_move(request: HttpRequest) -> HttpResponse:
 
             except Exception as e:
                 non_field_errors.append(f"حدث خطأ أثناء عملية النقل: {e}")
+
 
     # context for initial GET or after validation error
     context = {
@@ -475,7 +541,6 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
         )
 
     return JsonResponse({"results": results})
-
 
 
 @login_required
