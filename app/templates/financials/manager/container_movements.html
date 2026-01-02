@@ -1,0 +1,143 @@
+{% extends "financials/manager/base_financials.html" %}
+
+{% block title %}حركات الحاويات{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px">حركات الحاويات</h2>
+
+  <form method="get" class="card" style="padding:12px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+      <div>
+        <label>الحاوية</label>
+        <select class="input" name="container">
+          <option value="">الكل</option>
+          {% for c in containers %}
+            <option value="{{ c.id }}" {% if filters.container == c.id|stringformat:"s" %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>العملة</label>
+        <select class="input" name="currency">
+          <option value="">الكل</option>
+          {% for cur in currencies %}
+            <option value="{{ cur.code }}" {% if filters.currency == cur.code %}selected{% endif %}>
+              {{ cur.code }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>النوع (Receipt)</label>
+        <select class="input" name="kind">
+          <option value="">الكل</option>
+          {% for k, lbl in kinds %}
+            <option value="{{ k }}" {% if filters.kind == k %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>الحالة</label>
+        <select class="input" name="status">
+          <option value="">الافتراضي (Posted + Reversed)</option>
+          {% for st, lbl in statuses %}
+            <option value="{{ st }}" {% if filters.status == st %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>الهدف</label>
+        <select class="input" name="target">
+          <option value="">الكل</option>
+          {% for tt, lbl in target_types %}
+            <option value="{{ tt }}" {% if filters.target == tt %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>اسم المستخدم (Actor)</label>
+        <input class="input" name="actor" value="{{ filters.actor }}" placeholder="مثال: fefe">
+      </div>
+
+      <div>
+        <label>من تاريخ</label>
+        <input class="input" type="date" name="from" value="{{ filters.from }}">
+      </div>
+
+      <div>
+        <label>إلى تاريخ</label>
+        <input class="input" type="date" name="to" value="{{ filters.to }}">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn" type="submit">تطبيق</button>
+      <a class="btn-soft" href="{% url 'financials:container_movements' %}">مسح الفلاتر</a>
+    </div>
+    <small style="display:block;margin-top:8px;opacity:.75">
+      ملاحظة: يتم عرض آخر 500 حركة فقط (للأداء). سنضيف pagination لاحقًا.
+    </small>
+  </form>
+
+  <div class="card" style="padding:0;overflow:auto">
+    <table class="tbl" style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="padding:10px;white-space:nowrap">التاريخ</th>
+          <th style="padding:10px;white-space:nowrap">الوثيقة</th>
+          <th style="padding:10px;white-space:nowrap">النوع</th>
+          <th style="padding:10px;white-space:nowrap">الحالة</th>
+          <th style="padding:10px;white-space:nowrap">المنفّذ</th>
+          <th style="padding:10px;white-space:nowrap">الهدف</th>
+          <th style="padding:10px;white-space:nowrap">العملة</th>
+          <th style="padding:10px;white-space:nowrap">المبلغ</th>
+          <th style="padding:10px;white-space:nowrap">ملاحظات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ln in rows %}
+          <tr>
+            <td style="padding:10px;white-space:nowrap">{{ ln.receipt.created_at|date:"Y-m-d H:i" }}</td>
+            <td style="padding:10px;white-space:nowrap">{{ ln.receipt.serial }}</td>
+            <td style="padding:10px;white-space:nowrap">{{ ln.receipt.get_kind_display }}</td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if ln.receipt.status == "reversed" %}
+                <span class="chip" style="background:#fee2e2">Reversed</span>
+              {% elif ln.receipt.status == "posted" %}
+                <span class="chip" style="background:#dcfce7">Posted</span>
+              {% else %}
+                <span class="chip">{{ ln.receipt.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td style="padding:10px;white-space:nowrap">{{ ln.receipt.actor.username }}</td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if ln.target_type == "container" %}
+                🧰 {{ ln.container.name }}
+              {% else %}
+                👤 {{ ln.counterparty.name }} ({{ ln.counterparty.type }})
+              {% endif %}
+            </td>
+            <td style="padding:10px;white-space:nowrap">{{ ln.currency.code }}</td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if ln.amount < 0 %}
+                <span style="color:#b91c1c">{{ ln.amount }}</span>
+              {% else %}
+                <span style="color:#065f46">{{ ln.amount }}</span>
+              {% endif %}
+            </td>
+            <td style="padding:10px;min-width:260px">{{ ln.receipt.note|default:"" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="99" style="padding:14px">لا توجد نتائج.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "financials/manager/base_financials.html" %}
+{% load financials_extras%}
+
+{% block title %}إدارة الحاويات المالية{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px">إدارة الحاويات المالية</h2>
+
+  <div class="card" style="padding:12px;margin-bottom:12px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <a class="btn" href="{% url 'financials:container_create' %}">➕ إنشاء حاوية</a>
+      <a class="btn-soft" href="{% url 'financials:container_movements' %}">📊 عرض الحركات</a>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:auto">
+    <table class="tbl" style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="padding:10px;white-space:nowrap">الاسم</th>
+          <th style="padding:10px;white-space:nowrap">الحالة</th>
+          {% for cur in currencies %}
+            <th style="padding:10px;white-space:nowrap">الرصيد ({{ cur.code }})</th>
+          {% endfor %}
+          <th style="padding:10px;white-space:nowrap">إجراءات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in containers %}
+          <tr>
+            <td style="padding:10px;white-space:nowrap">{{ c.name }}</td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if c.is_active %}
+                <span class="chip">نشطة</span>
+              {% else %}
+                <span class="chip" style="opacity:.7">مغلقة</span>
+              {% endif %}
+            </td>
+
+            {% for cur in currencies %}
+              <td style="padding:10px;white-space:nowrap">
+                {% with b=balances|get_item:c.id %}
+                  {% if b and b|get_item:cur.code %}
+                    {{ b|get_item:cur.code }}
+                  {% else %}
+                    0
+                  {% endif %}
+                {% endwith %}
+              </td>
+            {% endfor %}
+
+            <td style="padding:10px;white-space:nowrap">
+              <a class="btn-soft" href="{% url 'financials:container_edit' c.id %}">تعديل</a>
+              <a class="btn-soft" href="{% url 'financials:container_movements' %}?container={{ c.id }}">حركات</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="99" style="padding:14px">لا توجد حاويات بعد.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+{% endblock %}

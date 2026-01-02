@@ -1,0 +1,153 @@
+{% extends "owner/base_owner.html" %}
+{% load static %}
+{% load l10n %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'audit_log/audit_ui.css' %}">
+{% endblock %}
+
+{% block content %}
+
+<div class="audit-page">
+
+  <div class="audit-titlebar">
+    <div class="audit-title">سجلات النظام (Audit)</div>
+
+    <form class="audit-filters" method="get">
+      <div class="flt">
+        <label>من</label>
+        <input type="date" name="from" value="{{ filters.from|date:'Y-m-d' }}">
+      </div>
+
+      <div class="flt">
+        <label>إلى</label>
+        <input type="date" name="to" value="{{ filters.to|date:'Y-m-d' }}">
+      </div>
+
+      <div class="flt">
+        <label>المستخدم</label>
+        <select name="actor">
+          <option value="">الكل</option>
+          {% for a in actor_options %}
+            <option value="{{ a.actor_id }}" {% if filters.actor == a.actor_id|stringformat:"s" %}selected{% endif %}>
+              {{ a.actor__username }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flt">
+        <label>الواجهة</label>
+        <select name="entrypoint">
+          <option value="">الكل</option>
+          {% for k,v in entrypoints %}
+            <option value="{{ k }}" {% if filters.entrypoint == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flt">
+        <label>العملية</label>
+        <select name="action">
+          <option value="">الكل</option>
+          {% for k,v in actions %}
+            <option value="{{ k }}" {% if filters.action == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flt">
+        <label>App</label>
+        <select name="app">
+          <option value="">الكل</option>
+          {% for a in app_options %}
+            <option value="{{ a }}" {% if filters.app|lower == a|lower %}selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flt">
+        <label>Model</label>
+        <select name="model">
+          <option value="">الكل</option>
+          {% for m in model_options %}
+            <option value="{{ m }}" {% if filters.model|lower == m|lower %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flt flt-search">
+        <label>بحث</label>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="مستخدم / ID / عنوان / رسالة / مسار...">
+      </div>
+
+      <div class="flt flt-btns">
+        <button class="btn-apply" type="submit">تحديث</button>
+        <a class="btn-reset" href="?">مسح</a>
+      </div>
+
+      {% if shown_count >= limit %}
+        <div class="audit-cap-warn">
+          تم عرض آخر {{ shown_count }} سجل فقط (حد الأمان: {{ limit }}). ضيّق الفلاتر.
+        </div>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="audit-layout">
+
+    <!-- LEFT SIDEBAR DAYS -->
+    <aside class="audit-side">
+      <div class="audit-side-title">الأيام</div>
+
+      <div class="audit-side-list">
+        {% for d in sidebar_days %}
+          <a class="audit-day-link {% if d.date == selected_day %}is-active{% endif %}"
+            href="?{% if base_qs %}{{ base_qs }}&{% endif %}day={{ d.date|date:'Y-m-d' }}">
+            <div class="adl-top">
+              <span class="adl-date">{{ d.date|date:"Y-m-d" }}</span>
+              <span class="adl-total">{{ d.total }}</span>
+            </div>
+
+            <div class="adl-chips">
+              {% for act, cnt in d.counts.items %}
+                <span class="chip chip-{{ act }}">{{ act }}: {{ cnt }}</span>
+              {% endfor %}
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <!-- RIGHT MAIN FEED (selected day only) -->
+    <div class="audit-main">
+
+      {% if selected_day %}
+        <div class="audit-day-block">
+          <div class="audit-day-header">
+            <div class="audit-day-title">اليوم: {{ selected_day|date:"Y-m-d" }}</div>
+            <div class="audit-day-meta">{{ shown_count }} حدث</div>
+          </div>
+
+          <div class="audit-events">
+            {% for ev in days.0.rows %}
+              {% include "audit_log/_event_card.html" with ev=ev %}
+            {% empty %}
+              <div class="audit-empty">لا توجد سجلات لهذا اليوم.</div>
+            {% endfor %}
+          </div>
+        </div>
+      {% else %}
+        <div class="audit-empty">لا توجد سجلات ضمن هذه الفترة.</div>
+      {% endif %}
+
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script defer src="{% static 'audit_log/audit_ui.js' %}"></script>
+{% endblock %}

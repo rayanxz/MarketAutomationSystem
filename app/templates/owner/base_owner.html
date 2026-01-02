@@ -5,5 +5,7 @@
 {% block menu_primary %}
   <a href="{% url 'accounts' %}">إدارة الحسابات</a>
   <a href="{% url 'owner_dash' %}">الصفحة الرئيسية</a>
+  <a href="{% url 'audit_log:owner_dashboard' %}">سجلات النظام</a>
+
   {# ... add more owner-global items here ... #}
 {% endblock %}

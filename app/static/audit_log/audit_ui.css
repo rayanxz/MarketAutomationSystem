@@ -1,0 +1,529 @@
+/* =========================
+   AUDIT UI (MarketPOS)
+   - Page steady, panels scroll
+   - 3 card types: session / ref / diff
+   - Compact layout, readable RTL
+   ========================= */
+
+/* ===== Page container ===== */
+.audit-page{
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 210px); /* tweak if header changes */
+  min-height: 520px;
+}
+
+/* ===== Audit page needs more width than the global center-box ===== */
+.center-box{
+  max-width: 1600px;   /* bump it up */
+  width: 100%;
+}
+
+
+/* ===== Titlebar / Filters ===== */
+.audit-titlebar{
+  background: var(--card, #fff);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: var(--card-shadow, 0 10px 25px rgba(0,0,0,.07));
+  margin-bottom: 10px;
+}
+
+.audit-title{
+  font-weight: 900;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.audit-filters{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.flt{ display:flex; flex-direction:column; gap:4px; }
+.flt label{ font-size: 12px; opacity: .8; }
+
+.flt input,
+.flt select{
+  min-height: 32px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,.12);
+  background: transparent;
+  color: inherit;
+  min-width: 120px;
+}
+
+.flt-search input{ min-width: 240px; }
+
+.flt-btns{
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-apply,
+.btn-reset{
+  border: 1px solid rgba(0,0,0,.12);
+  border-radius: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  background: rgba(0,0,0,.04);
+}
+.btn-apply:hover,
+.btn-reset:hover{ background: rgba(0,0,0,.07); }
+
+.audit-cap-warn{
+  width: 100%;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: .8;
+}
+
+/* ===== Layout: left days + right events ===== */
+.audit-layout{
+  flex: 1;
+  min-height: 0;               /* IMPORTANT for inner scroll */
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+
+/* Only panels scroll (NOT the page) */
+.audit-side,
+.audit-main{
+  background: var(--card, #fff);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow, 0 10px 25px rgba(0,0,0,.07));
+  overflow: auto;
+  min-height: 0;
+}
+
+.audit-side{ padding: 10px; }
+.audit-main{ padding: 10px; }
+
+/* ===== Sidebar: days ===== */
+.audit-side-title{
+  font-weight: 900;
+  margin-bottom: 10px;
+}
+
+.audit-side-list{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.audit-day-link{
+  display: block;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,.10);
+  text-decoration: none;
+  color: inherit;
+  background: rgba(0,0,0,.02);
+}
+.audit-day-link:hover{ background: rgba(0,0,0,.05); }
+
+.audit-day-link.is-active{
+  border-color: rgba(0,0,0,.22);
+  box-shadow: inset 0 0 0 999px rgba(0,0,0,.03);
+}
+
+.adl-top{
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.adl-date{ font-weight: 900; font-size: 13px; }
+.adl-total{ font-weight: 900; opacity: .9; }
+
+.adl-chips{
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* action chips in sidebar */
+.chip{
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.10);
+  opacity: .95;
+}
+.chip-create{ background: rgba(46,204,113,.12); }
+.chip-update{ background: rgba(52,152,219,.12); }
+.chip-delete{ background: rgba(231,76,60,.12); }
+.chip-login { background: rgba(46,204,113,.12); }
+.chip-logout{ background: rgba(231,76,60,.12); }
+.chip-error { background: rgba(155,89,182,.12); }
+.chip-info  { background: rgba(241,196,15,.12); }
+.chip-api   { background: rgba(127,140,141,.12); }
+
+/* ===== Main: selected day header ===== */
+.audit-day-block{ margin-bottom: 10px; }
+
+.audit-day-header{
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,.04);
+  margin-bottom: 10px;
+}
+
+.audit-day-title{ font-weight: 900; }
+.audit-day-meta{ font-size: 12px; opacity: .8; }
+
+.audit-events{
+  display:flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ===== Common UI bits ===== */
+.badge{
+  font-size: 9.5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.12);
+  background: rgba(0,0,0,.04);
+  font-weight: 900;
+}
+.badge-ep{ opacity: .85; }
+
+.btn-mini{
+  font-size: 12px;
+  padding: 5px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,.12);
+  background: rgba(0,0,0,.04);
+  cursor: pointer;
+}
+.btn-mini:hover{ background: rgba(0,0,0,.07); }
+
+.mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "Courier New", monospace;
+}
+
+/* =========================
+   EVENT CARD (new structure)
+   ========================= */
+.audit-ev{
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,.10);
+  overflow: hidden;
+  background: rgba(0,0,0,.015);
+}
+
+/* top area: header stack + actions button */
+.audit-ev-top{
+  display:flex;
+  justify-content: space-between;
+  align-items: flex-start; /* IMPORTANT for multi-line header */
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(0,0,0,.03);
+}
+
+.audit-ev-sub{
+  margin-bottom: 6px;
+  font-size: 12px;
+  opacity: .85;
+  font-weight: 800;
+}
+
+.audit-ev-left{
+  width: 100%;
+  min-width: 0;
+}
+
+.audit-ev-actions{
+  display:flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* header stack */
+.audit-ev-head{
+  display:flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.audit-ev-title2{
+  font-weight: 950;
+  font-size: 13px;       /* compact */
+  display:flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.audit-ev-meta{
+  display:flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;     /* compact */
+  opacity: .92;
+}
+
+.meta-item{
+  display:inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 1px 7px;      /* compact */
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: rgba(0,0,0,.02);
+  max-width: 100%;
+}
+
+.audit-ev-body{
+  padding: 8px 10px;
+}
+
+/* key/value detail block inside ref/diff */
+.audit-kv{
+  display:grid;
+  gap: 6px;
+}
+
+.kv-row{
+  display:grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 5px 7px;      /* compact */
+  border-radius: 10px;
+  background: rgba(0,0,0,.02);
+  border: 1px solid rgba(0,0,0,.06);
+}
+
+.kv-k{ font-weight: 900; opacity: .9; }
+.kv-v{ opacity: .95; word-break: break-word; }
+
+/* =========================
+   Card types (3 kinds)
+   ========================= */
+
+/* 1) sessions: thin cards */
+.audit-kind-session .audit-ev-body{
+  display:none; /* sessions don't need extra section */
+}
+.audit-kind-session .audit-ev-top{
+  padding: 6px 10px;     /* thinner */
+}
+.audit-kind-session .audit-ev-meta{
+  margin-top: 2px;
+}
+
+/* 2) ref cards: more height allowed */
+.audit-kind-ref .audit-ev-body{
+  padding: 8px 10px;
+}
+
+/* 3) diff cards: similar to ref but has compare button */
+.audit-kind-diff .audit-ev-body{
+  padding: 8px 10px;
+}
+
+/* =========================
+   Card tones (color logic)
+   - session start: green
+   - session end  : red
+   - ref/diff     : yellow
+   ========================= */
+.audit-tone-start{ box-shadow: inset 0 0 0 999px rgba(46, 204, 113, .10); }
+.audit-tone-end  { box-shadow: inset 0 0 0 999px rgba(231, 76, 60, .10); }
+.audit-tone-warn { box-shadow: inset 0 0 0 999px rgba(241, 196, 15, .10); }
+
+/* =========================
+   Details / Comparisons area
+   (kept for later when JS works)
+   ========================= */
+.audit-ev-details{
+  padding: 10px 10px;
+  border-top: 1px solid rgba(0,0,0,.08);
+  background: rgba(0,0,0,.02);
+}
+
+.detail-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.detail-box-wide{ grid-column: 1 / -1; }
+
+.detail-box{
+  border: 1px solid rgba(0,0,0,.10);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255,255,255,.55);
+}
+
+.detail-head{
+  display:flex;
+  justify-content: space-between;
+  align-items:center;
+  padding: 7px 9px;
+  background: rgba(0,0,0,.04);
+  font-weight: 900;
+}
+
+.json{
+  margin: 0;
+  padding: 9px;
+  max-height: 210px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.detail-foot{
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: .85;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lbl{ font-weight: 900; opacity: .9; }
+.sep{ opacity: .5; }
+
+/* ===== Small responsiveness ===== */
+@media (max-width: 1100px){
+  .audit-layout{ grid-template-columns: 1fr; }
+  .audit-side{ order: 2; }
+  .audit-main{ order: 1; }
+}
+
+/* =========================
+   POS nice layout
+   ========================= */
+.audit-pos{
+  display: grid;
+  gap: 8px;
+}
+
+.audit-pos-chips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pos-chip{
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.10);
+  background: rgba(0,0,0,.03);
+  font-weight: 900;
+  opacity: .95;
+}
+
+.audit-pos-money{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.money-box{
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  background: rgba(0,0,0,.02);
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.money-label{
+  font-size: 11px;
+  opacity: .75;
+  font-weight: 900;
+}
+
+.money-value{
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: .2px;
+}
+
+/* =========================
+   POS sale card: header one-line
+   ========================= */
+.audit-layout-pos_sale_row .audit-ev-top{
+  align-items: center;
+}
+
+.audit-layout-pos_sale_row .audit-ev-head{
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap; /* wraps only if screen is narrow */
+}
+
+.audit-layout-pos_sale_row .audit-ev-title2{
+  flex-wrap: nowrap;         /* try to keep title/badges/time in one line */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 220px;
+}
+
+.audit-layout-pos_sale_row .audit-ev-meta{
+  margin: 0;
+  gap: 6px;
+}
+
+/* =========================
+   POS sale card: row-table body
+   ========================= */
+.audit-pos-row{
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));  /* always 6 */
+  gap: 0;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0,0,0,.02);
+}
+
+.pos-cell{
+  padding: 6px 8px;   /* smaller padding */
+  display: grid;
+  gap: 2px;
+  min-width: 0;       /* IMPORTANT so text can shrink */
+}
+
+/* vertical separators (RTL-friendly) */
+.pos-cell:not(:last-child){
+  border-inline-end: 1px solid rgba(0,0,0,.08);
+}
+
+.pos-k{
+  font-size: 10px;
+}
+
+.pos-v{
+  font-size: 12px;
+  white-space: nowrap;       /* force single line */
+  overflow: hidden;
+  text-overflow: ellipsis;   /* cut nicely */
+}
+

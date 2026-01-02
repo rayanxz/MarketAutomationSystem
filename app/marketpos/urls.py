@@ -45,6 +45,12 @@ urlpatterns = [
 
     path("pos/", include("pos.urls")),
 
+    path("audit/", include("audit_log.urls", namespace="audit_log")),
+
+    path("financials/", include("financials.urls")),
+
+    
+
 
 ]
 

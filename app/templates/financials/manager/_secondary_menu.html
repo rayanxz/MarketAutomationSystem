@@ -1,0 +1,13 @@
+{% comment %}
+Lower menu for financials pages.
+fin_active: list | create | movements
+{% endcomment %}
+
+<a class="{% if fin_active == 'create' %}btn-sec{% endif %}"
+   href="{% url 'financials:container_create' %}">إنشاء حاوية</a>
+
+<a class="{% if fin_active == 'movements' %}btn-sec{% endif %}"
+   href="{% url 'financials:container_movements' %}">حركات الحاويات</a>
+
+<a class="{% if fin_active == 'list' %}btn-sec{% endif %}"
+   href="{% url 'financials:container_list' %}">قائمة الحاويات</a>

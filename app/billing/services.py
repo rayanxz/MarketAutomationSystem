@@ -190,13 +190,28 @@ def create_bill(
         source=("billing", "Bill", bill.id),
     )
 
-    # ====== AUDIT ======
+    # ====== AUDIT (meta-driven UI) ======
     log_create(
         actor=actor,
         target=bill,
         title="Create purchase bill",
         message=f"Purchase bill #{bill.serial} provider={provider.name} total={bill.total}",
+        meta={
+            "kind": "billing.purchase_bill_created",
+            "summary": {
+                "bill_id": bill.id,
+                "serial": bill.serial,
+                "provider_id": provider.id,
+                "provider_name": provider.name,
+                "status": (status or "").lower(),
+                "total": str(q3(bill.total)),
+                "paid_amount": str(q3(final_paid)),
+                "items_count": len(items),
+                "container": (getattr(container, "code", None) if container else None),
+            },
+        },
         after={
+            # keep this if you still want diff/json later (optional)
             "serial": bill.serial,
             "provider_id": provider.id,
             "provider_name": provider.name,
@@ -207,6 +222,7 @@ def create_bill(
             "items_count": len(items),
         },
     )
+
 
     return bill
 
@@ -422,11 +438,25 @@ def delete_bill(*, actor, bill_id: int) -> None:
         message=f"Deleted purchase bill #{bill.serial}",
         before=before_bill,
         meta={
-            "mv_container": getattr(mv_container, "code", None) if mv_container else None,
-            "paid_amount": str(paid_amount),
+            "kind": "billing.purchase_bill_deleted",
+            "summary": {
+                "bill_id": bill.id,
+                "serial": bill.serial,
+                "provider_id": bill.provider_id,
+                "provider_name": bill.provider.name if bill.provider_id else "",
+                # NOTE: we don't have original status stored on Bill reliably here,
+                # so show a derived status from paid_amount/total_amount
+                "status": ("paid" if paid_amount >= total_amount and total_amount > 0 else ("unpaid" if paid_amount <= 0 else "partial")),
+                "total": str(q3(total_amount)),
+                "paid_amount": str(q3(paid_amount)),
+                "items_count": bill.items.count(),
+                "container": getattr(mv_container, "code", None) if mv_container else None,
+            },
+            # keep your extra debug info too (optional)
             "touched_containers": sorted(touched_codes),
         },
     )
+
 
     # ==========================
     # 7) Delete the bill itself
@@ -676,13 +706,32 @@ def create_return(
         source=("billing", "ProviderReturn", pret.id),
     )
 
-    # ====== AUDIT ======
+    # ====== AUDIT (meta-driven UI) ======
+    is_wizard = bool(any((row.get("container_splits") or []) for row in items))
+
     log_create(
         actor=actor,
         target=pret,
         title="Create provider return",
         message=f"Provider return #{pret.serial} provider={provider.name} total={pret.total}",
+        meta={
+            "kind": "billing.provider_return_created",
+            "summary": {
+                "return_id": pret.id,
+                "serial": pret.serial,
+                "provider_id": provider.id,
+                "provider_name": provider.name,
+                "status": (status or "").lower(),
+                "total": str(q3(pret.total)),
+                "collected_amount": str(q3(final_collected)),
+                "items_count": len(items),
+                "source_bill_serial": source_bill_serial,
+                "legacy_container": (getattr(container, "code", None) if container else None),
+                "wizard_mode": is_wizard,
+            },
+        },
         after={
+            # optional: keep for debugging
             "serial": pret.serial,
             "provider_id": provider.id,
             "provider_name": provider.name,
@@ -691,9 +740,10 @@ def create_return(
             "total": str(pret.total),
             "source_bill_serial": source_bill_serial,
             "legacy_container": getattr(container, "code", None) if container else None,
-            "wizard_mode": bool(any((row.get("container_splits") or []) for row in items)),
+            "wizard_mode": is_wizard,
         },
     )
+
 
     return pret
 

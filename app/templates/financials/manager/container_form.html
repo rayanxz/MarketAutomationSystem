@@ -1,0 +1,58 @@
+{% extends "financials/manager/base_financials.html" %}
+
+{% block title %}إنشاء حاوية مالية{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px">إنشاء حاوية مالية</h2>
+
+  <form method="post" class="card" style="padding:14px">
+    {% csrf_token %}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label>الاسم</label>
+        {{ form.name }}
+        {% if form.name.errors %}<div class="message error">{{ form.name.errors }}</div>{% endif %}
+      </div>
+
+      <div style="display:flex;align-items:end;gap:10px">
+        <label style="display:flex;align-items:center;gap:8px;margin:0">
+          {{ form.is_active }} <span>نشطة</span>
+        </label>
+      </div>
+
+      <div style="grid-column:1 / -1">
+        <label>ملاحظات</label>
+        {{ form.note }}
+      </div>
+    </div>
+
+    <hr style="margin:14px 0">
+
+    <h3 style="margin:0 0 10px;font-size:16px">الرصيد الافتتاحي (اختياري)</h3>
+    <div class="card" style="padding:10px;background:rgba(0,0,0,.02)">
+      <div style="display:grid;grid-template-columns:160px 1fr;gap:10px;max-width:480px">
+        {% for f in opening_forms %}
+          {{ f.currency_id }}
+          <div>
+            <label>العملة</label>
+            {{ f.code }}
+          </div>
+          <div>
+            <label>المبلغ</label>
+            {{ f.amount }}
+            {% if f.amount.errors %}<div class="message error">{{ f.amount.errors }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <small style="display:block;margin-top:10px;opacity:.75">
+        إذا وضعت مبلغًا سالبًا، سيتم إنشاء “سحب” كرصد افتتاحي سالب (مسموح).
+      </small>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button type="submit" class="btn">حفظ</button>
+      <a class="btn-soft" href="{% url 'financials:container_list' %}">إلغاء</a>
+    </div>
+  </form>
+{% endblock %}

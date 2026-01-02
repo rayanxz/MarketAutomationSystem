@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "inventory",
     "stock",
     "audit_log",
+    "financials",
 ]
 
 MIDDLEWARE = [

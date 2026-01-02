@@ -28,8 +28,18 @@ def create_provider(
         target=provider,
         title="Create provider",
         message=f"Provider created: {provider.name}",
+        meta={
+            "kind": "billing.provider_created",
+            "summary": {
+                "provider_id": provider.id,
+                "name": provider.name,
+                "phone": provider.phone or "",
+                "is_active": bool(provider.is_active),
+            },
+        },
         after=snap_instance(provider, ["name", "phone", "notes", "is_active"]),
     )
+
 
     return provider
 
@@ -52,7 +62,17 @@ def delete_provider(
         title="Delete provider",
         message=f"Provider deleted: {provider.name}",
         before=before,
-        meta={"soft_delete": True},
+        meta={
+            "kind": "billing.provider_deleted",
+            "summary": {
+                "provider_id": provider.id,
+                "name": provider.name,
+                "phone": provider.phone or "",
+                "is_active": False,
+            },
+            "soft_delete": True,
+        },
     )
+
 
     return provider

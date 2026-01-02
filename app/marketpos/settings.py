@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "inventory",
     "stock",
     "audit_log",
+    "financials",
 ]
 
 # ---- Middleware / WSGI / URLs

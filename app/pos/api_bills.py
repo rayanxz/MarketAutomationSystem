@@ -226,20 +226,24 @@ def api_bill_save(request: HttpRequest):
                     status=400,
                 )
         def _log_after_commit(*, title: str, kind: str):
+            rows_count = len(rows or [])
+
             meta = {
-                "kind": kind,
-                "bill": {
-                    "id": bill.id,
-                    "parked": bool(bill.parked),
-                    "finalized": bool(bill.finalized),
+                "kind": kind,  # pos.sale_bill_saved / pos.sale_bill_pended
+                "summary": {
+                    "bill_id": bill.id,
+                    "rows_count": rows_count,
+                    "customer_name": bill.customer_name or "",
                     "pay_status": bill.pay_status,
                     "total_amount": str(bill.total_amount or Decimal("0")),
                     "paid_amount": str(bill.paid_amount or Decimal("0")),
-                    "customer_name": bill.customer_name or "",
+                    "parked": bool(bill.parked),
+                    "finalized": bool(bill.finalized),
                     "shift_id": bill.shift_id,
                     "work_day": str(bill.work_day.date) if bill.work_day else "",
                 },
             }
+
             transaction.on_commit(lambda: AuditSV.log_event(
                 action=AuditAction.INFO,
                 actor=request.user,
@@ -249,6 +253,7 @@ def api_bill_save(request: HttpRequest):
                 message=title,
                 meta=meta,
             ))
+
         # ===== Audit: parked vs saved =====
         is_new = (before is None)
 
@@ -435,15 +440,17 @@ def api_bill_delete(request, pk: int):
 
         meta = {
             "kind": "pos.sale_bill_deleted",
-            "bill": {
-                "id": bill.id,
-                "parked": bool(bill.parked),
-                "finalized": bool(bill.finalized),
+            "summary": {
+                "bill_id": bill.id,
+                "customer_name": bill.customer_name or "",
+                "pay_status": bill.pay_status,
                 "total_amount": str(bill.total_amount or Decimal("0")),
                 "paid_amount": str(bill.paid_amount or Decimal("0")),
-                "customer_name": bill.customer_name or "",
+                "parked": bool(bill.parked),
+                "finalized": bool(bill.finalized),
             },
         }
+
 
         transaction.on_commit(lambda: AuditSV.log_event(
             action=AuditAction.INFO,

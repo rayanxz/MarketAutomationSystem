@@ -1,15 +1,13 @@
 ﻿# accounts/views.py
 from __future__ import annotations
 
-from functools import wraps
-from typing import Iterable
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST, require_http_methods
+from django.http import HttpRequest , HttpResponse
 
 from .forms import (
     LoginForm,
@@ -21,6 +19,9 @@ from .forms import (
 )
 from .models import AccountProfile
 from .utils import dashboard_name_for, owner_exists, profile_for
+
+from .decorators import role_required
+
 
 User = get_user_model()
 
@@ -36,32 +37,6 @@ def _normalize_role(value: str | None) -> str | None:
         "CASHIER": "CASHIER", "كاشير": "CASHIER", "أَمِين الصندوق": "CASHIER", "أمين الصندوق": "CASHIER",
     }
     return mapping.get(v)
-
-
-def role_required(*roles: Iterable[str], allow_owner: bool = True):
-    """Decorator to restrict a view to certain roles (owner allowed by default)."""
-    if not roles:
-        roles = (
-            AccountProfile.Role.OWNER,
-            AccountProfile.Role.MANAGER,
-            AccountProfile.Role.CASHIER,
-        )
-    else:
-        roles = tuple(roles)
-
-    def decorator(view_func):
-        @wraps(view_func)
-        @login_required(login_url="login")
-        def wrapped(request: HttpRequest, *args, **kwargs):
-            profile = profile_for(request.user)
-            if profile is None:
-                return redirect("login")
-            if profile.has_any_role(roles, allow_owner=allow_owner):
-                return view_func(request, *args, **kwargs)
-            return HttpResponseForbidden("ليست لديك صلاحية للوصول إلى هذه الصفحة.")
-        return wrapped
-    return decorator
-
 
 # ------------------------- First-time owner setup -------------------------
 def owner_setup_view(request: HttpRequest) -> HttpResponse:

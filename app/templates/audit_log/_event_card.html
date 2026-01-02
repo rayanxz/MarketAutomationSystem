@@ -1,0 +1,135 @@
+{% load l10n %}
+
+<div class="audit-ev audit-kind-{{ ev.ui.kind }} audit-tone-{{ ev.ui.tone }} audit-layout-{{ ev.ui.layout|default:'default' }}">
+
+
+  <div class="audit-ev-top">
+  <div class="audit-ev-left">
+    <div class="audit-ev-head">
+      <div class="audit-ev-title2">
+        <span class="ev-title">{{ ev.ui.title }}</span>
+
+        <span class="badge badge-{{ ev.action }}">{{ ev.ui.action_label }}</span>
+
+        {% if ev.session and ev.session.entrypoint %}
+          <span class="badge badge-ep">{{ ev.ui.entrypoint }}</span>
+        {% endif %}
+
+        <span class="ev-time mono">{{ ev.created_at|date:"H:i:s" }}</span>
+      </div>
+
+      <div class="audit-ev-meta">
+        <span class="meta-item">
+          <span class="lbl">بواسطة:</span>
+          <span class="mono">{{ ev.ui.actor_name }}</span>
+        </span>
+
+        <span class="meta-item">
+          <span class="lbl">الدور:</span>
+          <span>{{ ev.ui.actor_role }}</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="audit-ev-actions">
+    {% if ev.ui.kind == "ref" %}
+      <button class="btn-mini js-show" type="button">{{ ev.ui.btn_label }}</button>
+    {% elif ev.ui.kind == "diff" %}
+      <button class="btn-mini js-toggle" type="button">{{ ev.ui.btn_label }}</button>
+    {% endif %}
+  </div>
+</div>
+
+
+  {# ========== BODY: session cards are thin (no body) ========== #}
+  {% if ev.ui.kind != "session" %}
+    <div class="audit-ev-body">
+
+      {% if ev.ui.subtitle %}
+        <div class="audit-ev-sub">{{ ev.ui.subtitle }}</div>
+      {% endif %}
+
+      {% if ev.ui.layout == "pos_sale" %}
+        <div class="audit-pos">
+
+          {% if ev.ui.chips %}
+            <div class="audit-pos-chips">
+              {% for c in ev.ui.chips %}
+                {% if c %}
+                  <span class="pos-chip">{{ c }}</span>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if ev.ui.money %}
+            <div class="audit-pos-money">
+              <div class="money-box">
+                <div class="money-label">الإجمالي</div>
+                <div class="money-value">{{ ev.ui.money.total }}</div>
+              </div>
+              <div class="money-box">
+                <div class="money-label">المدفوع</div>
+                <div class="money-value">{{ ev.ui.money.paid }}</div>
+              </div>
+            </div>
+          {% endif %}
+
+        </div>
+        {% endif %}
+      {% if ev.ui.layout == "pos_sale_row" and ev.ui.cols %}
+        <div class="audit-pos-row">
+          {% for k,v in ev.ui.cols %}
+            <div class="pos-cell">
+              <div class="pos-k">{{ k }}</div>
+              <div class="pos-v">{{ v }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% elif ev.ui.details %}
+        <div class="audit-kv">
+          {% for k,v in ev.ui.details %}
+            <div class="kv-row">
+              <div class="kv-k">{{ k }}</div>
+              <div class="kv-v">{{ v }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# ========== DETAILS: only used for diff type ========== #}
+  {% if ev.ui.kind == "diff" %}
+    <div class="audit-ev-details js-details" hidden>
+      <div class="detail-grid">
+
+        <div class="detail-box">
+          <div class="detail-head">
+            <span>قبل</span>
+            <button class="btn-mini js-copy" type="button" data-copy="before-{{ ev.id }}">نسخ</button>
+          </div>
+          <pre class="json mono" id="before-{{ ev.id }}">{{ ev.before|default:"" }}</pre>
+        </div>
+
+        <div class="detail-box">
+          <div class="detail-head">
+            <span>بعد</span>
+            <button class="btn-mini js-copy" type="button" data-copy="after-{{ ev.id }}">نسخ</button>
+          </div>
+          <pre class="json mono" id="after-{{ ev.id }}">{{ ev.after|default:"" }}</pre>
+        </div>
+
+        <div class="detail-box detail-box-wide">
+          <div class="detail-head">
+            <span>بيانات</span>
+            <button class="btn-mini js-copy" type="button" data-copy="meta-{{ ev.id }}">نسخ</button>
+          </div>
+          <pre class="json mono" id="meta-{{ ev.id }}">{{ ev.meta|default:"" }}</pre>
+        </div>
+
+      </div>
+    </div>
+  {% endif %}
+</div>
