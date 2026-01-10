@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 
-from collections import defaultdict
 from decimal import Decimal
 from typing import Iterable, Dict, Any, Optional
 from datetime import date
@@ -11,7 +10,6 @@ from django.db import transaction
 from inventory.models import ProductMovement
 
 from django.shortcuts import get_object_or_404
-from django.db.models import Max
 
 from billing.models import (
     Provider,
@@ -28,13 +26,15 @@ from debts.models import (
 )
 
 from catalog.models import Product
-from ledger import services as LSV
 from debts import services as DebtSV  # NEW unified debts layer
 from inventory import services as InvSV
 from stock.models import ProductContainer
 
 from audit_log.services import log_create, log_update, log_delete
-from audit_log.services import snap_instance  # the helper above
+
+from financials import services as FinSV
+from financials.models import Counterparty, CounterpartyType, MoneyContainer, Receipt, ReceiptStatus
+
 
 
 
@@ -48,11 +48,6 @@ def q3(x: Decimal) -> Decimal:
 
 def q4(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC4)
-
-def minor(x: Decimal) -> int:
-    """1 minor = 1 SYP."""
-    return LSV.to_minor(q3(x or DEC0))
-
 
 def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) -> Decimal:
     """
@@ -71,6 +66,42 @@ def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) ->
         intended = total
     return intended
 
+def _ensure_provider_cp(*, provider: Provider) -> Counterparty:
+    marker = f"[provider_id={provider.id}]"
+
+    cp = Counterparty.objects.filter(
+        type=CounterpartyType.PROVIDER,
+        note__contains=marker,
+    ).first()
+
+    if cp:
+        # optional: keep name synced
+        if (cp.name or "").strip() != (provider.name or "").strip():
+            cp.name = (provider.name or "").strip()
+            cp.save(update_fields=["name"])
+        return cp
+
+    # fallback: create new
+    cp = Counterparty.objects.create(
+        type=CounterpartyType.PROVIDER,
+        name=(provider.name or "").strip(),
+        note=marker,
+        is_active=True,
+    )
+    return cp
+
+
+
+def _default_money_container() -> MoneyContainer:
+    c = (
+        MoneyContainer.objects
+        .filter(is_active=True, container_type=MoneyContainer.ContainerType.DRAWER)
+        .order_by("id")
+        .first()
+    )
+    if not c:
+        raise ValueError("No active cash drawer container found in financials")
+    return c
 
 
 # =======================================================================
@@ -85,7 +116,9 @@ def create_bill(
     paid_amount: Decimal,
     items: Iterable[Dict[str, Any]],
     update_product_defaults: bool = False,
-    container: ProductContainer | None = None,   # ⬅️ NEW
+    container: ProductContainer | None = None,
+    money_container_id: int | None = None,
+    currency_code: str = "SYP",
 ) -> Bill:
     """
     Create a Bill, increase stock via inventory movements, post GL, and register DebtorDebt.
@@ -178,17 +211,42 @@ def create_bill(
         source_id=str(bill.id),
         doc_serial=bill.serial,
     )
+    # ====== FINANCIALS (replace ledger) ======
+    cp = _ensure_provider_cp(provider=provider)
 
-    # ====== Ledger ======
-    total_minor = minor(bill.total)
-    paid_minor = minor(final_paid)
-    LSV.post_purchase(
+    cash_container = None
+    if money_container_id:
+        cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+    else:
+        cash_container = _default_money_container()
+
+    # 1) create payable: store owes provider (negative)
+    r1 = FinSV.post_counterparty_adjust(
         actor=actor,
-        total_minor=total_minor,
-        paid_minor=paid_minor,
-        provider_id=provider.id,
-        source=("billing", "Bill", bill.id),
+        counterparty_id=cp.id,
+        currency_code=currency_code,
+        amount_signed=-q3(bill.total),
+        note=f"فاتورة شراء #{bill.serial}",
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
     )
+
+    # 2) cash settlement if paid now (cash leaves drawer => negative)
+    r2 = None
+    if q3(final_paid) > DEC0:
+        r2 = FinSV.post_settlement(
+            actor=actor,
+            container_id=cash_container.id,
+            counterparty_id=cp.id,
+            currency_code=currency_code,
+            cash_amount_signed=-q3(final_paid),
+            note=f"دفع على فاتورة شراء #{bill.serial}",
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+        )
+
 
     # ====== AUDIT (meta-driven UI) ======
     log_create(
@@ -208,6 +266,12 @@ def create_bill(
                 "paid_amount": str(q3(final_paid)),
                 "items_count": len(items),
                 "container": (getattr(container, "code", None) if container else None),
+            },
+            "financials": {
+                "currency": currency_code,
+                "money_container_id": cash_container.id if cash_container else None,
+                "receipt_ids": [r1.id] + ([r2.id] if r2 else []),
+                "receipt_serials": [r1.serial] + ([r2.serial] if r2 else []),
             },
         },
         after={
@@ -230,7 +294,6 @@ def create_bill(
 def delete_bill(*, actor, bill_id: int) -> None:
     from debts.models import DebtorDebt, DebtorPayment
     from inventory.models import ProductMovement  # local import to avoid cycles
-    from ledger import services as LSV
 
     # Lock bill + related rows
     bill = (
@@ -402,26 +465,27 @@ def delete_bill(*, actor, bill_id: int) -> None:
 
     
     # ==========================
-    # 5) Ledger reversal (GL)
+    # 5) FINANCIALS reversal (replace ledger)
     # ==========================
-    # This handles INVENTORY + PROVIDER_PAYABLE + SAFE in one go.
-    # Behaviour by case:
-    #   - PAID:    paid_amount == total_amount → SAFE goes UP by total
-    #   - UNPAID:  paid_amount == 0            → SAFE unchanged (no volt movement)
-    #   - PARTIAL: 0 < paid_amount < total     → SAFE goes UP by paid_amount
-    total_minor = minor(total_amount)
-    paid_minor = minor(paid_amount)
-
-    if total_minor > 0:
-        LSV.post_purchase_reversal(
-            actor=actor,
-            total_minor=total_minor,
-            paid_minor=paid_minor,
-            provider_id=bill.provider_id,
-            source=("billing", "Bill", bill.id),
+    # Reverse any POSTED receipts created for this bill
+    fin_qs = (
+        Receipt.objects
+        .select_for_update()
+        .filter(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            status=ReceiptStatus.POSTED,
         )
-        # This journal IS your "volt movement (up) – bill deletion" in
-        # the paid/partial cases, because it debits SAFE.
+        .order_by("-id")
+    )
+
+    for r in fin_qs:
+        FinSV.reverse_receipt(
+            actor=actor,
+            receipt_id=r.id,
+            reason_note=f"حذف فاتورة شراء #{bill.serial}",
+        )
 
     # ==========================
     # 6) Delete debt + payments
@@ -444,17 +508,17 @@ def delete_bill(*, actor, bill_id: int) -> None:
                 "serial": bill.serial,
                 "provider_id": bill.provider_id,
                 "provider_name": bill.provider.name if bill.provider_id else "",
-                # NOTE: we don't have original status stored on Bill reliably here,
-                # so show a derived status from paid_amount/total_amount
                 "status": ("paid" if paid_amount >= total_amount and total_amount > 0 else ("unpaid" if paid_amount <= 0 else "partial")),
                 "total": str(q3(total_amount)),
                 "paid_amount": str(q3(paid_amount)),
                 "items_count": bill.items.count(),
                 "container": getattr(mv_container, "code", None) if mv_container else None,
             },
-            # keep your extra debug info too (optional)
+            "financials": {
+                "reversed_receipt_ids": [r.id for r in fin_qs],
+            },
             "touched_containers": sorted(touched_codes),
-        },
+            }
     )
 
 
@@ -504,8 +568,10 @@ def create_return(
     status: str,
     paid_amount: Decimal,
     items: Iterable[Dict[str, Any]],
-    container: ProductContainer | None = None,   # ⬅️ single-container mode (legacy)
+    container: ProductContainer | None = None,   
     source_bill_serial: int | None = None,
+    money_container_id: int | None = None,
+    currency_code: str = "SYP",
 ) -> ProviderReturn:
     """
     Create a ProviderReturn, decrease stock via inventory movements, post GL, and register CreditorDebt.
@@ -695,16 +761,42 @@ def create_return(
         doc_serial=pret.serial,
     )
 
-    # ====== Ledger ======
-    total_minor = minor(pret.total)
-    paid_minor = minor(final_collected)
-    LSV.post_provider_return(
+    # ====== FINANCIALS (replace ledger) ======
+    cp = _ensure_provider_cp(provider=provider)
+
+    cash_container = None
+    if money_container_id:
+        cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+    else:
+        cash_container = _default_money_container()
+
+    # 1) receivable: provider owes store (positive)
+    r1 = FinSV.post_counterparty_adjust(
         actor=actor,
-        total_minor=total_minor,
-        paid_minor=paid_minor,
-        provider_id=provider.id,
-        source=("billing", "ProviderReturn", pret.id),
+        counterparty_id=cp.id,
+        currency_code=currency_code,
+        amount_signed=+q3(pret.total),
+        note=f"مرتجع مورد #{pret.serial}",
+        source_app="billing",
+        source_model="ProviderReturn",
+        source_id=str(pret.id),
     )
+
+    # 2) settlement if collected now (cash enters drawer => positive)
+    r2 = None
+    if q3(final_collected) > DEC0:
+        r2 = FinSV.post_settlement(
+            actor=actor,
+            container_id=cash_container.id,
+            counterparty_id=cp.id,
+            currency_code=currency_code,
+            cash_amount_signed=+q3(final_collected),
+            note=f"تحصيل على مرتجع مورد #{pret.serial}",
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+        )
+
 
     # ====== AUDIT (meta-driven UI) ======
     is_wizard = bool(any((row.get("container_splits") or []) for row in items))
@@ -729,6 +821,13 @@ def create_return(
                 "legacy_container": (getattr(container, "code", None) if container else None),
                 "wizard_mode": is_wizard,
             },
+            "financials": {
+                "currency": currency_code,
+                "money_container_id": cash_container.id if cash_container else None,
+                "receipt_ids": [r1.id] + ([r2.id] if r2 else []),
+                "receipt_serials": [r1.serial] + ([r2.serial] if r2 else []),
+            },
+
         },
         after={
             # optional: keep for debugging

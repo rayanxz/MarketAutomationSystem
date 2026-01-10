@@ -207,6 +207,16 @@
           <option value="wh2">مستودع 2</option>
         </select>
       </div>
+      <div class="field" style="max-width:260px;">
+        <label class="muted">صندوق الدفع (الكاش)</label>
+        <select id="moneyContainerSelect" class="input">
+          {% for mc in money_containers %}
+            <option value="{{ mc.id }}">{{ mc.name }}</option>
+          {% empty %}
+            <option value="" disabled selected>لا يوجد صندوق نقدي متاح</option>
+          {% endfor %}
+        </select>
+      </div>
     </div>
   </section>
 
@@ -260,12 +270,28 @@
       </div>
 
       <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
-        <label><input type="radio" name="pay" value="paid"   id="payPaid"> مدفوعة بالكامل</label>
-        <label><input type="radio" name="pay" value="unpaid" id="payUnpaid" checked> غير مدفوعة</label>
-        <label><input type="radio" name="pay" value="partial" id="payPartial"> مدفوعة جزئياً</label>
-        <input id="paidAmount" class="input" style="width:160px;" placeholder="المبلغ المدفوع (للجزئي)" disabled>
-      </div>
+        <div class="field" style="max-width:220px;">
+          <label class="muted">Payment currency</label>
+          <select id="payCurrency" class="input">
+            {% for cur in currencies %}
+              <option value="{{ cur.code }}">{{ cur.code }}</option>
+            {% endfor %}
+          </select>
+        </div>
 
+        <div class="field" style="max-width:220px;">
+          <label class="muted">Current FX (SYP per 1 USD)</label>
+          <div id="fxBadge" class="badge-static">
+            {% if fx_syp_per_usd %}{{ fx_syp_per_usd }}{% else %}NOT SET{% endif %}
+          </div>
+        </div>
+
+        <label><input type="radio" name="pay" value="paid" id="payPaid" checked> Paid (ONLY)</label>
+        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="unpaid" id="payUnpaid"> Unpaid</label>
+        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="partial" id="payPartial"> Partial</label>
+
+        <input id="paidAmount" class="input" style="width:160px;" placeholder="disabled" disabled>
+      </div>
       <div class="muted" style="margin-top:8px;">(لاحقاً: سيتم ترحيل المتبقي إلى قائمة الديون)</div>
     </div>
   </section>

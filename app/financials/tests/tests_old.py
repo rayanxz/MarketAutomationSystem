@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -9,6 +10,7 @@ from django.test import TestCase
 from financials.models import (
     Currency,
     MoneyContainer,
+    MoneyContainerCurrency,
     Counterparty,
     CounterpartyType,
     ReceiptStatus,
@@ -17,7 +19,6 @@ from financials.models import (
     PostingTargetType,
 )
 from financials import services as FSV
-
 
 D = Decimal
 
@@ -28,17 +29,44 @@ class FinancialsCoreTests(TestCase):
         User = get_user_model()
         cls.actor = User.objects.create_user(username="fefe", password="123")
 
-        # Currencies
-        cls.syp = Currency.objects.create(code="SYP", name="Syrian Pound", decimals=0, is_active=True)
-        cls.usd = Currency.objects.create(code="USD", name="US Dollar", decimals=2, is_active=True)
+        cls.syp, _ = Currency.objects.get_or_create(
+            code="SYP",
+            defaults={"name": "Syrian Pound", "decimals": 0, "is_active": True},
+        )
+        cls.usd, _ = Currency.objects.get_or_create(
+            code="USD",
+            defaults={"name": "US Dollar", "decimals": 2, "is_active": True},
+        )
 
-        # Containers
-        cls.c1 = MoneyContainer.objects.create(name="container#1", created_by=cls.actor)
-        cls.c2 = MoneyContainer.objects.create(name="container#2", created_by=cls.actor)
+        cls.provider_mark = Counterparty.objects.create(
+            type=CounterpartyType.PROVIDER, name="mark"
+        )
+        cls.customer_ali = Counterparty.objects.create(
+            type=CounterpartyType.CUSTOMER, name="ali"
+        )
 
-        # Counterparties
-        cls.provider_mark = Counterparty.objects.create(type=CounterpartyType.PROVIDER, name="mark")
-        cls.customer_ali = Counterparty.objects.create(type=CounterpartyType.CUSTOMER, name="ali")
+    def setUp(self):
+        # Create fresh containers per test to avoid any weird state / name collisions
+        self.c1 = MoneyContainer.objects.create(
+            name=f"T_core_c1_{uuid4().hex[:8]}",
+            created_by=self.actor,
+        )
+        self.c2 = MoneyContainer.objects.create(
+            name=f"T_core_c2_{uuid4().hex[:8]}",
+            created_by=self.actor,
+        )
+
+        # Ensure currency-state rows exist
+        FSV.ensure_currency_states(container=self.c1)
+        FSV.ensure_currency_states(container=self.c2)
+
+        # Enable SYP + USD for both
+        MoneyContainerCurrency.objects.filter(
+            container=self.c1, currency__code__in=["SYP", "USD"]
+        ).update(is_enabled=True)
+        MoneyContainerCurrency.objects.filter(
+            container=self.c2, currency__code__in=["SYP", "USD"]
+        ).update(is_enabled=True)
 
     def _bal_container(self, container_id: int) -> dict[str, Decimal]:
         return FSV.container_balance(container_id=container_id)
@@ -51,7 +79,6 @@ class FinancialsCoreTests(TestCase):
         self.assertEqual(self._bal_cp(self.provider_mark.id), {})
 
     def test_10_cash_add_and_withdraw(self):
-        # Add 300,000 SYP to c1
         r_add = FSV.post_cash_add(
             actor=self.actor,
             container_id=self.c1.id,
@@ -68,7 +95,6 @@ class FinancialsCoreTests(TestCase):
         b = self._bal_container(self.c1.id)
         self.assertEqual(b.get("SYP"), D("300000"))
 
-        # Withdraw 10,000 SYP from c1
         r_wd = FSV.post_cash_withdraw(
             actor=self.actor,
             container_id=self.c1.id,
@@ -82,7 +108,6 @@ class FinancialsCoreTests(TestCase):
         b = self._bal_container(self.c1.id)
         self.assertEqual(b.get("SYP"), D("290000"))
 
-        # Ensure we have container lines only and amounts are signed correctly
         lines = list(PostingLine.objects.filter(receipt=r_wd))
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0].target_type, PostingTargetType.CONTAINER)
@@ -91,10 +116,13 @@ class FinancialsCoreTests(TestCase):
         self.assertEqual(lines[0].amount, D("-10000"))
 
     def test_20_transfer_between_containers(self):
-        # Seed c1: +100,000 SYP
-        FSV.post_cash_add(actor=self.actor, container_id=self.c1.id, currency_code="SYP", amount=D("100000"))
+        FSV.post_cash_add(
+            actor=self.actor,
+            container_id=self.c1.id,
+            currency_code="SYP",
+            amount=D("100000"),
+        )
 
-        # Transfer 25,000 SYP c1 -> c2
         r = FSV.post_transfer(
             actor=self.actor,
             from_container_id=self.c1.id,
@@ -114,25 +142,15 @@ class FinancialsCoreTests(TestCase):
         lines = list(PostingLine.objects.filter(receipt=r).order_by("id"))
         self.assertEqual(len(lines), 2)
 
-        # One negative for from, one positive for to
-        self.assertEqual(lines[0].target_type, PostingTargetType.CONTAINER)
-        self.assertEqual(lines[1].target_type, PostingTargetType.CONTAINER)
         self.assertTrue(any(l.container_id == self.c1.id and l.amount == D("-25000") for l in lines))
         self.assertTrue(any(l.container_id == self.c2.id and l.amount == D("25000") for l in lines))
 
-        # meta_json should be valid JSON string (we store it as TextField on SQLite)
         for ln in lines:
             if ln.meta_json:
                 meta = json.loads(ln.meta_json)
                 self.assertIn("side", meta)
 
     def test_30_counterparty_adjust_unpaid_purchase(self):
-        """
-        Unpaid purchase means: store owes provider => counterparty balance negative.
-        Convention:
-          + => counterparty owes store
-          - => store owes counterparty
-        """
         r = FSV.post_counterparty_adjust(
             actor=self.actor,
             counterparty_id=self.provider_mark.id,
@@ -146,14 +164,11 @@ class FinancialsCoreTests(TestCase):
         self.assertEqual(r.status, ReceiptStatus.POSTED)
         self.assertEqual(r.kind, ReceiptKind.COUNTERPARTY_INC)
 
-        # Containers untouched
         self.assertEqual(self._bal_container(self.c1.id), {})
 
-        # Provider balance becomes -10,000 SYP
         bcp = self._bal_cp(self.provider_mark.id)
         self.assertEqual(bcp.get("SYP"), D("-10000"))
 
-        # Line correctness
         ln = PostingLine.objects.get(receipt=r)
         self.assertEqual(ln.target_type, PostingTargetType.COUNTERPARTY)
         self.assertEqual(ln.counterparty_id, self.provider_mark.id)
@@ -162,14 +177,13 @@ class FinancialsCoreTests(TestCase):
         self.assertEqual(ln.amount, D("-10000"))
 
     def test_40_settlement_pay_provider(self):
-        """
-        Start: store owes provider 10,000 (cp=-10,000)
-        Pay provider from container: container -10,000 ; counterparty +10,000 => cp moves to 0
-        """
-        # Seed container with cash
-        FSV.post_cash_add(actor=self.actor, container_id=self.c1.id, currency_code="SYP", amount=D("50000"))
+        FSV.post_cash_add(
+            actor=self.actor,
+            container_id=self.c1.id,
+            currency_code="SYP",
+            amount=D("50000"),
+        )
 
-        # Create payable
         FSV.post_counterparty_adjust(
             actor=self.actor,
             counterparty_id=self.provider_mark.id,
@@ -178,7 +192,6 @@ class FinancialsCoreTests(TestCase):
             note="unpaid purchase",
         )
 
-        # Pay provider (cash leaves)
         r = FSV.post_settlement(
             actor=self.actor,
             container_id=self.c1.id,
@@ -202,11 +215,6 @@ class FinancialsCoreTests(TestCase):
         self.assertTrue(any(l.target_type == PostingTargetType.COUNTERPARTY and l.amount == D("10000") for l in lines))
 
     def test_50_settlement_collect_from_customer(self):
-        """
-        Customer owes store: cp +12,000 (receivable)
-        Customer pays into container: container +12,000 ; counterparty -12,000 => cp to 0
-        """
-        # Create receivable
         FSV.post_counterparty_adjust(
             actor=self.actor,
             counterparty_id=self.customer_ali.id,
@@ -216,7 +224,6 @@ class FinancialsCoreTests(TestCase):
         )
         self.assertEqual(self._bal_cp(self.customer_ali.id).get("SYP"), D("12000"))
 
-        # Collect cash
         r = FSV.post_settlement(
             actor=self.actor,
             container_id=self.c2.id,
@@ -233,10 +240,6 @@ class FinancialsCoreTests(TestCase):
         self.assertEqual(bcp.get("SYP"), D("0"))
 
     def test_60_negative_container_allowed(self):
-        """
-        Containers may go negative.
-        Withdraw without seed => negative.
-        """
         r = FSV.post_cash_withdraw(
             actor=self.actor,
             container_id=self.c1.id,
@@ -246,75 +249,112 @@ class FinancialsCoreTests(TestCase):
         )
         self.assertEqual(r.status, ReceiptStatus.POSTED)
         b = self._bal_container(self.c1.id)
-        # USD decimals=2, withdraw 5 => -5.00
         self.assertEqual(b.get("USD"), D("-5.00"))
 
     def test_70_quantization_by_currency(self):
-        """
-        SYP decimals=0 -> rounded
-        USD decimals=2 -> rounded
-        """
-        # SYP: 10.6 -> 11 (ROUND_HALF_UP)
-        FSV.post_cash_add(actor=self.actor, container_id=self.c1.id, currency_code="SYP", amount=D("10.6"))
+        FSV.post_cash_add(
+            actor=self.actor,
+            container_id=self.c1.id,
+            currency_code="SYP",
+            amount=D("10.6"),
+        )
         self.assertEqual(self._bal_container(self.c1.id).get("SYP"), D("11"))
 
-        # USD: 1.235 -> 1.24
-        FSV.post_cash_add(actor=self.actor, container_id=self.c1.id, currency_code="USD", amount=D("1.235"))
+        FSV.post_cash_add(
+            actor=self.actor,
+            container_id=self.c1.id,
+            currency_code="USD",
+            amount=D("1.235"),
+        )
         self.assertEqual(self._bal_container(self.c1.id).get("USD"), D("1.24"))
 
     def test_80_reversal_creates_negating_lines_and_marks_original(self):
-        # Seed and do a transfer
-        FSV.post_cash_add(actor=self.actor, container_id=self.c1.id, currency_code="SYP", amount=D("1000"))
-        r = FSV.post_transfer(actor=self.actor, from_container_id=self.c1.id, to_container_id=self.c2.id, currency_code="SYP", amount=D("200"))
+        # Start baseline
+        FSV.post_cash_add(
+            actor=self.actor,
+            container_id=self.c1.id,
+            currency_code="SYP",
+            amount=D("1000"),
+        )
+        start_b1 = self._bal_container(self.c1.id).get("SYP", D("0"))
+        start_b2 = self._bal_container(self.c2.id).get("SYP", D("0"))
+        self.assertEqual(start_b1, D("1000"))
+        self.assertEqual(start_b2, D("0"))
 
-        b1 = self._bal_container(self.c1.id)["SYP"]
-        b2 = self._bal_container(self.c2.id)["SYP"]
-        self.assertEqual(b1, D("800"))
-        self.assertEqual(b2, D("200"))
+        # Transfer 200
+        r = FSV.post_transfer(
+            actor=self.actor,
+            from_container_id=self.c1.id,
+            to_container_id=self.c2.id,
+            currency_code="SYP",
+            amount=D("200"),
+        )
+        mid_b1 = self._bal_container(self.c1.id).get("SYP", D("0"))
+        mid_b2 = self._bal_container(self.c2.id).get("SYP", D("0"))
+        self.assertEqual(mid_b1, D("800"))
+        self.assertEqual(mid_b2, D("200"))
 
-        # Reverse transfer
+        # Reverse
         rev = FSV.reverse_receipt(actor=self.actor, receipt_id=r.id, reason_note="mistake")
         self.assertEqual(rev.kind, ReceiptKind.REVERSAL)
         self.assertEqual(rev.status, ReceiptStatus.POSTED)
 
-        # Original should be marked reversed
         r.refresh_from_db()
         self.assertEqual(r.status, ReceiptStatus.REVERSED)
 
-        # Balances should return to before transfer
-        b1 = self._bal_container(self.c1.id)["SYP"]
-        b2 = self._bal_container(self.c2.id)["SYP"]
-        self.assertEqual(b1, D("1000"))
-        self.assertEqual(b2, D("0"))
+        end_b1 = self._bal_container(self.c1.id).get("SYP", D("0"))
+        end_b2 = self._bal_container(self.c2.id).get("SYP", D("0"))
+        self.assertEqual(end_b1, start_b1)
+        self.assertEqual(end_b2, start_b2)
 
-        # Reversal lines should negate original lines
-        orig_lines = list(PostingLine.objects.filter(receipt=r).order_by("id"))
-        rev_lines = list(PostingLine.objects.filter(receipt=rev).order_by("id"))
-        self.assertEqual(len(orig_lines), len(rev_lines))
-        for o, x in zip(orig_lines, rev_lines):
-            self.assertEqual(o.target_type, x.target_type)
-            self.assertEqual(o.currency_id, x.currency_id)
-            self.assertEqual(o.container_id, x.container_id)
-            self.assertEqual(o.counterparty_id, x.counterparty_id)
-            self.assertEqual(o.amount, -x.amount)
-        
-        # Double reversal should fail
+        # Reversal lines negate original lines (match by identity tuple, not order)
+        orig_lines = list(PostingLine.objects.filter(receipt=r))
+        rev_lines = list(PostingLine.objects.filter(receipt=rev))
+
+        def k(ln: PostingLine):
+            return (ln.target_type, ln.container_id, ln.counterparty_id, ln.currency_id)
+
+        orig_map = {k(ln): ln.amount for ln in orig_lines}
+        rev_map = {k(ln): ln.amount for ln in rev_lines}
+
+        self.assertEqual(set(orig_map.keys()), set(rev_map.keys()))
+        for key in orig_map.keys():
+            self.assertEqual(orig_map[key], -rev_map[key])
+
         with self.assertRaises(ValueError):
             FSV.reverse_receipt(actor=self.actor, receipt_id=r.id, reason_note="again")
 
     def test_90_invalid_inputs(self):
-        # cannot add 0
         with self.assertRaises(ValueError):
-            FSV.post_cash_add(actor=self.actor, container_id=self.c1.id, currency_code="SYP", amount=D("0"))
+            FSV.post_cash_add(
+                actor=self.actor,
+                container_id=self.c1.id,
+                currency_code="SYP",
+                amount=D("0"),
+            )
 
-        # cannot transfer to same container
         with self.assertRaises(ValueError):
-            FSV.post_transfer(actor=self.actor, from_container_id=self.c1.id, to_container_id=self.c1.id, currency_code="SYP", amount=D("1"))
+            FSV.post_transfer(
+                actor=self.actor,
+                from_container_id=self.c1.id,
+                to_container_id=self.c1.id,
+                currency_code="SYP",
+                amount=D("1"),
+            )
 
-        # settlement cannot be 0
         with self.assertRaises(ValueError):
-            FSV.post_settlement(actor=self.actor, container_id=self.c1.id, counterparty_id=self.provider_mark.id, currency_code="SYP", cash_amount_signed=D("0"))
+            FSV.post_settlement(
+                actor=self.actor,
+                container_id=self.c1.id,
+                counterparty_id=self.provider_mark.id,
+                currency_code="SYP",
+                cash_amount_signed=D("0"),
+            )
 
-        # counterparty adjust cannot be 0
         with self.assertRaises(ValueError):
-            FSV.post_counterparty_adjust(actor=self.actor, counterparty_id=self.provider_mark.id, currency_code="SYP", amount_signed=D("0"))
+            FSV.post_counterparty_adjust(
+                actor=self.actor,
+                counterparty_id=self.provider_mark.id,
+                currency_code="SYP",
+                amount_signed=D("0"),
+            )

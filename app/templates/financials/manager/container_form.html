@@ -3,56 +3,296 @@
 {% block title %}إنشاء حاوية مالية{% endblock %}
 
 {% block content %}
-  <h2 style="margin:0 0 10px">إنشاء حاوية مالية</h2>
+<h2 style="margin:0 0 12px">إنشاء حاوية مالية</h2>
 
-  <form method="post" class="card" style="padding:14px">
-    {% csrf_token %}
+<style>
+  .fin-grid{
+    display:grid;
+    grid-template-columns: 1.1fr .9fr;
+    gap:12px;
+    align-items:start;
+  }
+  .fin-card{ padding:14px; border-radius:14px; }
+  .fin-section-title{ margin:0 0 10px; font-size:15px; opacity:.9; }
+  .fin-row{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+  }
+  .fin-row-3{
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap:10px;
+  }
+  .fin-field label{ display:block; margin:0 0 6px; font-size:13px; opacity:.85; }
+  .fin-muted{ opacity:.75; font-size:12px; }
+  .fin-compact-list label{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .fin-actions{ display:flex; gap:10px; margin-top:12px; justify-content:flex-start; }
+  .fin-divider{ height:1px; background:rgba(0,0,0,.08); margin:12px 0; }
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  /* make opening grid compact */
+  .opening-grid{
+    display:grid;
+    grid-template-columns: 90px 1fr;
+    gap:8px 10px;
+    align-items:end;
+  }
+
+  /* small readonly look */
+  .readonly-hint{ font-size:12px; opacity:.7; margin-top:6px; }
+
+  /* Disabled opening amount look */
+.opening-disabled {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.opening-disabled input {
+  background: #f0f0f0 !important;
+  color: #777 !important;
+  cursor: not-allowed;
+}
+
+</style>
+
+<form method="post" class="card fin-card">
+  {% csrf_token %}
+
+  <div class="fin-grid">
+    <!-- LEFT: Basics -->
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">بيانات الحاوية</h3>
+
+      <div class="fin-row-3">
+        <div class="fin-field">
+          <label>الكود الثابت (Ref)</label>
+          {{ form.ref_code }}
+          {% if form.ref_code.errors %}<div class="message error">{{ form.ref_code.errors }}</div>{% endif %}
+          <div class="readonly-hint">يُستخدم كمعرّف ثابت للحاوية (لا يتأثر بتغيير الاسم).</div>
+        </div>
+
+        <div class="fin-field">
+          <label>نوع الحاوية</label>
+          {{ form.container_type }}
+          {% if form.container_type.errors %}<div class="message error">{{ form.container_type.errors }}</div>{% endif %}
+        </div>
+
+        <div class="fin-field" style="display:flex;align-items:end">
+          <label style="display:flex;align-items:center;gap:8px;margin:0">
+            {{ form.is_active }} <span>نشطة</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="fin-divider"></div>
+
+      <div class="fin-row">
+        <div class="fin-field" style="grid-column:1/-1">
+          <label>الاسم</label>
+          {{ form.name }}
+          {% if form.name.errors %}<div class="message error">{{ form.name.errors }}</div>{% endif %}
+        </div>
+
+        <div class="fin-field" style="grid-column:1/-1">
+          <label>ملاحظات</label>
+          {{ form.note }}
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Currencies + Opening -->
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">العملات + الرصيد الافتتاحي</h3>
+
       <div>
-        <label>الاسم</label>
-        {{ form.name }}
-        {% if form.name.errors %}<div class="message error">{{ form.name.errors }}</div>{% endif %}
+        <div class="fin-muted" style="margin-bottom:8px">اختر عملة واحدة على الأقل.</div>
+        <div id="currencyBox" class="fin-compact-list">
+          {{ form.currencies }}
+          {% if form.currencies.errors %}
+            <div class="message error">{{ form.currencies.errors }}</div>
+          {% endif %}
+        </div>
+        <div id="curClientErr" class="message error" style="display:none;margin-top:8px"></div>
       </div>
 
-      <div style="display:flex;align-items:end;gap:10px">
-        <label style="display:flex;align-items:center;gap:8px;margin:0">
-          {{ form.is_active }} <span>نشطة</span>
-        </label>
-      </div>
+      <div class="fin-divider"></div>
 
-      <div style="grid-column:1 / -1">
-        <label>ملاحظات</label>
-        {{ form.note }}
+      <div>
+        <div class="fin-muted" style="margin-bottom:10px">
+          اكتب الرصيد لكل عملة. سيتم تعطيل الحقل إذا كانت العملة غير محددة.
+        </div>
+
+        <div class="opening-grid" id="openingGrid" style="max-width:520px">
+          {% for f in opening_forms %}
+            {{ f.currency_code }} {# ✅ FIX: this hidden field must exist #}
+
+            <div class="fin-field">
+              <label>العملة</label>
+              {{ f.code }}
+            </div>
+
+            <div class="fin-field">
+              <label>المبلغ</label>
+              {{ f.amount }}
+              {% if f.amount.errors %}<div class="message error">{{ f.amount.errors }}</div>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="fin-muted" style="margin-top:10px">
+          مسموح إدخال مبلغ سالب (سيُسجل كرصيد افتتاحي سالب).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom: Features + Allowed users (side by side) -->
+  <div class="fin-row" style="margin-top:12px">
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">المهام (اختياري)</h3>
+      <div class="fin-compact-list">
+        {{ form.features }}
+      </div>
+      <div class="fin-muted" style="margin-top:8px">
+        تُستخدم لتصفية الحاويات المعروضة داخل صفحات النظام حسب الوظيفة.
       </div>
     </div>
 
-    <hr style="margin:14px 0">
-
-    <h3 style="margin:0 0 10px;font-size:16px">الرصيد الافتتاحي (اختياري)</h3>
-    <div class="card" style="padding:10px;background:rgba(0,0,0,.02)">
-      <div style="display:grid;grid-template-columns:160px 1fr;gap:10px;max-width:480px">
-        {% for f in opening_forms %}
-          {{ f.currency_id }}
-          <div>
-            <label>العملة</label>
-            {{ f.code }}
-          </div>
-          <div>
-            <label>المبلغ</label>
-            {{ f.amount }}
-            {% if f.amount.errors %}<div class="message error">{{ f.amount.errors }}</div>{% endif %}
-          </div>
-        {% endfor %}
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">الحسابات المسموحة (اختياري)</h3>
+      <div class="fin-compact-list" style="max-height:160px;overflow:auto;padding-right:6px">
+        {{ form.allowed_users }}
       </div>
-      <small style="display:block;margin-top:10px;opacity:.75">
-        إذا وضعت مبلغًا سالبًا، سيتم إنشاء “سحب” كرصد افتتاحي سالب (مسموح).
-      </small>
+      <div class="fin-muted" style="margin-top:8px">
+        إذا تركتها فارغة: الحاوية ستكون متاحة للجميع (حتى نبني نظام الصلاحيات).
+      </div>
     </div>
+  </div>
 
-    <div style="display:flex;gap:10px;margin-top:14px">
-      <button type="submit" class="btn">حفظ</button>
-      <a class="btn-soft" href="{% url 'financials:container_list' %}">إلغاء</a>
-    </div>
-  </form>
+  <div class="fin-actions">
+    <button type="submit" class="btn">حفظ</button>
+    <a class="btn-soft" href="{% url 'financials:container_list' %}">إلغاء</a>
+  </div>
+</form>
+
+<script>
+(function(){
+  // --- Currency checkbox guard: prevent unchecking all ---
+  const curErr = document.getElementById("curClientErr");
+
+  function currencyCheckboxes(){
+    // Django CheckboxSelectMultiple renders inputs inside the currencies block
+    return Array.from(document.querySelectorAll('#currencyBox input[type="checkbox"]'));
+  }
+
+  function checkedCurrencies(){
+    return currencyCheckboxes().filter(cb => cb.checked);
+  }
+
+  function showCurErr(msg){
+    curErr.style.display = msg ? "block" : "none";
+    curErr.textContent = msg || "";
+  }
+
+  // --- Opening amount enable/disable based on currency selection ---
+  function syncOpeningState(){
+  const grid = document.getElementById("openingGrid");
+  const codeToCb = {};
+
+  currencyCheckboxes().forEach(cb => {
+    const lbl = document.querySelector(`label[for="${cb.id}"]`);
+    if (!lbl) return;
+    const code = (lbl.textContent || "").trim(); // "SYP" / "USD"
+    codeToCb[code] = cb;
+  });
+
+  const codes = Array.from(grid.querySelectorAll('input[name$="code"]'))
+    .filter(i => i.type !== "hidden");
+
+  codes.forEach(codeInput => {
+    const code = (codeInput.value || "").trim();
+    const cb = codeToCb[code];
+
+    const codeField = codeInput.closest(".fin-field");
+    const amountField = codeField && codeField.nextElementSibling;
+    const amountInput = amountField ? amountField.querySelector("input") : null;
+    if (!amountInput) return;
+
+    const enabled = cb ? cb.checked : true;
+
+    amountInput.disabled = !enabled;
+
+  if (!enabled) {
+    amountInput.value = "0";
+    amountField.classList.add("opening-disabled");
+  } else {
+    amountField.classList.remove("opening-disabled");
+  }
+
+  });
+}
+
+
+  function attach(){
+    const cbs = currencyCheckboxes();
+
+    cbs.forEach(cb => {
+      cb.addEventListener("change", (e) => {
+        if (!cb.checked && checkedCurrencies().length === 0){
+          cb.checked = true;
+          showCurErr("لا يمكن إلغاء تحديد جميع العملات. اختر عملة واحدة على الأقل.");
+          return;
+        }
+        showCurErr("");
+        syncOpeningState();
+      });
+    });
+
+    // Initial sync on load
+    if (checkedCurrencies().length === 0 && cbs.length){
+      cbs[0].checked = true;
+    }
+    syncOpeningState();
+  }
+
+  attach();
+})();
+
+(function () {
+  const typeEl = document.getElementById("id_container_type");
+  const refEl = document.getElementById("id_ref_code");
+  if (!typeEl || !refEl) return;
+
+  let lastReq = 0;
+
+  async function refreshRefPreview() {
+    const t = typeEl.value || "";
+    const reqId = ++lastReq;
+
+    try {
+      const url = "{% url 'financials:ref_code_preview' %}?type=" + encodeURIComponent(t);
+      const r = await fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!r.ok) return;
+      const data = await r.json();
+
+      // ignore outdated responses
+      if (reqId !== lastReq) return;
+
+      if (data && data.ref_code) {
+        refEl.value = data.ref_code;
+      }
+    } catch (e) {
+      // silent fail: preview is nice-to-have, saving still generates the real ref
+    }
+  }
+
+  typeEl.addEventListener("change", refreshRefPreview);
+
+  // initial preview on page load (only if empty or looks auto)
+  if (!refEl.value || refEl.value.startsWith("MC-")) {
+    refreshRefPreview();
+  }
+})();
+</script>
+
 {% endblock %}

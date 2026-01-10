@@ -1,0 +1,50 @@
+{# app/templates/financials/manager/fx_settings.html #}
+{% extends "financials/manager/base_financials.html" %}
+
+{% block title %}سعر الصرف{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px">سعر الصرف (FX)</h2>
+
+  <div class="card" style="padding:12px;margin-bottom:12px">
+    <div style="opacity:.85">
+      هذا السعر هو السعر "العام" الذي سيُستخدم في كل الحركات المالية القادمة، وسيتم حفظه كـ Snapshot داخل كل Receipt.
+    </div>
+
+    <div style="margin-top:10px;padding:10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:rgba(0,0,0,.02)">
+      {% if current %}
+        <div><b>السعر الحالي:</b> 1 USD = {{ current.rate_syp_per_usd }} SYP</div>
+        <div style="opacity:.75;margin-top:6px">
+          آخر تعديل: {{ current.updated_at|date:"Y-m-d H:i" }}
+          {% if current.updated_by %} بواسطة: {{ current.updated_by.username }}{% endif %}
+        </div>
+      {% else %}
+        <div style="color:#b91c1c"><b>لا يوجد سعر صرف محدد بعد.</b> يجب تحديد FX قبل تنفيذ أي حركة مالية.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <form method="post" class="card" style="padding:12px;max-width:520px">
+    {% csrf_token %}
+
+    <div style="margin-bottom:10px">
+      <label style="display:block;margin:0 0 6px;opacity:.85">سعر الصرف (SYP لكل 1 USD)</label>
+      {{ form.rate_syp_per_usd }}
+      {% if form.rate_syp_per_usd.errors %}
+        <div class="message error" style="margin-top:8px">{{ form.rate_syp_per_usd.errors }}</div>
+      {% endif %}
+      <div style="opacity:.75;font-size:12px;margin-top:6px">
+        مثال: إذا كان 1 USD = 20000 SYP اكتب: 20000
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn">حفظ</button>
+      <a class="btn-soft" href="{% url 'financials:container_list' %}">رجوع</a>
+    </div>
+
+    <div style="opacity:.7;font-size:12px;margin-top:10px">
+      ملاحظة: سيتم تطبيق FX على الحركات القادمة فقط. الحركات السابقة تبقى بسعرها المحفوظ داخل الـ Receipt.
+    </div>
+  </form>
+{% endblock %}

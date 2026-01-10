@@ -41,6 +41,7 @@
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
 
+
   function normalize(items){
     return (items || []).filter(looksLikeProduct).map(p => ({
       id: p.id,
@@ -472,9 +473,21 @@ refreshAutoSerial();
 
   const container_code = document.getElementById("containerSelect")?.value || "store";
 
+  const moneyContainerSelect = document.getElementById("moneyContainerSelect");
+
+  const money_container_id = parseInt(moneyContainerSelect?.value || "0", 10) || null;
+
+  if (!money_container_id){
+    saveErr.textContent = "اختر صندوق الدفع أولاً.";
+    saveErr.hidden = false;
+    return;
+  }
+
   const payload = {
     provider: { id: parseInt(pid, 10) },   // ONLY existing providers
     container: container_code,
+    money_container_id,
+    currency_code: (document.getElementById("payCurrency")?.value || "SYP").trim().toUpperCase(),
     items,
     pay: { status, paid_amount }
   };

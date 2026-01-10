@@ -3,44 +3,310 @@
 {% block title %}تعديل حاوية{% endblock %}
 
 {% block content %}
-  <h2 style="margin:0 0 10px">تعديل حاوية: {{ container.name }}</h2>
+<h2 style="margin:0 0 12px">تعديل حاوية: {{ container.name }}</h2>
 
-  <div class="card" style="padding:12px;margin-bottom:12px">
-    <strong>الأرصدة الحالية:</strong>
-    <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">
-      {% for k,v in balances.items %}
-        <span class="chip">{{ k }}: {{ v }}</span>
-      {% empty %}
-        <span class="chip">لا يوجد رصيد</span>
-      {% endfor %}
+  <div class="fin-page">
+<style>
+.fin-page{
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.fin-grid{
+  display:grid;
+  grid-template-columns: 1.2fr .8fr;
+  gap:14px;
+  align-items:stretch;
+}
+
+@media (max-width: 980px){
+  .fin-grid{ grid-template-columns: 1fr; }
+}
+
+.fin-card{
+  padding:16px;
+  border-radius:14px;
+}
+
+.fin-section-title{
+  margin:0 0 12px;
+  font-size:15px;
+  font-weight:800;
+  opacity:.9;
+}
+
+.fin-row{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:12px;
+}
+
+@media (max-width: 720px){
+  .fin-row{ grid-template-columns: 1fr; }
+}
+
+.fin-row-3{
+  display:grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap:12px;
+}
+
+@media (max-width: 980px){
+  .fin-row-3{ grid-template-columns: 1fr; }
+}
+
+.fin-field label{
+  display:block;
+  margin:0 0 6px;
+  font-size:13px;
+  opacity:.85;
+}
+
+.fin-compact-list label{
+  display:flex;
+  align-items:center;
+  justify-content:space-between; /* ✅ stops RTL weirdness */
+  gap:10px;
+  margin:8px 0;
+}
+
+.fin-actions{
+  display:flex;
+  gap:10px;
+  margin-top:14px;
+  justify-content:flex-start;
+}
+
+.fin-divider{
+  height:1px;
+  background:rgba(0,0,0,.08);
+  margin:14px 0;
+}
+
+/* ===== State card + page tint ===== */
+.fin-form-shell{
+  border-radius:16px;
+  padding:12px;
+  transition: background .18s ease, border-color .18s ease;
+  border:1px solid rgba(0,0,0,.06);
+}
+
+.fin-tint--on{
+  background: rgba(34,197,94,.06);   /* light green */
+  border-color: rgba(34,197,94,.18);
+}
+
+.fin-tint--off{
+  background: rgba(239,68,68,.06);   /* light red */
+  border-color: rgba(239,68,68,.18);
+}
+
+.fin-state-card{
+  border:1px solid rgba(0,0,0,.08);
+  transition: background .18s ease, border-color .18s ease;
+}
+
+.fin-state-card.fin-state--on{
+  background: rgba(34,197,94,.10);
+  border-color: rgba(34,197,94,.25);
+}
+
+.fin-state-card.fin-state--off{
+  background: rgba(239,68,68,.10);
+  border-color: rgba(239,68,68,.25);
+}
+
+.fin-state-head{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  align-items:center;
+}
+
+.fin-state-toggle{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border-radius:12px;
+  background: rgba(255,255,255,.7);
+  border:1px solid rgba(0,0,0,.08);
+  font-weight:800;
+}
+
+.fin-state-label{ font-size:14px; }
+.fin-state-toggle input[type="checkbox"]{
+  width:20px;
+  height:20px;
+}
+
+
+</style>
+
+<form method="post" class="card fin-card">
+  <div id="finShell" class="fin-form-shell">
+  {% csrf_token %}
+
+  <div class="fin-grid">
+    <!-- LEFT: Basics -->
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">بيانات الحاوية</h3>
+
+      <div class="fin-row-3 fin-readonly">
+        <div class="fin-field">
+          <label>الكود الثابت (Ref)</label>
+          {{ form.ref_code }}
+          {% if form.ref_code.errors %}<div class="message error">{{ form.ref_code.errors }}</div>{% endif %}
+          <div class="readonly-hint">للعرض فقط — لا يمكن تغييره.</div>
+        </div>
+
+        <div class="fin-field">
+          <label>نوع الحاوية</label>
+          {{ form.container_type }}
+          {% if form.container_type.errors %}<div class="message error">{{ form.container_type.errors }}</div>{% endif %}
+          <div class="readonly-hint">للعرض فقط — لا يمكن تغييره.</div>
+        </div>
+      </div>
+
+      <div class="fin-divider"></div>
+
+      <div class="fin-row">
+        <div class="fin-field" style="grid-column:1/-1">
+          <label>الاسم</label>
+          {{ form.name }}
+          {% if form.name.errors %}<div class="message error">{{ form.name.errors }}</div>{% endif %}
+          <div class="fin-muted">مسموح تغييره، بينما النظام يعتمد على Ref كهوية ثابتة.</div>
+        </div>
+
+        <div class="fin-field" style="grid-column:1/-1">
+          <label>ملاحظات</label>
+          {{ form.note }}
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Currencies (NO opening values here) -->
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">العملات</h3>
+
+      <div>
+        <div class="fin-muted" style="margin-bottom:8px">اختر عملة واحدة على الأقل.</div>
+        <div id="currencyBox" class="fin-compact-list">
+          {{ form.currencies }}
+          {% if form.currencies.errors %}
+            <div class="message error">{{ form.currencies.errors }}</div>
+          {% endif %}
+        </div>
+        <div id="curClientErr" class="message error" style="display:none;margin-top:8px"></div>
+      </div>
+
+      <div class="fin-divider"></div>
+
+      <div class="fin-muted">
+        لا يوجد “رصيد افتتاحي” هنا. هذه الصفحة فقط لتعديل الإعدادات العامة للحاوية.
+      </div>
     </div>
   </div>
 
-  <form method="post" class="card" style="padding:14px">
-    {% csrf_token %}
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div>
-        <label>الاسم</label>
-        {{ form.name }}
-        {% if form.name.errors %}<div class="message error">{{ form.name.errors }}</div>{% endif %}
+  <!-- Bottom: Features + Allowed users (same as create) -->
+  <div class="fin-row" style="margin-top:12px">
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">المهام (اختياري)</h3>
+      <div class="fin-compact-list">
+        {{ form.features }}
       </div>
-
-      <div style="display:flex;align-items:end;gap:10px">
-        <label style="display:flex;align-items:center;gap:8px;margin:0">
-          {{ form.is_active }} <span>نشطة</span>
-        </label>
-      </div>
-
-      <div style="grid-column:1 / -1">
-        <label>ملاحظات</label>
-        {{ form.note }}
+      <div class="fin-muted" style="margin-top:8px">
+        تُستخدم لتصفية الحاويات حسب الوظيفة داخل النظام.
       </div>
     </div>
 
-    <div style="display:flex;gap:10px;margin-top:14px">
-      <button type="submit" class="btn">حفظ</button>
-      <a class="btn-soft" href="{% url 'financials:container_list' %}">رجوع</a>
+    <div class="card fin-card" style="background:rgba(0,0,0,.02)">
+      <h3 class="fin-section-title">الحسابات المسموحة (اختياري)</h3>
+      <div class="fin-compact-list" style="max-height:160px;overflow:auto;padding-right:6px">
+        {{ form.allowed_users }}
+      </div>
+      <div class="fin-muted" style="margin-top:8px">
+        إذا تركتها فارغة: الحاوية ستكون متاحة للجميع (حتى نبني نظام الصلاحيات).
+      </div>
     </div>
-  </form>
+  </div>
+
+<!-- ===== Container State (BIG + IMPORTANT) ===== -->
+<div id="stateCard" class="card fin-card fin-state-card" style="margin-top:14px">
+  <div class="fin-state-head">
+    <div>
+      <h3 class="fin-section-title" style="margin:0">حالة الحاوية</h3>
+      <div class="fin-muted" style="margin-top:6px">
+        إيقاف الحاوية سيمنع استخدامها في الحركات داخل النظام.
+      </div>
+    </div>
+
+    <label class="fin-state-toggle">
+      <span class="fin-state-label">نشطة</span>
+      {{ form.is_active }}
+    </label>
+  </div>
+</div>
+
+
+  <div class="fin-actions">
+    <button type="submit" class="btn">حفظ</button>
+    <a class="btn-soft" href="{% url 'financials:container_list' %}">إلغاء</a>
+  </div>
+</div>
+</form>
+
+<script>
+(function(){
+  // Prevent unchecking all currencies (client-side convenience)
+  const curErr = document.getElementById("curClientErr");
+
+  function currencyCheckboxes(){
+    return Array.from(document.querySelectorAll('#currencyBox input[type="checkbox"]'));
+  }
+  function checkedCurrencies(){
+    return currencyCheckboxes().filter(cb => cb.checked);
+  }
+  function showCurErr(msg){
+    curErr.style.display = msg ? "block" : "none";
+    curErr.textContent = msg || "";
+  }
+
+  function attach(){
+    const cbs = currencyCheckboxes();
+    cbs.forEach(cb => {
+      cb.addEventListener("change", () => {
+        if (!cb.checked && checkedCurrencies().length === 0){
+          cb.checked = true;
+          showCurErr("لا يمكن إلغاء تحديد جميع العملات. اختر عملة واحدة على الأقل.");
+          return;
+        }
+        showCurErr("");
+      });
+    });
+  }
+  attach();
+})();
+
+(function(){
+  const shell = document.getElementById("finShell");
+  const stateCard = document.getElementById("stateCard");
+  const cb = document.getElementById("id_is_active");
+  if (!shell || !stateCard || !cb) return;
+
+  function apply(){
+    const on = cb.checked;
+
+    shell.classList.toggle("fin-tint--on", on);
+    shell.classList.toggle("fin-tint--off", !on);
+
+    stateCard.classList.toggle("fin-state--on", on);
+    stateCard.classList.toggle("fin-state--off", !on);
+  }
+
+  cb.addEventListener("change", apply);
+  apply(); // initial paint
+})();
+</script>
+
 {% endblock %}

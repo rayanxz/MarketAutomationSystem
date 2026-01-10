@@ -15,6 +15,12 @@ from billing import services as BillingSV
 
 from inventory.models import DEC0 , q3 , ProductMovement , q4
 
+from financials.models import MoneyContainer , Currency
+
+from financials import services as FinSV
+
+
+
 DEC2 = Decimal("0.01")
 
 
@@ -62,8 +68,28 @@ def bills_list(request: HttpRequest) -> HttpResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 def add_bill(request: HttpRequest) -> HttpResponse:
-    return render(request, "billing/add_bill.html")
+    money_containers = (
+        MoneyContainer.objects
+        .filter(is_active=True, container_type=MoneyContainer.ContainerType.DRAWER)
+        .order_by("id")
+    )
 
+    currencies = Currency.objects.filter(is_active=True).order_by("code")
+
+    try:
+        fx = FinSV.get_current_fx_syp_per_usd()
+    except Exception:
+        fx = None
+
+    return render(
+        request,
+        "billing/add_bill.html",
+        {
+            "money_containers": money_containers,
+            "currencies": currencies,
+            "fx_syp_per_usd": fx,
+        },
+    )
 
 @role_required(AccountProfile.Role.MANAGER)
 def providers_list(request: HttpRequest) -> HttpResponse:
@@ -462,6 +488,28 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
         container = ProductContainer.objects.get(code=container_code)
     except ProductContainer.DoesNotExist:
         return _bad("invalid container", 400)
+    
+    money_container_id_raw = payload.get("money_container_id")
+    try:
+        money_container_id = int(money_container_id_raw)
+    except (TypeError, ValueError):
+        return _bad("invalid money container", 400)
+
+    currency_code = (payload.get("currency_code") or "SYP").strip().upper()
+
+    from financials.models import MoneyContainer
+
+    if not money_container_id:
+        return _bad("money container is required", 400)
+
+    mc = MoneyContainer.objects.filter(pk=money_container_id).first()
+    if not mc:
+        return _bad("invalid money container", 400)
+
+    if not mc.is_active:
+        return _bad("money container is not active", 409)
+
+
 
     # ---- Pay section ----
     pay = payload.get("pay") or {}
@@ -483,6 +531,8 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                 items=items,
                 update_product_defaults=update_defaults,
                 container=container,
+                money_container_id=int(money_container_id),
+                currency_code=currency_code,
             )
         except TypeError:
             # Fallback for old create_bill without container param

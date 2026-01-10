@@ -1,3 +1,4 @@
+# financials/models.py
 from __future__ import annotations
 
 from decimal import Decimal
@@ -8,17 +9,15 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+import secrets
 
 DEC0 = Decimal("0")
 
+def gen_ref_code() -> str:
+    return "MC-" + secrets.token_hex(4).upper()  # e.g. MC-8F3A12BC
+
 
 class Currency(models.Model):
-    """
-    Supported currencies (start with SYP, USD).
-    decimals:
-      - SYP usually 0
-      - USD usually 2
-    """
     code = models.CharField(max_length=10, unique=True)  # "SYP", "USD"
     name = models.CharField(max_length=64, blank=True)
     decimals = models.PositiveSmallIntegerField(default=2)
@@ -32,11 +31,21 @@ class Currency(models.Model):
 
 
 class MoneyContainer(models.Model):
-    """
-    Store-owned money location (cash drawer, safe, bank).
-    Balances are NOT stored here as truth; they are derived from PostingLine.
-    """
+    class ContainerType(models.TextChoices):
+        DRAWER = "drawer", "درج"
+        SAFE = "safe", "خزنة"
+        BANK = "bank", "بنك"
+
+    ref_code = models.CharField(max_length=40, unique=True, default=gen_ref_code, db_index=True)
     name = models.CharField(max_length=120, unique=True)
+
+    container_type = models.CharField(
+        max_length=20,
+        choices=ContainerType.choices,
+        default=ContainerType.DRAWER,
+        db_index=True,
+    )
+
     is_active = models.BooleanField(default=True)
     note = models.TextField(blank=True)
 
@@ -47,11 +56,85 @@ class MoneyContainer(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    features = models.ManyToManyField(
+        "ContainerFeature",
+        blank=True,
+        related_name="money_containers",
+    )
+
+    allowed_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="financials_allowed_containers",
+    )
+
     class Meta:
         ordering = ["name"]
 
     def __str__(self) -> str:
         return self.name
+
+
+class MoneyContainerCurrency(models.Model):
+    container = models.ForeignKey(MoneyContainer, on_delete=models.CASCADE, related_name="currency_states")
+    currency = models.ForeignKey(Currency, on_delete=models.PROTECT, related_name="container_states")
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("container", "currency")]
+        indexes = [
+            models.Index(fields=["container", "currency"]),
+            models.Index(fields=["currency", "is_enabled"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.container_id}:{self.currency.code} enabled={self.is_enabled}"
+
+
+class ContainerFeature(models.Model):
+    code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=120)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+# ======================
+# GLOBAL FX (USD -> SYP)
+# ======================
+class FxSettings(models.Model):
+    """
+    Singleton-ish row holding the CURRENT FX used by the system until changed.
+    Rate meaning: how many SYP for 1 USD.
+    Example: 1 USD = 20000 SYP => rate_syp_per_usd = 20000
+    """
+    rate_syp_per_usd = models.DecimalField(max_digits=18, decimal_places=6)
+    is_active = models.BooleanField(default=True)
+
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="financials_fx_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["is_active", "updated_at"])]
+        ordering = ["-updated_at"]
+
+    def clean(self) -> None:
+        if self.rate_syp_per_usd is None or self.rate_syp_per_usd <= 0:
+            raise ValidationError("FX rate must be > 0")
+
+    def __str__(self) -> str:
+        return f"FX 1USD={self.rate_syp_per_usd} SYP"
 
 
 class CounterpartyType(models.TextChoices):
@@ -62,15 +145,9 @@ class CounterpartyType(models.TextChoices):
 
 
 class Counterparty(models.Model):
-    """
-    Entity you can owe / be owed by.
-    Optionally links to your real Provider/Customer/User models (nullable) later.
-    For now, name + type is enough.
-    """
     type = models.CharField(max_length=20, choices=CounterpartyType.choices)
     name = models.CharField(max_length=160)
 
-    # Optional links (safe to keep nullable; wire them later)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -84,9 +161,7 @@ class Counterparty(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["type", "name"]),
-        ]
+        indexes = [models.Index(fields=["type", "name"])]
         ordering = ["type", "name"]
         unique_together = [("type", "name")]
 
@@ -102,6 +177,7 @@ class ReceiptStatus(models.TextChoices):
 
 
 class ReceiptKind(models.TextChoices):
+    OPENING_BALANCE = "opening_balance", "Opening Balance"
     CASH_ADD = "cash_add", "Cash Add"
     CASH_WITHDRAW = "cash_withdraw", "Cash Withdraw"
     CONTAINER_TRANSFER = "container_transfer", "Container Transfer"
@@ -111,10 +187,6 @@ class ReceiptKind(models.TextChoices):
 
 
 class Receipt(models.Model):
-    """
-    Human-friendly document (serial/type/actor/time/source).
-    Truth is in PostingLine.
-    """
     serial = models.CharField(max_length=40, unique=True, blank=True)
     kind = models.CharField(max_length=40, choices=ReceiptKind.choices)
     status = models.CharField(max_length=20, choices=ReceiptStatus.choices, default=ReceiptStatus.DRAFT)
@@ -127,17 +199,19 @@ class Receipt(models.Model):
 
     note = models.TextField(blank=True)
 
-    # Link to source document in other app (billing, pos, etc.) later
     source_app = models.CharField(max_length=50, blank=True)
     source_model = models.CharField(max_length=80, blank=True)
     source_id = models.CharField(max_length=80, blank=True)
 
     group_key = models.UUIDField(default=uuid4, editable=False, db_index=True)
 
+    # ✅ FX snapshot stored on each receipt
+    # null allowed only to not explode old rows; services will enforce it for new postings.
+    fx_syp_per_usd = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     posted_at = models.DateTimeField(null=True, blank=True)
 
-    # reversal link
     reverses = models.ForeignKey(
         "self",
         null=True,
@@ -162,10 +236,12 @@ class Receipt(models.Model):
         if self.reverses_id and self.kind != ReceiptKind.REVERSAL:
             raise ValidationError("Only REVERSAL kind can set `reverses`.")
 
+        # ✅ enforce FX when posted (keeps old drafts survivable)
+        if self.status in (ReceiptStatus.POSTED, ReceiptStatus.REVERSED):
+            if self.fx_syp_per_usd is None or self.fx_syp_per_usd <= 0:
+                raise ValidationError("Posted receipts must contain valid FX (> 0).")
+
     def ensure_serial(self) -> None:
-        """
-        Serial after ID exists. Format: FIN-YYYYMMDD-000001
-        """
         if self.serial:
             return
         d = self.created_at.date()
@@ -178,15 +254,6 @@ class PostingTargetType(models.TextChoices):
 
 
 class PostingLine(models.Model):
-    """
-    The truth: signed amount posted to either a container or counterparty in a currency.
-      + amount => increases target balance
-      - amount => decreases target balance
-
-    Convention (recommended):
-      - Container: + means cash increased, - means cash decreased
-      - Counterparty: + means counterparty owes store, - means store owes counterparty
-    """
     receipt = models.ForeignKey(Receipt, on_delete=models.PROTECT, related_name="lines")
 
     target_type = models.CharField(max_length=20, choices=PostingTargetType.choices)
@@ -207,8 +274,7 @@ class PostingLine(models.Model):
     )
 
     currency = models.ForeignKey(Currency, on_delete=models.PROTECT, related_name="posting_lines")
-    amount = models.DecimalField(max_digits=18, decimal_places=6)  # we quantize in services, keep storage flexible
-
+    amount = models.DecimalField(max_digits=18, decimal_places=6)
     meta_json = models.TextField(blank=True, default="")
 
     class Meta:
@@ -222,11 +288,8 @@ class PostingLine(models.Model):
             models.CheckConstraint(
                 name="financials_postingline_target_matches",
                 check=(
-                    # container target
                     (Q(target_type=PostingTargetType.CONTAINER) & Q(container__isnull=False) & Q(counterparty__isnull=True))
-                    |
-                    # counterparty target
-                    (Q(target_type=PostingTargetType.COUNTERPARTY) & Q(counterparty__isnull=False) & Q(container__isnull=True))
+                    | (Q(target_type=PostingTargetType.COUNTERPARTY) & Q(counterparty__isnull=False) & Q(container__isnull=True))
                 ),
             ),
         ]

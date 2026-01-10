@@ -1,7 +1,74 @@
 {% extends "financials/manager/base_financials.html" %}
-{% load financials_extras%}
+{% load financials_extras %}
 
 {% block title %}إدارة الحاويات المالية{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ===== Containers table fixes ===== */
+  .fin-table-wrap{ overflow:auto; }
+
+  .fin-table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;          /* ✅ aligns header/body columns */
+  }
+
+  .fin-table th,
+  .fin-table td{
+    padding:12px 10px;
+    white-space:nowrap;
+    vertical-align:middle;
+    border-bottom:1px solid rgba(0,0,0,.06);
+    text-align:right;
+  }
+
+  .fin-table thead th{
+    font-weight:700;
+    background:rgba(0,0,0,.02);
+  }
+
+  .col-ref{ width: 140px; text-align:center; }
+  .col-name{ width: 220px; }
+  .col-type{ width: 140px; text-align:center; }
+  .col-status{ width: 120px; text-align:center; }
+
+  .col-balance{ width: 160px; text-align:center; }
+  .col-edit{ width: 120px; text-align:center; }
+  .col-moves{ width: 140px; text-align:center; }
+
+  /* Status chips (DON'T rely on global .chip that is screwing you) */
+  .fin-chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:700;
+    line-height:1;
+    border:1px solid transparent;
+  }
+  .fin-chip--on{
+    background: rgba(34,197,94,.12);
+    border-color: rgba(34,197,94,.35);
+    color: #166534;
+  }
+  .fin-chip--off{
+    background: rgba(239,68,68,.10);
+    border-color: rgba(239,68,68,.30);
+    color: #991b1b;
+    opacity:.95;
+  }
+
+  /* Disabled buttons (non functional for now) */
+  .btn-disabled{
+    opacity:.55;
+    cursor:not-allowed;
+    pointer-events:none;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
   <h2 style="margin:0 0 10px">إدارة الحاويات المالية</h2>
@@ -13,32 +80,45 @@
     </div>
   </div>
 
-  <div class="card" style="padding:0;overflow:auto">
-    <table class="tbl" style="width:100%;border-collapse:collapse">
+  <div class="card fin-table-wrap" style="padding:0">
+    <table class="tbl fin-table">
       <thead>
         <tr>
-          <th style="padding:10px;white-space:nowrap">الاسم</th>
-          <th style="padding:10px;white-space:nowrap">الحالة</th>
+          <th class="col-ref">الرمز</th>
+          <th class="col-name">الاسم</th>
+          <th class="col-type">النوع</th>
+          <th class="col-status">الحالة</th>
+
+
           {% for cur in currencies %}
-            <th style="padding:10px;white-space:nowrap">الرصيد ({{ cur.code }})</th>
+            <th class="col-balance">الرصيد ({{ cur.code }})</th>
           {% endfor %}
-          <th style="padding:10px;white-space:nowrap">إجراءات</th>
+
+          {# ✅ two separate columns, per your request #}
+          <th class="col-edit">تعديل</th>
+          <th class="col-moves">الحركات</th>
         </tr>
       </thead>
+
       <tbody>
         {% for c in containers %}
           <tr>
-            <td style="padding:10px;white-space:nowrap">{{ c.name }}</td>
-            <td style="padding:10px;white-space:nowrap">
-              {% if c.is_active %}
-                <span class="chip">نشطة</span>
-              {% else %}
-                <span class="chip" style="opacity:.7">مغلقة</span>
-              {% endif %}
+            <td class="col-ref">{{ c.ref_code }}</td>
+
+            <td class="col-name">{{ c.name }}</td>
+
+            <td class="col-type">{{ c.get_container_type_display }}</td>
+
+            <td class="col-status">
+            {% if c.is_active %}
+                <span class="fin-chip fin-chip--on">نشطة</span>
+            {% else %}
+                <span class="fin-chip fin-chip--off">مغلقة</span>
+            {% endif %}
             </td>
 
             {% for cur in currencies %}
-              <td style="padding:10px;white-space:nowrap">
+              <td class="col-balance">
                 {% with b=balances|get_item:c.id %}
                   {% if b and b|get_item:cur.code %}
                     {{ b|get_item:cur.code }}
@@ -49,16 +129,21 @@
               </td>
             {% endfor %}
 
-            <td style="padding:10px;white-space:nowrap">
+            {# Non-functional buttons for now #}
+            <td class="col-edit">
               <a class="btn-soft" href="{% url 'financials:container_edit' c.id %}">تعديل</a>
-              <a class="btn-soft" href="{% url 'financials:container_movements' %}?container={{ c.id }}">حركات</a>
+            </td>
+
+            <td class="col-moves">
+              <a class="btn-soft btn-disabled" href="#" aria-disabled="true">عرض الحركات</a>
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="99" style="padding:14px">لا توجد حاويات بعد.</td></tr>
+          <tr>
+            <td colspan="99" style="padding:14px">لا توجد حاويات بعد.</td>
+          </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-
 {% endblock %}

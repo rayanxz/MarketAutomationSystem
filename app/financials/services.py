@@ -1,3 +1,4 @@
+# financials/services.py
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
@@ -6,6 +7,10 @@ from typing import Optional, Dict, Any
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
+
+from django.db import IntegrityError
+from django.db.models import Max, IntegerField
+from django.db.models.functions import Cast, Substr
 
 from .models import (
     Currency,
@@ -16,20 +21,116 @@ from .models import (
     ReceiptStatus,
     PostingLine,
     PostingTargetType,
+    MoneyContainerCurrency,
+    FxSettings,          # ✅ new
 )
 import json
 
 DEC0 = Decimal("0")
 
+REF_WIDTH = 2
+
+TYPE_PREFIX = {
+    "drawer": "CASH",
+    "safe": "SAFE",
+    "bank": "BANK",
+}
+
+def alloc_ref_code(*, container_type: str) -> str:
+    prefix = TYPE_PREFIX.get(container_type, "MC")
+    start = len(prefix) + 2
+    qs = (
+        MoneyContainer.objects
+        .filter(ref_code__startswith=f"{prefix}-")
+        .annotate(n=Cast(Substr("ref_code", start), IntegerField()))
+    )
+    max_n = qs.aggregate(m=Max("n"))["m"] or 0
+    return f"{prefix}-{max_n + 1:0{REF_WIDTH}d}"
+
+
+# ======================
+# FX helpers (GLOBAL)
+# ======================
+def get_current_fx_syp_per_usd() -> Decimal:
+    """
+    Returns global FX (SYP per 1 USD).
+    Raises ValueError if not set (hard block).
+    """
+    fx = (
+        FxSettings.objects
+        .filter(is_active=True)
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+    if not fx or fx.rate_syp_per_usd is None or fx.rate_syp_per_usd <= 0:
+        raise ValueError("FX is not set. Manager must set FX before money movements.")
+    return Decimal(fx.rate_syp_per_usd)
+
+
+@transaction.atomic
+def set_current_fx(*, actor, rate_syp_per_usd: Decimal) -> FxSettings:
+    """
+    Set global FX used by the system until changed.
+    """
+    r = Decimal(rate_syp_per_usd)
+    if r <= 0:
+        raise ValueError("FX rate must be > 0")
+
+    # deactivate previous active rows (keep history)
+    FxSettings.objects.filter(is_active=True).update(is_active=False)
+
+    fx = FxSettings.objects.create(
+        rate_syp_per_usd=r,
+        is_active=True,
+        updated_by=actor,
+    )
+    return fx
+
+
+def _assert_container_usable(container: MoneyContainer) -> None:
+    if not container.is_active:
+        raise ValueError("Container is inactive / disabled")
+
+
+def ensure_currency_states(*, container: MoneyContainer) -> None:
+    currencies = list(Currency.objects.filter(is_active=True))
+    existing = set(
+        MoneyContainerCurrency.objects
+        .filter(container=container)
+        .values_list("currency_id", flat=True)
+    )
+    to_create = [
+        MoneyContainerCurrency(container=container, currency=cur, is_enabled=False)
+        for cur in currencies
+        if cur.id not in existing
+    ]
+    if to_create:
+        MoneyContainerCurrency.objects.bulk_create(to_create)
+
+
+def _container_currency_enabled(*, container_id: int, currency_code: str) -> bool:
+    return MoneyContainerCurrency.objects.filter(
+        container_id=container_id,
+        currency__code=currency_code,
+        is_enabled=True,
+    ).exists()
+
+
+def _opening_exists(*, container_id: int) -> bool:
+    return Receipt.objects.filter(
+        kind=ReceiptKind.OPENING_BALANCE,
+        source_app="financials",
+        source_model="MoneyContainer",
+        source_id=str(container_id),
+        status__in=[ReceiptStatus.POSTED, ReceiptStatus.REVERSED],
+    ).exists()
+
 
 def q_currency(amount: Decimal, *, currency: Currency) -> Decimal:
-    """
-    Quantize amount according to currency.decimals.
-    """
     if amount is None:
         return DEC0
     places = currency.decimals
-    exp = Decimal("1").scaleb(-places)  # 10^-places
+    exp = Decimal("1").scaleb(-places)
     return amount.quantize(exp, rounding=ROUND_HALF_UP)
 
 
@@ -43,7 +144,13 @@ def _mk_receipt(
     source_id: str = "",
     group_key=None,
     reverses: Optional[Receipt] = None,
+    fx_syp_per_usd: Optional[Decimal] = None,  # ✅ new
 ) -> Receipt:
+    # ✅ hard block: any created receipt must carry FX
+    fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else None
+    if fx is None or fx <= 0:
+        raise ValueError("FX is required for receipts.")
+
     kwargs = dict(
         serial="",
         kind=kind,
@@ -54,8 +161,8 @@ def _mk_receipt(
         source_model=source_model or "",
         source_id=str(source_id or ""),
         reverses=reverses,
+        fx_syp_per_usd=fx,  # ✅ stored snapshot
     )
-    # IMPORTANT: don't override model default uuid4 with NULL
     if group_key is not None:
         kwargs["group_key"] = group_key
 
@@ -65,8 +172,10 @@ def _mk_receipt(
     return r
 
 
-
 def _post_receipt(r: Receipt) -> Receipt:
+    # extra safety: refuse posting if FX missing
+    if r.fx_syp_per_usd is None or Decimal(r.fx_syp_per_usd) <= 0:
+        raise ValueError("Cannot post receipt without valid FX.")
     r.status = ReceiptStatus.POSTED
     r.posted_at = timezone.now()
     r.save(update_fields=["status", "posted_at"])
@@ -82,7 +191,6 @@ def _add_line_container(*, receipt: Receipt, container: MoneyContainer, currency
         currency=currency,
         amount=amount,
         meta_json=json.dumps(meta or {}, ensure_ascii=False),
-
     )
 
 
@@ -99,50 +207,107 @@ def _add_line_counterparty(*, receipt: Receipt, counterparty: Counterparty, curr
 
 
 @transaction.atomic
-def post_cash_add(*, actor, container_id: int, currency_code: str, amount: Decimal, note: str = "", **source) -> Receipt:
+def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str, Decimal], note: str = "رصيد افتتاحي") -> Receipt:
+    fx = get_current_fx_syp_per_usd()  # ✅ required
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+    _assert_container_usable(container)
+
+    if _opening_exists(container_id=container_id):
+        raise ValueError("Initial balance already posted for this container")
+
+    cleaned: Dict[str, Decimal] = {}
+    for code, raw in (amounts_by_code or {}).items():
+        currency = Currency.objects.get(code=code)
+        amt = q_currency(Decimal(raw), currency=currency)
+        if amt == 0:
+            continue
+        if not _container_currency_enabled(container_id=container_id, currency_code=code):
+            raise ValueError(f"Currency {code} is disabled for this container")
+        cleaned[code] = amt
+
+    if not cleaned:
+        raise ValueError("Initial balance amounts are all zero")
+
+    r = _mk_receipt(
+        actor=actor,
+        kind=ReceiptKind.OPENING_BALANCE,
+        note=note,
+        source_app="financials",
+        source_model="MoneyContainer",
+        source_id=str(container.id),
+        fx_syp_per_usd=fx,
+    )
+
+    for code, amt in cleaned.items():
+        currency = Currency.objects.get(code=code)
+        _add_line_container(receipt=r, container=container, currency=currency, amount=amt, meta={"opening": True})
+
+    return _post_receipt(r)
+
+
+@transaction.atomic
+def post_cash_add(*, actor, container_id: int, currency_code: str, amount: Decimal, note: str = "", **source) -> Receipt:
+    fx = get_current_fx_syp_per_usd()
+    container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+    _assert_container_usable(container)
     currency = Currency.objects.get(code=currency_code)
+
+    if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
+        raise ValueError(f"Currency {currency_code} is disabled for this container")
 
     amt = q_currency(Decimal(amount), currency=currency)
     if amt <= 0:
         raise ValueError("Cash add amount must be > 0")
 
-    r = _mk_receipt(actor=actor, kind=ReceiptKind.CASH_ADD, note=note, **source)
+    r = _mk_receipt(actor=actor, kind=ReceiptKind.CASH_ADD, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=amt)
     return _post_receipt(r)
 
 
 @transaction.atomic
 def post_cash_withdraw(*, actor, container_id: int, currency_code: str, amount: Decimal, note: str = "", **source) -> Receipt:
+    fx = get_current_fx_syp_per_usd()
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+    _assert_container_usable(container)
     currency = Currency.objects.get(code=currency_code)
+
+    if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
+        raise ValueError(f"Currency {currency_code} is disabled for this container")
 
     amt = q_currency(Decimal(amount), currency=currency)
     if amt <= 0:
         raise ValueError("Cash withdraw amount must be > 0")
 
-    r = _mk_receipt(actor=actor, kind=ReceiptKind.CASH_WITHDRAW, note=note, **source)
+    r = _mk_receipt(actor=actor, kind=ReceiptKind.CASH_WITHDRAW, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=-amt)
     return _post_receipt(r)
 
 
 @transaction.atomic
 def post_transfer(*, actor, from_container_id: int, to_container_id: int, currency_code: str, amount: Decimal, note: str = "", **source) -> Receipt:
+    fx = get_current_fx_syp_per_usd()
     if from_container_id == to_container_id:
         raise ValueError("from_container and to_container cannot be the same")
 
-    # lock both containers (consistent order)
     ids = sorted([from_container_id, to_container_id])
     locked = {c.id: c for c in MoneyContainer.objects.select_for_update().filter(id__in=ids)}
     from_c = locked[from_container_id]
     to_c = locked[to_container_id]
 
+    _assert_container_usable(from_c)
+    _assert_container_usable(to_c)
+
     currency = Currency.objects.get(code=currency_code)
+    if not _container_currency_enabled(container_id=from_container_id, currency_code=currency_code):
+        raise ValueError("Currency disabled for source container")
+    if not _container_currency_enabled(container_id=to_container_id, currency_code=currency_code):
+        raise ValueError("Currency disabled for destination container")
+
     amt = q_currency(Decimal(amount), currency=currency)
     if amt <= 0:
         raise ValueError("Transfer amount must be > 0")
 
-    r = _mk_receipt(actor=actor, kind=ReceiptKind.CONTAINER_TRANSFER, note=note, **source)
+    r = _mk_receipt(actor=actor, kind=ReceiptKind.CONTAINER_TRANSFER, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=from_c, currency=currency, amount=-amt, meta={"side": "from"})
     _add_line_container(receipt=r, container=to_c, currency=currency, amount=amt, meta={"side": "to"})
     return _post_receipt(r)
@@ -150,41 +315,35 @@ def post_transfer(*, actor, from_container_id: int, to_container_id: int, curren
 
 @transaction.atomic
 def post_counterparty_adjust(*, actor, counterparty_id: int, currency_code: str, amount_signed: Decimal, note: str = "", **source) -> Receipt:
-    """
-    Create/adjust an obligation without cash movement.
-    Convention:
-      + => counterparty owes store (receivable)
-      - => store owes counterparty (payable)
-    """
+    fx = get_current_fx_syp_per_usd()
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
     currency = Currency.objects.get(code=currency_code)
     amt = q_currency(Decimal(amount_signed), currency=currency)
     if amt == 0:
         raise ValueError("Counterparty adjustment cannot be 0")
 
-    r = _mk_receipt(actor=actor, kind=ReceiptKind.COUNTERPARTY_INC, note=note, **source)
+    r = _mk_receipt(actor=actor, kind=ReceiptKind.COUNTERPARTY_INC, note=note, fx_syp_per_usd=fx, **source)
     _add_line_counterparty(receipt=r, counterparty=cp, currency=currency, amount=amt)
     return _post_receipt(r)
 
 
 @transaction.atomic
 def post_settlement(*, actor, container_id: int, counterparty_id: int, currency_code: str, cash_amount_signed: Decimal, note: str = "", **source) -> Receipt:
-    """
-    Cash settlement between container and counterparty.
-    cash_amount_signed:
-      + => container increases (we received cash)
-      - => container decreases (we paid cash)
-    Counterparty line is opposite sign (moves balance toward 0).
-    """
+    fx = get_current_fx_syp_per_usd()
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+    _assert_container_usable(container)
+
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
     currency = Currency.objects.get(code=currency_code)
+
+    if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
+        raise ValueError(f"Currency {currency_code} is disabled for this container")
 
     cash_amt = q_currency(Decimal(cash_amount_signed), currency=currency)
     if cash_amt == 0:
         raise ValueError("Settlement cash amount cannot be 0")
 
-    r = _mk_receipt(actor=actor, kind=ReceiptKind.COUNTERPARTY_SETTLE, note=note, **source)
+    r = _mk_receipt(actor=actor, kind=ReceiptKind.COUNTERPARTY_SETTLE, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=cash_amt)
     _add_line_counterparty(receipt=r, counterparty=cp, currency=currency, amount=-cash_amt)
     return _post_receipt(r)
@@ -202,9 +361,18 @@ def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt
     if orig.reversed_by.exists():
         raise ValueError("Receipt is already reversed")
 
-    r = _mk_receipt(actor=actor, kind=ReceiptKind.REVERSAL, note=reason_note, reverses=orig)
+    # ✅ reversal copies FX snapshot from original
+    if orig.fx_syp_per_usd is None or Decimal(orig.fx_syp_per_usd) <= 0:
+        raise ValueError("Original receipt has no FX; cannot reverse safely.")
 
-    # negate all lines
+    r = _mk_receipt(
+        actor=actor,
+        kind=ReceiptKind.REVERSAL,
+        note=reason_note,
+        reverses=orig,
+        fx_syp_per_usd=Decimal(orig.fx_syp_per_usd),
+    )
+
     for ln in orig.lines.all():
         if ln.target_type == PostingTargetType.CONTAINER:
             _add_line_container(
@@ -225,7 +393,6 @@ def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt
 
     _post_receipt(r)
 
-    # mark original as reversed
     orig.status = ReceiptStatus.REVERSED
     orig.save(update_fields=["status"])
     return r

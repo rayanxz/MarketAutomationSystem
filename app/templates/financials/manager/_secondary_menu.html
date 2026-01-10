@@ -11,3 +11,6 @@ fin_active: list | create | movements
 
 <a class="{% if fin_active == 'list' %}btn-sec{% endif %}"
    href="{% url 'financials:container_list' %}">قائمة الحاويات</a>
+   
+<a class="{% if fin_active == 'fx' %}btn-sec{% endif %}"
+   href="{% url 'financials:fx_settings' %}">سعر الصرف</a>

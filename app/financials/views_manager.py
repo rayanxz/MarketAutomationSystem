@@ -14,13 +14,47 @@ from django.urls import reverse
 from accounts.decorators import role_required
 from accounts.models import AccountProfile
 
-from financials.models import MoneyContainer, Currency, PostingLine, PostingTargetType, Receipt, ReceiptStatus, ReceiptKind
+from financials.models import MoneyContainer, Currency, PostingLine, PostingTargetType, Receipt, ReceiptStatus, ReceiptKind , FxSettings
 from financials import services as FSV
-from financials.forms import MoneyContainerForm, build_opening_formset
+from financials.forms import MoneyContainerForm, build_opening_formset, FxSettingsForm
+
+from financials.models import MoneyContainerCurrency 
+
+from django.db import IntegrityError
 
 
 def _secondary_menu_ctx(active: str) -> Dict[str, Any]:
     return {"fin_active": active}
+
+
+@login_required
+@role_required(AccountProfile.Role.MANAGER)
+@transaction.atomic
+def fx_settings(request: HttpRequest) -> HttpResponse:
+    current = (
+        FxSettings.objects
+        .filter(is_active=True)
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+
+    if request.method == "POST":
+        form = FxSettingsForm(request.POST, instance=current)
+        if form.is_valid():
+            rate = form.cleaned_data["rate_syp_per_usd"]
+            FSV.set_current_fx(actor=request.user, rate_syp_per_usd=rate)
+            messages.success(request, "تم تحديث سعر الصرف وسيتم تطبيقه على كل الحركات القادمة.")
+            return redirect("financials:fx_settings")
+        messages.error(request, "في خطأ بقيمة سعر الصرف.")
+    else:
+        form = FxSettingsForm(instance=current)
+
+    ctx = {
+        **_secondary_menu_ctx("fx"),
+        "form": form,
+        "current": current,
+    }
+    return render(request, "financials/manager/fx_settings.html", ctx)
 
 
 @login_required
@@ -47,73 +81,119 @@ def container_list(request: HttpRequest) -> HttpResponse:
 @role_required(AccountProfile.Role.MANAGER)
 @transaction.atomic
 def container_create(request: HttpRequest) -> HttpResponse:
-    currencies = list(Currency.objects.filter(is_active=True).order_by("code"))
+    all_currencies = list(Currency.objects.filter(is_active=True).order_by("code"))
 
     if request.method == "POST":
         form = MoneyContainerForm(request.POST)
-        opening_forms = build_opening_formset(currencies=currencies, data=request.POST)
+        opening_forms = build_opening_formset(currencies=all_currencies, data=request.POST)
 
         ok = form.is_valid()
         for f in opening_forms:
             ok = ok and f.is_valid()
 
-        if ok:
-            container: MoneyContainer = form.save(commit=False)
-            container.created_by = request.user
-            container.save()
+        if not ok:
+            messages.error(request, "في أخطاء بالنموذج. راجع القيم وحاول مرة ثانية.")
+            return render(
+                request,
+                "financials/manager/container_form.html",
+                {
+                    "fin_active": "create",
+                    "form": form,
+                    "currencies": all_currencies,
+                    "opening_forms": opening_forms,
+                },
+            )
 
-            # Create opening receipts (one per currency with amount != 0)
-            # We use CASH_ADD to container with source pointing to container creation
-            any_opening = False
-            for f in opening_forms:
-                cur_id = f.cleaned_data["currency_id"]
-                amount = Decimal(f.cleaned_data.get("amount") or 0)
-                if amount == 0:
-                    continue
-                cur = next(x for x in currencies if x.id == cur_id)
+        # ===== create container (ref_code allocated safely) =====
+        container: MoneyContainer = form.save(commit=False)
+        container.created_by = request.user
 
-                if amount > 0:
-                    FSV.post_cash_add(
-                        actor=request.user,
-                        container_id=container.id,
-                        currency_code=cur.code,
-                        amount=amount,
-                        note="رصيد افتتاحي",
-                        source_app="financials",
-                        source_model="MoneyContainer",
-                        source_id=str(container.id),
-                    )
-                else:
-                    # allow negative opening (rare, but you said containers can be negative)
-                    FSV.post_cash_withdraw(
-                        actor=request.user,
-                        container_id=container.id,
-                        currency_code=cur.code,
-                        amount=abs(amount),
-                        note="رصيد افتتاحي (سالب)",
-                        source_app="financials",
-                        source_model="MoneyContainer",
-                        source_id=str(container.id),
-                    )
+        # allocate readable ref_code (CASH-01 / SAFE-01 / BANK-01 style)
+        # retry a few times in case of rare race
+        for _ in range(5):
+            try:
+                container.ref_code = FSV.alloc_ref_code(container_type=container.container_type)
+                container.save()
+                break
+            except IntegrityError:
+                continue
+        else:
+            # if we failed 5 times, something is wrong
+            raise IntegrityError("Failed to allocate unique ref_code for MoneyContainer")
 
-                any_opening = True
+        # ===== ensure per-currency state rows exist =====
+        FSV.ensure_currency_states(container=container)
 
-            messages.success(request, "تم إنشاء الحاوية بنجاح." + (" (مع رصيد افتتاحي)" if any_opening else ""))
-            return redirect("financials:container_list")
+        # ===== enable/disable currencies based on form =====
+        selected_currencies = list(form.cleaned_data["currencies"])
+        selected_ids = {c.id for c in selected_currencies}
+        selected_codes = {c.code for c in selected_currencies}
 
-        messages.error(request, "في أخطاء بالنموذج. راجع القيم وحاول مرة ثانية.")
-    else:
-        form = MoneyContainerForm()
-        opening_forms = build_opening_formset(currencies=currencies, data=None)
+        # disable all then enable selected (single source of truth)
+        MoneyContainerCurrency.objects.filter(container=container).update(is_enabled=False)
+        MoneyContainerCurrency.objects.filter(container=container, currency_id__in=selected_ids).update(is_enabled=True)
+
+        # ===== M2M =====
+        container.features.set(form.cleaned_data.get("features"))
+        container.allowed_users.set(form.cleaned_data.get("allowed_users"))
+
+        # ===== Opening balance (backend safety) =====
+        # even if user posts amounts for unchecked currencies, we IGNORE them
+        amounts: Dict[str, Decimal] = {}
+        any_nonzero = False
+
+        for f in opening_forms:
+            code = f.cleaned_data["currency_code"]
+            amt = Decimal(f.cleaned_data.get("amount") or 0)
+
+            # ✅ extra safety: ignore unchecked currency amounts
+            if code not in selected_codes:
+                amt = Decimal("0")
+
+            if amt != 0:
+                any_nonzero = True
+
+            amounts[code] = amt
+
+        if any_nonzero:
+            # post_initial_balance will also block disabled currencies,
+            # but we already zeroed unchecked ones anyway.
+            FSV.post_initial_balance(
+                actor=request.user,
+                container_id=container.id,
+                amounts_by_code=amounts,
+                note="رصيد افتتاحي",
+            )
+
+        messages.success(request, "تم إنشاء الحاوية بنجاح.")
+        return redirect("financials:container_list")
+
+    # ===== GET =====
+    # default: check the 2 main currencies if they exist, otherwise check all
+    preferred_codes = {"SYP", "USD"}
+    initial_currency_ids = [c.id for c in all_currencies if c.code in preferred_codes]
+    if not initial_currency_ids:
+        initial_currency_ids = [c.id for c in all_currencies]
+
+    form = MoneyContainerForm(
+        initial={
+            "is_active": True,
+            "currencies": initial_currency_ids,
+            "container_type": MoneyContainer.ContainerType.DRAWER,
+        }
+    )
+
+    # opening forms should show ALL currencies (UI will disable per checkbox via JS),
+    # backend will ignore unchecked anyway.
+    opening_forms = build_opening_formset(currencies=all_currencies, data=None)
 
     ctx = {
-        **_secondary_menu_ctx("create"),
+        "fin_active": "create",
         "form": form,
-        "currencies": currencies,
+        "currencies": all_currencies,
         "opening_forms": opening_forms,
     }
     return render(request, "financials/manager/container_form.html", ctx)
-
 
 @login_required
 @role_required(AccountProfile.Role.MANAGER)
@@ -121,25 +201,62 @@ def container_create(request: HttpRequest) -> HttpResponse:
 def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
     container = get_object_or_404(MoneyContainer, pk=container_id)
 
+    # always ensure currency state rows exist
+    FSV.ensure_currency_states(container=container)
+
     if request.method == "POST":
         form = MoneyContainerForm(request.POST, instance=container)
+
+        # ✅ MUST be before is_valid()
+        form.fields["ref_code"].disabled = True
+        form.fields["container_type"].disabled = True
+
         if form.is_valid():
-            form.save()
+            # ✅ safer: preserve ref + type even if something slips through
+            obj: MoneyContainer = form.save(commit=False)
+            obj.ref_code = container.ref_code
+            obj.container_type = container.container_type
+            obj.save()
+
+            # m2m
+            obj.features.set(form.cleaned_data.get("features"))
+            obj.allowed_users.set(form.cleaned_data.get("allowed_users"))
+
+            # currency enable/disable
+            selected_ids = set(form.cleaned_data["currencies"].values_list("id", flat=True))
+
+            MoneyContainerCurrency.objects.filter(container=obj).update(is_enabled=False)
+            MoneyContainerCurrency.objects.filter(container=obj, currency_id__in=selected_ids).update(is_enabled=True)
+
             messages.success(request, "تم تعديل الحاوية بنجاح.")
             return redirect("financials:container_list")
-        messages.error(request, "في أخطاء بالنموذج.")
-    else:
-        form = MoneyContainerForm(instance=container)
 
-    balances = FSV.container_balance(container_id=container.id)
+        messages.error(request, "في أخطاء بالنموذج.")
+
+    else:
+        enabled_ids = list(
+            MoneyContainerCurrency.objects
+            .filter(container=container, is_enabled=True, currency__is_active=True)
+            .values_list("currency_id", flat=True)
+        )
+
+        form = MoneyContainerForm(instance=container, initial={
+            "currencies": enabled_ids,
+            # ✅ these 2 lines are the fix:
+            "features": list(container.features.values_list("id", flat=True)),
+            "allowed_users": list(container.allowed_users.values_list("id", flat=True)),
+        })
+
+        form.fields["ref_code"].disabled = True
+        form.fields["container_type"].disabled = True
+
+
     ctx = {
         **_secondary_menu_ctx("list"),
         "form": form,
         "container": container,
-        "balances": balances,
     }
     return render(request, "financials/manager/container_edit.html", ctx)
-
 
 @login_required
 @role_required(AccountProfile.Role.MANAGER)

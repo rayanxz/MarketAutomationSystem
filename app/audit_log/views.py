@@ -495,8 +495,6 @@ def _ui_for_event(ev) -> dict:
         "details": details,
     }
 
-
-
 def _is_owner(user) -> bool:
     if not getattr(user, "is_authenticated", False):
         return False
