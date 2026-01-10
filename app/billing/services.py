@@ -105,7 +105,7 @@ def _default_money_container() -> MoneyContainer:
 
 
 # =======================================================================
-# BILLS (Purchases)
+# BILLS (Purchases) — MULTI CURRENCY, FX SNAPSHOT SAFE
 # =======================================================================
 @transaction.atomic
 def create_bill(
@@ -118,54 +118,102 @@ def create_bill(
     update_product_defaults: bool = False,
     container: ProductContainer | None = None,
     money_container_id: int | None = None,
-    currency_code: str = "SYP",
+    settlement_currency: str = "SYP",   # 🔥 authoritative currency
+    fx_usd_syp: Decimal | None = None,   # 🔥 snapshot FX (SYP per 1 USD)
 ) -> Bill:
     """
-    Create a Bill, increase stock via inventory movements, post GL, and register DebtorDebt.
+    Create a purchase Bill with multi-currency items.
+    - Each BillItem has its own currency (SYP / USD)
+    - Bill stores FX snapshot and per-currency subtotals
+    - Financials posting happens ONLY in settlement_currency
     """
 
+    # -------------------------------
+    # Resolve stock container
+    # -------------------------------
     if container is None:
-        # either default:
         container = ProductContainer.objects.select_for_update().get(code="store")
-        # OR if you prefer strict:
-        # raise ValueError("container is required for purchase bills")
 
-    provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
+    provider = get_object_or_404(
+        Provider.objects.select_for_update(),
+        pk=provider_id,
+    )
+
+    settlement_currency = (settlement_currency or "SYP").upper()
+    if settlement_currency not in ("SYP", "USD"):
+        raise ValueError("Invalid settlement currency")
+
     intended_paid = q3(paid_amount)
     items = list(items)
 
-    bill = Bill(provider=provider, total=DEC0, created_by=actor)
-    bill.save()
+    # -------------------------------
+    # Create empty bill (authoritative shell)
+    # -------------------------------
+    bill = Bill.objects.create(
+        provider=provider,
+        created_by=actor,
+        settlement_currency=settlement_currency,
+        fx_usd_syp=fx_usd_syp,
+        subtotal_syp=DEC0,
+        subtotal_usd=DEC0,
+        grand_total_syp=DEC0,
+        grand_total_usd=DEC0,
+        total=DEC0,
+    )
 
-    # ====== Add items & update stock via inventory layer ======
-    grand = DEC0
+    # -------------------------------
+    # Pre-lock products
+    # -------------------------------
     prod_ids = [int(it["product_id"]) for it in items]
-    products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
+    products = {
+        p.id: p
+        for p in Product.objects.select_for_update().filter(id__in=prod_ids)
+    }
 
+    # -------------------------------
+    # Process items
+    # -------------------------------
     for idx, row in enumerate(items, start=1):
         pid = int(row["product_id"])
-        product = products.get(pid) or get_object_or_404(Product.objects.select_for_update(), pk=pid)
+        product = products.get(pid) or get_object_or_404(
+            Product.objects.select_for_update(), pk=pid
+        )
+
+        item_currency = (row.get("currency") or "SYP").upper()
+        if item_currency not in ("SYP", "USD"):
+            raise ValueError(f"Invalid currency at row {idx}")
 
         unit_idx = 2 if int(row.get("unit_index") or 1) == 2 else 1
+
         qty_raw = Decimal(str(row.get("qty_raw") or "0"))
         if qty_raw <= 0:
             raise ValueError(f"qty must be > 0 at row {idx}")
 
         cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
         price_u1 = q4(Decimal(str(row.get("price") or "0")))
-        total_override_raw = row.get("total_cost")
-        total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
-        # Convert to primary unit
+        total_override_raw = row.get("total_cost")
+        total_override = (
+            Decimal(str(total_override_raw))
+            if total_override_raw not in (None, "")
+            else None
+        )
+
+        # ---- convert to primary unit
         qty_primary = qty_raw
         cf = getattr(product, "conversion_factor", None)
         if unit_idx == 2 and cf:
             qty_primary *= Decimal(str(cf))
         qty_primary = q3(qty_primary)
 
-        line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
+        # ---- line total (in ITEM currency)
+        line_total = (
+            q3(total_override)
+            if total_override and total_override > 0
+            else q3(cost_u1 * qty_primary)
+        )
 
-        # Create the bill item
+        # ---- create bill item
         item = BillItem.objects.create(
             bill=bill,
             product=product,
@@ -174,9 +222,10 @@ def create_bill(
             cost=cost_u1,
             price=price_u1,
             line_total=line_total,
+            currency=item_currency,   # 🔥 NEW FIELD
         )
 
-        # Stock increase via inventory layer (+qty_primary)
+        # ---- inventory movement (currency-agnostic)
         extra_updates: Dict[str, Any] = {}
         if update_product_defaults:
             extra_updates["cost"] = cost_u1
@@ -189,19 +238,53 @@ def create_bill(
             qty_primary=qty_primary,
             unit_cost=cost_u1,
             source_app="billing",
-            source_model="BillItem",   # ⬅️ tie movement to BillItem
-            source_id=str(item.id),         # ⬅️ so FIFO can map back
+            source_model="BillItem",
+            source_id=str(item.id),
             container=container,
             extra_product_updates=extra_updates or None,
         )
 
-        grand += line_total
+        # ---- accumulate subtotals
+        if item_currency == "SYP":
+            bill.subtotal_syp = q3(bill.subtotal_syp + line_total)
+        else:
+            bill.subtotal_usd = q3(bill.subtotal_usd + line_total)
 
-    bill.total = q3(grand)
-    bill.save(update_fields=["total"])
+    # -------------------------------
+    # FX validation & grand totals
+    # -------------------------------
+    if bill.subtotal_usd > DEC0 or bill.subtotal_syp > DEC0:
+        if not fx_usd_syp or fx_usd_syp <= 0:
+            raise ValueError("FX rate is required for multi-currency bills")
 
-    # ====== Create debt ======
+    bill.grand_total_syp = q3(
+        bill.subtotal_syp + (bill.subtotal_usd * fx_usd_syp)
+    )
+    bill.grand_total_usd = q3(
+        bill.subtotal_usd + (bill.subtotal_syp / fx_usd_syp)
+    )
+
+    bill.total = (
+        bill.grand_total_syp
+        if settlement_currency == "SYP"
+        else bill.grand_total_usd
+    )
+
+    bill.save(update_fields=[
+        "subtotal_syp",
+        "subtotal_usd",
+        "grand_total_syp",
+        "grand_total_usd",
+        "total",
+        "fx_usd_syp",
+        "settlement_currency",
+    ])
+
+    # -------------------------------
+    # Debts (UNCHANGED LOGIC)
+    # -------------------------------
     final_paid = _resolve_paid_amount(status, intended_paid, bill.total)
+
     DebtSV.create_debtor_entry(
         provider=provider,
         total=bill.total,
@@ -211,20 +294,22 @@ def create_bill(
         source_id=str(bill.id),
         doc_serial=bill.serial,
     )
-    # ====== FINANCIALS (replace ledger) ======
+
+    # -------------------------------
+    # Financials (settlement currency ONLY)
+    # -------------------------------
     cp = _ensure_provider_cp(provider=provider)
 
-    cash_container = None
-    if money_container_id:
-        cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-    else:
-        cash_container = _default_money_container()
+    cash_container = (
+        MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+        if money_container_id
+        else _default_money_container()
+    )
 
-    # 1) create payable: store owes provider (negative)
     r1 = FinSV.post_counterparty_adjust(
         actor=actor,
         counterparty_id=cp.id,
-        currency_code=currency_code,
+        currency_code=bill.settlement_currency,
         amount_signed=-q3(bill.total),
         note=f"فاتورة شراء #{bill.serial}",
         source_app="billing",
@@ -232,14 +317,13 @@ def create_bill(
         source_id=str(bill.id),
     )
 
-    # 2) cash settlement if paid now (cash leaves drawer => negative)
     r2 = None
     if q3(final_paid) > DEC0:
         r2 = FinSV.post_settlement(
             actor=actor,
             container_id=cash_container.id,
             counterparty_id=cp.id,
-            currency_code=currency_code,
+            currency_code=bill.settlement_currency,
             cash_amount_signed=-q3(final_paid),
             note=f"دفع على فاتورة شراء #{bill.serial}",
             source_app="billing",
@@ -247,8 +331,9 @@ def create_bill(
             source_id=str(bill.id),
         )
 
-
-    # ====== AUDIT (meta-driven UI) ======
+    # -------------------------------
+    # AUDIT
+    # -------------------------------
     log_create(
         actor=actor,
         target=bill,
@@ -262,33 +347,20 @@ def create_bill(
                 "provider_id": provider.id,
                 "provider_name": provider.name,
                 "status": (status or "").lower(),
-                "total": str(q3(bill.total)),
-                "paid_amount": str(q3(final_paid)),
+                "total": str(bill.total),
+                "paid_amount": str(final_paid),
+                "settlement_currency": bill.settlement_currency,
+                "fx": str(bill.fx_usd_syp),
                 "items_count": len(items),
-                "container": (getattr(container, "code", None) if container else None),
             },
             "financials": {
-                "currency": currency_code,
-                "money_container_id": cash_container.id if cash_container else None,
                 "receipt_ids": [r1.id] + ([r2.id] if r2 else []),
-                "receipt_serials": [r1.serial] + ([r2.serial] if r2 else []),
             },
-        },
-        after={
-            # keep this if you still want diff/json later (optional)
-            "serial": bill.serial,
-            "provider_id": provider.id,
-            "provider_name": provider.name,
-            "status": (status or "").lower(),
-            "paid_amount": str(final_paid),
-            "total": str(bill.total),
-            "container": getattr(container, "code", None) if container else None,
-            "items_count": len(items),
         },
     )
 
-
     return bill
+
 
 @transaction.atomic
 def delete_bill(*, actor, bill_id: int) -> None:

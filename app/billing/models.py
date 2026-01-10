@@ -14,6 +14,15 @@ from django.conf import settings
 
 DEC0 = Decimal("0.000")
 
+
+CURRENCY_SYP = "SYP"
+CURRENCY_USD = "USD"
+CURRENCY_CHOICES = (
+    (CURRENCY_SYP, "SYP"),
+    (CURRENCY_USD, "USD"),
+)
+
+
 # =========================
 # Provider
 # =========================
@@ -68,6 +77,36 @@ class Bill(models.Model):
     total      = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
                                      validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)
+
+    from decimal import Decimal
+
+    settlement_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=CURRENCY_SYP,
+        db_index=True,
+    )
+
+    # snapshot: SYP per 1 USD
+    fx_usd_syp = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+
+    subtotal_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+
+    subtotal_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+
 
     class Meta:
         ordering = ["-id"]
@@ -147,6 +186,12 @@ class BillItem(models.Model):
     class UnitIndex(models.IntegerChoices):
         PRIMARY   = 1, "الوحدة الأولى"
         SECONDARY = 2, "الوحدة الثانية"
+    currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=CURRENCY_SYP,
+        db_index=True,
+    )
 
     bill       = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="items")
     product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="bill_items")
