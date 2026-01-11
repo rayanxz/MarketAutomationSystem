@@ -244,10 +244,11 @@
       <thead>
         <tr>
           <th style="width:30%;">المنتج</th>
-          <th>الكلفة/و١</th>
-          <th>السعر/و١</th>
+          <th style="width:10%;">العملة</th>
+          <th>التكلفة/وحدة</th>
+          <th>السعر/وحدة</th>
           <th style="width:18%;">الكمية</th>
-          <th>الكلفة الإجمالية</th>
+          <th>إجمالي التكلفة</th>
           <th></th>
         </tr>
       </thead>
@@ -265,13 +266,22 @@
 
     <div class="foot-left">
       <div class="total-box">
-        <div class="muted">إجمالي الفاتورة</div>
+        <div class="muted">الإجمالي (SYP)</div>
+        <div id="billTotalSyp" class="total-amt">0.00</div>
+      </div>
+      <div class="total-box">
+        <div class="muted">الإجمالي (USD)</div>
+        <div id="billTotalUsd" class="total-amt">0.00</div>
+      </div>
+      <div class="total-box">
+        <div class="muted">إجمالي التسوية (<span id="settleCurLabel">SYP</span>)</div>
         <div id="billTotalBox" class="total-amt">0.00</div>
       </div>
+      <div class="muted" id="grandTotals" style="margin-top:6px;"></div>
 
       <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
         <div class="field" style="max-width:220px;">
-          <label class="muted">Payment currency</label>
+          <label class="muted">عملة التسوية</label>
           <select id="payCurrency" class="input">
             {% for cur in currencies %}
               <option value="{{ cur.code }}">{{ cur.code }}</option>

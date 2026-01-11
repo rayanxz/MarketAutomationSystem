@@ -20,6 +20,12 @@
   const btnAdd   = document.getElementById("btnAddProd");
   const tbody    = document.getElementById("billBody");
   const totalBox = document.getElementById("billTotalBox");
+  const totalSypBox = document.getElementById("billTotalSyp");
+  const totalUsdBox = document.getElementById("billTotalUsd");
+  const grandTotals = document.getElementById("grandTotals");
+  const payCurrency = document.getElementById("payCurrency");
+  const fxBadge = document.getElementById("fxBadge");
+  const settleCurLabel = document.getElementById("settleCurLabel");
 
   // Pay widgets
   const paidInput = document.getElementById("paidAmount");
@@ -41,6 +47,25 @@
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
 
+  function defaultCurForProduct(p){
+    const def = (p.default_currency || "").toUpperCase();
+    if (def === "USD" && p.enable_usd) return "USD";
+    if (def === "SYP" && p.enable_syp) return "SYP";
+    if (p.enable_syp) return "SYP";
+    if (p.enable_usd) return "USD";
+    return "SYP";
+  }
+
+  function defaultCostFor(p, cur){
+    if (cur === "USD") return (p.cost_usd ?? p.cost ?? "");
+    return (p.cost_syp ?? p.cost ?? "");
+  }
+
+  function defaultPriceFor(p, cur){
+    if (cur === "USD") return (p.price_usd ?? p.price ?? "");
+    return (p.price_syp ?? p.price ?? "");
+  }
+
 
   function normalize(items){
     return (items || []).filter(looksLikeProduct).map(p => ({
@@ -58,7 +83,14 @@
       conversion_factor: p.conversion_factor || p.cf || 0,
       matched_unit: p.matched_unit || null,
       cost: p.cost ?? "",
-      price: p.price ?? ""
+      price: p.price ?? "",
+      cost_syp: p.cost_syp ?? "",
+      cost_usd: p.cost_usd ?? "",
+      price_syp: p.price_syp ?? "",
+      price_usd: p.price_usd ?? "",
+      enable_syp: !!p.enable_syp,
+      enable_usd: !!p.enable_usd,
+      default_currency: (p.default_currency || "").toUpperCase(),
     }));
   }
 
@@ -370,11 +402,27 @@ refreshAutoSerial();
     const tr = document.createElement("tr");
     tr.dataset.pid = String(prod.id);
     tr.dataset.cf = cf;
+    tr.dataset.costSyp = prod.cost_syp ?? "";
+    tr.dataset.costUsd = prod.cost_usd ?? "";
+    tr.dataset.priceSyp = prod.price_syp ?? "";
+    tr.dataset.priceUsd = prod.price_usd ?? "";
+    tr.dataset.costBase = prod.cost ?? "";
+    tr.dataset.priceBase = prod.price ?? "";
+
+    const cur = defaultCurForProduct(prod);
+    const curOptions = [];
+    if (prod.enable_syp) curOptions.push(`<option value="SYP" ${cur==="SYP" ? "selected" : ""}>SYP</option>`);
+    if (prod.enable_usd) curOptions.push(`<option value="USD" ${cur==="USD" ? "selected" : ""}>USD</option>`);
+    const lockCurrency = !(prod.enable_syp && prod.enable_usd);
+
+    const costVal = defaultCostFor(prod, cur);
+    const priceVal = defaultPriceFor(prod, cur);
 
     tr.innerHTML = `
       <td class="pname">${prod.name}</td>
-      <td><input name="cost[]" class="input" type="number" step="0.01" value="${prod.cost ?? ""}"></td>
-      <td><input name="price[]" class="input" type="number" step="0.01" value="${prod.price ?? ""}"></td>
+      <td><select name="currency[]" class="input" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select></td>
+      <td><input name="cost[]" class="input" type="number" step="0.01" value="${costVal}"></td>
+      <td><input name="price[]" class="input" type="number" step="0.01" value="${priceVal}"></td>
       <td>
         <div style="display:flex; gap:6px; align-items:center;">
           <input name="qty[]" class="input" type="number" step="0.001" min="0" placeholder="0">
@@ -390,6 +438,28 @@ refreshAutoSerial();
     `;
 
     tr.querySelector(".btn-del")?.addEventListener("click", ()=>{ tr.remove(); recalcBillTotal(); });
+
+    const costInput = tr.querySelector('input[name="cost[]"]');
+    const priceInput = tr.querySelector('input[name="price[]"]');
+    const curSelect = tr.querySelector('select[name="currency[]"]');
+    if (costInput) costInput.dataset.auto = "1";
+    if (priceInput) priceInput.dataset.auto = "1";
+
+    costInput?.addEventListener("input", () => { costInput.dataset.auto = "0"; });
+    priceInput?.addEventListener("input", () => { priceInput.dataset.auto = "0"; });
+    curSelect?.addEventListener("change", () => {
+      const sel = (curSelect.value || "SYP").toUpperCase();
+      if (costInput && costInput.dataset.auto === "1") {
+        const v = (sel === "USD" ? (tr.dataset.costUsd || tr.dataset.costBase || "") : (tr.dataset.costSyp || tr.dataset.costBase || ""));
+        costInput.value = v;
+      }
+      if (priceInput && priceInput.dataset.auto === "1") {
+        const v = (sel === "USD" ? (tr.dataset.priceUsd || tr.dataset.priceBase || "") : (tr.dataset.priceSyp || tr.dataset.priceBase || ""));
+        priceInput.value = v;
+      }
+      recalcBillTotal();
+    });
+
     tr.addEventListener("input", handleRowChange);
     tr.addEventListener("change", handleRowChange);
 
@@ -400,23 +470,45 @@ refreshAutoSerial();
 
   function handleRowChange(e){
     const nm = e.target.name || "";
-    if (nm === "qty[]" || nm === "cost[]" || nm === "total_cost[]" || nm === "qty_unit[]"){ recalcBillTotal(); }
+    if (nm === "qty[]" || nm === "cost[]" || nm === "total_cost[]" || nm === "qty_unit[]" || nm === "currency[]"){ recalcBillTotal(); }
   }
 
   function recalcBillTotal(){
-    let total = 0;
+    let totalSyp = 0;
+    let totalUsd = 0;
     tbody?.querySelectorAll("tr").forEach(tr=>{
       const qty = num(tr.querySelector('input[name="qty[]"]')?.value);
       const cost = num(tr.querySelector('input[name="cost[]"]')?.value);
       const overrideRaw = tr.querySelector('input[name="total_cost[]"]')?.value ?? "";
       const isU2 = tr.querySelector('select[name="qty_unit[]"]')?.value === "u2";
       const cf = num(tr.dataset.cf || "0");
+      const cur = (tr.querySelector('select[name="currency[]"]')?.value || "SYP").toUpperCase();
       let line;
       if (overrideRaw.trim().length) line = num(overrideRaw);
       else line = qty * cost * (isU2 ? (cf || 1) : 1);
-      if (Number.isFinite(line)) total += line;
+      if (Number.isFinite(line)) {
+        if (cur === "USD") totalUsd += line; else totalSyp += line;
+      }
     });
-    if (totalBox) totalBox.textContent = fmt2(total);
+
+    if (totalSypBox) totalSypBox.textContent = fmt2(totalSyp);
+    if (totalUsdBox) totalUsdBox.textContent = fmt2(totalUsd);
+
+    const settleCur = (payCurrency?.value || "SYP").toUpperCase();
+    if (settleCurLabel) settleCurLabel.textContent = settleCur;
+    const settlementTotal = settleCur === "USD" ? totalUsd : totalSyp;
+    if (totalBox) totalBox.textContent = fmt2(settlementTotal);
+
+    const fxVal = parseFloat(String(fxBadge?.textContent || "").replace(/[^0-9.]/g, ""));
+    if (grandTotals){
+      if (Number.isFinite(fxVal) && fxVal > 0){
+        const gSyp = totalSyp + (totalUsd * fxVal);
+        const gUsd = totalUsd + (totalSyp / fxVal);
+        grandTotals.textContent = `إجمالي بالتحويل: ${fmt2(gSyp)} SYP | ${fmt2(gUsd)} USD`;
+      } else {
+        grandTotals.textContent = "";
+      }
+    }
   }
 
   // ======================================================================
@@ -430,6 +522,7 @@ refreshAutoSerial();
   }
   payRadios.forEach(r=> r.addEventListener("change", syncPayUI));
   syncPayUI();
+  payCurrency?.addEventListener("change", recalcBillTotal);
 
   // ======================================================================
   // SAVE handler
@@ -462,7 +555,8 @@ refreshAutoSerial();
     const price = String(tr.querySelector('input[name="price[]"]').value || "0");
     const total_cost_el = tr.querySelector('input[name="total_cost[]"]').value;
     const unit_index = tr.querySelector('select[name="qty_unit[]"]').value === "u2" ? 2 : 1;
-    const row = { product_id, unit_index, qty_raw, cost, price };
+    const currency = (tr.querySelector('select[name="currency[]"]')?.value || "SYP").toUpperCase();
+    const row = { product_id, unit_index, qty_raw, cost, price, currency };
     if (total_cost_el && total_cost_el.trim().length) row.total_cost = String(total_cost_el);
     return row;
   });
