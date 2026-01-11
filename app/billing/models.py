@@ -2,6 +2,7 @@
 from __future__ import annotations
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, transaction, IntegrityError
 from django.db.models import Q, Max
@@ -236,6 +237,14 @@ class BillItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.name} x {self.qty_primary} (#{self.bill.serial or self.bill_id})"
+
+    def clean(self):
+        super().clean()
+        if self.product:
+            if self.currency == CURRENCY_SYP and not self.product.enable_syp:
+                raise ValidationError("SYP is not enabled for this product.")
+            if self.currency == CURRENCY_USD and not self.product.enable_usd:
+                raise ValidationError("USD is not enabled for this product.")
 
 
 # ================================
