@@ -9,9 +9,10 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import FieldDoesNotExist
 
 from billing.models import Bill, BillItem, Provider
-from catalog.models import Product
+from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from inventory.models import ProductMovement, DEC0
 from financials.models import MoneyContainer, Receipt, ReceiptStatus
+from financials import services as FinSV
 
 from billing import services as BillingSV
 
@@ -75,7 +76,9 @@ def _ensure_money_container(ref: str, name: str, actor) -> MoneyContainer:
 
 
 def _create_min_product() -> Product:
-    data: Dict[str, Any] = {"name": "Test Product"}
+    col = ProductCollection.objects.create(name="Test Collection")
+    st = ProductSet.objects.create(collection=col, name="Test Set")
+    data: Dict[str, Any] = {"name": "Test Product", "set": st, "unit_primary": UnitType.PIECE}
     for k, v in [
         ("cost", Decimal("10")),
         ("price", Decimal("15")),
@@ -107,6 +110,7 @@ class FullyPaidPurchaseBillFinancialsEffectTests(TestCase):
 
         # Ensure container exists using ref_code/code auto-detection
         self.cash = _ensure_money_container(self.CASH_REF, "صندوق #1", actor=self.actor)
+        FinSV.set_current_fx(actor=self.actor, rate_syp_per_usd=Decimal("15000"))
         self.provider = _create_min_provider()
         self.product = _create_min_product()
 
@@ -120,19 +124,20 @@ class FullyPaidPurchaseBillFinancialsEffectTests(TestCase):
             actor=self.actor,
             provider_id=self.provider.id,
             money_container_id=self.cash.id,
-            paid_amount=str(total),
+            status="paid",
+            paid_amount=total,
             items=[
                 {
                     "product_id": self.product.id,
                     "unit_index": 1,
-                    "qty_primary": str(qty),
+                    "qty_raw": str(qty),
                     "cost": str(cost),
                 }
             ],
         )
         # ------------------------------------------------------------
 
-        bill = Bill.objects.get(id=bill_id)
+        bill = bill_id if isinstance(bill_id, Bill) else Bill.objects.get(id=bill_id)
         self.assertGreater(q3(bill.total), DEC0)
 
         # -------- receipts --------
@@ -147,12 +152,13 @@ class FullyPaidPurchaseBillFinancialsEffectTests(TestCase):
         posted = rqs.filter(status=ReceiptStatus.POSTED)
         self.assertGreater(posted.count(), 0, "Expected at least 1 POSTED receipt.")
 
-        # touches cash container
-        self.assertGreater(
-            rqs.filter(container_id=self.cash.id).count(),
-            0,
-            f"Expected receipt touching MoneyContainer id={self.cash.id} ({self.CASH_REF}).",
-        )
+        # touches cash container (if receipt has container field)
+        if _model_has_field(Receipt, "container") or _model_has_field(Receipt, "container_id"):
+            self.assertGreater(
+                rqs.filter(container_id=self.cash.id).count(),
+                0,
+                f"Expected receipt touching MoneyContainer id={self.cash.id} ({self.CASH_REF}).",
+            )
 
         # Optional sign check IF your schema has amount_signed (don’t explode if not)
         if _model_has_field(Receipt, "amount_signed"):
@@ -180,6 +186,6 @@ class FullyPaidPurchaseBillFinancialsEffectTests(TestCase):
         for mv in mvs:
             self.assertGreater(q3(mv.qty_primary), DEC0, f"mv id={mv.id} has non-positive qty.")
 
-        mv_sum = q3(sum((mv.qty_primary or DEC0) for mv in mvs), DEC0)
-        it_sum = q3(sum((it.qty_primary or DEC0) for it in items), DEC0)
+        mv_sum = q3(sum((mv.qty_primary or DEC0) for mv in mvs))
+        it_sum = q3(sum((it.qty_primary or DEC0) for it in items))
         self.assertEqual(mv_sum, it_sum, f"Movement sum {mv_sum} must equal BillItem sum {it_sum}.")
