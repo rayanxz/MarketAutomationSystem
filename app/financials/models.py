@@ -68,6 +68,10 @@ class MoneyContainer(models.Model):
         related_name="financials_allowed_containers",
     )
 
+    # Per-currency balances (legacy single balance does not exist here)
+    balance_syp = models.DecimalField(max_digits=18, decimal_places=2, default=DEC0)
+    balance_usd = models.DecimalField(max_digits=18, decimal_places=2, default=DEC0)
+
     class Meta:
         ordering = ["name"]
 
