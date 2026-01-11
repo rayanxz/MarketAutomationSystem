@@ -430,6 +430,13 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
             "conversion_factor": getattr(p, "conversion_factor", 0) or 0,
             "price": getattr(p, "price", None),
             "cost": getattr(p, "cost", None),
+            "price_syp": getattr(p, "price_syp", None),
+            "price_usd": getattr(p, "price_usd", None),
+            "cost_syp": getattr(p, "cost_syp", None),
+            "cost_usd": getattr(p, "cost_usd", None),
+            "enable_syp": bool(getattr(p, "enable_syp", True)),
+            "enable_usd": bool(getattr(p, "enable_usd", False)),
+            "default_currency": getattr(p, "default_currency", None),
             "matched_unit": matched_unit,
         })
 
