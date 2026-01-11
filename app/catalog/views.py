@@ -83,6 +83,13 @@ def _snap_product(p: Product) -> dict:
             "conversion_factor",
             "cost",
             "price",
+            "cost_syp",
+            "cost_usd",
+            "price_syp",
+            "price_usd",
+            "enable_syp",
+            "enable_usd",
+            "default_currency",
             "notes",
         ],
     )
@@ -590,6 +597,13 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             conversion_factor=form.cleaned_data["conversion_factor"],
             cost=form.cleaned_data["cost"],
             price=form.cleaned_data["price"],
+            cost_syp=form.cleaned_data.get("cost_syp"),
+            cost_usd=form.cleaned_data.get("cost_usd"),
+            price_syp=form.cleaned_data.get("price_syp"),
+            price_usd=form.cleaned_data.get("price_usd"),
+            enable_syp=bool(form.cleaned_data.get("enable_syp")),
+            enable_usd=bool(form.cleaned_data.get("enable_usd")),
+            default_currency=form.cleaned_data.get("default_currency") or None,
             notes=form.cleaned_data["notes"] or "",
         )
 
@@ -849,6 +863,13 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         p.conversion_factor = form.cleaned_data["conversion_factor"]
         p.cost = form.cleaned_data["cost"]
         p.price = form.cleaned_data["price"]
+        p.cost_syp = form.cleaned_data.get("cost_syp")
+        p.cost_usd = form.cleaned_data.get("cost_usd")
+        p.price_syp = form.cleaned_data.get("price_syp")
+        p.price_usd = form.cleaned_data.get("price_usd")
+        p.enable_syp = bool(form.cleaned_data.get("enable_syp"))
+        p.enable_usd = bool(form.cleaned_data.get("enable_usd"))
+        p.default_currency = form.cleaned_data.get("default_currency") or None
         p.notes = form.cleaned_data["notes"] or ""
 
         try:
@@ -954,6 +975,13 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "conversion_factor": p.conversion_factor,
         "cost": p.cost,
         "price": p.price,
+        "cost_syp": p.cost_syp,
+        "cost_usd": p.cost_usd,
+        "price_syp": p.price_syp,
+        "price_usd": p.price_usd,
+        "enable_syp": p.enable_syp,
+        "enable_usd": p.enable_usd,
+        "default_currency": p.default_currency or "",
         "notes": p.notes or "",
         "barcodes_u1": "",
         "barcodes_u2": "",

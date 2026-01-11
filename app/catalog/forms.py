@@ -13,6 +13,7 @@ from catalog.models import (
     ProductBarcode,
     Product,
 )
+from core.currency import CURRENCY_CHOICES, SYP
 
 # =========================
 #    Collections (زُمَر)
@@ -77,10 +78,10 @@ class ProductCreateForm(forms.Form):
         self.fields["notes"].widget.attrs.setdefault("dir", "rtl")
 
         # Match decimal_places=4 so browsers don't fight the user
-        for n in ("cost", "price", "conversion_factor", "stock_qty"):
+        for n in ("cost", "price", "cost_syp", "cost_usd", "price_syp", "price_usd", "conversion_factor", "stock_qty"):
             if n in self.fields:
                 self.fields[n].widget.attrs.setdefault("class", "input")
-                if n in ("cost", "price", "conversion_factor"):
+                if n in ("cost", "price", "conversion_factor", "cost_syp", "cost_usd", "price_syp", "price_usd"):
                     self.fields[n].widget.attrs.setdefault("step", "0.0001")
 
     # ---------- Hierarchy ----------
@@ -105,6 +106,19 @@ class ProductCreateForm(forms.Form):
 
     cost = forms.DecimalField(label="الكلفة", max_digits=12, decimal_places=4, min_value=0)
     price = forms.DecimalField(label="السعر", max_digits=12, decimal_places=4, min_value=0)
+
+    cost_syp = forms.DecimalField(label="Cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    cost_usd = forms.DecimalField(label="Cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    price_syp = forms.DecimalField(label="Price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    price_usd = forms.DecimalField(label="Price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+
+    enable_syp = forms.BooleanField(label="Enable SYP", required=False, initial=True)
+    enable_usd = forms.BooleanField(label="Enable USD", required=False)
+    default_currency = forms.ChoiceField(
+        label="Default currency",
+        choices=[("", "----")] + list(CURRENCY_CHOICES),
+        required=False,
+    )
 
     notes = forms.CharField(
         label="ملاحظات",
@@ -176,6 +190,22 @@ class ProductCreateForm(forms.Form):
                     self.add_error("barcodes_u1", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u1)}")
                 if offending_u2:
                     self.add_error("barcodes_u2", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u2)}")
+
+        # Currency rules
+        enable_syp = bool(cleaned.get("enable_syp"))
+        enable_usd = bool(cleaned.get("enable_usd"))
+        default_currency = cleaned.get("default_currency") or None
+
+        if not enable_syp and not enable_usd:
+            self.add_error(None, "At least one currency must be enabled.")
+        if enable_syp and not enable_usd:
+            cleaned["default_currency"] = SYP
+        if default_currency and default_currency not in ("SYP", "USD"):
+            self.add_error("default_currency", "Invalid currency.")
+        if default_currency == "SYP" and not enable_syp:
+            self.add_error("default_currency", "Default currency must be enabled.")
+        if default_currency == "USD" and not enable_usd:
+            self.add_error("default_currency", "Default currency must be enabled.")
 
         # Price vs cost (optional business rule)
         cost = cleaned.get("cost")

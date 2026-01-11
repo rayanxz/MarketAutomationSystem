@@ -6,6 +6,8 @@ from django.core.validators import MinValueValidator, RegexValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models.functions import Lower
 
+from core.currency import CURRENCY_CHOICES, SYP, USD
+
 # =========================
 #   Collections (زُمَر)
 # =========================
@@ -142,6 +144,22 @@ class Product(models.Model):
     cost = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     price = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
 
+    # Currency-aware defaults (per-unit in primary unit)
+    cost_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    cost_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    price_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    price_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+
+    enable_syp = models.BooleanField(default=True)
+    enable_usd = models.BooleanField(default=False)
+
+    default_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        null=True,
+        blank=True,
+    )
+
     notes = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -193,6 +211,22 @@ class Product(models.Model):
         else:
             # when there is no second unit, wipe optional factor
             self.conversion_factor = None
+
+        # Currency enable/disable rules
+        if not self.enable_syp and not self.enable_usd:
+            raise ValidationError("At least one currency must be enabled.")
+
+        enabled = []
+        if self.enable_syp:
+            enabled.append(SYP)
+        if self.enable_usd:
+            enabled.append(USD)
+
+        if len(enabled) == 1:
+            self.default_currency = enabled[0]
+
+        if self.default_currency and self.default_currency not in enabled:
+            raise ValidationError("Default currency must be enabled on the product.")
 
     def save(self, *args, **kwargs):
         # validate + normalize first
