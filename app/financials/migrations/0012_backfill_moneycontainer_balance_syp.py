@@ -19,12 +19,12 @@ def forwards(apps, schema_editor):
             return
 
         cursor.execute(
-            f\"\"\"
+            f"""
             UPDATE {table}
             SET balance_syp = balance
             WHERE balance IS NOT NULL
               AND (balance_syp IS NULL OR balance_syp = 0)
-            \"\"\"
+            """
         )
 
 
