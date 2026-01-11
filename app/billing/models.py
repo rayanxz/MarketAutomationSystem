@@ -8,6 +8,7 @@ from django.db.models import Q, Max
 from django.db.models.functions import Lower
 
 from catalog.models import Product
+from core.currency import CURRENCY_CHOICES, SYP as CURRENCY_SYP, USD as CURRENCY_USD
 
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
 from django.conf import settings
@@ -15,12 +16,6 @@ from django.conf import settings
 DEC0 = Decimal("0.000")
 
 
-CURRENCY_SYP = "SYP"
-CURRENCY_USD = "USD"
-CURRENCY_CHOICES = (
-    (CURRENCY_SYP, "SYP"),
-    (CURRENCY_USD, "USD"),
-)
 
 
 # =========================
@@ -107,6 +102,37 @@ class Bill(models.Model):
         default=Decimal("0.000"),
     )
 
+    # per-currency totals (authoritative split)
+    total_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+    total_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+
+    # fx snapshot at creation time (SYP per 1 USD)
+    fx_rate_usd_to_syp_used = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+
+    # totals after FX normalization (keep for current services)
+    grand_total_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+    grand_total_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
 
     class Meta:
         ordering = ["-id"]
