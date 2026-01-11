@@ -297,6 +297,7 @@ def create_bill(
 
     _recalc_bill_currency_totals(bill=bill)
 
+    # Grand totals include FX conversions (for reporting only).
     bill.grand_total_syp = q3(
         bill.total_syp + (bill.total_usd * fx_snapshot)
     )
@@ -304,7 +305,7 @@ def create_bill(
         bill.total_usd + (bill.total_syp / fx_snapshot)
     )
 
-    # Legacy total remains SYP-based for backward compatibility.
+    # Legacy total remains SYP-only for backward compatibility.
     bill.total = bill.total_syp
 
     bill.save(update_fields=[
@@ -324,13 +325,21 @@ def create_bill(
     # Debts (per currency)
     # -------------------------------
     status_norm = (status or "").lower().strip()
-    final_paid_syp = _resolve_paid_amount(status, intended_paid, bill.total_syp)
-    final_paid_usd = bill.total_usd if status_norm == "paid" else DEC0
+    if bill.settlement_currency == "USD":
+        paid_syp = DEC0
+        paid_usd = _resolve_paid_amount(status, intended_paid, bill.total_usd)
+    else:
+        paid_syp = _resolve_paid_amount(status, intended_paid, bill.total_syp)
+        paid_usd = DEC0
+
+    if status_norm == "paid":
+        paid_syp = q3(bill.total_syp)
+        paid_usd = q3(bill.total_usd)
 
     DebtSV.create_debtor_entry(
         provider=provider,
         total=bill.total_syp,
-        paid_amount=final_paid_syp,
+        paid_amount=paid_syp,
         source_app="billing",
         source_model="Bill",
         source_id=str(bill.id),
@@ -341,7 +350,7 @@ def create_bill(
         DebtSV.create_debtor_entry(
             provider=provider,
             total=bill.total_usd,
-            paid_amount=final_paid_usd,
+            paid_amount=paid_usd,
             source_app="billing",
             source_model="Bill",
             source_id=f"{bill.id}:USD",
@@ -351,7 +360,7 @@ def create_bill(
     # -------------------------------
     # Financials (settlement currency ONLY)
     # -------------------------------
-    final_paid = final_paid_syp
+    final_paid = paid_usd if bill.settlement_currency == "USD" else paid_syp
     cp = _ensure_provider_cp(provider=provider)
 
     cash_container = (
@@ -360,7 +369,8 @@ def create_bill(
         else _default_money_container()
     )
 
-    # full payment: adjust container balances per currency
+    # Full payment: adjust container balances per currency.
+    # Note: financials postings are ledger-only and do not mutate MoneyContainer balances.
     if status_norm == "paid":
         _apply_container_balance_split(
             container=cash_container,
