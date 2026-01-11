@@ -86,6 +86,21 @@ def _recalc_bill_currency_totals(*, bill: Bill) -> None:
     bill.subtotal_syp = bill.total_syp
     bill.subtotal_usd = bill.total_usd
 
+def _apply_container_balance_split(
+    *,
+    container: MoneyContainer,
+    delta_syp: Decimal,
+    delta_usd: Decimal,
+) -> None:
+    """
+    Apply per-currency deltas to MoneyContainer balances.
+    """
+    if delta_syp:
+        container.balance_syp = q3((container.balance_syp or DEC0) + q3(delta_syp))
+    if delta_usd:
+        container.balance_usd = q3((container.balance_usd or DEC0) + q3(delta_usd))
+    container.save(update_fields=["balance_syp", "balance_usd"])
+
 def _ensure_provider_cp(*, provider: Provider) -> Counterparty:
     marker = f"[provider_id={provider.id}]"
 
@@ -322,6 +337,7 @@ def create_bill(
     # -------------------------------
     # Financials (settlement currency ONLY)
     # -------------------------------
+    status_norm = (status or "").lower().strip()
     cp = _ensure_provider_cp(provider=provider)
 
     cash_container = (
@@ -329,6 +345,14 @@ def create_bill(
         if money_container_id
         else _default_money_container()
     )
+
+    # full payment: adjust container balances per currency
+    if status_norm == "paid":
+        _apply_container_balance_split(
+            container=cash_container,
+            delta_syp=-q3(bill.total_syp or DEC0),
+            delta_usd=-q3(bill.total_usd or DEC0),
+        )
 
     r1 = FinSV.post_counterparty_adjust(
         actor=actor,
