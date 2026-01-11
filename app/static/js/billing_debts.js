@@ -48,14 +48,18 @@
 
   const mBatch        = el("#modal-batch");
   const mBatchText    = el("#batch-text");
-  const mBatchHint    = el("#batch-hint");
-  const mBatchAmount  = el("#batch-amount");
+  const mBatchSypField = el("#batch-syp-field");
+  const mBatchUsdField = el("#batch-usd-field");
+  const mBatchSypHint  = el("#batch-hint-syp");
+  const mBatchUsdHint  = el("#batch-hint-usd");
+  const mBatchSypInput = el("#batch-amount-syp");
+  const mBatchUsdInput = el("#batch-amount-usd");
   const mBatchConfirm = qs('[data-confirm]', mBatch);
   const mBatchClose   = qs('[data-close]',   mBatch);
 
   // ========================= State =========================
   let cursor = null, busy = false, done = false;
-  let target = { id: null, manual: false, provider: "", remaining: 0 };
+  let target = { id: null, manual: false, provider: "", remaining: 0, entries: {} };
 
   // ========================= Tiny utils =========================
   function el(s){ return document.querySelector(s); }
@@ -99,6 +103,16 @@
     return "مورد";
   }
 
+  function currencyFromDocId(docId){
+    const s = String(docId || "").toUpperCase();
+    return s.includes(":USD") ? "USD" : "SYP";
+  }
+
+  function billKeyFromDocId(docId){
+    const s = String(docId || "");
+    return s.includes(":") ? s.split(":")[0] : s;
+  }
+
   // Normalize a row (works for debtor & creditor; manual or document)
   function normalizeRow(src){
     const serial    = src.serial ?? src.doc_serial ?? "";
@@ -112,10 +126,15 @@
     const status    = (src.status || "").toLowerCase();
 
     // bill/return id vs manual entry id is already handled by backend serializer "id"
-    const idForAction = src.id ?? src.bill_id ?? src.source_id ?? null;
+    const docId = src.id ?? src.bill_id ?? src.source_id ?? null;
+    const entryId = src.entry_id ?? src.id ?? null;
+    const currency = currencyFromDocId(docId);
+    const billKey = billKeyFromDocId(docId);
 
     return {
-      id: idForAction,
+      id: docId,
+      entryId,
+      billKey,
       serial,
       partyType,
       partyName,
@@ -124,6 +143,7 @@
       remaining,
       status,
       manual: !!src.manual,
+      currency,
     };
   }
 
@@ -149,12 +169,17 @@
     return `
       <tr class="${statusClass(b.status)}"
           data-id="${escapeHtml(String(b.id ?? ""))}"
+          data-entry-id="${escapeHtml(String(b.entryId ?? ""))}"
+          data-bill-key="${escapeHtml(String(b.billKey ?? ""))}"
+          data-currency="${escapeHtml(String(b.currency ?? ""))}"
           data-provider="${escapeHtml(b.partyName)}"
+          data-total="${escapeHtml(String(b.total))}"
           data-remaining="${escapeHtml(String(b.remaining))}"
           data-manual="${b.manual ? "true" : "false"}">
         <td>${escapeHtml(String(b.serial ?? ""))}</td>
         <td>${escapeHtml(arType(b.partyType))}</td>
         <td>${escapeHtml(b.partyName)}</td>
+        <td>${escapeHtml(b.currency)}</td>
         <td>${nf(b.total)}</td>
         <td>${nf(b.paid)}</td>
         <td>${nf(b.remaining)}</td>
@@ -225,36 +250,62 @@
 
     const role = (fRole?.value || "debtor");
     target.id        = tr.getAttribute("data-id");
+    target.entryId   = tr.getAttribute("data-entry-id");
     target.provider  = tr.getAttribute("data-provider") || "";
     target.remaining = parseFloat(tr.getAttribute("data-remaining") || "0");
     target.manual    = (tr.getAttribute("data-manual") === "true");
+    target.entries   = {};
+
+    if (role === "debtor" && !target.manual){
+      const billKey = tr.getAttribute("data-bill-key");
+      const all = [...rows.querySelectorAll(`tr[data-bill-key="${billKey}"]`)];
+      all.forEach(r => {
+        if ((r.getAttribute("data-manual") || "") !== "false") return;
+        const cur = (r.getAttribute("data-currency") || "SYP").toUpperCase();
+        target.entries[cur] = {
+          entryId: r.getAttribute("data-entry-id"),
+          total: parseFloat(r.getAttribute("data-total") || "0"),
+          remaining: parseFloat(r.getAttribute("data-remaining") || "0"),
+        };
+      });
+    }
 
     if (role === "debtor"){
       if (e.target.classList.contains("js-full")){
-        mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)}؟`;
+        const rs = target.entries["SYP"]?.remaining ?? target.remaining;
+        const ru = target.entries["USD"]?.remaining ?? 0;
+        mFullText.textContent = `U?U, O?U+O? U.O?O?U?O_ U.U+ OÒU,O?O3O_USO_ OÒU,U?OÒU.U, O?U,U% (${target.provider}) O"U.O"U,O? ${nf(rs)} SYP${ru ? ` + ${nf(ru)} USD` : ""}OY`;
         openModal(mFull); return;
       }
       if (e.target.classList.contains("js-batch")){
-        mBatchText.textContent = `أدخل الدفعة للمورد (${target.provider})`;
-        mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
-        mBatchAmount.value = "";
+        mBatchText.textContent = `O?O_OrU, OÒU,O_U?O1Oc U,U,U.U^O?O_ (${target.provider})`;
+        const rs = target.entries["SYP"]?.remaining ?? target.remaining;
+        const ru = target.entries["USD"]?.remaining ?? 0;
+        if (mBatchSypField) mBatchSypField.style.display = (rs > 0 ? "block" : "none");
+        if (mBatchUsdField) mBatchUsdField.style.display = (ru > 0 ? "block" : "none");
+        if (mBatchSypHint) mBatchSypHint.textContent = `OÒU,U.O?O"U,US: ${nf(rs)}`;
+        if (mBatchUsdHint) mBatchUsdHint.textContent = `OÒU,U.O?O"U,US: ${nf(ru)}`;
+        if (mBatchSypInput) mBatchSypInput.value = "";
+        if (mBatchUsdInput) mBatchUsdInput.value = "";
         openModal(mBatch); return;
       }
     } else {
       if (e.target.classList.contains("js-collect-full")){
-        mFullText.textContent = `هل أنت متأكد من تحصيل ${nf(target.remaining)} بالكامل من (${target.provider})؟`;
+        mFullText.textContent = `U?U, O?U+O? U.O?O?U?O_ U.U+ O?O-O?USU, ${nf(target.remaining)} O"OÒU,U?OÒU.U, U.U+ (${target.provider})OY`;
         openModal(mFull); return;
       }
       if (e.target.classList.contains("js-collect-batch")){
-        mBatchText.textContent = `أدخل التحصيل من المورد (${target.provider})`;
-        mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
-        mBatchAmount.value = "";
+        mBatchText.textContent = `O?O_OrU, OÒU,O?O-O?USU, U.U+ OÒU,U.U^O?O_ (${target.provider})`;
+        if (mBatchSypField) mBatchSypField.style.display = "block";
+        if (mBatchUsdField) mBatchUsdField.style.display = "none";
+        if (mBatchSypHint) mBatchSypHint.textContent = `OÒU,U.O?O"U,US: ${nf(target.remaining)}`;
+        if (mBatchSypInput) mBatchSypInput.value = "";
         openModal(mBatch); return;
       }
     }
   });
 
-  // ========================= Modals open/close =========================
+// ========================= Modals open/close =========================
   function openModal(m){ m.classList.add("open"); m.setAttribute("aria-hidden", "false"); }
   function closeModal(m){ m.classList.remove("open"); m.setAttribute("aria-hidden", "true"); }
 
@@ -286,39 +337,77 @@
   }
 
   // ========================= Confirm handlers =========================
+  async function postBatch(entryId, amount){
+    const form = new FormData();
+    form.append("amount", String(amount));
+    const url = `/manager/debts/api/entry/debtor/${entryId}/pay-batch/`;
+    const resp = await fetch(url, { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+    const data = await resp.json().catch(()=>({ok:false}));
+    if (!data.ok) throw new Error(data.error || "server error");
+  }
+
   mFullConfirm?.addEventListener("click", async () => {
     if (!target.id) return;
     const url = urlForConfirmFull();
     try{
-      const resp = await fetch(url, { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
-      const data = await resp.json().catch(()=>({ok:false}));
-      if (data.ok){ closeModal(mFull); load(true); }
-      else{ alert(data.error || "خطأ غير متوقع"); }
+      if ((fRole?.value || "debtor") === "debtor" && !target.manual){
+        const rs = target.entries["SYP"]?.remaining ?? 0;
+        const ru = target.entries["USD"]?.remaining ?? 0;
+        const tasks = [];
+        if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postBatch(target.entries["SYP"].entryId, rs));
+        if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postBatch(target.entries["USD"].entryId, ru));
+        if (!tasks.length){ alert("OÒU,O_U?O1 O?USO? U.U+O?OÒO?O?."); return; }
+        await Promise.all(tasks);
+        closeModal(mFull); load(true);
+      } else {
+        const resp = await fetch(url, { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+        const data = await resp.json().catch(()=>({ok:false}));
+        if (data.ok){ closeModal(mFull); load(true); }
+        else{ alert(data.error || "OrO?O? O?USO? U.O?U^U,O1"); }
+      }
     }catch{
-      alert("فشل الاتصال بالخادم");
+      alert("U?O'U, OÒU,OÒO?O?OÒU, O"OÒU,OrOÒO_U.");
     }
   });
 
   mBatchConfirm?.addEventListener("click", async () => {
-    const v = parseFloat(mBatchAmount.value || "0");
-    if (!(v > 0)){ alert("أدخل قيمة موجبة."); return; }
-    if (v > target.remaining + 1e-9){ alert("القيمة تتجاوز المبلغ المتبقي."); return; }
-
-    const url  = urlForConfirmBatch();
-    const form = new FormData();
-    form.append("amount", String(v));
-
     try{
-      const resp = await fetch(url, { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
-      const data = await resp.json().catch(()=>({ok:false}));
-      if (data.ok){ closeModal(mBatch); load(true); }
-      else{ alert(data.error || "خطأ غير متوقع"); }
+      if ((fRole?.value || "debtor") === "debtor" && !target.manual){
+        const rs = parseFloat(mBatchSypInput?.value || "0") || 0;
+        const ru = parseFloat(mBatchUsdInput?.value || "0") || 0;
+        const maxS = target.entries["SYP"]?.remaining ?? 0;
+        const maxU = target.entries["USD"]?.remaining ?? 0;
+
+        if (rs < 0 || ru < 0){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
+        if (rs > maxS + 1e-9){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
+        if (ru > maxU + 1e-9){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
+        if (!(rs > 0 || ru > 0)){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
+
+        const tasks = [];
+        if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postBatch(target.entries["SYP"].entryId, rs));
+        if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postBatch(target.entries["USD"].entryId, ru));
+        await Promise.all(tasks);
+        closeModal(mBatch); load(true);
+      } else {
+        const v = parseFloat(mBatchSypInput?.value || "0") || 0;
+        if (!(v > 0)){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
+        if (v > target.remaining + 1e-9){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
+
+        const url  = urlForConfirmBatch();
+        const form = new FormData();
+        form.append("amount", String(v));
+
+        const resp = await fetch(url, { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+        const data = await resp.json().catch(()=>({ok:false}));
+        if (data.ok){ closeModal(mBatch); load(true); }
+        else{ alert(data.error || "OrO?O? O?USO? U.O?U^U,O1"); }
+      }
     }catch{
-      alert("فشل الاتصال بالخادم");
+      alert("U?O'U, OÒU,OÒO?O?OÒU, O"OÒU,OrOÒO_U.");
     }
   });
 
-  // ========================= Prefill & Kickoff =========================
+// ========================= Prefill & Kickoff =========================
   (function prefillFromUrl(){
     const p = new URLSearchParams(location.search);
     if (p.has("serial") && fSerial) fSerial.value = p.get("serial");

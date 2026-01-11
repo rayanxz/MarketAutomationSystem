@@ -98,6 +98,7 @@
          <th style="width:120px;">سيريال</th>
          <th style="width:140px;">نوع العميل</th>
          <th>الاسم</th>
+         <th style="width:100px;">??????</th>
          <th style="width:160px;">الإجمالي</th>
          <th style="width:160px;">المدفوع</th>
          <th style="width:160px;">المتبقي</th>
@@ -134,8 +135,14 @@
     <header>إدخال دفعة</header>
     <div class="body">
       <p id="batch-text" style="margin:0 0 8px;"></p>
-      <input id="batch-amount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
-      <small id="batch-hint" class="muted"></small>
+      <div id="batch-syp-field" style="margin-bottom:8px;">
+        <input id="batch-amount-syp" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+        <small id="batch-hint-syp" class="muted"></small>
+      </div>
+      <div id="batch-usd-field" style="margin-bottom:8px;">
+        <input id="batch-amount-usd" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+        <small id="batch-hint-usd" class="muted"></small>
+      </div>
     </div>
     <footer>
       <button class="btn" data-close>إلغاء</button>
