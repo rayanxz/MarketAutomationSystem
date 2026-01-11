@@ -457,9 +457,9 @@ def delete_bill(*, actor, bill_id: int) -> None:
         "serial": bill.serial,
         "provider_id": bill.provider_id,
         "provider_name": bill.provider.name if bill.provider_id else "",
-                "total": str(settlement_total),
-                "total_syp": str(bill.total_syp),
-                "total_usd": str(bill.total_usd),
+        "total": str(q3(bill.total or DEC0)),
+        "total_syp": str(q3(getattr(bill, "total_syp", DEC0) or DEC0)),
+        "total_usd": str(q3(getattr(bill, "total_usd", DEC0) or DEC0)),
         "items": [
             {"id": it.id, "product_id": it.product_id, "qty_primary": str(q3(it.qty_primary or DEC0)), "cost": str(q4(it.cost or DEC0))}
             for it in bill.items.all()
