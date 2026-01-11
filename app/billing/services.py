@@ -66,6 +66,26 @@ def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal) ->
         intended = total
     return intended
 
+def _recalc_bill_currency_totals(*, bill: Bill) -> None:
+    """
+    Recalculate per-currency totals from bill items.
+    Updates bill.total_syp / bill.total_usd and mirrors subtotals.
+    """
+    total_syp = DEC0
+    total_usd = DEC0
+    for it in bill.items.all():
+        cur = (it.currency or "SYP").upper()
+        amt = q3(it.line_total or DEC0)
+        if cur == "USD":
+            total_usd = q3(total_usd + amt)
+        else:
+            total_syp = q3(total_syp + amt)
+
+    bill.total_syp = q3(total_syp)
+    bill.total_usd = q3(total_usd)
+    bill.subtotal_syp = bill.total_syp
+    bill.subtotal_usd = bill.total_usd
+
 def _ensure_provider_cp(*, provider: Provider) -> Counterparty:
     marker = f"[provider_id={provider.id}]"
 
@@ -146,6 +166,10 @@ def create_bill(
     intended_paid = q3(paid_amount)
     items = list(items)
 
+    fx_snapshot = Decimal(str(fx_usd_syp)) if fx_usd_syp is not None else None
+    if fx_snapshot is None:
+        fx_snapshot = q3(FinSV.get_current_fx_syp_per_usd())
+
     # -------------------------------
     # Create empty bill (authoritative shell)
     # -------------------------------
@@ -153,7 +177,8 @@ def create_bill(
         provider=provider,
         created_by=actor,
         settlement_currency=settlement_currency,
-        fx_usd_syp=fx_usd_syp,
+        fx_usd_syp=fx_snapshot,
+        fx_rate_usd_to_syp_used=fx_snapshot,
         subtotal_syp=DEC0,
         subtotal_usd=DEC0,
         grand_total_syp=DEC0,
@@ -179,7 +204,11 @@ def create_bill(
             Product.objects.select_for_update(), pk=pid
         )
 
-        item_currency = (row.get("currency") or "SYP").upper()
+        item_currency = (row.get("currency") or "").upper()
+        if not item_currency:
+            item_currency = (product.default_currency or "").upper()
+        if not item_currency:
+            item_currency = "SYP" if product.enable_syp else "USD"
         if item_currency not in ("SYP", "USD"):
             raise ValueError(f"Invalid currency at row {idx}")
 
@@ -244,39 +273,34 @@ def create_bill(
             extra_product_updates=extra_updates or None,
         )
 
-        # ---- accumulate subtotals
-        if item_currency == "SYP":
-            bill.subtotal_syp = q3(bill.subtotal_syp + line_total)
-        else:
-            bill.subtotal_usd = q3(bill.subtotal_usd + line_total)
+    # -------------------------------
+    # FX validation & totals
+    # -------------------------------
+    if fx_snapshot is None or fx_snapshot <= 0:
+        raise ValueError("FX rate is required for multi-currency bills")
 
-    # -------------------------------
-    # FX validation & grand totals
-    # -------------------------------
-    if bill.subtotal_usd > DEC0 or bill.subtotal_syp > DEC0:
-        if not fx_usd_syp or fx_usd_syp <= 0:
-            raise ValueError("FX rate is required for multi-currency bills")
+    _recalc_bill_currency_totals(bill=bill)
 
     bill.grand_total_syp = q3(
-        bill.subtotal_syp + (bill.subtotal_usd * fx_usd_syp)
+        bill.total_syp + (bill.total_usd * fx_snapshot)
     )
     bill.grand_total_usd = q3(
-        bill.subtotal_usd + (bill.subtotal_syp / fx_usd_syp)
+        bill.total_usd + (bill.total_syp / fx_snapshot)
     )
 
-    bill.total = (
-        bill.grand_total_syp
-        if settlement_currency == "SYP"
-        else bill.grand_total_usd
-    )
+    # Legacy total remains SYP-based for backward compatibility.
+    bill.total = bill.total_syp
 
     bill.save(update_fields=[
         "subtotal_syp",
         "subtotal_usd",
         "grand_total_syp",
         "grand_total_usd",
+        "total_syp",
+        "total_usd",
         "total",
         "fx_usd_syp",
+        "fx_rate_usd_to_syp_used",
         "settlement_currency",
     ])
 
