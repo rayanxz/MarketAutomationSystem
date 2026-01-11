@@ -320,24 +320,37 @@ def create_bill(
     ])
 
     # -------------------------------
-    # Debts (UNCHANGED LOGIC)
+    # Debts (per currency)
     # -------------------------------
-    final_paid = _resolve_paid_amount(status, intended_paid, bill.total)
+    status_norm = (status or "").lower().strip()
+    final_paid_syp = _resolve_paid_amount(status, intended_paid, bill.total_syp)
+    final_paid_usd = bill.total_usd if status_norm == "paid" else DEC0
 
     DebtSV.create_debtor_entry(
         provider=provider,
-        total=bill.total,
-        paid_amount=final_paid,
+        total=bill.total_syp,
+        paid_amount=final_paid_syp,
         source_app="billing",
         source_model="Bill",
         source_id=str(bill.id),
         doc_serial=bill.serial,
     )
 
+    if bill.total_usd and bill.total_usd > DEC0:
+        DebtSV.create_debtor_entry(
+            provider=provider,
+            total=bill.total_usd,
+            paid_amount=final_paid_usd,
+            source_app="billing",
+            source_model="Bill",
+            source_id=f"{bill.id}:USD",
+            doc_serial=bill.serial,
+        )
+
     # -------------------------------
     # Financials (settlement currency ONLY)
     # -------------------------------
-    status_norm = (status or "").lower().strip()
+    final_paid = final_paid_syp
     cp = _ensure_provider_cp(provider=provider)
 
     cash_container = (
