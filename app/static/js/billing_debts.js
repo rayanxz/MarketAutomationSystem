@@ -337,11 +337,14 @@
   }
 
   // ========================= Confirm handlers =========================
-  async function postBatch(entryId, amount){
+  function entryPayBatchUrl(entryId){
+    return `/manager/debts/api/entry/debtor/${entryId}/pay-batch/`;
+  }
+
+  async function postPayPartial(entryId, amount){
     const form = new FormData();
     form.append("amount", String(amount));
-    const url = `/manager/debts/api/entry/debtor/${entryId}/pay-batch/`;
-    const resp = await fetch(url, { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+    const resp = await fetch(entryPayBatchUrl(entryId), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
     const data = await resp.json().catch(()=>({ok:false}));
     if (!data.ok) throw new Error(data.error || "server error");
   }
@@ -354,8 +357,8 @@
         const rs = target.entries["SYP"]?.remaining ?? 0;
         const ru = target.entries["USD"]?.remaining ?? 0;
         const tasks = [];
-        if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postBatch(target.entries["SYP"].entryId, rs));
-        if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postBatch(target.entries["USD"].entryId, ru));
+        if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postPayPartial(target.entries["SYP"].entryId, rs));
+        if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postPayPartial(target.entries["USD"].entryId, ru));
         if (!tasks.length){ alert("OÒU,O_U?O1 O?USO? U.U+O?OÒO?O?."); return; }
         await Promise.all(tasks);
         closeModal(mFull); load(true);
@@ -384,8 +387,8 @@
         if (!(rs > 0 || ru > 0)){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
 
         const tasks = [];
-        if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postBatch(target.entries["SYP"].entryId, rs));
-        if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postBatch(target.entries["USD"].entryId, ru));
+        if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postPayPartial(target.entries["SYP"].entryId, rs));
+        if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postPayPartial(target.entries["USD"].entryId, ru));
         await Promise.all(tasks);
         closeModal(mBatch); load(true);
       } else {
