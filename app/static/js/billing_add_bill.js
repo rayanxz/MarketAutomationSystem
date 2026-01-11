@@ -420,7 +420,10 @@ refreshAutoSerial();
 
     tr.innerHTML = `
       <td class="pname">${prod.name}</td>
-      <td><select name="currency[]" class="input" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select></td>
+      <td>
+        <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
+        <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
+      </td>
       <td><input name="cost[]" class="input" type="number" step="0.01" value="${costVal}"></td>
       <td><input name="price[]" class="input" type="number" step="0.01" value="${priceVal}"></td>
       <td>
@@ -441,7 +444,8 @@ refreshAutoSerial();
 
     const costInput = tr.querySelector('input[name="cost[]"]');
     const priceInput = tr.querySelector('input[name="price[]"]');
-    const curSelect = tr.querySelector('select[name="currency[]"]');
+    const curSelect = tr.querySelector('select.cur-ui');
+    const curHidden = tr.querySelector('input.cur-hidden');
     if (costInput) costInput.dataset.auto = "1";
     if (priceInput) priceInput.dataset.auto = "1";
 
@@ -449,6 +453,7 @@ refreshAutoSerial();
     priceInput?.addEventListener("input", () => { priceInput.dataset.auto = "0"; });
     curSelect?.addEventListener("change", () => {
       const sel = (curSelect.value || "SYP").toUpperCase();
+      if (curHidden) curHidden.value = sel;
       if (costInput && costInput.dataset.auto === "1") {
         const v = (sel === "USD" ? (tr.dataset.costUsd || tr.dataset.costBase || "") : (tr.dataset.costSyp || tr.dataset.costBase || ""));
         costInput.value = v;
@@ -482,7 +487,7 @@ refreshAutoSerial();
       const overrideRaw = tr.querySelector('input[name="total_cost[]"]')?.value ?? "";
       const isU2 = tr.querySelector('select[name="qty_unit[]"]')?.value === "u2";
       const cf = num(tr.dataset.cf || "0");
-      const cur = (tr.querySelector('select[name="currency[]"]')?.value || "SYP").toUpperCase();
+      const cur = (tr.querySelector('input.cur-hidden')?.value || tr.querySelector('select.cur-ui')?.value || "SYP").toUpperCase();
       let line;
       if (overrideRaw.trim().length) line = num(overrideRaw);
       else line = qty * cost * (isU2 ? (cf || 1) : 1);
@@ -555,7 +560,7 @@ refreshAutoSerial();
     const price = String(tr.querySelector('input[name="price[]"]').value || "0");
     const total_cost_el = tr.querySelector('input[name="total_cost[]"]').value;
     const unit_index = tr.querySelector('select[name="qty_unit[]"]').value === "u2" ? 2 : 1;
-    const currency = (tr.querySelector('select[name="currency[]"]')?.value || "SYP").toUpperCase();
+    const currency = (tr.querySelector('input.cur-hidden')?.value || tr.querySelector('select.cur-ui')?.value || "SYP").toUpperCase();
     const row = { product_id, unit_index, qty_raw, cost, price, currency };
     if (total_cost_el && total_cost_el.trim().length) row.total_cost = String(total_cost_el);
     return row;
