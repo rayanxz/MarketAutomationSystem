@@ -378,11 +378,12 @@ def create_bill(
             delta_usd=-q3(bill.total_usd or DEC0),
         )
 
+    settlement_total = bill.total_usd if bill.settlement_currency == "USD" else bill.total_syp
     r1 = FinSV.post_counterparty_adjust(
         actor=actor,
         counterparty_id=cp.id,
         currency_code=bill.settlement_currency,
-        amount_signed=-q3(bill.total),
+        amount_signed=-q3(settlement_total),
         note=f"فاتورة شراء #{bill.serial}",
         source_app="billing",
         source_model="Bill",
@@ -390,7 +391,7 @@ def create_bill(
     )
 
     r2 = None
-    if q3(final_paid) > DEC0:
+    if status_norm != "paid" and q3(final_paid) > DEC0:
         r2 = FinSV.post_settlement(
             actor=actor,
             container_id=cash_container.id,
@@ -410,7 +411,7 @@ def create_bill(
         actor=actor,
         target=bill,
         title="Create purchase bill",
-        message=f"Purchase bill #{bill.serial} provider={provider.name} total={bill.total}",
+        message=f"Purchase bill #{bill.serial} provider={provider.name} total={settlement_total}",
         meta={
             "kind": "billing.purchase_bill_created",
             "summary": {
@@ -419,7 +420,9 @@ def create_bill(
                 "provider_id": provider.id,
                 "provider_name": provider.name,
                 "status": (status or "").lower(),
-                "total": str(bill.total),
+                "total": str(settlement_total),
+                "total_syp": str(bill.total_syp),
+                "total_usd": str(bill.total_usd),
                 "paid_amount": str(final_paid),
                 "settlement_currency": bill.settlement_currency,
                 "fx": str(bill.fx_usd_syp),
@@ -454,7 +457,9 @@ def delete_bill(*, actor, bill_id: int) -> None:
         "serial": bill.serial,
         "provider_id": bill.provider_id,
         "provider_name": bill.provider.name if bill.provider_id else "",
-        "total": str(q3(bill.total or DEC0)),
+                "total": str(settlement_total),
+                "total_syp": str(bill.total_syp),
+                "total_usd": str(bill.total_usd),
         "items": [
             {"id": it.id, "product_id": it.product_id, "qty_primary": str(q3(it.qty_primary or DEC0)), "cost": str(q4(it.cost or DEC0))}
             for it in bill.items.all()
