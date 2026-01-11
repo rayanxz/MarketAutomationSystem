@@ -281,6 +281,7 @@ def create_bill(
             unit_index=unit_idx,
             qty_primary=qty_primary,
             unit_cost=cost_u1,
+            cost_currency=item_currency,
             source_app="billing",
             source_model="BillItem",
             source_id=str(item.id),

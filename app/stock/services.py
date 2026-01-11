@@ -112,6 +112,7 @@ def fifo_add_incoming(
     container: ProductContainer,
     qty_primary: Decimal,
     unit_cost: Decimal,
+    cost_currency: str | None = None,
     source_app: str = "",
     source_model: str = "",
     source_id: str | int = "",
@@ -130,6 +131,7 @@ def fifo_add_incoming(
         return
 
     uc = q4(Decimal(str(unit_cost or DEC0)))
+    cur = (cost_currency or "SYP").upper()
 
     # Build query for "same logical batch"
     qs = (
@@ -142,6 +144,7 @@ def fifo_add_incoming(
             source_model=(source_model or ""),
             source_id=str(source_id or ""),
             unit_cost=uc,
+            cost_currency=cur,
             qty_remaining__gt=DEC0,
         )
     )
@@ -163,6 +166,7 @@ def fifo_add_incoming(
             container=container,
             qty_remaining=qty,
             unit_cost=uc,
+            cost_currency=cur,
             source_app=source_app or "",
             source_model=source_model or "",
             source_id=str(source_id or ""),
