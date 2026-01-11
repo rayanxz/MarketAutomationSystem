@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from catalog.models import Product
+from core.currency import CURRENCY_CHOICES, SYP
 from django.db.models import Q
 
 DEC0 = Decimal("0")
@@ -144,6 +145,12 @@ class StockFifoLayer(models.Model):
         decimal_places=4,
         default=Decimal("0.0000"),
         help_text="Cost per primary unit for this FIFO layer.",
+    )
+    cost_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=SYP,
+        db_index=True,
     )
 
     created_at = models.DateTimeField(
