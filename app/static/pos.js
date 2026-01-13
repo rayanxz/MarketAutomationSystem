@@ -53,6 +53,22 @@ function csrfToken() {
   return getCookie("csrftoken");
 }
 
+function readJsonScript(id) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  try {
+    return JSON.parse(el.textContent || "null");
+  } catch (err) {
+    console.error("JSON script parse failed:", id, err);
+    return null;
+  }
+}
+
+const POS_CONTAINER_CHOICES = readJsonScript("pos-containers-data") || [];
+const POS_FX_SYP_PER_USD = Number(readJsonScript("pos-fx-rate") || 0) || 0;
+
+const CUR_SYP = "SYP";
+const CUR_USD = "USD";
 
 /* ===== Notifications dropdown (UI only) ===== */
 (function () {
@@ -592,6 +608,38 @@ function showInsufficientStockError(items) {
 
 
 const newBillBtn = document.getElementById("posNewBillBtn");
+const posContainerSelect = document.getElementById("posContainerSelect");
+
+function getSelectedContainerCurrencies() {
+  const opt = posContainerSelect?.selectedOptions?.[0];
+  if (!opt) return [];
+  const raw = opt.getAttribute("data-currencies") || "";
+  return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function syncContainerFromSelect() {
+  const val = posContainerSelect?.value || "";
+  state.bill.moneyContainerId = val ? Number(val) : null;
+}
+
+function restoreContainerSelection() {
+  if (!posContainerSelect) return;
+  const key = "posMoneyContainerId";
+  const saved = localStorage.getItem(key);
+  if (saved && [...posContainerSelect.options].some(o => o.value === saved)) {
+    posContainerSelect.value = saved;
+    state.bill.moneyContainerId = Number(saved);
+  }
+}
+
+posContainerSelect?.addEventListener("change", () => {
+  syncContainerFromSelect();
+  if (state.bill.moneyContainerId) {
+    localStorage.setItem("posMoneyContainerId", String(state.bill.moneyContainerId));
+  } else {
+    localStorage.removeItem("posMoneyContainerId");
+  }
+});
 
 
 /* ===== POS error modal (generic) ===== */
@@ -646,12 +694,18 @@ const initialBillState = {
   payStatus: "full",      // 'full' | 'none' | 'partial'
   paidAmount: 0,
   totalAmount: 0,
+  totalSyp: 0,
+  totalUsd: 0,
+  settlementMode: "split", // split | all_syp | all_usd
+  settlementCurrency: "",
   leftAmount: 0,
 
   customerId: null,
   customerName: "",
   createNewCustomer: false,
   createdAt: null,
+
+  moneyContainerId: null,
 };
 
 const state = {
@@ -671,6 +725,7 @@ const state = {
 
 function resetBillState() {
   Object.assign(state.bill, initialBillState);
+  syncContainerFromSelect();
 }
 
 /* ===== Utils ===== */
@@ -713,7 +768,7 @@ function setBillLocked(locked) {
   const ids = [
     "barcode","pname","pcode","pid",
     "qty","uom","discPct","discAmt","notes",
-    "partAmt","custName","custCreate"
+    "partAmt","custName","custCreate","posContainerSelect","saleCurrency"
   ];
   ids.forEach((id) => {
     const el = document.getElementById(id);
@@ -900,9 +955,10 @@ async function openInquiryOverlay(product) {
 
   // 3) السعر: نستخدم نفس price القادم من الـ API (سعر للوحدة الأولى)
   const priceNum = Number(product.price || 0);
+  const priceCur = (product.effective_default_sale_currency || CUR_SYP).toUpperCase();
 
   if (inqNameEl)     inqNameEl.textContent     = product.name || "";
-  if (inqPriceEl)    inqPriceEl.textContent    = `${fmt(priceNum)} / ${u1Label}`;
+  if (inqPriceEl)    inqPriceEl.textContent    = `${fmt(priceNum)} ${priceCur} / ${u1Label}`;
   if (inqStoreQtyEl) inqStoreQtyEl.textContent = fmt(storeQty);
   if (inqU1El)       inqU1El.textContent       = u1Label;
   if (inqU2El)       inqU2El.textContent       = u2Label || "—";
@@ -956,6 +1012,10 @@ function renderRows() {
     tdUnit.className = "col-unit";
     tdUnit.textContent = (r.uomIndex === 2 ? r.u2Label : r.u1Label) || (r.uomIndex === 2 ? "الوحدة الثانية" : "الوحدة الأولى");
 
+    const tdCur = document.createElement("td");
+    tdCur.className = "col-currency";
+    tdCur.textContent = r.currency || CUR_SYP;
+
     // NEW: unit price (always price per الوحدة الأساسية)
     const tdPrice = document.createElement("td");
     tdPrice.className = "col-unitprice";
@@ -974,7 +1034,7 @@ function renderRows() {
     const tdNotes = document.createElement("td"); 
     tdNotes.textContent = r.notes || "—";
 
-    tr.append(tdName, tdQty, tdUnit, tdPrice, tdDisc, tdTotal, tdNotes);
+    tr.append(tdName, tdQty, tdUnit, tdCur, tdPrice, tdDisc, tdTotal, tdNotes);
 
 
     tr.addEventListener("click", (e) => {
@@ -1013,6 +1073,12 @@ const partAmtEl  = document.getElementById("partAmt");
 const custNameEl = document.getElementById("custName");
 const custNewEl  = document.getElementById("custCreate");
 const payRadios  = document.querySelectorAll("input[name='payStatus']");
+const totalSypEl = document.getElementById("totalSyp");
+const totalUsdEl = document.getElementById("totalUsd");
+const settlementModeEl = document.getElementById("settlementMode");
+const settlementTotalEl = document.getElementById("settlementTotal");
+const settleAllSypBtn = document.getElementById("settleAllSyp");
+const settleAllUsdBtn = document.getElementById("settleAllUsd");
 
 // footer edit / readonly + readonly labels
 const footerEditBox  = document.getElementById("billFooterEdit");
@@ -1023,19 +1089,83 @@ const roPaidEl       = document.getElementById("roPaid");
 const roLeftEl       = document.getElementById("roLeft");
 const roCustEl       = document.getElementById("roCustomer");
 
-function updateGrandTotal() {
-  const t = state.rows.reduce((s, r) => s + rowTotal(r), 0);
-  const el = document.getElementById("grandTotal");
-  if (el) el.textContent = fmt(t);
+function totalsByCurrency() {
+  let syp = 0;
+  let usd = 0;
+  state.rows.forEach((r) => {
+    const t = rowTotal(r);
+    if ((r.currency || CUR_SYP) === CUR_USD) usd += t;
+    else syp += t;
+  });
+  return { syp, usd };
+}
 
-  state.bill.totalAmount = t;
+function calcSettlementTotal(totalSyp, totalUsd) {
+  let mode = state.bill.settlementMode || "split";
+  let currency = "";
+  let total = totalSyp + totalUsd;
+
+  if (mode === "all_syp") {
+    if (POS_FX_SYP_PER_USD > 0) {
+      total = totalSyp + (totalUsd * POS_FX_SYP_PER_USD);
+      currency = CUR_SYP;
+    } else {
+      mode = "split";
+    }
+  } else if (mode === "all_usd") {
+    if (POS_FX_SYP_PER_USD > 0) {
+      total = totalUsd + (totalSyp / POS_FX_SYP_PER_USD);
+      currency = CUR_USD;
+    } else {
+      mode = "split";
+    }
+  }
+
+  state.bill.settlementMode = mode;
+  state.bill.settlementCurrency = currency;
+  return { total, mode, currency };
+}
+
+function updateGrandTotal() {
+  const totals = totalsByCurrency();
+  const settlement = calcSettlementTotal(totals.syp, totals.usd);
+
+  const el = document.getElementById("grandTotal");
+  if (el) el.textContent = fmt(settlement.total);
+
+  if (totalSypEl) totalSypEl.textContent = fmt(totals.syp);
+  if (totalUsdEl) totalUsdEl.textContent = fmt(totals.usd);
+  if (settlementModeEl) settlementModeEl.textContent = settlement.mode;
+  if (settlementTotalEl) settlementTotalEl.textContent = fmt(settlement.total);
+
+  state.bill.totalAmount = settlement.total;
+  state.bill.totalSyp = totals.syp;
+  state.bill.totalUsd = totals.usd;
 
   // clamp paid to total whenever total changes
   state.bill.paidAmount = Math.max(0, Math.min(state.bill.paidAmount, state.bill.totalAmount));
 
   state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
   if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
+}
 
+function toggleSettlementMode(mode) {
+  if (state.bill.settlementMode === mode) {
+    state.bill.settlementMode = "split";
+    state.bill.settlementCurrency = "";
+  } else {
+    state.bill.settlementMode = mode;
+    state.bill.settlementCurrency = (mode === "all_usd") ? CUR_USD : CUR_SYP;
+  }
+  updateGrandTotal();
+}
+
+settleAllSypBtn?.addEventListener("click", () => toggleSettlementMode("all_syp"));
+settleAllUsdBtn?.addEventListener("click", () => toggleSettlementMode("all_usd"));
+
+if (POS_FX_SYP_PER_USD <= 0) {
+  if (settleAllSypBtn) settleAllSypBtn.disabled = true;
+  if (settleAllUsdBtn) settleAllUsdBtn.disabled = true;
 }
 
 /* ===== Right panel load/save ===== */
@@ -1054,11 +1184,33 @@ function loadRowToRight(r) {
     if (!r.u2Label && r.uomIndex === 2) uom.value = "1";
   }
 
+  updateCurrencySelectForRow(r);
+
   document.getElementById("discPct").value = r.discPct ?? "";
   document.getElementById("discAmt").value = r.discAmt ?? "";
   document.getElementById("notes").value   = r.notes ?? "";
 
   setQtyPrevSnapshot();
+}
+
+function updateCurrencySelectForRow(r) {
+  const curEl = document.getElementById("saleCurrency");
+  if (!curEl) return;
+
+  const allowSyp = (r.allowSypSales !== false);
+  const allowUsd = (r.allowUsdSales !== false) && Number(r.defaultPriceUsd || 0) > 0;
+
+  const optSyp = [...curEl.options].find(o => o.value === CUR_SYP);
+  const optUsd = [...curEl.options].find(o => o.value === CUR_USD);
+  if (optSyp) optSyp.disabled = !allowSyp;
+  if (optUsd) optUsd.disabled = !allowUsd;
+
+  let cur = (r.currency || CUR_SYP).toUpperCase();
+  if (cur === CUR_USD && !allowUsd && allowSyp) cur = CUR_SYP;
+  if (cur === CUR_SYP && !allowSyp && allowUsd) cur = CUR_USD;
+
+  curEl.value = cur;
+  curEl.disabled = (allowSyp && !allowUsd) || (!allowSyp && allowUsd);
 }
 
 function saveRightToRow(idx) {
@@ -1093,6 +1245,7 @@ function clearRightPanel() {
     const el = document.getElementById(id); if (el) el.value = "";
   });
   const u = document.getElementById("uom"); if (u) u.value = "1";
+  const cur = document.getElementById("saleCurrency"); if (cur) { cur.value = CUR_SYP; cur.disabled = false; }
 }
 
 function goIdle() {
@@ -1247,16 +1400,35 @@ async function lookupByBarcode(code) {
 
 
 function toRow(p) {
+  const allowSyp = !!p.allow_syp_sales;
+  const allowUsd = !!p.allow_usd_sales;
+  const effCur = (p.effective_default_sale_currency || CUR_SYP).toUpperCase();
+
+  const fallbackPrice = Number(p.price || 0);
+  const priceSyp = Number(p.default_price_syp || fallbackPrice || 0);
+  const priceUsd = Number(p.default_price_usd || fallbackPrice || 0);
+
+  let cur = effCur;
+  if (cur === CUR_USD && (!allowUsd || priceUsd <= 0) && allowSyp) cur = CUR_SYP;
+  if (cur === CUR_SYP && !allowSyp && allowUsd) cur = CUR_USD;
+
+  const price = (cur === CUR_USD) ? priceUsd : priceSyp;
+
   return {
     id: p.id,
     name: p.name,
     number: p.number,
-    price: Number(p.price || 0),                 // price per PRIMARY unit
+    price: price,                                // price per PRIMARY unit
+    currency: cur,
     qty: 1,
     uomIndex: Number(p.matched_unit_index || 1), // 1 or 2
     conv: Number(p.units?.conversion_factor || 1),
     u1Label: p.units?.primary?.label,
     u2Label: p.units?.secondary?.label,
+    allowSypSales: allowSyp,
+    allowUsdSales: allowUsd,
+    defaultPriceSyp: priceSyp,
+    defaultPriceUsd: priceUsd,
     discPct: 0,
     discAmt: 0,
     notes: "",
@@ -1281,6 +1453,7 @@ const uomEl  = document.getElementById("uom");
 const pctEl  = document.getElementById("discPct");
 const amtEl  = document.getElementById("discAmt");
 const notesEl= document.getElementById("notes");
+const curEl  = document.getElementById("saleCurrency");
 
 function pushFormToStateAndRender() {
   if (state.selectedIndex < 0 || !state.editing) return;
@@ -1352,6 +1525,30 @@ amtEl?.addEventListener("input", () => {
   pushFormToStateAndRender();
 });
 
+curEl?.addEventListener("change", () => {
+  if (state.selectedIndex < 0 || !state.editing) return;
+  const r = state.rows[state.selectedIndex];
+  if (!r) return;
+
+  let next = (curEl.value || CUR_SYP).toUpperCase();
+  const allowSyp = (r.allowSypSales !== false);
+  const allowUsd = (r.allowUsdSales !== false) && Number(r.defaultPriceUsd || 0) > 0;
+
+  if (next === CUR_USD && !allowUsd) next = CUR_SYP;
+  if (next === CUR_SYP && !allowSyp) next = CUR_USD;
+
+  r.currency = next;
+  r.price = (next === CUR_USD) ? Number(r.defaultPriceUsd || 0) : Number(r.defaultPriceSyp || 0);
+
+  // reset discounts on currency switch
+  r.discAmt = 0;
+  r.discPct = 0;
+  if (pctEl) pctEl.value = "0.000";
+  if (amtEl) amtEl.value = "0.000";
+
+  renderRows();
+});
+
 // notes live update
 notesEl?.addEventListener("input", () => { pushFormToStateAndRender(); });
 
@@ -1398,6 +1595,7 @@ function syncBillFromFooter() {
 
   state.bill.customerName = custNameEl?.value.trim() || "";
   state.bill.createNewCustomer = !!custNewEl?.checked;
+  syncContainerFromSelect();
 }
 
 function syncFooterFromBill() {
@@ -1411,6 +1609,9 @@ function syncFooterFromBill() {
   if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount || 0);
   if (custNameEl) custNameEl.value = state.bill.customerName || "";
   if (custNewEl) custNewEl.checked = !!state.bill.createNewCustomer;
+  if (posContainerSelect) {
+    posContainerSelect.value = state.bill.moneyContainerId ? String(state.bill.moneyContainerId) : "";
+  }
 }
 
 payRadios.forEach((r) => {
@@ -1658,6 +1859,11 @@ async function loadBillFromBackend(id) {
         let u1Label = "الوحدة الأولى";
         let u2Label = null;
         let price = Number(r.unit_price || 0);
+        let allowSyp = true;
+        let allowUsd = true;
+        let priceSyp = 0;
+        let priceUsd = 0;
+        let effCur = (r.currency || CUR_SYP).toUpperCase();
 
         try {
           const pRes = await fetch(`/pos/api/lookup/id/${r.product_id}/`);
@@ -1676,6 +1882,14 @@ async function loadBillFromBackend(id) {
             if (!price) {
               price = Number(p.price || 0);
             }
+
+            allowSyp = !!p.allow_syp_sales;
+            allowUsd = !!p.allow_usd_sales;
+            priceSyp = Number(p.default_price_syp || p.price || 0);
+            priceUsd = Number(p.default_price_usd || p.price || 0);
+            if (!r.currency) {
+              effCur = (p.effective_default_sale_currency || CUR_SYP).toUpperCase();
+            }
           }
         } catch (err) {
           console.error("hydrate row product fetch failed:", err);
@@ -1686,11 +1900,16 @@ async function loadBillFromBackend(id) {
           name: r.name,
           number: r.number,
           price: price,
+          currency: effCur,
           qty: Number(r.qty || 0),
           uomIndex: Number(r.uom_index || 1),
           conv: conv,
           u1Label: u1Label,
           u2Label: u2Label,
+          allowSypSales: allowSyp,
+          allowUsdSales: allowUsd,
+          defaultPriceSyp: priceSyp,
+          defaultPriceUsd: priceUsd,
           discAmt: Number(r.disc_amount || 0),
           discPct: Number(r.disc_pct || 0),
           notes: r.notes || "",
@@ -1706,10 +1925,15 @@ async function loadBillFromBackend(id) {
     state.bill.payStatus    = b.pay_status;
     state.bill.paidAmount   = Number(b.paid_amount || 0);
     state.bill.totalAmount  = Number(b.total_amount || 0);
+    state.bill.totalSyp     = Number(b.total_syp || 0);
+    state.bill.totalUsd     = Number(b.total_usd || 0);
+    state.bill.settlementMode = b.settlement_mode || "split";
+    state.bill.settlementCurrency = b.settlement_currency || "";
     state.bill.leftAmount   = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
     state.bill.customerName = b.customer_name || "";
     state.bill.customerId   = b.customer_id || null;
     state.bill.createdAt    = b.created_at;
+    state.bill.moneyContainerId = b.money_container_id || null;
     state.selectedBillId    = String(b.id);
 
     state.editing = false;
@@ -2211,6 +2435,16 @@ async function validateBillBeforeSave(options) {
       return false;
     }
 
+    const cur = (r.currency || CUR_SYP).toUpperCase();
+    if (cur === CUR_USD && r.allowUsdSales === false) {
+      showPosError("عملة غير مسموحة.", `السطر رقم <strong>${i + 1}</strong> لا يسمح بالبيع بالدولار لهذا المنتج.`);
+      return false;
+    }
+    if (cur === CUR_SYP && r.allowSypSales === false) {
+      showPosError("عملة غير مسموحة.", `السطر رقم <strong>${i + 1}</strong> لا يسمح بالبيع بالليرة لهذا المنتج.`);
+      return false;
+    }
+
     // discount clamp safety for any hydrated/old data
     const base = rowBase(r);
     if (!isFinite(base) || base < 0) {
@@ -2236,6 +2470,38 @@ async function validateBillBeforeSave(options) {
 
   // 4) apply your save rules (full/none override textbox)
   finalizePaidForSave();
+
+  // 4.5) settlement + container rules
+  if (!parked && state.bill.payStatus !== "none") {
+    if (!state.bill.moneyContainerId) {
+      alert("يرجى اختيار الصندوق قبل حفظ فاتورة مدفوعة.");
+      posContainerSelect?.focus();
+      return false;
+    }
+
+    const enabled = getSelectedContainerCurrencies();
+    if (state.bill.settlementMode === "split") {
+      if (state.bill.totalSyp > 0 && !enabled.includes(CUR_SYP)) {
+        alert("الصندوق المحدد لا يدعم SYP. اختر صندوقاً آخر أو حوّل الإجمالي.");
+        return false;
+      }
+      if (state.bill.totalUsd > 0 && !enabled.includes(CUR_USD)) {
+        alert("الصندوق المحدد لا يدعم USD. اختر صندوقاً آخر أو حوّل الإجمالي.");
+        return false;
+      }
+    } else {
+      const cur = state.bill.settlementCurrency || (state.bill.settlementMode === "all_usd" ? CUR_USD : CUR_SYP);
+      if (cur && !enabled.includes(cur)) {
+        alert(`الصندوق المحدد لا يدعم ${cur}.`);
+        return false;
+      }
+    }
+  }
+
+  if (!parked && state.bill.payStatus === "partial" && state.bill.settlementMode === "split") {
+    alert("الدفع الجزئي يتطلب اختيار عملة تسوية واحدة.");
+    return false;
+  }
 
   // 5) your business rules
   if (state.bill.payStatus !== "full") {
@@ -2280,10 +2546,15 @@ async function sendBillToBackend(options) {
     parked: parked,
     pay_status: state.bill.payStatus,
     paid_amount: state.bill.paidAmount,
-    total_amount: state.rows.reduce((s,r)=> s + rowTotal(r), 0),
+    total_amount: state.bill.totalAmount,
+    total_syp: state.bill.totalSyp,
+    total_usd: state.bill.totalUsd,
+    settlement_mode: state.bill.settlementMode,
+    settlement_currency: state.bill.settlementCurrency || null,
     customer_name: state.bill.customerName || null,
     create_new_customer: state.bill.createNewCustomer,
     shift_id: shiftId,   // 🔥 NEW
+    money_container_id: state.bill.moneyContainerId,
     rows: state.rows.map((r) => ({
       product_id: r.id,
       name: r.name,
@@ -2291,7 +2562,9 @@ async function sendBillToBackend(options) {
       qty: r.qty,
       uom_index: r.uomIndex,
       unit_price: r.price,
+      currency: r.currency || CUR_SYP,
       disc_amount: r.discAmt || 0,
+      disc_pct: r.discPct || 0,
       notes: r.notes || "",
     })),
   };
@@ -2417,6 +2690,7 @@ payPrintBtn?.addEventListener("click", (e) => {
 
 // initial render + initial state
 resetBillState();
+restoreContainerSelection();
 renderRows();
 syncFooterFromBill();
 loadTodayBills();

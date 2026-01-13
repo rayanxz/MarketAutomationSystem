@@ -31,14 +31,16 @@
   return `
       <tr data-id="${r.id}">
         <td>${r.serial ?? ""}</td>
-        <td>${r.source_bill_serial ?? ""}</td>   <!-- سيريال فاتورة الشراء -->
+        <td>${r.source_bill_serial ?? ""}</td>
         <td>${r.provider?.name ?? ""}</td>
+        <td>${nfmt(r.total_syp)}</td>
+        <td>${nfmt(r.total_usd)}</td>
         <td>${nfmt(r.total)}</td>
         <td>${pill(r.status)}</td>
         <td>${dt}</td>
         <td class="left">
-          <a class="btn" href="${viewUrl}">عرض</a>
-          <button class="btn" disabled title="قريباً">تحصيل</button>
+          <a class="btn" href="${viewUrl}">View</a>
+          <button class="btn" disabled title="Not supported">Delete</button>
         </td>
       </tr>
     `;

@@ -10,6 +10,11 @@ from django.utils import timezone
 from django.db import transaction
 
 from .models import SalesBill, SalesBillRow, CustomerProfile, PosShift
+from catalog.models import Product
+from core.currency import SYP, USD
+from financials.models import MoneyContainer, MoneyContainerCurrency
+from financials import services as FinSV
+from inventory.models import q3, DEC0
 from . import services as POSSV
 
 from audit_log import services as AuditSV
@@ -21,6 +26,30 @@ def _parse_decimal(x):
     except Exception:
         return Decimal("0")
 
+
+def _calc_row_total(*, product: Product, row: dict) -> Decimal:
+    qty = _parse_decimal(row.get("qty"))
+    uom_index = int(row.get("uom_index") or 1)
+    unit_price = _parse_decimal(row.get("unit_price"))
+
+    conv = getattr(product, "conversion_factor", None) or Decimal("1")
+    qty_primary = q3(qty * conv) if uom_index == 2 else q3(qty)
+    if qty_primary <= 0:
+        return DEC0
+
+    base = q3(qty_primary * unit_price)
+
+    disc_amt = _parse_decimal(row.get("disc_amount"))
+    disc_pct = _parse_decimal(row.get("disc_pct"))
+    if disc_amt <= 0 and disc_pct > 0 and base > 0:
+        disc_amt = q3((base * disc_pct) / Decimal("100"))
+
+    if disc_amt < 0:
+        disc_amt = DEC0
+    if disc_amt > base:
+        disc_amt = base
+
+    return q3(base - disc_amt)
 
 @login_required
 @require_POST
@@ -42,6 +71,8 @@ def api_bill_save(request: HttpRequest):
         pay_status = payload.get("pay_status") or SalesBill.PAY_FULL
         total_amount = _parse_decimal(payload.get("total_amount"))
         paid_amount = _parse_decimal(payload.get("paid_amount"))
+        settlement_mode = (payload.get("settlement_mode") or SalesBill.SETTLE_SPLIT).lower()
+        money_container_id = payload.get("money_container_id")
         customer_name = (payload.get("customer_name") or "").strip()
         create_new_customer = bool(payload.get("create_new_customer"))
 
@@ -82,6 +113,126 @@ def api_bill_save(request: HttpRequest):
                 {"ok": False, "error": "EMPTY_FINAL_BILL"},
                 status=400,
             )
+
+        # =====================
+        # Validate rows + totals split by currency
+        # =====================
+        normalized_rows = []
+        total_syp = DEC0
+        total_usd = DEC0
+
+        product_ids = []
+        for r in rows:
+            pid = int(r.get("product_id") or 0)
+            if pid:
+                product_ids.append(pid)
+        products = Product.objects.in_bulk(product_ids)
+
+        for r in rows:
+            pid = int(r.get("product_id") or 0)
+            if not pid or pid not in products:
+                return JsonResponse({"ok": False, "error": "INVALID_PRODUCT"}, status=400)
+            product = products[pid]
+
+            row_currency = (r.get("currency") or "").upper()
+            if not row_currency:
+                row_currency = product.get_effective_default_sale_currency()
+                if row_currency == USD and (product.default_price_usd or DEC0) <= 0 and product.allow_syp_sales:
+                    row_currency = SYP
+
+            if row_currency not in (SYP, USD):
+                return JsonResponse({"ok": False, "error": "INVALID_CURRENCY"}, status=400)
+
+            if row_currency == SYP and not product.allow_syp_sales:
+                return JsonResponse({"ok": False, "error": "SYP_NOT_ALLOWED"}, status=400)
+            if row_currency == USD and not product.allow_usd_sales:
+                return JsonResponse({"ok": False, "error": "USD_NOT_ALLOWED"}, status=400)
+
+            if row_currency == USD:
+                unit_price = _parse_decimal(r.get("unit_price"))
+                if (product.default_price_usd or DEC0) <= 0 and unit_price <= 0:
+                    return JsonResponse({"ok": False, "error": "USD_PRICE_MISSING"}, status=400)
+
+            row_total = _calc_row_total(product=product, row=r)
+            if row_currency == USD:
+                total_usd = q3(total_usd + row_total)
+            else:
+                total_syp = q3(total_syp + row_total)
+
+            row_copy = dict(r)
+            row_copy["currency"] = row_currency
+            normalized_rows.append(row_copy)
+
+        rows = normalized_rows
+
+        fx_rate = None
+        try:
+            fx_rate = FinSV.get_current_fx_syp_per_usd()
+        except Exception:
+            fx_rate = None
+
+        if settlement_mode not in (SalesBill.SETTLE_SPLIT, SalesBill.SETTLE_ALL_SYP, SalesBill.SETTLE_ALL_USD):
+            return JsonResponse({"ok": False, "error": "INVALID_SETTLEMENT_MODE"}, status=400)
+
+        if settlement_mode == SalesBill.SETTLE_ALL_SYP:
+            if fx_rate is None:
+                return JsonResponse({"ok": False, "error": "FX_REQUIRED"}, status=400)
+            settlement_total = q3(total_syp + (total_usd * fx_rate))
+            settlement_currency = SYP
+        elif settlement_mode == SalesBill.SETTLE_ALL_USD:
+            if fx_rate is None:
+                return JsonResponse({"ok": False, "error": "FX_REQUIRED"}, status=400)
+            settlement_total = q3(total_usd + (total_syp / fx_rate))
+            settlement_currency = USD
+        else:
+            settlement_total = q3(total_syp + total_usd)
+            settlement_currency = None
+
+        if not parked and pay_status == SalesBill.PAY_PARTIAL and settlement_mode == SalesBill.SETTLE_SPLIT:
+            return JsonResponse({"ok": False, "error": "PARTIAL_REQUIRES_SINGLE_CURRENCY"}, status=400)
+
+        container = None
+        if money_container_id:
+            try:
+                container = MoneyContainer.objects.get(pk=int(money_container_id))
+            except (ValueError, MoneyContainer.DoesNotExist):
+                return JsonResponse({"ok": False, "error": "INVALID_CONTAINER"}, status=400)
+
+            if not container.features.filter(code="pos_sales", is_active=True).exists():
+                return JsonResponse({"ok": False, "error": "CONTAINER_NOT_POS"}, status=400)
+
+            if not (request.user.is_superuser or request.user.is_staff):
+                if container.allowed_users.exists() and not container.allowed_users.filter(pk=request.user.pk).exists():
+                    return JsonResponse({"ok": False, "error": "CONTAINER_FORBIDDEN"}, status=403)
+
+            enabled_codes = set(
+                MoneyContainerCurrency.objects
+                .filter(container=container, is_enabled=True)
+                .values_list("currency__code", flat=True)
+            )
+            if settlement_mode == SalesBill.SETTLE_SPLIT:
+                if total_syp > 0 and SYP not in enabled_codes:
+                    return JsonResponse({"ok": False, "error": "SYP_DISABLED_IN_CONTAINER"}, status=400)
+                if total_usd > 0 and USD not in enabled_codes:
+                    return JsonResponse({"ok": False, "error": "USD_DISABLED_IN_CONTAINER"}, status=400)
+            else:
+                if settlement_currency and settlement_currency not in enabled_codes:
+                    return JsonResponse({"ok": False, "error": "CURRENCY_DISABLED_IN_CONTAINER"}, status=400)
+
+        if not parked and pay_status != SalesBill.PAY_NONE and container is None:
+            return JsonResponse({"ok": False, "error": "CONTAINER_REQUIRED"}, status=400)
+
+        if pay_status == SalesBill.PAY_FULL:
+            paid_amount = settlement_total
+        elif pay_status == SalesBill.PAY_NONE:
+            paid_amount = DEC0
+        else:
+            if paid_amount <= 0:
+                return JsonResponse({"ok": False, "error": "PAID_AMOUNT_REQUIRED"}, status=400)
+            if paid_amount >= settlement_total:
+                return JsonResponse({"ok": False, "error": "PAID_AMOUNT_TOO_HIGH"}, status=400)
+
+        total_amount = settlement_total
 
         # =====================
         # Customer handling
@@ -166,7 +317,13 @@ def api_bill_save(request: HttpRequest):
         bill.customer_name = customer_name
         bill.pay_status = pay_status
         bill.total_amount = total_amount
+        bill.total_syp = total_syp
+        bill.total_usd = total_usd
         bill.paid_amount = paid_amount
+        bill.settlement_mode = settlement_mode
+        bill.settlement_currency = settlement_currency
+        bill.fx_rate_used = fx_rate
+        bill.money_container = container
         bill.parked = parked
         bill.finalized = not parked
         bill.shift = shift
@@ -184,6 +341,7 @@ def api_bill_save(request: HttpRequest):
                 qty=_parse_decimal(r.get("qty")),
                 uom_index=int(r.get("uom_index") or 1),
                 unit_price=_parse_decimal(r.get("unit_price")),
+                sale_currency=(r.get("currency") or SYP),
                 disc_amount=_parse_decimal(r.get("disc_amount")),
                 disc_pct=_parse_decimal(r.get("disc_pct") or 0),
                 notes=r.get("notes") or "",
@@ -225,6 +383,12 @@ def api_bill_save(request: HttpRequest):
                     {"ok": False, "error": str(e)},
                     status=400,
                 )
+            except ValueError as e:
+                transaction.set_rollback(True)
+                return JsonResponse(
+                    {"ok": False, "error": str(e)},
+                    status=400,
+                )
         def _log_after_commit(*, title: str, kind: str):
             rows_count = len(rows or [])
 
@@ -236,7 +400,12 @@ def api_bill_save(request: HttpRequest):
                     "customer_name": bill.customer_name or "",
                     "pay_status": bill.pay_status,
                     "total_amount": str(bill.total_amount or Decimal("0")),
+                    "total_syp": str(bill.total_syp or Decimal("0")),
+                    "total_usd": str(bill.total_usd or Decimal("0")),
                     "paid_amount": str(bill.paid_amount or Decimal("0")),
+                    "settlement_mode": bill.settlement_mode,
+                    "settlement_currency": bill.settlement_currency,
+                    "money_container_id": bill.money_container_id,
                     "parked": bool(bill.parked),
                     "finalized": bool(bill.finalized),
                     "shift_id": bill.shift_id,
@@ -312,7 +481,11 @@ def api_bills_today(request: HttpRequest):
             "customer_id": b.customer_id,
             "pay_status": b.pay_status,
             "total_amount": str(b.total_amount),
+            "total_syp": str(b.total_syp),
+            "total_usd": str(b.total_usd),
             "paid_amount": str(b.paid_amount),
+            "settlement_mode": b.settlement_mode,
+            "settlement_currency": b.settlement_currency,
             "parked": b.parked,
         })
     return JsonResponse({"ok": True, "bills": bills})
@@ -353,6 +526,7 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
             "qty": str(r.qty),
             "uom_index": r.uom_index,
             "unit_price": str(r.unit_price),
+            "currency": r.sale_currency or SYP,
             "disc_amount": str(r.disc_amount),
             "disc_pct": str(r.disc_pct),
             "notes": r.notes,
@@ -367,7 +541,12 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
         "customer_id": bill.customer_id,
         "pay_status": bill.pay_status,
         "total_amount": str(bill.total_amount),
+        "total_syp": str(bill.total_syp),
+        "total_usd": str(bill.total_usd),
         "paid_amount": str(bill.paid_amount),
+        "settlement_mode": bill.settlement_mode,
+        "settlement_currency": bill.settlement_currency,
+        "money_container_id": bill.money_container_id,
         "parked": bill.parked,
         "rows": rows,
     }

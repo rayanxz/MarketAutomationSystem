@@ -201,12 +201,12 @@
               <th class="col-wh2">المتاح في مستودع 2</th>
               <th class="col-wh2">المرتجع من مستودع 2</th>
 
-              <th>كلفة المرتجع / و١</th>
+              <th>Unit cost (auto)</th>
             </tr>
           </thead>
           <tbody>
           {% for r in rows %}
-            <tr data-item-id="{{ r.item_id }}">
+            <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency }}">
               <td class="cell-center">
                 <button type="button" class="btn-mini btn-row-delete">
                   حذف
@@ -264,17 +264,9 @@
                 >
                 </td>
 
-
-              <td>
-                <input
-                    type="number"
-                    class="input ret-cost"
-                    name="ret_cost_{{ r.item_id }}"
-                    min="0"
-                    step="0.0001"
-                    value="{% if r.ret_cost_raw %}{{ r.ret_cost_raw }}{% else %}{{ r.cost|unlocalize }}{% endif %}"
-                >
-                </td>
+              <td class="cell-center">
+                {{ r.cost|human_number }} {{ r.currency }}
+              </td>
 
             </tr>
           {% endfor %}
@@ -284,9 +276,46 @@
 
       {# TOTAL + PAY SECTION #}
       <div class="total-box" style="margin-top:10px;">
-        <div class="muted">إجمالي قيمة المرتجع</div>
-        <div id="retTotalBox" class="total-amt">0.000</div>
+        <div>
+          <div class="muted">Total SYP</div>
+          <div id="retTotalSyp" class="total-amt">0.000</div>
+        </div>
+        <div>
+          <div class="muted">Total USD</div>
+          <div id="retTotalUsd" class="total-amt">0.000</div>
+        </div>
+        <div>
+          <div class="muted">Settlement ({{ settlement_currency_selected }})</div>
+          <div id="retTotalSettlement" class="total-amt">0.000</div>
+        </div>
       </div>
+
+      <div class="row" style="margin-top:6px;">
+        <div class="field">
+          <label class="muted">Valuation mode</label>
+          <select class="input" name="valuation_mode" id="valuationMode">
+            <option value="HISTORICAL" {% if valuation_mode_selected == "HISTORICAL" %}selected{% endif %}>As purchased (historical FX)</option>
+            <option value="CURRENT_FX" {% if valuation_mode_selected == "CURRENT_FX" %}selected{% endif %}>As purchased (current FX)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="muted">Settlement currency</label>
+          <select class="input" name="settlement_currency" id="settlementCurrency">
+            <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
+            <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="muted">Money container</label>
+          <select class="input" name="money_container_id" id="moneyContainer">
+            <option value="">-- select --</option>
+            {% for mc in money_containers %}
+              <option value="{{ mc.id }}" {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}>{{ mc.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+</div>
 
       <div class="pay-row" style="margin-top:8px;">
         <span class="muted">حالة الدفع للمرتجع</span>
@@ -373,7 +402,10 @@
     const form = document.getElementById("retForm");
     if (!form) return;
 
-    const totalBox     = document.getElementById("retTotalBox");
+    const totalSypBox = document.getElementById("retTotalSyp");
+    const totalUsdBox = document.getElementById("retTotalUsd");
+    const totalSettlementBox = document.getElementById("retTotalSettlement");
+
     const paidInput    = document.getElementById("returnPaidAmount");
     const lblRemaining = document.getElementById("retRemainingLabel");
 
@@ -381,11 +413,23 @@
     const statusPartial = document.getElementById("retPartial");
     const statusUnpaid  = document.getElementById("retUnpaid");
 
+    const valuationMode = document.getElementById("valuationMode");
+    const settlementCurrency = document.getElementById("settlementCurrency");
+    const moneyContainer = document.getElementById("moneyContainer");
+
+    const fxCurrent = parseFloat("{{ fx_current|default_if_none:''|unlocalize }}") || 0;
+    const fxBill = parseFloat("{{ fx_bill|default_if_none:''|unlocalize }}") || 0;
+
+    function getFx() {
+      if (valuationMode && valuationMode.value === "CURRENT_FX") return fxCurrent;
+      return fxBill || fxCurrent;
+    }
+
     function getCurrentStatus() {
       if (statusPaid && statusPaid.checked)      return "paid";
       if (statusUnpaid && statusUnpaid.checked)  return "unpaid";
       if (statusPartial && statusPartial.checked)return "partial";
-      return "none"; // nothing selected
+      return "none";
     }
 
     function fmt(num) {
@@ -393,8 +437,9 @@
       return num.toFixed(3);
     }
 
-    function recalcTotal() {
-      let total = 0;
+    function recalcTotals() {
+      let totalSyp = 0;
+      let totalUsd = 0;
 
       const rows = form.querySelectorAll("tbody tr");
       rows.forEach(function (tr) {
@@ -406,28 +451,46 @@
         const qStore = parseFloat(form["ret_store_" + iid]?.value || "0") || 0;
         const qWh1   = parseFloat(form["ret_wh1_" + iid]?.value   || "0") || 0;
         const qWh2   = parseFloat(form["ret_wh2_" + iid]?.value   || "0") || 0;
-        const cost   = parseFloat(form["ret_cost_" + iid]?.value  || "0") || 0;
-
         const qtyTotal = qStore + qWh1 + qWh2;
-        if (qtyTotal <= 0 || cost < 0) return;
+        if (qtyTotal <= 0) return;
 
-        total += qtyTotal * cost;
+        const unitCost = parseFloat(tr.dataset.unitCost || "0") || 0;
+        const cur = (tr.dataset.currency || "SYP").toUpperCase();
+        const lineTotal = qtyTotal * unitCost;
+
+        if (cur === "USD") {
+          totalUsd += lineTotal;
+        } else {
+          totalSyp += lineTotal;
+        }
       });
 
-      if (totalBox) totalBox.textContent = fmt(total);
-      return total;
+      if (totalSypBox) totalSypBox.textContent = fmt(totalSyp);
+      if (totalUsdBox) totalUsdBox.textContent = fmt(totalUsd);
+
+      const fx = getFx();
+      const settlementCur = (settlementCurrency ? settlementCurrency.value : "SYP").toUpperCase();
+      let settlementTotal = 0;
+      if (settlementCur === "SYP") {
+        settlementTotal = totalSyp + (fx > 0 ? (totalUsd * fx) : 0);
+      } else {
+        settlementTotal = totalUsd + (fx > 0 ? (totalSyp / fx) : 0);
+      }
+
+      if (totalSettlementBox) totalSettlementBox.textContent = fmt(settlementTotal);
+
+      return { totalSyp, totalUsd, settlementTotal };
     }
 
     function updateRemainingLabel() {
-      const total = recalcTotal();
-      let remaining = total;
+      const totals = recalcTotals();
+      let remaining = totals.settlementTotal;
 
       const status = getCurrentStatus();
-
       let paid = 0;
       if (status === "paid") {
-        paid = total;
-        if (paidInput) paidInput.value = fmt(total);
+        paid = totals.settlementTotal;
+        if (paidInput) paidInput.value = fmt(totals.settlementTotal);
       } else if (status === "partial") {
         if (paidInput) {
           const v = parseFloat(paidInput.value || "0") || 0;
@@ -435,17 +498,16 @@
         }
       } else {
         paid = 0;
-        // leave paidInput as-is (especially when disabled)
       }
 
-      remaining = total - paid;
+      remaining = totals.settlementTotal - paid;
       if (remaining < 0) remaining = 0;
 
       if (lblRemaining) {
-        if (total <= 0) {
+        if (totals.settlementTotal <= 0) {
           lblRemaining.textContent = "";
         } else {
-          lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);
+          lblRemaining.textContent = "Remaining after payment: " + fmt(remaining);
         }
       }
     }
@@ -459,25 +521,34 @@
 
       if (status === "partial") {
         paidInput.disabled = false;
-        // keep the value user already typed
       } else {
         paidInput.value = "";
         paidInput.disabled = true;
       }
 
+      if (moneyContainer) {
+        moneyContainer.disabled = !(status === "paid" || status === "partial");
+      }
+
       updateRemainingLabel();
     }
 
-    // quantities & cost inputs
+    // quantities & inputs
     form.addEventListener("input", function (e) {
       if (
-        e.target.classList.contains("ret-qty")  ||
-        e.target.classList.contains("ret-cost") ||
+        e.target.classList.contains("ret-qty") ||
         e.target === paidInput
       ) {
         updateRemainingLabel();
       }
     });
+
+    if (valuationMode) {
+      valuationMode.addEventListener("change", updateRemainingLabel);
+    }
+    if (settlementCurrency) {
+      settlementCurrency.addEventListener("change", updateRemainingLabel);
+    }
 
     // delete row buttons
     form.querySelectorAll(".btn-row-delete").forEach(function (btn) {
@@ -498,12 +569,10 @@
     // status radios
     [statusPaid, statusPartial, statusUnpaid].forEach(function (r) {
       if (!r) return;
-      r.addEventListener("change", function () {
-        handleStatusChange();
-      });
+      r.addEventListener("change", handleStatusChange);
     });
 
-    // initial state (respect backend-selected status)
+    // initial state
     handleStatusChange();
   })();
 </script>

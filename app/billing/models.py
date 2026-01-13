@@ -241,9 +241,11 @@ class BillItem(models.Model):
     def clean(self):
         super().clean()
         if self.product:
-            if self.currency == CURRENCY_SYP and not self.product.enable_syp:
+            allow_syp = getattr(self.product, "allow_syp_purchasing", self.product.enable_syp)
+            allow_usd = getattr(self.product, "allow_usd_purchasing", self.product.enable_usd)
+            if self.currency == CURRENCY_SYP and not allow_syp:
                 raise ValidationError("SYP is not enabled for this product.")
-            if self.currency == CURRENCY_USD and not self.product.enable_usd:
+            if self.currency == CURRENCY_USD and not allow_usd:
                 raise ValidationError("USD is not enabled for this product.")
 
 
@@ -273,6 +275,41 @@ class ProviderReturn(models.Model):
 
     total          = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
                                          validators=[MinValueValidator(0)])
+    # per-currency totals (authoritative split)
+    total_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+    total_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+    settlement_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=CURRENCY_SYP,
+        db_index=True,
+    )
+    # FX snapshot used for settlement conversion (SYP per 1 USD)
+    fx_rate_used = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+
+    class ValuationMode(models.TextChoices):
+        HISTORICAL = "HISTORICAL", "Historical FX"
+        CURRENT_FX = "CURRENT_FX", "Current FX"
+
+    valuation_mode = models.CharField(
+        max_length=16,
+        choices=ValuationMode.choices,
+        default=ValuationMode.HISTORICAL,
+        db_index=True,
+    )
     initial_paid   = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
                                          validators=[MinValueValidator(0)])
     initial_status = models.CharField(max_length=8, choices=Bill.Status.choices, default=Bill.Status.UNPAID)
@@ -293,31 +330,69 @@ class ProviderReturn(models.Model):
 
     @property
     def creditor_entry(self) -> "CreditorEntry | None":
+        # Legacy: SYP entry (source_id=str(id))
         return CreditorEntry.objects.filter(
             source_app="billing", source_model="ProviderReturn", source_id=str(self.id)
         ).first()
 
     @property
-    def paid_amount(self) -> Decimal:
-        c = self.creditor_entry  # historical name for "collected"
+    def creditor_entry_usd(self) -> "CreditorEntry | None":
+        return CreditorEntry.objects.filter(
+            source_app="billing", source_model="ProviderReturn", source_id=f"{self.id}:USD"
+        ).first()
+
+    @property
+    def collected_syp(self) -> Decimal:
+        c = self.creditor_entry
         return (c.collected if c else DEC0) or DEC0
 
     @property
-    def remaining(self) -> Decimal:
+    def collected_usd(self) -> Decimal:
+        c = self.creditor_entry_usd
+        return (c.collected if c else DEC0) or DEC0
+
+    @property
+    def remaining_syp(self) -> Decimal:
         c = self.creditor_entry
-        return (c.remaining if c else (self.total or DEC0)) or DEC0
+        return (c.remaining if c else (self.total_syp or DEC0)) or DEC0
+
+    @property
+    def remaining_usd(self) -> Decimal:
+        c = self.creditor_entry_usd
+        return (c.remaining if c else (self.total_usd or DEC0)) or DEC0
+
+    @property
+    def paid_amount(self) -> Decimal:
+        # Settlement-currency amount (legacy view)
+        if (self.settlement_currency or "SYP") == CURRENCY_USD:
+            return self.collected_usd
+        return self.collected_syp
+
+    @property
+    def remaining(self) -> Decimal:
+        # Settlement-currency remaining (legacy view)
+        if (self.settlement_currency or "SYP") == CURRENCY_USD:
+            return self.remaining_usd
+        return self.remaining_syp
 
     @property
     def status(self) -> str:
-        c = self.creditor_entry
-        if not c:
+        syp = self.creditor_entry
+        usd = self.creditor_entry_usd
+
+        if not syp and not usd:
             return ProviderReturn.Status.UNPAID
-        return (
-            ProviderReturn.Status.PAID
-            if c.remaining <= 0
-            else ProviderReturn.Status.PARTIAL if c.collected and c.collected > 0
-            else ProviderReturn.Status.UNPAID
-        )
+
+        rem_s = syp.remaining if syp else DEC0
+        rem_u = usd.remaining if usd else DEC0
+        if rem_s <= 0 and rem_u <= 0:
+            return ProviderReturn.Status.PAID
+
+        col_s = syp.collected if syp else DEC0
+        col_u = usd.collected if usd else DEC0
+        if (col_s and col_s > 0) or (col_u and col_u > 0):
+            return ProviderReturn.Status.PARTIAL
+        return ProviderReturn.Status.UNPAID
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
@@ -352,6 +427,12 @@ class ProviderReturnItem(models.Model):
     product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="return_items")
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
+    currency   = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=CURRENCY_SYP,
+        db_index=True,
+    )
     cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)

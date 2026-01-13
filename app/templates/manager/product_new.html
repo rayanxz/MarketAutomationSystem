@@ -146,16 +146,79 @@
         {% if form.errors.conversion_factor %}<div class="err">{{ form.errors.conversion_factor.0 }}</div>{% endif %}
       </div>
 
-      <div class="row-2">
-        <div class="field">
-          <label>الكلفة</label>
-          {{ form.cost }}
-        </div>
-        <div class="field">
-          <label>السعر</label>
-          {{ form.price }}
+      <div class="field">
+        <label>Currency Permissions</label>
+        <div class="row-2">
+          <label><input type="checkbox" id="allowSypPurch" name="allow_syp_purchasing" {% if form.allow_syp_purchasing.value %}checked{% endif %}> Allow SYP purchasing</label>
+          <label><input type="checkbox" id="allowUsdPurch" name="allow_usd_purchasing" {% if form.allow_usd_purchasing.value %}checked{% endif %}> Allow USD purchasing</label>
+          <label><input type="checkbox" id="allowSypSales" name="allow_syp_sales" {% if form.allow_syp_sales.value %}checked{% endif %}> Allow SYP sales</label>
+          <label><input type="checkbox" id="allowUsdSales" name="allow_usd_sales" {% if form.allow_usd_sales.value %}checked{% endif %}> Allow USD sales</label>
         </div>
       </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label>Default Purchase Currency</label>
+          <div id="purchaseCurRadios" class="stack">
+            <label><input type="radio" name="default_purchase_currency" value="" {% if not form.default_purchase_currency.value %}checked{% endif %}> Auto (SYP)</label>
+            <label><input type="radio" name="default_purchase_currency" value="SYP" {% if form.default_purchase_currency.value == "SYP" %}checked{% endif %}> SYP</label>
+            <label><input type="radio" name="default_purchase_currency" value="USD" {% if form.default_purchase_currency.value == "USD" %}checked{% endif %}> USD</label>
+          </div>
+          {% if form.errors.default_purchase_currency %}<div class="err">{{ form.errors.default_purchase_currency.0 }}</div>{% endif %}
+        </div>
+        <div class="field">
+          <label>Default Sale Currency</label>
+          <div id="saleCurRadios" class="stack">
+            <label><input type="radio" name="default_sale_currency" value="" {% if not form.default_sale_currency.value %}checked{% endif %}> Auto (SYP)</label>
+            <label><input type="radio" name="default_sale_currency" value="SYP" {% if form.default_sale_currency.value == "SYP" %}checked{% endif %}> SYP</label>
+            <label><input type="radio" name="default_sale_currency" value="USD" {% if form.default_sale_currency.value == "USD" %}checked{% endif %}> USD</label>
+          </div>
+          {% if form.errors.default_sale_currency %}<div class="err">{{ form.errors.default_sale_currency.0 }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label>Default Cost (SYP)</label>
+          {{ form.default_cost_syp }}
+        </div>
+        <div class="field">
+          <label>Default Cost (USD)</label>
+          {{ form.default_cost_usd }}
+        </div>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Default Price (SYP)</label>
+          {{ form.default_price_syp }}
+        </div>
+        <div class="field">
+          <label>Default Price (USD)</label>
+          {{ form.default_price_usd }}
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label>Latest Cost (SYP)</label>
+          {{ form.latest_cost_syp }}
+        </div>
+        <div class="field">
+          <label>Latest Cost (USD)</label>
+          {{ form.latest_cost_usd }}
+        </div>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Latest Price (SYP)</label>
+          {{ form.latest_price_syp }}
+        </div>
+        <div class="field">
+          <label>Latest Price (USD)</label>
+          {{ form.latest_price_usd }}
+        </div>
+      </div>
+</div>
 
       <div class="field">
         <label>ملاحظات</label>
@@ -328,6 +391,55 @@
           if (id && name) addFieldWithDelete(id, name, ph);
         }
       });
+    })();
+
+    // Currency permissions: toggle defaults + readonly fields
+    (function(){
+      const allowSypPurch = document.getElementById("allowSypPurch");
+      const allowUsdPurch = document.getElementById("allowUsdPurch");
+      const allowSypSales = document.getElementById("allowSypSales");
+      const allowUsdSales = document.getElementById("allowUsdSales");
+
+      const purchaseRadios = document.getElementById("purchaseCurRadios");
+      const saleRadios = document.getElementById("saleCurRadios");
+
+      const dcSyp = document.querySelector('input[name="default_cost_syp"]');
+      const dcUsd = document.querySelector('input[name="default_cost_usd"]');
+      const dpSyp = document.querySelector('input[name="default_price_syp"]');
+      const dpUsd = document.querySelector('input[name="default_price_usd"]');
+
+      const lcSyp = document.querySelector('input[name="latest_cost_syp"]');
+      const lcUsd = document.querySelector('input[name="latest_cost_usd"]');
+      const lpSyp = document.querySelector('input[name="latest_price_syp"]');
+      const lpUsd = document.querySelector('input[name="latest_price_usd"]');
+
+      function setReadonly(el){
+        if (!el) return;
+        el.readOnly = true;
+        el.disabled = true;
+      }
+
+      function toggle(){
+        const pSyp = !!allowSypPurch?.checked;
+        const pUsd = !!allowUsdPurch?.checked;
+        const sSyp = !!allowSypSales?.checked;
+        const sUsd = !!allowUsdSales?.checked;
+
+        if (dcSyp) dcSyp.disabled = !pSyp;
+        if (dcUsd) dcUsd.disabled = !pUsd;
+        if (dpSyp) dpSyp.disabled = !sSyp;
+        if (dpUsd) dpUsd.disabled = !sUsd;
+
+        if (purchaseRadios) purchaseRadios.style.display = (pSyp && pUsd) ? "" : "none";
+        if (saleRadios) saleRadios.style.display = (sSyp && sUsd) ? "" : "none";
+      }
+
+      [allowSypPurch, allowUsdPurch, allowSypSales, allowUsdSales].forEach(el => {
+        el?.addEventListener("change", toggle);
+      });
+      toggle();
+
+      [lcSyp, lcUsd, lpSyp, lpUsd].forEach(setReadonly);
     })();
 
     function openDeleteModal(){

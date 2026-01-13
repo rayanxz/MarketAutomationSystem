@@ -308,7 +308,7 @@
             <tr data-prod-name="{{ r.product_name }}">
               <td class="prod-name-cell">{{ r.product_name }}</td>
               <td class="cell-center">
-                {{ r.item.cost|human_number }}
+                {{ r.item.cost|human_number }} {{ r.item.currency }}
               </td>
               <td class="cell-center">
                 {{ r.item.qty_primary|human_number }} {{ r.unit_label }}
@@ -325,7 +325,7 @@
               </td>
 
               <td class="cell-center">
-                {{ r.item.line_total|human_number }}
+                {{ r.item.line_total|human_number }} {{ r.item.currency }}
               </td>
             </tr>
           {% endfor %}
@@ -341,7 +341,11 @@
     </div>
 
     <div class="total-box">
-      <div class="muted">الإجمالي المسجل في المرتجع</div>
+      <div class="muted">Total SYP</div>
+      <div class="total-amt">{{ total_syp|default:pret.total|human_number }}</div>
+      <div class="muted">Total USD</div>
+      <div class="total-amt">{{ total_usd|default:0|human_number }}</div>
+      <div class="muted">Settlement ({{ settlement_currency|default:'SYP' }})</div>
       <div class="total-amt">{{ pret.total|human_number }}</div>
     </div>
   </section>
@@ -350,55 +354,67 @@
   <section class="card">
 
     <div class="pay-section pay-inline">
-      <div class="pay-title">وقت إنشاء المرتجع</div>
+      <div class="pay-title">Initial return summary</div>
       <div class="pay-body grid-2">
         <div>
-          <div class="muted">إجمالي قيمة المرتجع</div>
-          <div class="badge" style="font-weight:600;">
-            {{ pret.total|human_number }}
-          </div>
+          <div class="muted">Total SYP</div>
+          <div class="badge" style="font-weight:600;">{{ total_syp|default:pret.total|human_number }}</div>
         </div>
         <div>
-          <div class="muted">المبلغ المحصل عند الإنشاء</div>
+          <div class="muted">Total USD</div>
+          <div class="badge" style="font-weight:600;">{{ total_usd|default:0|human_number }}</div>
+        </div>
+        <div>
+          <div class="muted">Initial paid ({{ settlement_currency|default:'SYP' }})</div>
           <div class="badge">{{ created_paid|human_number }}</div>
         </div>
         <div>
-          <div class="muted">الحالة عند الإنشاء</div>
-          <span class="status {{ created_status|default:'' }}">
-            {{ pret.get_initial_status_display }}
-          </span>
+          <div class="muted">Valuation mode</div>
+          <div class="badge">{{ valuation_mode|default:'HISTORICAL' }}</div>
+        </div>
+        <div>
+          <div class="muted">FX used</div>
+          <div class="badge">{{ fx_rate_used|default:'-' }}</div>
+        </div>
+        <div>
+          <div class="muted">Initial status</div>
+          <span class="status {{ created_status|default:'' }}">{{ pret.get_initial_status_display }}</span>
         </div>
       </div>
     </div>
 
     <div class="pay-section pay-inline">
-      <div class="pay-title">الوضع الحالي</div>
+      <div class="pay-title">Current collection status</div>
       <div class="pay-body grid-2">
         <div>
-          <div class="muted">المبلغ المحصل حتى الآن</div>
-          <div class="badge">{{ pret.paid_amount|human_number }}</div>
+          <div class="muted">Collected SYP</div>
+          <div class="badge">{{ collected_syp|default:0|human_number }}</div>
         </div>
         <div>
-          <div class="muted">المبلغ المتبقي</div>
-          <div class="badge" style="font-weight:600;">
-            {{ pret.remaining|human_number }}
-          </div>
+          <div class="muted">Collected USD</div>
+          <div class="badge">{{ collected_usd|default:0|human_number }}</div>
         </div>
         <div>
-          <div class="muted">الحالة الحالية</div>
-          <span class="status {{ pret.status }}">
-            {{ current_status_label }}
-          </span>
+          <div class="muted">Remaining SYP</div>
+          <div class="badge" style="font-weight:600;">{{ remaining_syp|default:0|human_number }}</div>
+        </div>
+        <div>
+          <div class="muted">Remaining USD</div>
+          <div class="badge" style="font-weight:600;">{{ remaining_usd|default:0|human_number }}</div>
+        </div>
+        <div>
+          <div class="muted">Status</div>
+          <span class="status {{ pret.status }}">{{ current_status_label }}</span>
         </div>
       </div>
 
       {% if has_credit_now %}
         <div class="muted" style="margin-top:8px;">
-          يوجد حالياً رصيد دائن للمورد بقيمة {{ pret.remaining|human_number }}.
+          Remaining SYP: {{ remaining_syp|default:0|human_number }} | Remaining USD: {{ remaining_usd|default:0|human_number }}
         </div>
       {% else %}
         <div class="muted" style="margin-top:8px;">
-          لا يوجد رصيد دائن متبقٍ لهذا المرتجع.
+          No remaining credit for this return.
         </div>
       {% endif %}
     </div>

@@ -7,6 +7,9 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from core.currency import CURRENCY_CHOICES, SYP, USD
+from financials.models import MoneyContainer
+
 
 class CustomerProfile(models.Model):
     """
@@ -139,6 +142,16 @@ class SalesBill(models.Model):
         (PAY_PARTIAL, "Partially paid"),
     ]
 
+    SETTLE_SPLIT = "split"
+    SETTLE_ALL_SYP = "all_syp"
+    SETTLE_ALL_USD = "all_usd"
+
+    SETTLEMENT_MODE_CHOICES = [
+        (SETTLE_SPLIT, "Split (SYP+USD)"),
+        (SETTLE_ALL_SYP, "All in SYP"),
+        (SETTLE_ALL_USD, "All in USD"),
+    ]
+
     # NEW: container links
     work_day = models.ForeignKey(
         PosDay,
@@ -160,6 +173,14 @@ class SalesBill(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="bills",
+    )
+
+    money_container = models.ForeignKey(
+        MoneyContainer,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pos_sales_bills",
     )
 
     customer = models.ForeignKey(
@@ -191,10 +212,37 @@ class SalesBill(models.Model):
         decimal_places=3,
         default=Decimal("0.000"),
     )
+    total_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
+    total_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+    )
     paid_amount = models.DecimalField(
         max_digits=14,
         decimal_places=3,
         default=Decimal("0.000"),
+    )
+    settlement_mode = models.CharField(
+        max_length=12,
+        choices=SETTLEMENT_MODE_CHOICES,
+        default=SETTLE_SPLIT,
+    )
+    settlement_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        null=True,
+        blank=True,
+    )
+    fx_rate_used = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
     )
 
     # POS-specific flags
@@ -268,6 +316,11 @@ class SalesBillRow(models.Model):
         decimal_places=3,
         default=Decimal("0.000"),
         help_text="Price per primary unit",
+    )
+    sale_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=SYP,
     )
 
     disc_amount = models.DecimalField(

@@ -38,6 +38,8 @@ class FinancialsCoreTests(TestCase):
             defaults={"name": "US Dollar", "decimals": 2, "is_active": True},
         )
 
+        FSV.set_current_fx(actor=cls.actor, rate_syp_per_usd=Decimal("15000"))
+
         cls.provider_mark = Counterparty.objects.create(
             type=CounterpartyType.PROVIDER, name="mark"
         )

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import wraps
 from math import ceil
+from decimal import Decimal
 from typing import Iterable
 
 from django.contrib import messages
@@ -87,6 +88,20 @@ def _snap_product(p: Product) -> dict:
             "cost_usd",
             "price_syp",
             "price_usd",
+            "allow_syp_sales",
+            "allow_syp_purchasing",
+            "allow_usd_sales",
+            "allow_usd_purchasing",
+            "default_purchase_currency",
+            "default_sale_currency",
+            "default_cost_syp",
+            "default_cost_usd",
+            "default_price_syp",
+            "default_price_usd",
+            "latest_cost_syp",
+            "latest_cost_usd",
+            "latest_price_syp",
+            "latest_price_usd",
             "enable_syp",
             "enable_usd",
             "default_currency",
@@ -589,6 +604,11 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(request, "manager/product_new.html", {"form": form, "editing": False})
 
         # Build product instance
+        default_cost_syp = form.cleaned_data.get("default_cost_syp") or Decimal("0")
+        default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
+        default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
+        default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
+
         p = Product(
             name=form.cleaned_data["name"],
             set=st,
@@ -597,13 +617,24 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             conversion_factor=form.cleaned_data["conversion_factor"],
             cost=form.cleaned_data["cost"],
             price=form.cleaned_data["price"],
-            cost_syp=form.cleaned_data.get("cost_syp"),
-            cost_usd=form.cleaned_data.get("cost_usd"),
-            price_syp=form.cleaned_data.get("price_syp"),
-            price_usd=form.cleaned_data.get("price_usd"),
-            enable_syp=bool(form.cleaned_data.get("enable_syp")),
-            enable_usd=bool(form.cleaned_data.get("enable_usd")),
-            default_currency=form.cleaned_data.get("default_currency") or None,
+            cost_syp=default_cost_syp,
+            cost_usd=default_cost_usd,
+            price_syp=default_price_syp,
+            price_usd=default_price_usd,
+            allow_syp_sales=bool(form.cleaned_data.get("allow_syp_sales")),
+            allow_syp_purchasing=bool(form.cleaned_data.get("allow_syp_purchasing")),
+            allow_usd_sales=bool(form.cleaned_data.get("allow_usd_sales")),
+            allow_usd_purchasing=bool(form.cleaned_data.get("allow_usd_purchasing")),
+            default_purchase_currency=form.cleaned_data.get("default_purchase_currency") or None,
+            default_sale_currency=form.cleaned_data.get("default_sale_currency") or None,
+            default_cost_syp=default_cost_syp,
+            default_cost_usd=default_cost_usd,
+            default_price_syp=default_price_syp,
+            default_price_usd=default_price_usd,
+            latest_cost_syp=default_cost_syp,
+            latest_cost_usd=default_cost_usd,
+            latest_price_syp=default_price_syp,
+            latest_price_usd=default_price_usd,
             notes=form.cleaned_data["notes"] or "",
         )
 
@@ -861,15 +892,28 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         p.unit_primary = form.cleaned_data["unit_primary"]
         p.unit_secondary = form.cleaned_data["unit_secondary"] or ""
         p.conversion_factor = form.cleaned_data["conversion_factor"]
+        default_cost_syp = form.cleaned_data.get("default_cost_syp") or Decimal("0")
+        default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
+        default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
+        default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
+
         p.cost = form.cleaned_data["cost"]
         p.price = form.cleaned_data["price"]
-        p.cost_syp = form.cleaned_data.get("cost_syp")
-        p.cost_usd = form.cleaned_data.get("cost_usd")
-        p.price_syp = form.cleaned_data.get("price_syp")
-        p.price_usd = form.cleaned_data.get("price_usd")
-        p.enable_syp = bool(form.cleaned_data.get("enable_syp"))
-        p.enable_usd = bool(form.cleaned_data.get("enable_usd"))
-        p.default_currency = form.cleaned_data.get("default_currency") or None
+        p.cost_syp = default_cost_syp
+        p.cost_usd = default_cost_usd
+        p.price_syp = default_price_syp
+        p.price_usd = default_price_usd
+        p.allow_syp_sales = bool(form.cleaned_data.get("allow_syp_sales"))
+        p.allow_syp_purchasing = bool(form.cleaned_data.get("allow_syp_purchasing"))
+        p.allow_usd_sales = bool(form.cleaned_data.get("allow_usd_sales"))
+        p.allow_usd_purchasing = bool(form.cleaned_data.get("allow_usd_purchasing"))
+        p.default_purchase_currency = form.cleaned_data.get("default_purchase_currency") or None
+        p.default_sale_currency = form.cleaned_data.get("default_sale_currency") or None
+        p.default_cost_syp = default_cost_syp
+        p.default_cost_usd = default_cost_usd
+        p.default_price_syp = default_price_syp
+        p.default_price_usd = default_price_usd
+        # latest_* are read-only (do not override here)
         p.notes = form.cleaned_data["notes"] or ""
 
         try:
@@ -979,9 +1023,20 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "cost_usd": p.cost_usd,
         "price_syp": p.price_syp,
         "price_usd": p.price_usd,
-        "enable_syp": p.enable_syp,
-        "enable_usd": p.enable_usd,
-        "default_currency": p.default_currency or "",
+        "allow_syp_sales": p.allow_syp_sales,
+        "allow_syp_purchasing": p.allow_syp_purchasing,
+        "allow_usd_sales": p.allow_usd_sales,
+        "allow_usd_purchasing": p.allow_usd_purchasing,
+        "default_purchase_currency": p.default_purchase_currency or "",
+        "default_sale_currency": p.default_sale_currency or "",
+        "default_cost_syp": p.default_cost_syp,
+        "default_cost_usd": p.default_cost_usd,
+        "default_price_syp": p.default_price_syp,
+        "default_price_usd": p.default_price_usd,
+        "latest_cost_syp": p.latest_cost_syp,
+        "latest_cost_usd": p.latest_cost_usd,
+        "latest_price_syp": p.latest_price_syp,
+        "latest_price_usd": p.latest_price_usd,
         "notes": p.notes or "",
         "barcodes_u1": "",
         "barcodes_u2": "",

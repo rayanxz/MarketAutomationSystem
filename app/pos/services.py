@@ -13,6 +13,8 @@ from inventory import services as InvSV
 from inventory.models import ProductMovement, DEC0, q3
 from stock.models import ProductContainer, StockEntry  # ⬅ added StockEntry
 from .models import SalesBill, SalesBillRow, PosDay, PosLoginSession , PosShift
+from core.currency import SYP, USD
+from financials import services as FinSV
 
 
 class InsufficientStockError(Exception):
@@ -133,6 +135,21 @@ def _qty_to_primary(
         # secondary → primary
         return q3(qty * conv), 2
     return qty, 1
+
+
+def _calc_row_total(*, product: Product, row: SalesBillRow) -> Decimal:
+    qty_primary, _unit_index = _qty_to_primary(product, row.uom_index, row.qty)
+    if qty_primary <= 0:
+        return DEC0
+    base = q3(qty_primary * q3(row.unit_price or DEC0))
+    disc_amt = q3(row.disc_amount or DEC0)
+    if disc_amt <= 0 and (row.disc_pct or DEC0) > 0 and base > 0:
+        disc_amt = q3((base * q3(row.disc_pct)) / Decimal("100"))
+    if disc_amt < 0:
+        disc_amt = DEC0
+    if disc_amt > base:
+        disc_amt = base
+    return q3(base - disc_amt)
 
 
 @transaction.atomic
@@ -278,4 +295,70 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             source_model="SalesBill",
             source_id=str(bill.id),
             container=container,
+        )
+
+    # ==========================
+    # 5) Financials: cash-in receipt (paid only)
+    # ==========================
+    if bill.pay_status == SalesBill.PAY_NONE:
+        return
+
+    if not bill.money_container_id:
+        raise RuntimeError("POS_MISSING_MONEY_CONTAINER")
+
+    total_syp = q3(bill.total_syp or DEC0)
+    total_usd = q3(bill.total_usd or DEC0)
+
+    # fallback for legacy bills
+    if total_syp == 0 and total_usd == 0:
+        for row in rows:
+            try:
+                product = Product.objects.get(pk=row.product_id)
+            except Product.DoesNotExist:
+                continue
+            row_total = _calc_row_total(product=product, row=row)
+            row_currency = (row.sale_currency or SYP).upper()
+            if row_currency == USD:
+                total_usd = q3(total_usd + row_total)
+            else:
+                total_syp = q3(total_syp + row_total)
+
+    fx_rate = bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd()
+
+    paid_syp = DEC0
+    paid_usd = DEC0
+    mode = bill.settlement_mode or SalesBill.SETTLE_SPLIT
+
+    if bill.pay_status == SalesBill.PAY_FULL:
+        if mode == SalesBill.SETTLE_ALL_SYP:
+            paid_syp = q3(total_syp + (total_usd * fx_rate))
+        elif mode == SalesBill.SETTLE_ALL_USD:
+            paid_usd = q3(total_usd + (total_syp / fx_rate))
+        else:
+            paid_syp = total_syp
+            paid_usd = total_usd
+    else:
+        if mode == SalesBill.SETTLE_ALL_SYP:
+            paid_syp = q3(bill.paid_amount or DEC0)
+        elif mode == SalesBill.SETTLE_ALL_USD:
+            paid_usd = q3(bill.paid_amount or DEC0)
+        else:
+            paid_syp = q3(bill.paid_amount or DEC0)
+
+    amounts = {}
+    if paid_syp > 0:
+        amounts[SYP] = paid_syp
+    if paid_usd > 0:
+        amounts[USD] = paid_usd
+
+    if amounts:
+        FinSV.post_pos_sale_receipt(
+            actor=actor,
+            container_id=bill.money_container_id,
+            amounts_by_code=amounts,
+            fx_syp_per_usd=fx_rate,
+            note="POS sale receipt",
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(bill.id),
         )

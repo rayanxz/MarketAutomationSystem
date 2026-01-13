@@ -59,6 +59,14 @@
         </div>
 
         <div>
+          <label for="saleCurrency">Currency</label>
+          <select class="input" id="saleCurrency">
+            <option value="SYP">SYP</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+
+        <div>
           <label>الخصم</label>
           <div class="discount-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
 
@@ -100,6 +108,7 @@
             <th class="col-name">اسم المنتج</th>
             <th class="col-qty">الكمية</th>
             <th class="col-unit">وحدة القياس</th>
+            <th class="col-currency">Currency</th>
             <th class="col-unitprice">سعر الوحدة الأساسية</th>
             <th class="col-disc">الخصم</th>
             <th class="col-total">السعر الإجمالي</th>
@@ -122,6 +131,24 @@
       <div class="total-box">
         <span class="muted">الإجمالي:</span>
         <span id="grandTotal" style="font-variant-numeric: tabular-nums;">0.000</span>
+      </div>
+
+      <!-- Totals split -->
+      <div class="total-box" style="min-width:220px;">
+        <div class="muted" style="font-size:11px;">Totals</div>
+        <div><span class="muted">SYP:</span> <span id="totalSyp">0.000</span></div>
+        <div><span class="muted">USD:</span> <span id="totalUsd">0.000</span></div>
+      </div>
+
+      <!-- Settlement helpers -->
+      <div class="total-box" style="min-width:220px;">
+        <div class="muted" style="font-size:11px;">Settlement</div>
+        <div><span class="muted">Mode:</span> <span id="settlementMode">split</span></div>
+        <div><span class="muted">Total:</span> <span id="settlementTotal">0.000</span></div>
+        <div class="row" style="margin-top:6px;">
+          <button class="btn" type="button" id="settleAllSyp">All SYP</button>
+          <button class="btn" type="button" id="settleAllUsd">All USD</button>
+        </div>
       </div>
 
       <!-- Pay status -->

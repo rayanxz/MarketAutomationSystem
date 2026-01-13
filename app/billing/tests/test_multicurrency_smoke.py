@@ -69,8 +69,8 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         self,
         *,
         name: str,
-        enable_syp: bool,
-        enable_usd: bool,
+        allow_syp: bool,
+        allow_usd: bool,
         default_currency: str | None,
         cost: str,
         price: str,
@@ -81,9 +81,16 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
             unit_primary=UnitType.PIECE,
             cost=Decimal(cost),
             price=Decimal(price),
-            enable_syp=enable_syp,
-            enable_usd=enable_usd,
-            default_currency=default_currency,
+            allow_syp_purchasing=allow_syp,
+            allow_syp_sales=allow_syp,
+            allow_usd_purchasing=allow_usd,
+            allow_usd_sales=allow_usd,
+            default_purchase_currency=default_currency,
+            default_sale_currency=default_currency,
+            default_cost_syp=Decimal(cost) if allow_syp else Decimal("0"),
+            default_cost_usd=Decimal(cost) if allow_usd else Decimal("0"),
+            default_price_syp=Decimal(price) if allow_syp else Decimal("0"),
+            default_price_usd=Decimal(price) if allow_usd else Decimal("0"),
         )
 
     def _post_bill(self, *, items: list[Dict[str, Any]]):
@@ -106,24 +113,24 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
     def test_multicurrency_purchase_bill_and_payments(self):
         prod_a = self._create_product(
             name="Prod SYP",
-            enable_syp=True,
-            enable_usd=False,
+            allow_syp=True,
+            allow_usd=False,
             default_currency=None,
             cost="1000",
             price="1500",
         )
         prod_b = self._create_product(
             name="Prod USD",
-            enable_syp=False,
-            enable_usd=True,
+            allow_syp=False,
+            allow_usd=True,
             default_currency=None,
             cost="2",
             price="3",
         )
         prod_c = self._create_product(
             name="Prod BOTH",
-            enable_syp=True,
-            enable_usd=True,
+            allow_syp=True,
+            allow_usd=True,
             default_currency=None,
             cost="2000",
             price="3000",
@@ -136,6 +143,8 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
                 "qty_raw": "2",
                 "cost": "1000",
                 "price": "1500",
+                "price_syp": "1500",
+                "price_usd": "",
                 "currency": "SYP",
             },
             {
@@ -144,6 +153,8 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
                 "qty_raw": "3",
                 "cost": "5",
                 "price": "6",
+                "price_syp": "",
+                "price_usd": "6",
                 "currency": "USD",
             },
             {
@@ -152,6 +163,8 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
                 "qty_raw": "1",
                 "cost": "2000",
                 "price": "3000",
+                "price_syp": "3000",
+                "price_usd": "",
                 "currency": "",
             },
         ]

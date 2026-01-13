@@ -177,6 +177,7 @@ tbody tr:hover{ background:var(--hover); }
 .col-name{ width:32%; }
 .col-qty{ width:10%; text-align:center; }
 .col-unit{ width:12%; text-align:center; }
+.col-currency{ width:7%; text-align:center; }
 .col-unitprice{ width:14%; text-align:left; font-variant-numeric:tabular-nums; }
 .col-disc{ width:10%; text-align:center; }
 .col-total{ width:14%; text-align:left; font-variant-numeric:tabular-nums; }

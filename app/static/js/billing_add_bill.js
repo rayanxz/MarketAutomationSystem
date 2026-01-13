@@ -44,26 +44,36 @@
   const debounce = (fn, ms=180)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
   const num  = v => { const n = parseFloat(String(v ?? "").trim().replace(",", ".")); return Number.isFinite(n) ? n : 0; };
   const fmt2 = v => (Number(v || 0)).toFixed(2);
+  const fmt4 = v => (Number(v || 0)).toFixed(4);
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
 
-  function defaultCurForProduct(p){
-    const def = (p.default_currency || "").toUpperCase();
-    if (def === "USD" && p.enable_usd) return "USD";
-    if (def === "SYP" && p.enable_syp) return "SYP";
-    if (p.enable_syp) return "SYP";
-    if (p.enable_usd) return "USD";
+  function defaultPurchaseCurForProduct(p){
+    const def = (p.effective_default_purchase_currency || p.default_purchase_currency || "").toUpperCase();
+    if (def === "USD" && p.allow_usd_purchasing) return "USD";
+    if (def === "SYP" && p.allow_syp_purchasing) return "SYP";
+    if (p.allow_syp_purchasing) return "SYP";
+    if (p.allow_usd_purchasing) return "USD";
+    return "SYP";
+  }
+
+  function defaultSaleCurForProduct(p){
+    const def = (p.effective_default_sale_currency || p.default_sale_currency || "").toUpperCase();
+    if (def === "USD" && p.allow_usd_sales) return "USD";
+    if (def === "SYP" && p.allow_syp_sales) return "SYP";
+    if (p.allow_syp_sales) return "SYP";
+    if (p.allow_usd_sales) return "USD";
     return "SYP";
   }
 
   function defaultCostFor(p, cur){
-    if (cur === "USD") return (p.cost_usd ?? p.cost ?? "");
-    return (p.cost_syp ?? p.cost ?? "");
+    if (cur === "USD") return (p.default_cost_usd ?? p.cost_usd ?? p.cost ?? "");
+    return (p.default_cost_syp ?? p.cost_syp ?? p.cost ?? "");
   }
 
   function defaultPriceFor(p, cur){
-    if (cur === "USD") return (p.price_usd ?? p.price ?? "");
-    return (p.price_syp ?? p.price ?? "");
+    if (cur === "USD") return (p.default_price_usd ?? p.price_usd ?? p.price ?? "");
+    return (p.default_price_syp ?? p.price_syp ?? p.price ?? "");
   }
 
 
@@ -88,9 +98,21 @@
       cost_usd: p.cost_usd ?? "",
       price_syp: p.price_syp ?? "",
       price_usd: p.price_usd ?? "",
+      default_cost_syp: p.default_cost_syp ?? p.cost_syp ?? "",
+      default_cost_usd: p.default_cost_usd ?? p.cost_usd ?? "",
+      default_price_syp: p.default_price_syp ?? p.price_syp ?? "",
+      default_price_usd: p.default_price_usd ?? p.price_usd ?? "",
       enable_syp: !!p.enable_syp,
       enable_usd: !!p.enable_usd,
+      allow_syp_purchasing: ("allow_syp_purchasing" in p) ? !!p.allow_syp_purchasing : !!p.enable_syp,
+      allow_usd_purchasing: ("allow_usd_purchasing" in p) ? !!p.allow_usd_purchasing : !!p.enable_usd,
+      allow_syp_sales: ("allow_syp_sales" in p) ? !!p.allow_syp_sales : !!p.enable_syp,
+      allow_usd_sales: ("allow_usd_sales" in p) ? !!p.allow_usd_sales : !!p.enable_usd,
       default_currency: (p.default_currency || "").toUpperCase(),
+      default_purchase_currency: (p.default_purchase_currency || "").toUpperCase(),
+      default_sale_currency: (p.default_sale_currency || "").toUpperCase(),
+      effective_default_purchase_currency: (p.effective_default_purchase_currency || "").toUpperCase(),
+      effective_default_sale_currency: (p.effective_default_sale_currency || "").toUpperCase(),
     }));
   }
 
@@ -402,21 +424,24 @@ refreshAutoSerial();
     const tr = document.createElement("tr");
     tr.dataset.pid = String(prod.id);
     tr.dataset.cf = cf;
-    tr.dataset.costSyp = prod.cost_syp ?? "";
-    tr.dataset.costUsd = prod.cost_usd ?? "";
-    tr.dataset.priceSyp = prod.price_syp ?? "";
-    tr.dataset.priceUsd = prod.price_usd ?? "";
+    tr.dataset.costSyp = prod.default_cost_syp ?? prod.cost_syp ?? "";
+    tr.dataset.costUsd = prod.default_cost_usd ?? prod.cost_usd ?? "";
+    tr.dataset.priceSyp = prod.default_price_syp ?? prod.price_syp ?? "";
+    tr.dataset.priceUsd = prod.default_price_usd ?? prod.price_usd ?? "";
     tr.dataset.costBase = prod.cost ?? "";
     tr.dataset.priceBase = prod.price ?? "";
 
-    const cur = defaultCurForProduct(prod);
+    const cur = defaultPurchaseCurForProduct(prod);
     const curOptions = [];
-    if (prod.enable_syp) curOptions.push(`<option value="SYP" ${cur==="SYP" ? "selected" : ""}>SYP</option>`);
-    if (prod.enable_usd) curOptions.push(`<option value="USD" ${cur==="USD" ? "selected" : ""}>USD</option>`);
-    const lockCurrency = !(prod.enable_syp && prod.enable_usd);
+    if (prod.allow_syp_purchasing) curOptions.push(`<option value="SYP" ${cur==="SYP" ? "selected" : ""}>SYP</option>`);
+    if (prod.allow_usd_purchasing) curOptions.push(`<option value="USD" ${cur==="USD" ? "selected" : ""}>USD</option>`);
+    const allowAnyPurch = !!(prod.allow_syp_purchasing || prod.allow_usd_purchasing);
+    if (!allowAnyPurch) curOptions.push(`<option value="SYP" selected>SYP</option>`);
+    const lockCurrency = !allowAnyPurch || !(prod.allow_syp_purchasing && prod.allow_usd_purchasing);
 
     const costVal = defaultCostFor(prod, cur);
-    const priceVal = defaultPriceFor(prod, cur);
+    const priceSypVal = prod.allow_syp_sales ? defaultPriceFor(prod, "SYP") : "";
+    const priceUsdVal = prod.allow_usd_sales ? defaultPriceFor(prod, "USD") : "";
 
     tr.innerHTML = `
       <td class="pname">${prod.name}</td>
@@ -424,8 +449,12 @@ refreshAutoSerial();
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
       </td>
-      <td><input name="cost[]" class="input" type="number" step="0.01" value="${costVal}"></td>
-      <td><input name="price[]" class="input" type="number" step="0.01" value="${priceVal}"></td>
+      <td><input name="cost[]" class="input" type="number" step="0.0001" value="${costVal}"></td>
+      <td><input name="price_syp[]" class="input price-syp" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
+      <td>
+        <input name="price_usd[]" class="input price-usd" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
+        <button type="button" class="btn btn-fx" style="margin-top:4px; padding:6px 8px;">FX</button>
+      </td>
       <td>
         <div style="display:flex; gap:6px; align-items:center;">
           <input name="qty[]" class="input" type="number" step="0.001" min="0" placeholder="0">
@@ -443,14 +472,17 @@ refreshAutoSerial();
     tr.querySelector(".btn-del")?.addEventListener("click", ()=>{ tr.remove(); recalcBillTotal(); });
 
     const costInput = tr.querySelector('input[name="cost[]"]');
-    const priceInput = tr.querySelector('input[name="price[]"]');
+    const priceSypInput = tr.querySelector('input[name="price_syp[]"]');
+    const priceUsdInput = tr.querySelector('input[name="price_usd[]"]');
     const curSelect = tr.querySelector('select.cur-ui');
     const curHidden = tr.querySelector('input.cur-hidden');
     if (costInput) costInput.dataset.auto = "1";
-    if (priceInput) priceInput.dataset.auto = "1";
+    if (priceSypInput) priceSypInput.dataset.auto = "1";
+    if (priceUsdInput) priceUsdInput.dataset.auto = "1";
 
     costInput?.addEventListener("input", () => { costInput.dataset.auto = "0"; });
-    priceInput?.addEventListener("input", () => { priceInput.dataset.auto = "0"; });
+    priceSypInput?.addEventListener("input", () => { priceSypInput.dataset.auto = "0"; });
+    priceUsdInput?.addEventListener("input", () => { priceUsdInput.dataset.auto = "0"; });
     curSelect?.addEventListener("change", () => {
       const sel = (curSelect.value || "SYP").toUpperCase();
       if (curHidden) curHidden.value = sel;
@@ -458,11 +490,20 @@ refreshAutoSerial();
         const v = (sel === "USD" ? (tr.dataset.costUsd || tr.dataset.costBase || "") : (tr.dataset.costSyp || tr.dataset.costBase || ""));
         costInput.value = v;
       }
-      if (priceInput && priceInput.dataset.auto === "1") {
-        const v = (sel === "USD" ? (tr.dataset.priceUsd || tr.dataset.priceBase || "") : (tr.dataset.priceSyp || tr.dataset.priceBase || ""));
-        priceInput.value = v;
-      }
       recalcBillTotal();
+    });
+
+    const fxBtn = tr.querySelector(".btn-fx");
+    fxBtn?.addEventListener("click", () => {
+      const fxVal = parseFloat(String(fxBadge?.textContent || "").replace(/[^0-9.]/g, ""));
+      if (!Number.isFinite(fxVal) || fxVal <= 0) return;
+      const sypVal = num(priceSypInput?.value);
+      const usdVal = num(priceUsdInput?.value);
+      if (sypVal > 0 && (!usdVal || usdVal <= 0)) {
+        if (priceUsdInput && !priceUsdInput.disabled) priceUsdInput.value = fmt4(sypVal / fxVal);
+      } else if (usdVal > 0 && (!sypVal || sypVal <= 0)) {
+        if (priceSypInput && !priceSypInput.disabled) priceSypInput.value = fmt4(usdVal * fxVal);
+      }
     });
 
     tr.addEventListener("input", handleRowChange);
@@ -557,11 +598,13 @@ refreshAutoSerial();
     const product_id = parseInt(tr.dataset.pid, 10);
     const qty_raw = String(tr.querySelector('input[name="qty[]"]').value || "0");
     const cost = String(tr.querySelector('input[name="cost[]"]').value || "0");
-    const price = String(tr.querySelector('input[name="price[]"]').value || "0");
+    const price_syp = String(tr.querySelector('input[name="price_syp[]"]')?.value || "");
+    const price_usd = String(tr.querySelector('input[name="price_usd[]"]')?.value || "");
     const total_cost_el = tr.querySelector('input[name="total_cost[]"]').value;
     const unit_index = tr.querySelector('select[name="qty_unit[]"]').value === "u2" ? 2 : 1;
     const currency = (tr.querySelector('input.cur-hidden')?.value || tr.querySelector('select.cur-ui')?.value || "SYP").toUpperCase();
-    const row = { product_id, unit_index, qty_raw, cost, price, currency };
+    const price = currency === "USD" ? (price_usd || "0") : (price_syp || "0");
+    const row = { product_id, unit_index, qty_raw, cost, price, currency, price_syp, price_usd };
     if (total_cost_el && total_cost_el.trim().length) row.total_cost = String(total_cost_el);
     return row;
   });

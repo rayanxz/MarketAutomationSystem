@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, Q
 from django.http import (
     HttpRequest,
     HttpResponse,
@@ -21,6 +21,8 @@ from django.template.loader import render_to_string
 from .models import PosDay, PosShift, PosLoginSession, SalesBill
 
 from inventory.models import ProductMovement , DEC0 , q3 , q4
+from financials.models import MoneyContainer, MoneyContainerCurrency
+from financials import services as FinSV
 
 User = get_user_model()
 
@@ -193,7 +195,47 @@ def build_timeline_events_for_day(
 # ============================================================
 @login_required
 def pos_screen(request: HttpRequest) -> HttpResponse:
-    return render(request, "pos/screen.html")
+    user = request.user
+
+    containers_qs = (
+        MoneyContainer.objects
+        .filter(is_active=True, features__code="pos_sales", features__is_active=True)
+        .distinct()
+        .order_by("name")
+    )
+
+    if not (user.is_superuser or user.is_staff):
+        containers_qs = (
+            containers_qs
+            .filter(Q(allowed_users__isnull=True) | Q(allowed_users=user))
+            .distinct()
+        )
+
+    containers = []
+    for c in containers_qs:
+        enabled_codes = list(
+            MoneyContainerCurrency.objects
+            .filter(container=c, is_enabled=True)
+            .values_list("currency__code", flat=True)
+        )
+        containers.append(
+            {
+                "id": c.id,
+                "name": c.name,
+                "currencies": enabled_codes,
+            }
+        )
+
+    try:
+        fx_rate = FinSV.get_current_fx_syp_per_usd()
+    except Exception:
+        fx_rate = None
+
+    context = {
+        "pos_containers": containers,
+        "pos_fx_rate": fx_rate,
+    }
+    return render(request, "pos/screen.html", context)
 
 
 # ============================================================

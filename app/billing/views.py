@@ -194,10 +194,19 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
         "pret": pret,
         "created_status": created_status,
         "created_paid": created_paid,
-        "has_credit_now": pret.remaining > 0,
+        "has_credit_now": (getattr(pret, "remaining_syp", DEC0) > 0) or (getattr(pret, "remaining_usd", DEC0) > 0),
         "item_rows": item_rows,
         "source_bill": source_bill,
         "current_status_label": current_status_label,
+        "total_syp": getattr(pret, "total_syp", None),
+        "total_usd": getattr(pret, "total_usd", None),
+        "remaining_syp": getattr(pret, "remaining_syp", None),
+        "remaining_usd": getattr(pret, "remaining_usd", None),
+        "collected_syp": getattr(pret, "collected_syp", None),
+        "collected_usd": getattr(pret, "collected_usd", None),
+        "settlement_currency": getattr(pret, "settlement_currency", None),
+        "fx_rate_used": getattr(pret, "fx_rate_used", None),
+        "valuation_mode": getattr(pret, "valuation_mode", None),
     }
     return render(request, "billing/return_view.html", ctx)
 
@@ -434,9 +443,21 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
             "price_usd": getattr(p, "price_usd", None),
             "cost_syp": getattr(p, "cost_syp", None),
             "cost_usd": getattr(p, "cost_usd", None),
+            "default_price_syp": getattr(p, "default_price_syp", None),
+            "default_price_usd": getattr(p, "default_price_usd", None),
+            "default_cost_syp": getattr(p, "default_cost_syp", None),
+            "default_cost_usd": getattr(p, "default_cost_usd", None),
             "enable_syp": bool(getattr(p, "enable_syp", True)),
             "enable_usd": bool(getattr(p, "enable_usd", False)),
             "default_currency": getattr(p, "default_currency", None),
+            "allow_syp_purchasing": bool(getattr(p, "allow_syp_purchasing", True)),
+            "allow_usd_purchasing": bool(getattr(p, "allow_usd_purchasing", False)),
+            "allow_syp_sales": bool(getattr(p, "allow_syp_sales", True)),
+            "allow_usd_sales": bool(getattr(p, "allow_usd_sales", False)),
+            "default_purchase_currency": getattr(p, "default_purchase_currency", None),
+            "default_sale_currency": getattr(p, "default_sale_currency", None),
+            "effective_default_purchase_currency": p.get_effective_default_purchase_currency() if hasattr(p, "get_effective_default_purchase_currency") else getattr(p, "default_currency", None),
+            "effective_default_sale_currency": p.get_effective_default_sale_currency() if hasattr(p, "get_effective_default_sale_currency") else getattr(p, "default_currency", None),
             "matched_unit": matched_unit,
         })
 
@@ -976,6 +997,19 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         pk=bill_id,
     )
 
+    money_containers = (
+        MoneyContainer.objects
+        .filter(is_active=True, container_type=MoneyContainer.ContainerType.DRAWER)
+        .order_by("id")
+    )
+
+    try:
+        fx_current = FinSV.get_current_fx_syp_per_usd()
+    except Exception:
+        fx_current = None
+
+    fx_bill = getattr(bill, "fx_rate_usd_to_syp_used", None) or getattr(bill, "fx_usd_syp", None)
+
     # ----- base queryset -----
     item_qs = bill.items.all().select_related("product")
     item_ids = [it.id for it in item_qs]
@@ -1104,6 +1138,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 "product_name": getattr(prod, "name", "") or "",
                 "unit1_label": unit1_label,
                 "cost": it.cost,
+                "currency": getattr(it, "currency", None) or "SYP",
                 "left_qty": left_qty,
                 "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
                 "store_qty": store_qty,
@@ -1117,15 +1152,24 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 #=========================from here ================================================================
     #<-- this vertical 
     error_msg: str | None = None
+    total_return_syp = DEC0
+    total_return_usd = DEC0
+    total_return_settlement = DEC0
 
     # keep what user selected for status / amount (so we can re-fill on error)
     if request.method == "POST":
         return_status_selected = (request.POST.get("return_status") or "").lower().strip()
         return_paid_amount_raw = (request.POST.get("return_paid_amount") or "").strip()
+        valuation_mode_selected = (request.POST.get("valuation_mode") or "HISTORICAL").upper().strip()
+        settlement_currency_selected = (request.POST.get("settlement_currency") or getattr(bill, "settlement_currency", "SYP")).upper().strip()
+        money_container_id_raw = (request.POST.get("money_container_id") or "").strip()
     else:
-        # initial GET → nothing chosen, box empty
+        # initial GET - nothing chosen, box empty
         return_status_selected = ""
         return_paid_amount_raw = ""
+        valuation_mode_selected = "HISTORICAL"
+        settlement_currency_selected = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()
+        money_container_id_raw = ""
 
     if request.method == "POST":
         # 1) copy all raw inputs from POST into rows so we can re-render them on error
@@ -1143,9 +1187,17 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
         # 2) build payload + validate
         items_payload: list[dict[str, Any]] = []
-        total_return_cost = DEC0  # إجمالي قيمة المرتجع (كل الصفوف)
+        total_return_syp = DEC0
+        total_return_usd = DEC0
+        total_return_settlement = DEC0
 
         try:
+            fx_hist = None
+            if fx_bill is not None:
+                fx_hist = _dec(str(fx_bill), "0")
+            elif fx_current is not None:
+                fx_hist = _dec(str(fx_current), "0")
+
             for r in rows:
                 iid = r["item_id"]
                 it = items_by_id[iid]
@@ -1162,7 +1214,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 q_wh2 = _dec(r.get("ret_wh2_raw"), "0")
 
                 if q_store < DEC0 or q_wh1 < DEC0 or q_wh2 < DEC0:
-                    raise ValueError("لا يمكن إدخال كميات سالبة للمرتجع.")
+                    raise ValueError("Invalid negative return quantity.")
 
                 qty_total = q3(q_store + q_wh1 + q_wh2)
                 if qty_total <= DEC0:
@@ -1171,38 +1223,45 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
                 # check against available per container
                 if q_store > r["store_qty"]:
-                    raise ValueError(f"الكمية المرتجعة من المتجر للمنتج '{prod.name}' أكبر من المتاح.")
+                    raise ValueError(f"Return qty exceeds available store qty for '{prod.name}'.")
                 if q_wh1 > r["wh1_qty"]:
-                    raise ValueError(f"الكمية المرتجعة من مستودع 1 للمنتج '{prod.name}' أكبر من المتاح.")
+                    raise ValueError(f"Return qty exceeds available WH1 qty for '{prod.name}'.")
                 if q_wh2 > r["wh2_qty"]:
-                    raise ValueError(f"الكمية المرتجعة من مستودع 2 للمنتج '{prod.name}' أكبر من المتاح.")
+                    raise ValueError(f"Return qty exceeds available WH2 qty for '{prod.name}'.")
 
                 # also total vs left
                 if qty_total > r["left_qty"]:
-                    raise ValueError(f"إجمالي الكمية المرتجعة للمنتج '{prod.name}' أكبر من الكمية المتبقية.")
+                    raise ValueError(f"Return qty exceeds remaining FIFO qty for '{prod.name}'.")
 
-                # cost: use raw if provided, otherwise default to item cost
-                raw_cost = r.get("ret_cost_raw") or str(it.cost or "0")
-                cost = _dec(raw_cost, str(it.cost or "0"))
+                item_currency = (getattr(it, "currency", None) or "SYP").upper()
+                cost = q4(Decimal(str(it.cost or "0")))
 
-                # accumulate total return cost (cost * qty_total)
-                line_total = q3(q4(cost) * q3(qty_total))
-                total_return_cost = q3(total_return_cost + line_total)
+                line_total = q3(cost * q3(qty_total))
+                if item_currency == "USD":
+                    total_return_usd = q3(total_return_usd + line_total)
+                else:
+                    total_return_syp = q3(total_return_syp + line_total)
 
+                # settlement total (convert if needed)
+                if settlement_currency_selected == item_currency:
+                    total_return_settlement = q3(total_return_settlement + line_total)
+                else:
+                    fx_use = fx_hist if valuation_mode_selected == "HISTORICAL" else fx_current
+                    if fx_use is None or Decimal(str(fx_use)) <= 0:
+                        raise ValueError("FX rate is required to settle this return.")
+                    fx_use = Decimal(str(fx_use))
+                    if settlement_currency_selected == "SYP" and item_currency == "USD":
+                        total_return_settlement = q3(total_return_settlement + (line_total * fx_use))
+                    elif settlement_currency_selected == "USD" and item_currency == "SYP":
+                        total_return_settlement = q3(total_return_settlement + (line_total / fx_use))
 
                 container_splits: list[dict[str, str]] = []
                 if q_store > DEC0:
-                    container_splits.append(
-                        {"code": "store", "qty_primary": str(q_store)}
-                    )
+                    container_splits.append({"code": "store", "qty_primary": str(q_store)})
                 if q_wh1 > DEC0:
-                    container_splits.append(
-                        {"code": "wh1", "qty_primary": str(q_wh1)}
-                    )
+                    container_splits.append({"code": "wh1", "qty_primary": str(q_wh1)})
                 if q_wh2 > DEC0:
-                    container_splits.append(
-                        {"code": "wh2", "qty_primary": str(q_wh2)}
-                    )
+                    container_splits.append({"code": "wh2", "qty_primary": str(q_wh2)})
 
                 items_payload.append(
                     {
@@ -1211,52 +1270,48 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                         "unit_index": 1,
                         "qty_primary": str(qty_total),
                         "cost": str(cost),
+                        "currency": item_currency,
                         "container_splits": container_splits,
                     }
                 )
 
             if not items_payload:
-                raise ValueError("لم يتم إدخال أي كميات مرتجعة.")
+                raise ValueError("No return items were selected.")
 
             # 3) pay status + amount validation
             raw_status = (return_status_selected or "").lower()
             if raw_status not in {"paid", "unpaid", "partial"}:
-                # user didn’t pick any radio
-                raise ValueError("يجب اختيار حالة دفع للمرتجع.")
+                raise ValueError("Return status must be selected.")
 
             paid_amount = _dec(return_paid_amount_raw or "0", "0")
-
             if paid_amount < DEC0:
                 paid_amount = -paid_amount
 
             status = raw_status
 
             if status == "partial":
-                # partial + no amount → treat as unpaid
                 if paid_amount <= DEC0:
                     status = "unpaid"
                     paid_amount = DEC0
                 else:
-                    if total_return_cost <= DEC0:
-                        raise ValueError("لا يمكن تحديد حالة الدفع جزئية مع إجمالي مرتجع صفري.")
-                    if paid_amount > total_return_cost:
-                        raise ValueError("المبلغ المدفوع لا يمكن أن يتجاوز إجمالي قيمة المرتجع.")
-                    if paid_amount == total_return_cost:
+                    if total_return_settlement <= DEC0:
+                        raise ValueError("Return total must be > 0.")
+                    if paid_amount > total_return_settlement:
+                        raise ValueError("Paid amount exceeds return total.")
+                    if paid_amount == total_return_settlement:
                         status = "paid"
-
             elif status == "paid":
-                if total_return_cost <= DEC0:
-                    raise ValueError("لا يمكن تحديد حالة الدفع مدفوعة بالكامل مع إجمالي مرتجع صفري.")
+                if total_return_settlement <= DEC0:
+                    raise ValueError("Return total must be > 0.")
                 if paid_amount == DEC0:
-                    # if manager leaves box empty with 'paid', assume full amount
-                    paid_amount = total_return_cost
-                elif paid_amount > total_return_cost:
-                    raise ValueError("المبلغ المدفوع لا يمكن أن يتجاوز إجمالي قيمة المرتجع.")
-
-            else:  # unpaid
+                    paid_amount = total_return_settlement
+                elif paid_amount > total_return_settlement:
+                    raise ValueError("Paid amount exceeds return total.")
+            else:
                 paid_amount = DEC0
 
             # 4) create ProviderReturn
+
             pret = SV.create_return(
                 actor=request.user,
                 provider_id=bill.provider_id,
@@ -1265,6 +1320,9 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 items=items_payload,
                 container=None,  # using per-item container_splits
                 source_bill_serial=bill.serial,
+                money_container_id=(int(money_container_id_raw) if money_container_id_raw else None),
+                currency_code=settlement_currency_selected,
+                valuation_mode=valuation_mode_selected,
             )
 
             return redirect("billing_returns_list")
@@ -1285,6 +1343,15 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         "items_ids": selected_ids_str,
         "return_status_selected": return_status_selected,
         "return_paid_amount_raw": return_paid_amount_raw,
+        "valuation_mode_selected": valuation_mode_selected,
+        "settlement_currency_selected": settlement_currency_selected,
+        "money_container_id_raw": money_container_id_raw,
+        "total_return_syp": total_return_syp,
+        "total_return_usd": total_return_usd,
+        "total_return_settlement": total_return_settlement,
+        "fx_current": fx_current,
+        "fx_bill": fx_bill,
+        "money_containers": money_containers,
     }
 
     return render(request, "billing/bill_return_wizard.html", ctx)

@@ -12,11 +12,20 @@ def unit_label(code: str) -> str:
     return dict(UnitType.choices).get(code, code)
 
 def product_payload(p: Product) -> Dict[str, Any]:
+    effective_sale_currency = p.get_effective_default_sale_currency()
+    if effective_sale_currency == "USD" and (p.default_price_usd or 0) <= 0 and p.allow_syp_sales:
+        effective_sale_currency = "SYP"
+    default_price = p.get_default_price_for_currency(effective_sale_currency)
     data = {
         "id": p.id,
         "name": p.name,
         "number": p.display_code,  # zero-padded string
-        "price": str(p.price),     # base price per primary unit (for now)
+        "price": str(default_price),  # effective default sale price per primary unit
+        "default_price_syp": str(p.default_price_syp),
+        "default_price_usd": str(p.default_price_usd),
+        "allow_syp_sales": bool(p.allow_syp_sales),
+        "allow_usd_sales": bool(p.allow_usd_sales),
+        "effective_default_sale_currency": effective_sale_currency,
         "units": {
             "primary": {"code": p.unit_primary, "label": unit_label(p.unit_primary)},
             "secondary": None,

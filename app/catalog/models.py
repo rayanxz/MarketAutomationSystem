@@ -1,6 +1,8 @@
 # catalog/models.py
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import IntegrityError, models, transaction
@@ -140,16 +142,46 @@ class Product(models.Model):
         help_text="How many primary units in one secondary unit (e.g., 1000 g per 1 L).",
     )
 
-    # Money
+    # Money (legacy single-currency fields; kept for backward compatibility)
     cost = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     price = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
 
-    # Currency-aware defaults (per-unit in primary unit)
+    # Currency-aware defaults (legacy; kept to avoid breaking older code)
     cost_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     cost_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     price_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     price_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
 
+    # New: per-currency sales/purchasing controls
+    allow_syp_sales = models.BooleanField(default=True)
+    allow_syp_purchasing = models.BooleanField(default=True)
+    allow_usd_sales = models.BooleanField(default=False)
+    allow_usd_purchasing = models.BooleanField(default=False)
+
+    default_purchase_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        null=True,
+        blank=True,
+    )
+    default_sale_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        null=True,
+        blank=True,
+    )
+
+    default_cost_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    default_cost_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    default_price_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    default_price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+
+    latest_cost_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    latest_cost_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    latest_price_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    latest_price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+
+    # Legacy flags/defaults (kept for backward compatibility)
     enable_syp = models.BooleanField(default=True)
     enable_usd = models.BooleanField(default=False)
 
@@ -212,21 +244,63 @@ class Product(models.Model):
             # when there is no second unit, wipe optional factor
             self.conversion_factor = None
 
-        # Currency enable/disable rules
-        if not self.enable_syp and not self.enable_usd:
-            raise ValidationError("At least one currency must be enabled.")
+        # Currency enable/disable rules (new flags)
+        purchase_syp = bool(self.allow_syp_purchasing)
+        purchase_usd = bool(self.allow_usd_purchasing)
+        sale_syp = bool(self.allow_syp_sales)
+        sale_usd = bool(self.allow_usd_sales)
 
-        enabled = []
-        if self.enable_syp:
-            enabled.append(SYP)
-        if self.enable_usd:
-            enabled.append(USD)
+        # Keep legacy flags in sync for older code paths
+        self.enable_syp = bool(purchase_syp or sale_syp)
+        self.enable_usd = bool(purchase_usd or sale_usd)
 
-        if len(enabled) == 1:
-            self.default_currency = enabled[0]
+        # Normalize defaults for purchasing
+        if purchase_syp and not purchase_usd:
+            self.default_purchase_currency = SYP
+        elif purchase_usd and not purchase_syp:
+            self.default_purchase_currency = USD
+        elif not (purchase_syp or purchase_usd):
+            self.default_purchase_currency = None
 
-        if self.default_currency and self.default_currency not in enabled:
-            raise ValidationError("Default currency must be enabled on the product.")
+        if self.default_purchase_currency and self.default_purchase_currency not in (SYP, USD):
+            raise ValidationError("Default purchase currency must be SYP or USD.")
+        if self.default_purchase_currency == SYP and not purchase_syp:
+            raise ValidationError("Default purchase currency must be enabled for purchasing.")
+        if self.default_purchase_currency == USD and not purchase_usd:
+            raise ValidationError("Default purchase currency must be enabled for purchasing.")
+
+        # Normalize defaults for sales
+        if sale_syp and not sale_usd:
+            self.default_sale_currency = SYP
+        elif sale_usd and not sale_syp:
+            self.default_sale_currency = USD
+        elif not (sale_syp or sale_usd):
+            self.default_sale_currency = None
+
+        if self.default_sale_currency and self.default_sale_currency not in (SYP, USD):
+            raise ValidationError("Default sale currency must be SYP or USD.")
+        if self.default_sale_currency == SYP and not sale_syp:
+            raise ValidationError("Default sale currency must be enabled for sales.")
+        if self.default_sale_currency == USD and not sale_usd:
+            raise ValidationError("Default sale currency must be enabled for sales.")
+
+        # Force defaults to zero when currency is disabled
+        if not purchase_syp:
+            self.default_cost_syp = Decimal("0.0000")
+        if not purchase_usd:
+            self.default_cost_usd = Decimal("0.0000")
+        if not sale_syp:
+            self.default_price_syp = Decimal("0.0000")
+        if not sale_usd:
+            self.default_price_usd = Decimal("0.0000")
+
+        # Keep legacy default_currency aligned with purchase defaults when possible
+        if self.default_purchase_currency:
+            self.default_currency = self.default_purchase_currency
+        elif self.enable_syp and not self.enable_usd:
+            self.default_currency = SYP
+        elif self.enable_usd and not self.enable_syp:
+            self.default_currency = USD
 
     def save(self, *args, **kwargs):
         # validate + normalize first
@@ -254,6 +328,33 @@ class Product(models.Model):
             super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+    # ---- currency helpers ----
+    def get_effective_default_purchase_currency(self) -> str:
+        if self.allow_syp_purchasing and not self.allow_usd_purchasing:
+            return SYP
+        if self.allow_usd_purchasing and not self.allow_syp_purchasing:
+            return USD
+        if self.allow_syp_purchasing and self.allow_usd_purchasing:
+            return self.default_purchase_currency if self.default_purchase_currency in (SYP, USD) else SYP
+        return SYP
+
+    def get_effective_default_sale_currency(self) -> str:
+        if self.allow_syp_sales and not self.allow_usd_sales:
+            return SYP
+        if self.allow_usd_sales and not self.allow_syp_sales:
+            return USD
+        if self.allow_syp_sales and self.allow_usd_sales:
+            return self.default_sale_currency if self.default_sale_currency in (SYP, USD) else SYP
+        return SYP
+
+    def get_default_cost_for_currency(self, curr: str) -> Decimal:
+        cur = (curr or SYP).upper()
+        return self.default_cost_usd if cur == USD else self.default_cost_syp
+
+    def get_default_price_for_currency(self, curr: str) -> Decimal:
+        cur = (curr or SYP).upper()
+        return self.default_price_usd if cur == USD else self.default_price_syp
 
 
 # =========================

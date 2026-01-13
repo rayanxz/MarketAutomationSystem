@@ -44,6 +44,8 @@ class FinancialsContainerCreateTests(TestCase):
             defaults={"name": "US Dollar", "decimals": 2, "is_active": True},
         )
 
+        FSV.set_current_fx(actor=cls.actor, rate_syp_per_usd=Decimal("15000"))
+
     def setUp(self):
         ok = self.client.login(username="mgr", password="123")
         self.assertTrue(ok)

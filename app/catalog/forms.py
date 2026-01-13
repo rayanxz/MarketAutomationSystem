@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional, List
+from decimal import Decimal
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -13,7 +14,7 @@ from catalog.models import (
     ProductBarcode,
     Product,
 )
-from core.currency import CURRENCY_CHOICES, SYP
+from core.currency import CURRENCY_CHOICES, SYP, USD
 
 # =========================
 #    Collections (زُمَر)
@@ -78,10 +79,43 @@ class ProductCreateForm(forms.Form):
         self.fields["notes"].widget.attrs.setdefault("dir", "rtl")
 
         # Match decimal_places=4 so browsers don't fight the user
-        for n in ("cost", "price", "cost_syp", "cost_usd", "price_syp", "price_usd", "conversion_factor", "stock_qty"):
+        for n in (
+            "cost",
+            "price",
+            "cost_syp",
+            "cost_usd",
+            "price_syp",
+            "price_usd",
+            "default_cost_syp",
+            "default_cost_usd",
+            "default_price_syp",
+            "default_price_usd",
+            "latest_cost_syp",
+            "latest_cost_usd",
+            "latest_price_syp",
+            "latest_price_usd",
+            "conversion_factor",
+            "stock_qty",
+        ):
             if n in self.fields:
                 self.fields[n].widget.attrs.setdefault("class", "input")
-                if n in ("cost", "price", "conversion_factor", "cost_syp", "cost_usd", "price_syp", "price_usd"):
+                if n in (
+                    "cost",
+                    "price",
+                    "conversion_factor",
+                    "cost_syp",
+                    "cost_usd",
+                    "price_syp",
+                    "price_usd",
+                    "default_cost_syp",
+                    "default_cost_usd",
+                    "default_price_syp",
+                    "default_price_usd",
+                    "latest_cost_syp",
+                    "latest_cost_usd",
+                    "latest_price_syp",
+                    "latest_price_usd",
+                ):
                     self.fields[n].widget.attrs.setdefault("step", "0.0001")
 
     # ---------- Hierarchy ----------
@@ -104,21 +138,41 @@ class ProductCreateForm(forms.Form):
         min_value=0.0001,
     )
 
-    cost = forms.DecimalField(label="الكلفة", max_digits=12, decimal_places=4, min_value=0)
-    price = forms.DecimalField(label="السعر", max_digits=12, decimal_places=4, min_value=0)
+    cost = forms.DecimalField(label="Oچیلفة", max_digits=12, decimal_places=4, min_value=0, required=False)
+    price = forms.DecimalField(label="Oپرح", max_digits=12, decimal_places=4, min_value=0, required=False)
 
+    # Legacy currency-aware fields (kept for backward compatibility)
     cost_syp = forms.DecimalField(label="Cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
     cost_usd = forms.DecimalField(label="Cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
     price_syp = forms.DecimalField(label="Price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
     price_usd = forms.DecimalField(label="Price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
 
-    enable_syp = forms.BooleanField(label="Enable SYP", required=False, initial=True)
-    enable_usd = forms.BooleanField(label="Enable USD", required=False)
-    default_currency = forms.ChoiceField(
-        label="Default currency",
+    # New: currency permissions
+    allow_syp_sales = forms.BooleanField(label="Allow SYP sales", required=False, initial=True)
+    allow_syp_purchasing = forms.BooleanField(label="Allow SYP purchasing", required=False, initial=True)
+    allow_usd_sales = forms.BooleanField(label="Allow USD sales", required=False)
+    allow_usd_purchasing = forms.BooleanField(label="Allow USD purchasing", required=False)
+
+    default_purchase_currency = forms.ChoiceField(
+        label="Default purchase currency",
         choices=[("", "----")] + list(CURRENCY_CHOICES),
         required=False,
     )
+    default_sale_currency = forms.ChoiceField(
+        label="Default sale currency",
+        choices=[("", "----")] + list(CURRENCY_CHOICES),
+        required=False,
+    )
+
+    default_cost_syp = forms.DecimalField(label="Default cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    default_cost_usd = forms.DecimalField(label="Default cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    default_price_syp = forms.DecimalField(label="Default price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    default_price_usd = forms.DecimalField(label="Default price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+
+    latest_cost_syp = forms.DecimalField(label="Latest cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    latest_cost_usd = forms.DecimalField(label="Latest cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    latest_price_syp = forms.DecimalField(label="Latest price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    latest_price_usd = forms.DecimalField(label="Latest price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
 
     notes = forms.CharField(
         label="ملاحظات",
@@ -191,21 +245,55 @@ class ProductCreateForm(forms.Form):
                 if offending_u2:
                     self.add_error("barcodes_u2", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u2)}")
 
-        # Currency rules
-        enable_syp = bool(cleaned.get("enable_syp"))
-        enable_usd = bool(cleaned.get("enable_usd"))
-        default_currency = cleaned.get("default_currency") or None
+        # Currency rules (new flags)
+        allow_syp_purch = bool(cleaned.get("allow_syp_purchasing"))
+        allow_usd_purch = bool(cleaned.get("allow_usd_purchasing"))
+        allow_syp_sales = bool(cleaned.get("allow_syp_sales"))
+        allow_usd_sales = bool(cleaned.get("allow_usd_sales"))
 
-        if not enable_syp and not enable_usd:
-            self.add_error(None, "At least one currency must be enabled.")
-        if enable_syp and not enable_usd:
-            cleaned["default_currency"] = SYP
-        if default_currency and default_currency not in ("SYP", "USD"):
-            self.add_error("default_currency", "Invalid currency.")
-        if default_currency == "SYP" and not enable_syp:
-            self.add_error("default_currency", "Default currency must be enabled.")
-        if default_currency == "USD" and not enable_usd:
-            self.add_error("default_currency", "Default currency must be enabled.")
+        default_purchase_currency = cleaned.get("default_purchase_currency") or None
+        default_sale_currency = cleaned.get("default_sale_currency") or None
+
+        if allow_syp_purch and not allow_usd_purch:
+            cleaned["default_purchase_currency"] = SYP
+        if allow_usd_purch and not allow_syp_purch:
+            cleaned["default_purchase_currency"] = USD
+
+        if default_purchase_currency and default_purchase_currency not in ("SYP", "USD"):
+            self.add_error("default_purchase_currency", "Invalid currency.")
+        if default_purchase_currency == "SYP" and not allow_syp_purch:
+            self.add_error("default_purchase_currency", "Default purchase currency must be enabled.")
+        if default_purchase_currency == "USD" and not allow_usd_purch:
+            self.add_error("default_purchase_currency", "Default purchase currency must be enabled.")
+
+        if allow_syp_sales and not allow_usd_sales:
+            cleaned["default_sale_currency"] = SYP
+        if allow_usd_sales and not allow_syp_sales:
+            cleaned["default_sale_currency"] = USD
+
+        if default_sale_currency and default_sale_currency not in ("SYP", "USD"):
+            self.add_error("default_sale_currency", "Invalid currency.")
+        if default_sale_currency == "SYP" and not allow_syp_sales:
+            self.add_error("default_sale_currency", "Default sale currency must be enabled.")
+        if default_sale_currency == "USD" and not allow_usd_sales:
+            self.add_error("default_sale_currency", "Default sale currency must be enabled.")
+
+        if not allow_syp_purch:
+            cleaned["default_cost_syp"] = Decimal("0.0000")
+        if not allow_usd_purch:
+            cleaned["default_cost_usd"] = Decimal("0.0000")
+        if not allow_syp_sales:
+            cleaned["default_price_syp"] = Decimal("0.0000")
+        if not allow_usd_sales:
+            cleaned["default_price_usd"] = Decimal("0.0000")
+
+        # Legacy cost/price fallbacks (keep DB fields non-null)
+        if cleaned.get("cost") in (None, ""):
+            eff_cur = cleaned.get("default_purchase_currency") or (SYP if allow_syp_purch else USD)
+            cleaned["cost"] = cleaned.get("default_cost_usd") if eff_cur == "USD" else cleaned.get("default_cost_syp")
+        if cleaned.get("price") in (None, ""):
+            eff_cur = cleaned.get("default_sale_currency") or (SYP if allow_syp_sales else USD)
+            cleaned["price"] = cleaned.get("default_price_usd") if eff_cur == "USD" else cleaned.get("default_price_syp")
 
         # Price vs cost (optional business rule)
         cost = cleaned.get("cost")

@@ -219,13 +219,25 @@ def create_bill(
             Product.objects.select_for_update(), pk=pid
         )
 
+        allow_syp_purch = getattr(product, "allow_syp_purchasing", product.enable_syp)
+        allow_usd_purch = getattr(product, "allow_usd_purchasing", product.enable_usd)
+        allow_syp_sales = getattr(product, "allow_syp_sales", product.enable_syp)
+        allow_usd_sales = getattr(product, "allow_usd_sales", product.enable_usd)
+
         item_currency = (row.get("currency") or "").upper()
         if not item_currency:
-            item_currency = (product.default_currency or "").upper()
+            if hasattr(product, "get_effective_default_purchase_currency"):
+                item_currency = product.get_effective_default_purchase_currency()
+            else:
+                item_currency = (product.default_currency or "").upper()
         if not item_currency:
-            item_currency = "SYP" if product.enable_syp else "USD"
+            item_currency = "SYP" if allow_syp_purch else "USD"
         if item_currency not in ("SYP", "USD"):
             raise ValueError(f"Invalid currency at row {idx}")
+        if item_currency == "SYP" and not allow_syp_purch:
+            raise ValueError(f"SYP purchasing not enabled for product at row {idx}")
+        if item_currency == "USD" and not allow_usd_purch:
+            raise ValueError(f"USD purchasing not enabled for product at row {idx}")
 
         unit_idx = 2 if int(row.get("unit_index") or 1) == 2 else 1
 
@@ -234,7 +246,22 @@ def create_bill(
             raise ValueError(f"qty must be > 0 at row {idx}")
 
         cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
-        price_u1 = q4(Decimal(str(row.get("price") or "0")))
+
+        def _price_or_none(raw):
+            if raw in (None, ""):
+                return None
+            return q4(Decimal(str(raw)))
+
+        price_syp_val = _price_or_none(row.get("price_syp"))
+        price_usd_val = _price_or_none(row.get("price_usd"))
+
+        if price_syp_val is not None and not allow_syp_sales:
+            raise ValueError(f"SYP sales not enabled for product at row {idx}")
+        if price_usd_val is not None and not allow_usd_sales:
+            raise ValueError(f"USD sales not enabled for product at row {idx}")
+
+        price_fallback = price_usd_val if item_currency == "USD" else price_syp_val
+        price_u1 = q4(Decimal(str(row.get("price") or price_fallback or "0")))
 
         total_override_raw = row.get("total_cost")
         total_override = (
@@ -271,6 +298,23 @@ def create_bill(
 
         # ---- inventory movement (currency-agnostic)
         extra_updates: Dict[str, Any] = {}
+
+        if item_currency == "USD":
+            extra_updates["latest_cost_usd"] = cost_u1
+            extra_updates["default_cost_usd"] = cost_u1
+            extra_updates["cost_usd"] = cost_u1
+        else:
+            extra_updates["latest_cost_syp"] = cost_u1
+            extra_updates["default_cost_syp"] = cost_u1
+            extra_updates["cost_syp"] = cost_u1
+
+        if price_syp_val is not None:
+            extra_updates["default_price_syp"] = price_syp_val
+            extra_updates["price_syp"] = price_syp_val
+        if price_usd_val is not None:
+            extra_updates["default_price_usd"] = price_usd_val
+            extra_updates["price_usd"] = price_usd_val
+
         if update_product_defaults:
             extra_updates["cost"] = cost_u1
             extra_updates["price"] = price_u1
@@ -721,6 +765,7 @@ def create_return(
     source_bill_serial: int | None = None,
     money_container_id: int | None = None,
     currency_code: str = "SYP",
+    valuation_mode: str = "HISTORICAL",
 ) -> ProviderReturn:
     """
     Create a ProviderReturn, decrease stock via inventory movements, post GL, and register CreditorDebt.
@@ -751,20 +796,30 @@ def create_return(
        In this mode `container` is ignored and we use `container_splits`.
     """
     provider = get_object_or_404(Provider.objects.select_for_update(), pk=provider_id)
-    
+
     items = list(items)
 
-    # ✅ legacy mode needs a container (FIFO requires container)
+    settlement_currency = (currency_code or "SYP").upper()
+    if settlement_currency not in ("SYP", "USD"):
+        raise ValueError("Invalid settlement currency")
+
+    valuation_mode_norm = (valuation_mode or "HISTORICAL").upper().strip()
+    if valuation_mode_norm not in ("HISTORICAL", "CURRENT_FX"):
+        raise ValueError("Invalid valuation mode")
+
+    # legacy mode needs a container (FIFO requires container)
     if container is None and not any((row.get("container_splits") or []) for row in items):
         container = ProductContainer.objects.select_for_update().get(code="store")
-        # OR enforce strict:
-        # raise ValueError("container is required in legacy return mode")
 
     intended_paid = q3(paid_amount)
 
     pret = ProviderReturn(
         provider=provider,
         total=DEC0,
+        total_syp=DEC0,
+        total_usd=DEC0,
+        settlement_currency=settlement_currency,
+        valuation_mode=valuation_mode_norm,
         source_bill_serial=source_bill_serial,
         created_by=actor,
     )
@@ -774,7 +829,7 @@ def create_return(
     pret.initial_status = (status or "unpaid").lower()
     pret.save(update_fields=["initial_paid", "initial_status", "source_bill_serial"])
 
-    # ====== Collect container codes (wizard mode) ======
+    # ----- Collect container codes (wizard mode) -----
     all_codes: set[str] = set()
     for row in items:
         for split in row.get("container_splits") or []:
@@ -789,8 +844,22 @@ def create_return(
             for c in ProductContainer.objects.select_for_update().filter(code__in=all_codes)
         }
 
-    # ====== Process items ======
-    grand = DEC0
+    # ----- Process items -----
+    total_syp = DEC0
+    total_usd = DEC0
+    settlement_total = DEC0
+    conv_base_sum = DEC0
+    conv_converted_sum = DEC0
+
+    bill_item_ids = [int(row["bill_item_id"]) for row in items if row.get("bill_item_id")]
+    bill_items = {}
+    if bill_item_ids:
+        bill_items = {
+            it.id: it
+            for it in BillItem.objects.select_related("bill", "product").select_for_update()
+            .filter(id__in=bill_item_ids)
+        }
+
     prod_ids = [int(it["product_id"]) for it in items]
     products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
 
@@ -799,15 +868,24 @@ def create_return(
         product = products.get(pid) or get_object_or_404(Product.objects.select_for_update(), pk=pid)
 
         unit_idx = 2 if int(row.get("unit_index") or 1) == 2 else 1
-        cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
         container_splits = row.get("container_splits") or []
+        bill_item_id = row.get("bill_item_id")
+        bill_item = bill_items.get(int(bill_item_id)) if bill_item_id else None
 
-        # ---------- determine qty_primary ----------
+        item_currency = (getattr(bill_item, "currency", None) or row.get("currency") or settlement_currency or "SYP").upper()
+        if item_currency not in ("SYP", "USD"):
+            raise ValueError(f"Invalid item currency at row {idx}")
+
+        if bill_item is not None:
+            cost_u1 = q4(Decimal(str(bill_item.cost or DEC0)))
+        else:
+            cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
+
+        # ----- determine qty_primary -----
         if container_splits:
-            # wizard mode: qty_primary is already in primary unit and split per container
             qty_total_primary = DEC0
             for split in container_splits:
                 q_split = Decimal(str(split.get("qty_primary") or "0"))
@@ -819,9 +897,7 @@ def create_return(
                 raise ValueError(f"qty must be > 0 at row {idx}")
 
             qty_primary = q3(qty_total_primary)
-
         else:
-            # legacy mode: use qty_raw (or qty_primary) + unit_index + conversion factor
             qty_raw = Decimal(str(row.get("qty_raw") or row.get("qty_primary") or "0"))
             if qty_raw <= 0:
                 raise ValueError(f"qty must be > 0 at row {idx}")
@@ -832,7 +908,7 @@ def create_return(
                 qty_primary *= Decimal(str(cf))
             qty_primary = q3(qty_primary)
 
-        # ---------- line total & ProviderReturnItem ----------
+        # ----- line total & ProviderReturnItem -----
         line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
 
         ProviderReturnItem.objects.create(
@@ -840,18 +916,49 @@ def create_return(
             product=product,
             unit_index=unit_idx,
             qty_primary=qty_primary,
+            currency=item_currency,
             cost=cost_u1,
             line_total=line_total,
         )
 
-        # ---------- Inventory movements ----------
+        # ----- totals per currency -----
+        if item_currency == "USD":
+            total_usd = q3(total_usd + line_total)
+        else:
+            total_syp = q3(total_syp + line_total)
+
+        # ----- settlement total (with FX if needed) -----
+        if item_currency == settlement_currency:
+            settlement_total = q3(settlement_total + line_total)
+        else:
+            fx_used = None
+            if valuation_mode_norm == "HISTORICAL":
+                if bill_item is not None:
+                    b = getattr(bill_item, "bill", None)
+                    fx_used = getattr(b, "fx_rate_usd_to_syp_used", None) or getattr(b, "fx_usd_syp", None)
+            if fx_used is None:
+                fx_used = FinSV.get_current_fx_syp_per_usd()
+
+            fx_used = Decimal(str(fx_used))
+            if fx_used <= 0:
+                raise ValueError("FX rate is required for return valuation")
+
+            if settlement_currency == "SYP" and item_currency == "USD":
+                converted = q3(line_total * fx_used)
+                settlement_total = q3(settlement_total + converted)
+                conv_base_sum = q3(conv_base_sum + line_total)
+                conv_converted_sum = q3(conv_converted_sum + converted)
+            elif settlement_currency == "USD" and item_currency == "SYP":
+                converted = q3(line_total / fx_used)
+                settlement_total = q3(settlement_total + converted)
+                conv_base_sum = q3(conv_base_sum + line_total)
+                conv_converted_sum = q3(conv_converted_sum + converted)
+
+        # ----- Inventory movements -----
         if container_splits:
-
-            bill_item_id = row.get("bill_item_id")
             if not bill_item_id:
-                raise ValueError("bill_item_id مفقود في بيانات المرتجع (wizard).")
+                raise ValueError("bill_item_id is required for wizard returns.")
 
-            # wizard: multiple negative movements, one per container
             for split in container_splits:
                 q_split = Decimal(str(split.get("qty_primary") or "0"))
                 if q_split <= DEC0:
@@ -860,27 +967,25 @@ def create_return(
                 code = (split.get("code") or "").strip().lower()
                 cont = containers_by_code.get(code)
                 if cont is None:
-                    raise ValueError("حاوية غير معروفة في مرتجع المورد.")
+                    raise ValueError("invalid container code in return splits")
 
                 InvSV.record_provider_return_item(
                     actor=actor,
                     product=product,
                     unit_index=unit_idx,
-                    qty_primary=-q3(q_split),  # stock out per container
+                    qty_primary=-q3(q_split),
                     unit_cost=cost_u1,
                     source_app="billing",
                     source_model="ProviderReturn",
                     source_id=pret.id,
                     container=cont,
-                    fifo_scope={  # ✅ enforce returning from SAME purchase bill item
+                    fifo_scope={
                         "source_app": "billing",
                         "source_model": "BillItem",
                         "source_id": str(bill_item_id),
                     },
                 )
-
         else:
-            # legacy: single movement in the given container
             InvSV.record_provider_return_item(
                 actor=actor,
                 product=product,
@@ -893,61 +998,110 @@ def create_return(
                 container=container,
             )
 
-        grand = q3(grand + line_total)
+        # ----- Product latest cost update -----
+        if item_currency == "USD":
+            product.latest_cost_usd = cost_u1
+            product.save(update_fields=["latest_cost_usd"])
+        else:
+            product.latest_cost_syp = cost_u1
+            product.save(update_fields=["latest_cost_syp"])
 
-    pret.total = q3(grand)
-    pret.save(update_fields=["total"])
+    pret.total_syp = q3(total_syp)
+    pret.total_usd = q3(total_usd)
+    pret.total = q3(settlement_total)
 
-    # ====== Create debt ======
+    fx_rate_used = None
+    if conv_base_sum > DEC0 and conv_converted_sum > DEC0:
+        fx_rate_used = q3(conv_converted_sum / conv_base_sum)
+
+    pret.fx_rate_used = fx_rate_used
+    pret.save(update_fields=["total", "total_syp", "total_usd", "fx_rate_used", "settlement_currency", "valuation_mode"])
+
+    # ----- Create debt -----
+    status_norm = (status or "").lower().strip()
     final_collected = _resolve_paid_amount(status, intended_paid, pret.total)
+    if status_norm == "paid":
+        final_collected = pret.total
+
+    if status_norm != "paid":
+        if settlement_currency == "USD":
+            if final_collected > pret.total_usd:
+                raise ValueError("Paid amount exceeds USD total for this return.")
+        else:
+            if final_collected > pret.total_syp:
+                raise ValueError("Paid amount exceeds SYP total for this return.")
+
+    collected_syp = DEC0
+    collected_usd = DEC0
+    if status_norm == "paid":
+        collected_syp = pret.total_syp
+        collected_usd = pret.total_usd
+    else:
+        if settlement_currency == "USD":
+            collected_usd = q3(final_collected)
+        else:
+            collected_syp = q3(final_collected)
+
     DebtSV.create_creditor_entry(
         provider=provider,
-        total=pret.total,
-        collected=final_collected,
+        total=pret.total_syp,
+        collected=collected_syp,
         source_app="billing",
         source_model="ProviderReturn",
         source_id=str(pret.id),
         doc_serial=pret.serial,
     )
+    if pret.total_usd and pret.total_usd > DEC0:
+        DebtSV.create_creditor_entry(
+            provider=provider,
+            total=pret.total_usd,
+            collected=collected_usd,
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=f"{pret.id}:USD",
+            doc_serial=pret.serial,
+        )
 
-    # ====== FINANCIALS (replace ledger) ======
+    # ----- FINANCIALS -----
     cp = _ensure_provider_cp(provider=provider)
 
     cash_container = None
-    if money_container_id:
+    if q3(final_collected) > DEC0:
+        if not money_container_id:
+            raise ValueError("money container is required for paid returns")
         cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
     else:
         cash_container = _default_money_container()
 
-    # 1) receivable: provider owes store (positive)
-    r1 = FinSV.post_counterparty_adjust(
+    fx_for_receipt = pret.fx_rate_used or FinSV.get_current_fx_syp_per_usd()
+    r1 = FinSV.post_counterparty_adjust_with_fx(
         actor=actor,
         counterparty_id=cp.id,
-        currency_code=currency_code,
+        currency_code=settlement_currency,
         amount_signed=+q3(pret.total),
-        note=f"مرتجع مورد #{pret.serial}",
+        fx_syp_per_usd=fx_for_receipt,
+        note=f"Provider return #{pret.serial}",
         source_app="billing",
         source_model="ProviderReturn",
         source_id=str(pret.id),
     )
 
-    # 2) settlement if collected now (cash enters drawer => positive)
     r2 = None
     if q3(final_collected) > DEC0:
-        r2 = FinSV.post_settlement(
+        r2 = FinSV.post_settlement_with_fx(
             actor=actor,
             container_id=cash_container.id,
             counterparty_id=cp.id,
-            currency_code=currency_code,
+            currency_code=settlement_currency,
             cash_amount_signed=+q3(final_collected),
-            note=f"تحصيل على مرتجع مورد #{pret.serial}",
+            fx_syp_per_usd=fx_for_receipt,
+            note=f"Provider return settlement #{pret.serial}",
             source_app="billing",
             source_model="ProviderReturn",
             source_id=str(pret.id),
         )
 
-
-    # ====== AUDIT (meta-driven UI) ======
+    # ----- AUDIT -----
     is_wizard = bool(any((row.get("container_splits") or []) for row in items))
 
     log_create(
@@ -964,36 +1118,193 @@ def create_return(
                 "provider_name": provider.name,
                 "status": (status or "").lower(),
                 "total": str(q3(pret.total)),
+                "total_syp": str(q3(pret.total_syp)),
+                "total_usd": str(q3(pret.total_usd)),
                 "collected_amount": str(q3(final_collected)),
                 "items_count": len(items),
                 "source_bill_serial": source_bill_serial,
+                "settlement_currency": settlement_currency,
+                "valuation_mode": valuation_mode_norm,
+                "fx_rate_used": str(pret.fx_rate_used) if pret.fx_rate_used else None,
                 "legacy_container": (getattr(container, "code", None) if container else None),
                 "wizard_mode": is_wizard,
             },
             "financials": {
-                "currency": currency_code,
+                "currency": settlement_currency,
                 "money_container_id": cash_container.id if cash_container else None,
                 "receipt_ids": [r1.id] + ([r2.id] if r2 else []),
                 "receipt_serials": [r1.serial] + ([r2.serial] if r2 else []),
             },
-
         },
         after={
-            # optional: keep for debugging
             "serial": pret.serial,
             "provider_id": provider.id,
             "provider_name": provider.name,
             "status": (status or "").lower(),
             "collected_amount": str(final_collected),
             "total": str(pret.total),
+            "total_syp": str(pret.total_syp),
+            "total_usd": str(pret.total_usd),
             "source_bill_serial": source_bill_serial,
+            "settlement_currency": settlement_currency,
+            "valuation_mode": valuation_mode_norm,
+            "fx_rate_used": str(pret.fx_rate_used) if pret.fx_rate_used else None,
             "legacy_container": getattr(container, "code", None) if container else None,
             "wizard_mode": is_wizard,
         },
     )
 
-
     return pret
+
+
+@transaction.atomic
+def delete_return(*, actor, return_id: int) -> None:
+    from debts.models import CreditorDebt, CreditorReceipt
+    from stock import services as StockSV
+
+    pret = (
+        ProviderReturn.objects
+        .select_for_update()
+        .select_related("provider")
+        .prefetch_related("items", "items__product")
+        .get(pk=return_id)
+    )
+
+    before_ret = {
+        "id": pret.id,
+        "serial": pret.serial,
+        "provider_id": pret.provider_id,
+        "provider_name": pret.provider.name if pret.provider_id else "",
+        "total": str(q3(pret.total or DEC0)),
+        "total_syp": str(q3(getattr(pret, "total_syp", DEC0) or DEC0)),
+        "total_usd": str(q3(getattr(pret, "total_usd", DEC0) or DEC0)),
+        "items": [
+            {"id": it.id, "product_id": it.product_id, "qty_primary": str(q3(it.qty_primary or DEC0)), "cost": str(q4(it.cost or DEC0))}
+            for it in pret.items.all()
+        ],
+    }
+
+    # ----- Reverse stock movements (FIFO-safe) -----
+    mvs = (
+        ProductMovement.objects
+        .select_for_update()
+        .select_related("product", "container")
+        .filter(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+        )
+    )
+
+    bill_item_ids = [mv.origin_source_id for mv in mvs if mv.origin_source_model == "BillItem" and mv.origin_source_id]
+    bill_items = {}
+    if bill_item_ids:
+        bill_items = {
+            it.id: it
+            for it in BillItem.objects.select_for_update().filter(id__in=bill_item_ids)
+        }
+
+    for mv in mvs:
+        if not mv.container_id:
+            continue
+        qty_in = q3(abs(mv.qty_primary or DEC0))
+        if qty_in <= DEC0:
+            continue
+
+        cost_currency = (pret.settlement_currency or "SYP")
+        if mv.origin_source_model == "BillItem":
+            try:
+                bid = int(mv.origin_source_id or 0)
+                bi = bill_items.get(bid)
+                if bi and getattr(bi, "currency", None):
+                    cost_currency = bi.currency
+            except Exception:
+                pass
+
+        # restore FIFO layer first
+        StockSV.fifo_add_incoming(
+            product=mv.product,
+            container=mv.container,
+            qty_primary=qty_in,
+            unit_cost=mv.unit_cost,
+            cost_currency=cost_currency,
+            source_app=(mv.origin_source_app or mv.source_app),
+            source_model=(mv.origin_source_model or mv.source_model),
+            source_id=(mv.origin_source_id or mv.source_id),
+        )
+
+        # then record reversal movement
+        InvSV.record_movement(
+            actor=actor,
+            product=mv.product,
+            unit_index=int(mv.unit_index),
+            qty_primary=qty_in,
+            unit_cost=mv.unit_cost,
+            movement_type=ProductMovement.MovementType.PROVIDER_RETURN_REVERSAL,
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            container=mv.container,
+            extra_product_updates=None,
+            origin_source_app=(mv.origin_source_app or ""),
+            origin_source_model=(mv.origin_source_model or ""),
+            origin_source_id=(mv.origin_source_id or ""),
+        )
+
+    # ----- FINANCIALS reversal -----
+    fin_qs = (
+        Receipt.objects
+        .select_for_update()
+        .filter(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            status=ReceiptStatus.POSTED,
+        )
+        .order_by("-id")
+    )
+
+    for r in fin_qs:
+        FinSV.reverse_receipt(
+            actor=actor,
+            receipt_id=r.id,
+            reason_note=f"Reverse provider return #{pret.serial}",
+        )
+
+    # ----- Delete creditor entries/receipts -----
+    entries = CreditorDebt.objects.select_for_update().filter(
+        source_app="billing",
+        source_model="ProviderReturn",
+        source_id__in=[str(pret.id), f"{pret.id}:USD"],
+    )
+    CreditorReceipt.objects.filter(debt__in=entries).delete()
+    entries.delete()
+
+    log_delete(
+        actor=actor,
+        target=pret,
+        title="Delete provider return",
+        message=f"Deleted provider return #{pret.serial}",
+        before=before_ret,
+        meta={
+            "kind": "billing.provider_return_deleted",
+            "summary": {
+                "return_id": pret.id,
+                "serial": pret.serial,
+                "provider_id": pret.provider_id,
+                "provider_name": pret.provider.name if pret.provider_id else "",
+                "total": str(q3(pret.total or DEC0)),
+                "total_syp": str(q3(getattr(pret, "total_syp", DEC0) or DEC0)),
+                "total_usd": str(q3(getattr(pret, "total_usd", DEC0) or DEC0)),
+                "items_count": pret.items.count(),
+            },
+            "financials": {
+                "reversed_receipt_ids": [r.id for r in fin_qs],
+            },
+        },
+    )
+
+    pret.delete()
 
 @transaction.atomic
 def pay_full(*, actor, bill_id: int) -> Bill:

@@ -73,6 +73,18 @@
       </div>
       <!-- ===== /Shift box ===== -->
 
+      <!-- ===== Money container (POS) ===== -->
+      <div class="pos-container-select" style="display:flex; flex-direction:column; gap:2px; min-width:200px;">
+        <label for="posContainerSelect" class="muted" style="font-size:11px; margin:0;">Container</label>
+        <select id="posContainerSelect" class="input" style="height:32px; padding:4px 8px;">
+          <option value="">--</option>
+          {% for c in pos_containers %}
+            <option value="{{ c.id }}" data-currencies="{{ c.currencies|join:',' }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <!-- ===== /Money container ===== -->
+
       <button id="posNotifBtn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="الإشعارات">
         <span class="bell" aria-hidden="true">🔔</span>
         <span id="posNotifBadge" class="notif-badge" hidden>0</span>
@@ -129,6 +141,9 @@
     </p>
   </div>
 </div>
+
+  {{ pos_containers|json_script:"pos-containers-data" }}
+  {{ pos_fx_rate|json_script:"pos-fx-rate" }}
 
   <script src="{% static 'pos.js' %}"></script>
    <!-- Extra POS enhancements (customers autocomplete, key fixes, etc.) -->
