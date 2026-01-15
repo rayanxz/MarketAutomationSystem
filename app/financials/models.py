@@ -152,6 +152,22 @@ class Counterparty(models.Model):
     type = models.CharField(max_length=20, choices=CounterpartyType.choices)
     name = models.CharField(max_length=160)
 
+    # Stable links to domain entities (preferred over note markers).
+    provider = models.ForeignKey(
+        "billing.Provider",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="financials_counterparties",
+    )
+    customer = models.ForeignKey(
+        "pos.CustomerProfile",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="financials_counterparties",
+    )
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -165,7 +181,11 @@ class Counterparty(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["type", "name"])]
+        indexes = [
+            models.Index(fields=["type", "name"]),
+            models.Index(fields=["provider"]),
+            models.Index(fields=["customer"]),
+        ]
         ordering = ["type", "name"]
         unique_together = [("type", "name")]
 
@@ -185,6 +205,7 @@ class ReceiptKind(models.TextChoices):
     CASH_ADD = "cash_add", "Cash Add"
     CASH_WITHDRAW = "cash_withdraw", "Cash Withdraw"
     CONTAINER_TRANSFER = "container_transfer", "Container Transfer"
+    EXCHANGE = "exchange", "Exchange"
     COUNTERPARTY_INC = "counterparty_inc", "Counterparty Increase/Decrease"
     COUNTERPARTY_SETTLE = "counterparty_settle", "Counterparty Settlement"
     REVERSAL = "reversal", "Reversal"

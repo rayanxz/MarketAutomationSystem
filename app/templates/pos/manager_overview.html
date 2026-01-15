@@ -7,6 +7,8 @@
 {% block menu_secondary %}
   <div class="tabs-row">
     <span class="tab-current">سجلات POS</span>
+    <a class="btn-sec" href="{% url 'pos:pos_manager_customers' %}">Customers Profiles</a>
+    <a class="btn-sec" href="{% url 'pos:pos_manager_customer_debts' %}">Customers Debts</a>
   </div>
 {% endblock %}
 

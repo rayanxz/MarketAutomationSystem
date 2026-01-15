@@ -34,6 +34,8 @@ urlpatterns = [
     path("manager/overview/timeline/", views.pos_manager_overview_timeline, name="pos_manager_overview_timeline"),
 
     path("manager/bill/<int:bill_id>/", views.pos_manager_bill_detail, name="pos_manager_bill_detail"),
+    path("manager/customers/", views.pos_manager_customers, name="pos_manager_customers"),
+    path("manager/customers/debts/", views.pos_manager_customer_debts, name="pos_manager_customer_debts"),
 
 
     # product lookup APIs

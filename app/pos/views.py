@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Max, F
 from django.http import (
     HttpRequest,
     HttpResponse,
@@ -18,7 +18,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 from django.template.loader import render_to_string
 
-from .models import PosDay, PosShift, PosLoginSession, SalesBill
+from .models import PosDay, PosShift, PosLoginSession, SalesBill, CustomerProfile
+from debts.models import DebtorDebt, PartyType
 
 from inventory.models import ProductMovement , DEC0 , q3 , q4
 from financials.models import MoneyContainer, MoneyContainerCurrency
@@ -326,6 +327,158 @@ def pos_manager_overview(request: HttpRequest) -> HttpResponse:
     }
 
     return render(request, "pos/manager_overview.html", context)
+
+
+# ============================================================
+# Manager: Customer profiles (POS)
+# ============================================================
+@login_required
+def pos_manager_customers(request: HttpRequest) -> HttpResponse:
+    user = request.user
+    if not (user.is_superuser or user.is_staff):
+        return HttpResponseForbidden("Forbidden.")
+
+    q = (request.GET.get("q") or "").strip()
+    only_active = (request.GET.get("active") or "").strip() == "1"
+    only_debt = (request.GET.get("debt_only") or "").strip() == "1"
+
+    qs = CustomerProfile.objects.all()
+    if q:
+        if q.isdigit():
+            qs = qs.filter(Q(id=int(q)) | Q(name__icontains=q))
+        else:
+            qs = qs.filter(Q(name__icontains=q))
+
+    if only_active:
+        qs = qs.filter(bills__finalized=True, bills__is_deleted=False).distinct()
+
+    customers = list(qs.order_by("name")[:300])
+    ids = [c.id for c in customers]
+
+    # bills stats (last seen + count)
+    bill_stats = {}
+    for row in (
+        SalesBill.objects
+        .filter(customer_id__in=ids, finalized=True, is_deleted=False)
+        .values("customer_id")
+        .annotate(last_seen=Max("created_at"), purchases=Count("id"))
+    ):
+        bill_stats[row["customer_id"]] = row
+
+    # debts per currency
+    debt_map = {}
+    for row in (
+        DebtorDebt.objects
+        .filter(customer_id__in=ids, party_type=PartyType.CUSTOMER, status="open")
+        .values("customer_id", "currency_code")
+        .annotate(rem=Sum(F("total") - F("paid_amount")))
+    ):
+        key = (row["customer_id"], (row["currency_code"] or "SYP").upper())
+        debt_map[key] = row["rem"] or DEC0
+
+    items = []
+    for c in customers:
+        debt_syp = debt_map.get((c.id, "SYP"), DEC0) or DEC0
+        debt_usd = debt_map.get((c.id, "USD"), DEC0) or DEC0
+        if only_debt and debt_syp <= DEC0 and debt_usd <= DEC0:
+            continue
+        st = bill_stats.get(c.id, {})
+        items.append({
+            "id": c.id,
+            "name": c.name,
+            "debt_syp": q3(debt_syp),
+            "debt_usd": q3(debt_usd),
+            "last_seen": st.get("last_seen"),
+            "purchases": st.get("purchases") or 0,
+        })
+
+    context = {
+        "items": items,
+        "q": q,
+        "only_active": only_active,
+        "only_debt": only_debt,
+    }
+    return render(request, "pos/manager_customers.html", context)
+
+
+# ============================================================
+# Manager: Customer debts (POS)
+# ============================================================
+@login_required
+def pos_manager_customer_debts(request: HttpRequest) -> HttpResponse:
+    user = request.user
+    if not (user.is_superuser or user.is_staff):
+        return HttpResponseForbidden("Forbidden.")
+
+    q = (request.GET.get("q") or "").strip()
+    status = (request.GET.get("status") or "").strip().lower()
+    currency = (request.GET.get("currency") or "").strip().upper()
+    customer_id = request.GET.get("customer_id")
+
+    def _parse_date(s):
+        try:
+            return date.fromisoformat(s) if s else None
+        except Exception:
+            return None
+
+    date_from = _parse_date(request.GET.get("date_from") or "")
+    date_to = _parse_date(request.GET.get("date_to") or "")
+
+    qs = DebtorDebt.objects.select_related("customer").filter(party_type=PartyType.CUSTOMER)
+
+    if customer_id:
+        try:
+            qs = qs.filter(customer_id=int(customer_id))
+        except Exception:
+            pass
+
+    if q:
+        if q.isdigit():
+            qs = qs.filter(Q(customer_id=int(q)) | Q(source_id=str(q)) | Q(doc_serial=int(q)))
+        else:
+            qs = qs.filter(Q(customer__name__icontains=q) | Q(source_id__icontains=q))
+
+    if status in {"open", "closed"}:
+        qs = qs.filter(status=status)
+
+    if currency in {"SYP", "USD"}:
+        qs = qs.filter(currency_code=currency)
+
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    qs = qs.annotate(last_payment=Max("payments__created_at"))
+
+    items = []
+    for e in qs.order_by("-created_at")[:400]:
+        remaining = (e.total or DEC0) - (e.paid_amount or DEC0)
+        items.append({
+            "id": e.id,
+            "customer_id": e.customer_id,
+            "customer_name": e.customer.name if e.customer_id else "",
+            "source_id": e.source_id,
+            "doc_serial": e.doc_serial,
+            "currency_code": (e.currency_code or "SYP").upper(),
+            "total": q3(e.total or DEC0),
+            "paid": q3(e.paid_amount or DEC0),
+            "remaining": q3(remaining),
+            "status": e.status,
+            "created_at": e.created_at,
+            "last_payment": getattr(e, "last_payment", None),
+        })
+
+    context = {
+        "items": items,
+        "q": q,
+        "status": status,
+        "currency": currency,
+        "date_from": date_from,
+        "date_to": date_to,
+        "customer_id": customer_id or "",
+    }
+    return render(request, "pos/manager_customer_debts.html", context)
 
 
 # ============================================================

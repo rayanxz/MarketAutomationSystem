@@ -8,6 +8,7 @@ from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 from django.contrib.auth.decorators import login_required
 
@@ -523,7 +524,7 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     except (TypeError, ValueError):
         return _bad("invalid money container", 400)
 
-    currency_code = (payload.get("currency_code") or "SYP").strip().upper()
+    settlement_currency = (payload.get("currency_code") or "SYP").strip().upper()
 
     from financials.models import MoneyContainer
 
@@ -560,7 +561,7 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                 update_product_defaults=update_defaults,
                 container=container,
                 money_container_id=int(money_container_id),
-                currency_code=currency_code,
+                settlement_currency=settlement_currency,
             )
         except TypeError:
             # Fallback for old create_bill without container param
@@ -615,17 +616,38 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
 
     bill_ids = [b.id for b in items]
 
+    id_strs = [str(i) for i in bill_ids]
+    id_usd = [f"{i}:USD" for i in bill_ids]
     debts = DebtorEntry.objects.filter(
         source_app="billing",
         source_model="Bill",
-        source_id__in=[str(i) for i in bill_ids],
+    ).filter(
+        Q(source_id__in=id_strs)
+        | Q(legacy_source_id__in=id_strs)
+        | Q(source_id__in=id_usd)
+        | Q(legacy_source_id__in=id_usd)
     )
 
-    debt_map = {int(d.source_id): d for d in debts if (d.source_id or "").isdigit()}
+    debt_map: dict[int, list[DebtorEntry]] = {}
+    for d in debts:
+        sid = d.source_id or ""
+        legacy = getattr(d, "legacy_source_id", "") or ""
+        base = None
+        if sid.isdigit():
+            base = int(sid)
+        elif legacy.isdigit():
+            base = int(legacy)
+        elif sid.endswith(":USD") and sid[:-4].isdigit():
+            base = int(sid[:-4])
+        elif legacy.endswith(":USD") and legacy[:-4].isdigit():
+            base = int(legacy[:-4])
+        if base is None:
+            continue
+        debt_map.setdefault(base, []).append(d)
 
-    # attach cached debtor entry to each bill to avoid per-row queries
+    # attach cached debtor entries to each bill to avoid per-row queries
     for b in items:
-        b._debtor_entry_cached = debt_map.get(b.id)
+        b._debtor_entries_cached = debt_map.get(b.id, [])
 
 
     # Optional status filter at Python-level (since status is now a property)
@@ -668,6 +690,9 @@ def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
         return JsonResponse({"ok": True})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
+    except ValidationError as ve:
+        msg = ve.messages[0] if getattr(ve, "messages", None) else str(ve)
+        return _bad(msg, 409)
     except ValueError as ve:
         return _bad(str(ve), 409)
     except Exception:
@@ -1365,10 +1390,19 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def pay_debt_full(request: HttpRequest, bill_id: int) -> JsonResponse:
     try:
-        SV.pay_full(actor=request.user, bill_id=bill_id)
+        money_container_id = request.POST.get("money_container_id")
+        currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
+        SV.pay_full(
+            actor=request.user,
+            bill_id=bill_id,
+            money_container_id=int(money_container_id) if money_container_id else None,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True, "remaining": "0"})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
+    except ValueError as ve:
+        return _bad(str(ve), 400)
 
 
 @require_POST
@@ -1382,7 +1416,15 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
     if amount <= 0:
         return _bad("Enter a positive amount.")
     try:
-        bill = SV.pay_partial(actor=request.user, bill_id=bill_id, amount=amount)
+        money_container_id = request.POST.get("money_container_id")
+        currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
+        bill = SV.pay_partial(
+            actor=request.user,
+            bill_id=bill_id,
+            amount=amount,
+            money_container_id=int(money_container_id) if money_container_id else None,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True, "remaining": str(bill.remaining)})
     except ValueError as ve:
         return _bad(str(ve))
@@ -1444,10 +1486,19 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
     try:
-        SV.collect_full(actor=request.user, return_id=ret_id)
+        money_container_id = request.POST.get("money_container_id")
+        currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
+        SV.collect_full(
+            actor=request.user,
+            return_id=ret_id,
+            money_container_id=int(money_container_id) if money_container_id else None,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True, "remaining": "0"})
     except ProviderReturn.DoesNotExist:
         return _bad("not found", 404)
+    except ValueError as ve:
+        return _bad(str(ve), 400)
 
 
 @require_POST
@@ -1461,7 +1512,15 @@ def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
     if amount <= 0:
         return _bad("Enter a positive amount.")
     try:
-        pret = SV.collect_partial(actor=request.user, return_id=ret_id, amount=amount)
+        money_container_id = request.POST.get("money_container_id")
+        currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
+        pret = SV.collect_partial(
+            actor=request.user,
+            return_id=ret_id,
+            amount=amount,
+            money_container_id=int(money_container_id) if money_container_id else None,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True, "remaining": str(pret.remaining)})
     except ValueError as ve:
         return _bad(str(ve))

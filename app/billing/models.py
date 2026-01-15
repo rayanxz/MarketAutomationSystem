@@ -9,6 +9,7 @@ from django.db.models import Q, Max
 from django.db.models.functions import Lower
 
 from catalog.models import Product
+from financials.models import MoneyContainer
 from core.currency import CURRENCY_CHOICES, SYP as CURRENCY_SYP, USD as CURRENCY_USD
 
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
@@ -68,6 +69,14 @@ class Bill(models.Model):
         null=True, blank=True,
         on_delete=models.PROTECT,
         related_name="created_bills",
+    )
+
+    money_container = models.ForeignKey(
+        MoneyContainer,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="purchase_bills",
     )
 
     total      = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
@@ -148,36 +157,95 @@ class Bill(models.Model):
         PARTIAL = "partial", "مدفوعة جزئياً"
 
     @property
-    def debtor_entry(self):
-        cached = getattr(self, "_debtor_entry_cached", None)
+    def debtor_entries(self):
+        cached = getattr(self, "_debtor_entries_cached", None)
         if cached is not None:
             return cached
-        return DebtorEntry.objects.filter(
-            source_app="billing", source_model="Bill", source_id=str(self.id)
-        ).first()
+        return list(
+            DebtorEntry.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+            ).filter(
+                Q(source_id=str(self.id))
+                | Q(legacy_source_id=str(self.id))
+                | Q(source_id=f"{self.id}:USD")
+                | Q(legacy_source_id=f"{self.id}:USD")
+            )
+        )
+
+    def _debtor_entry_by_currency(self, code: str):
+        code = (code or "").upper()
+        for e in self.debtor_entries:
+            cur = (getattr(e, "currency_code", None) or "SYP").upper()
+            if cur == code:
+                return e
+        # legacy suffix fallback
+        if code == CURRENCY_USD:
+            for e in self.debtor_entries:
+                if (e.source_id or "").endswith(":USD") or (getattr(e, "legacy_source_id", "") or "").endswith(":USD"):
+                    return e
+        return None
+
+    @property
+    def debtor_entry(self):
+        # legacy: return SYP entry for backward compatibility
+        return self._debtor_entry_by_currency(CURRENCY_SYP) or (self.debtor_entries[0] if self.debtor_entries else None)
+
+    @property
+    def debtor_entry_usd(self):
+        return self._debtor_entry_by_currency(CURRENCY_USD)
+
+    @property
+    def paid_syp(self) -> Decimal:
+        d = self._debtor_entry_by_currency(CURRENCY_SYP)
+        return (d.paid_amount if d else DEC0) or DEC0
+
+    @property
+    def paid_usd(self) -> Decimal:
+        d = self._debtor_entry_by_currency(CURRENCY_USD)
+        return (d.paid_amount if d else DEC0) or DEC0
+
+    @property
+    def remaining_syp(self) -> Decimal:
+        d = self._debtor_entry_by_currency(CURRENCY_SYP)
+        return (d.remaining if d else (self.total_syp or DEC0)) or DEC0
+
+    @property
+    def remaining_usd(self) -> Decimal:
+        d = self._debtor_entry_by_currency(CURRENCY_USD)
+        return (d.remaining if d else (self.total_usd or DEC0)) or DEC0
 
 
     @property
     def paid_amount(self) -> Decimal:
-        d = self.debtor_entry
-        return (d.paid_amount if d else DEC0) or DEC0
+        if (self.settlement_currency or CURRENCY_SYP) == CURRENCY_USD:
+            return self.paid_usd
+        return self.paid_syp
 
     @property
     def remaining(self) -> Decimal:
-        d = self.debtor_entry
-        return (d.remaining if d else (self.total or DEC0)) or DEC0
+        if (self.settlement_currency or CURRENCY_SYP) == CURRENCY_USD:
+            return self.remaining_usd
+        return self.remaining_syp
 
     @property
     def status(self) -> str:
-        d = self.debtor_entry
-        if not d:
+        syp = self._debtor_entry_by_currency(CURRENCY_SYP)
+        usd = self._debtor_entry_by_currency(CURRENCY_USD)
+
+        if not syp and not usd:
             return Bill.Status.UNPAID
-        return (
-            Bill.Status.PAID
-            if d.remaining <= 0
-            else Bill.Status.PARTIAL if d.paid_amount and d.paid_amount > 0
-            else Bill.Status.UNPAID
-        )
+
+        rem_s = syp.remaining if syp else (self.total_syp or DEC0)
+        rem_u = usd.remaining if usd else (self.total_usd or DEC0)
+        if rem_s <= 0 and rem_u <= 0:
+            return Bill.Status.PAID
+
+        paid_s = syp.paid_amount if syp else DEC0
+        paid_u = usd.paid_amount if usd else DEC0
+        if (paid_s and paid_s > 0) or (paid_u and paid_u > 0):
+            return Bill.Status.PARTIAL
+        return Bill.Status.UNPAID
 
     def __str__(self) -> str:
         s = f"{self.serial or self.pk:03d}"
@@ -330,16 +398,40 @@ class ProviderReturn(models.Model):
 
     @property
     def creditor_entry(self) -> "CreditorEntry | None":
-        # Legacy: SYP entry (source_id=str(id))
-        return CreditorEntry.objects.filter(
-            source_app="billing", source_model="ProviderReturn", source_id=str(self.id)
-        ).first()
+        return self._creditor_entry_by_currency(CURRENCY_SYP)
 
     @property
     def creditor_entry_usd(self) -> "CreditorEntry | None":
-        return CreditorEntry.objects.filter(
-            source_app="billing", source_model="ProviderReturn", source_id=f"{self.id}:USD"
-        ).first()
+        return self._creditor_entry_by_currency(CURRENCY_USD)
+
+    @property
+    def creditor_entries(self):
+        cached = getattr(self, "_creditor_entries_cached", None)
+        if cached is not None:
+            return cached
+        return list(
+            CreditorEntry.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+            ).filter(
+                Q(source_id=str(self.id))
+                | Q(legacy_source_id=str(self.id))
+                | Q(source_id=f"{self.id}:USD")
+                | Q(legacy_source_id=f"{self.id}:USD")
+            )
+        )
+
+    def _creditor_entry_by_currency(self, code: str):
+        code = (code or "").upper()
+        for e in self.creditor_entries:
+            cur = (getattr(e, "currency_code", None) or "SYP").upper()
+            if cur == code:
+                return e
+        if code == CURRENCY_USD:
+            for e in self.creditor_entries:
+                if (e.source_id or "").endswith(":USD") or (getattr(e, "legacy_source_id", "") or "").endswith(":USD"):
+                    return e
+        return None
 
     @property
     def collected_syp(self) -> Decimal:

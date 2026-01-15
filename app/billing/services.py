@@ -7,6 +7,7 @@ from typing import Iterable, Dict, Any, Optional
 from datetime import date
 
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from inventory.models import ProductMovement
 
 from django.shortcuts import get_object_or_404
@@ -23,6 +24,7 @@ from debts.models import (
     PartyType,
     DebtorDebt ,
     CreditorDebt ,
+    CreditorReceipt,
 )
 
 from catalog.models import Product
@@ -33,7 +35,7 @@ from stock.models import ProductContainer
 from audit_log.services import log_create, log_update, log_delete
 
 from financials import services as FinSV
-from financials.models import Counterparty, CounterpartyType, MoneyContainer, Receipt, ReceiptStatus
+from financials.models import Counterparty, CounterpartyType, MoneyContainer, Receipt, ReceiptStatus, ReceiptKind, PostingLine, PostingTargetType
 
 
 
@@ -106,20 +108,29 @@ def _ensure_provider_cp(*, provider: Provider) -> Counterparty:
 
     cp = Counterparty.objects.filter(
         type=CounterpartyType.PROVIDER,
-        note__contains=marker,
+        provider_id=provider.id,
     ).first()
+    if not cp:
+        cp = Counterparty.objects.filter(
+            type=CounterpartyType.PROVIDER,
+            note__contains=marker,
+        ).first()
 
     if cp:
         # optional: keep name synced
         if (cp.name or "").strip() != (provider.name or "").strip():
             cp.name = (provider.name or "").strip()
             cp.save(update_fields=["name"])
+        if not cp.provider_id:
+            cp.provider_id = provider.id
+            cp.save(update_fields=["provider_id"])
         return cp
 
     # fallback: create new
     cp = Counterparty.objects.create(
         type=CounterpartyType.PROVIDER,
         name=(provider.name or "").strip(),
+        provider_id=provider.id,
         note=marker,
         is_active=True,
     )
@@ -380,6 +391,9 @@ def create_bill(
         paid_syp = q3(bill.total_syp)
         paid_usd = q3(bill.total_usd)
 
+    settlement_total = bill.total_usd if bill.settlement_currency == "USD" else bill.total_syp
+    final_paid = paid_usd if bill.settlement_currency == "USD" else paid_syp
+
     DebtSV.create_debtor_entry(
         provider=provider,
         total=bill.total_syp,
@@ -387,6 +401,7 @@ def create_bill(
         source_app="billing",
         source_model="Bill",
         source_id=str(bill.id),
+        currency_code="SYP",
         doc_serial=bill.serial,
     )
 
@@ -397,14 +412,14 @@ def create_bill(
             paid_amount=paid_usd,
             source_app="billing",
             source_model="Bill",
-            source_id=f"{bill.id}:USD",
+            source_id=str(bill.id),
+            currency_code="USD",
             doc_serial=bill.serial,
         )
 
     # -------------------------------
-    # Financials (settlement currency ONLY)
+    # Financials (per-currency)
     # -------------------------------
-    final_paid = paid_usd if bill.settlement_currency == "USD" else paid_syp
     cp = _ensure_provider_cp(provider=provider)
 
     cash_container = (
@@ -412,43 +427,101 @@ def create_bill(
         if money_container_id
         else _default_money_container()
     )
+    if cash_container and bill.money_container_id != cash_container.id:
+        bill.money_container = cash_container
+        bill.save(update_fields=["money_container"])
 
-    # Full payment: adjust container balances per currency.
-    # Note: financials postings are ledger-only and do not mutate MoneyContainer balances.
-    if status_norm == "paid":
-        _apply_container_balance_split(
-            container=cash_container,
-            delta_syp=-q3(bill.total_syp or DEC0),
-            delta_usd=-q3(bill.total_usd or DEC0),
-        )
+    fx_for_receipts = bill.fx_rate_usd_to_syp_used or bill.fx_usd_syp or FinSV.get_current_fx_syp_per_usd()
 
-    settlement_total = bill.total_usd if bill.settlement_currency == "USD" else bill.total_syp
-    r1 = FinSV.post_counterparty_adjust(
-        actor=actor,
-        counterparty_id=cp.id,
-        currency_code=bill.settlement_currency,
-        amount_signed=-q3(settlement_total),
-        note=f"فاتورة شراء #{bill.serial}",
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-    )
+    receipts = []
 
-    r2 = None
-    if status_norm != "paid" and q3(final_paid) > DEC0:
-        r2 = FinSV.post_settlement(
+    # Counterparty adjust per currency
+    if q3(bill.total_syp) > DEC0:
+        receipts.append(FinSV.post_counterparty_adjust_with_fx(
             actor=actor,
-            container_id=cash_container.id,
             counterparty_id=cp.id,
-            currency_code=bill.settlement_currency,
-            cash_amount_signed=-q3(final_paid),
-            note=f"دفع على فاتورة شراء #{bill.serial}",
+            currency_code="SYP",
+            amount_signed=-q3(bill.total_syp),
+            fx_syp_per_usd=fx_for_receipts,
+            note=f"Purchase bill #{bill.serial} (SYP)",
             source_app="billing",
             source_model="Bill",
             source_id=str(bill.id),
-        )
+        ))
+    if q3(bill.total_usd) > DEC0:
+        receipts.append(FinSV.post_counterparty_adjust_with_fx(
+            actor=actor,
+            counterparty_id=cp.id,
+            currency_code="USD",
+            amount_signed=-q3(bill.total_usd),
+            fx_syp_per_usd=fx_for_receipts,
+            note=f"Purchase bill #{bill.serial} (USD)",
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+        ))
+
+    # Settlement receipts per currency (paid amounts only)
+    if q3(paid_syp) > DEC0:
+        receipts.append(FinSV.post_settlement_with_fx(
+            actor=actor,
+            container_id=cash_container.id,
+            counterparty_id=cp.id,
+            currency_code="SYP",
+            cash_amount_signed=-q3(paid_syp),
+            fx_syp_per_usd=fx_for_receipts,
+            note=f"Purchase bill payment #{bill.serial} (SYP)",
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+        ))
+    if q3(paid_usd) > DEC0:
+        receipts.append(FinSV.post_settlement_with_fx(
+            actor=actor,
+            container_id=cash_container.id,
+            counterparty_id=cp.id,
+            currency_code="USD",
+            cash_amount_signed=-q3(paid_usd),
+            fx_syp_per_usd=fx_for_receipts,
+            note=f"Purchase bill payment #{bill.serial} (USD)",
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+        ))
+
+    # Link payment history to receipts (if any)
+    if receipts:
+        from debts.models import DebtorPayment
+        debt_entries = DebtorDebt.objects.filter(source_app="billing", source_model="Bill", source_id=str(bill.id))
+        entry_by_currency = { (getattr(e, "currency_code", "SYP") or "SYP").upper(): e for e in debt_entries }
+        for r in receipts:
+            # only settlement receipts should create payment rows
+            if r.kind != ReceiptKind.COUNTERPARTY_SETTLE:
+                continue
+            cur = None
+            # infer currency from posting lines
+            for ln in r.lines.all():
+                if ln.target_type == PostingTargetType.CONTAINER:
+                    cur = ln.currency.code
+                    break
+            cur = (cur or "SYP").upper()
+            entry = entry_by_currency.get(cur)
+            if not entry:
+                continue
+            amt = paid_syp if cur == "SYP" else paid_usd
+            if q3(amt) <= DEC0:
+                continue
+            DebtorPayment.objects.create(
+                entry=entry,
+                amount=q3(amt),
+                currency_code=cur,
+                receipt=r,
+                money_container=cash_container,
+                fx_syp_per_usd_used=fx_for_receipts,
+            )
 
     # -------------------------------
+    # AUDIT    # -------------------------------
     # AUDIT
     # -------------------------------
     log_create(
@@ -473,7 +546,7 @@ def create_bill(
                 "items_count": len(items),
             },
             "financials": {
-                "receipt_ids": [r1.id] + ([r2.id] if r2 else []),
+                "receipt_ids": [r.id for r in receipts],
             },
         },
     )
@@ -512,23 +585,54 @@ def delete_bill(*, actor, bill_id: int) -> None:
 
 
     # ==========================
-    # 1) Enforce FIFO "untouched"
+    # 1) Enforce "untouched" (FIFO + returns)
     # ==========================
+    # Block deletion if a provider return references this bill.
+    if ProviderReturn.objects.filter(source_bill_serial=bill.serial).exists():
+        raise ValidationError("cannot delete a bill that has provider returns")
+
     # Only allow deletion if NO quantity from this bill was ever consumed in FIFO.
     _, _, untouched = get_bill_status_flags(bill)
     if not untouched:
-        raise ValueError("cannot delete a bill whose items were already sold/returned")
+        raise ValidationError("cannot delete a bill whose items were already sold/returned")
 
     # ==========================
-    # 2) Locate Debtor entry
+    # 2) Locate Debtor entries (per currency)
     # ==========================
-    entry = DebtorDebt.objects.select_for_update().filter(
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-    ).first()
+    from django.db.models import Q
+    entry_qs = (
+        DebtorDebt.objects.select_for_update()
+        .filter(source_app="billing", source_model="Bill")
+        .filter(
+            Q(source_id=str(bill.id))
+            | Q(source_id=f"{bill.id}:USD")
+            | Q(legacy_source_id=str(bill.id))
+            | Q(legacy_source_id=f"{bill.id}:USD")
+        )
+    )
+    entries = list(entry_qs)
+    entry_syp = None
+    entry_usd = None
+    for e in entries:
+        cur = (getattr(e, "currency_code", None) or "").upper()
+        if cur == "USD":
+            entry_usd = e
+        elif cur == "SYP":
+            entry_syp = e
 
-    paid_amount = q3(entry.paid_amount if entry and entry.paid_amount is not None else DEC0)
+    # legacy fallback: detect USD by suffix
+    if entry_usd is None:
+        for e in entries:
+            if (e.source_id or "").endswith(":USD") or (getattr(e, "legacy_source_id", "") or "").endswith(":USD"):
+                entry_usd = e
+            else:
+                entry_syp = entry_syp or e
+
+    paid_syp = q3(entry_syp.paid_amount if entry_syp and entry_syp.paid_amount is not None else DEC0)
+    paid_usd = q3(entry_usd.paid_amount if entry_usd and entry_usd.paid_amount is not None else DEC0)
+
+    total_syp = q3(getattr(bill, "total_syp", DEC0) or DEC0)
+    total_usd = q3(getattr(bill, "total_usd", DEC0) or DEC0)
     total_amount = q3(bill.total or DEC0)
 
     # ==========================
@@ -656,6 +760,19 @@ def delete_bill(*, actor, bill_id: int) -> None:
             qty_remaining__lte=DEC0,
         ).delete()
 
+    # Remove original purchase movements tied to this bill
+    if item_ids_str:
+        ProductMovement.objects.filter(
+            source_app="billing",
+            source_model="BillItem",
+            source_id__in=item_ids_str,
+        ).delete()
+    ProductMovement.objects.filter(
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+    ).delete()
+
     
     # ==========================
     # 5) FINANCIALS reversal (replace ledger)
@@ -680,12 +797,21 @@ def delete_bill(*, actor, bill_id: int) -> None:
             reason_note=f"حذف فاتورة شراء #{bill.serial}",
         )
 
+
     # ==========================
     # 6) Delete debt + payments
     # ==========================
-    if entry:
-        DebtorPayment.objects.filter(entry=entry).delete()
-        entry.delete()
+    if entries:
+        DebtorPayment.objects.filter(entry__in=entries).delete()
+        DebtorDebt.objects.filter(id__in=[e.id for e in entries]).delete()
+
+    paid_amount_total = q3(paid_syp + paid_usd)
+    if (total_syp > DEC0 or total_usd > DEC0) and paid_syp >= total_syp and paid_usd >= total_usd:
+        status_label = "paid"
+    elif paid_syp <= DEC0 and paid_usd <= DEC0:
+        status_label = "unpaid"
+    else:
+        status_label = "partial"
 
     # ====== AUDIT ======
     log_delete(
@@ -701,9 +827,9 @@ def delete_bill(*, actor, bill_id: int) -> None:
                 "serial": bill.serial,
                 "provider_id": bill.provider_id,
                 "provider_name": bill.provider.name if bill.provider_id else "",
-                "status": ("paid" if paid_amount >= total_amount and total_amount > 0 else ("unpaid" if paid_amount <= 0 else "partial")),
+                "status": status_label,
                 "total": str(q3(total_amount)),
-                "paid_amount": str(q3(paid_amount)),
+                "paid_amount": str(q3(paid_amount_total)),
                 "items_count": bill.items.count(),
                 "container": getattr(mv_container, "code", None) if mv_container else None,
             },
@@ -1049,6 +1175,7 @@ def create_return(
         source_app="billing",
         source_model="ProviderReturn",
         source_id=str(pret.id),
+        currency_code="SYP",
         doc_serial=pret.serial,
     )
     if pret.total_usd and pret.total_usd > DEC0:
@@ -1058,7 +1185,8 @@ def create_return(
             collected=collected_usd,
             source_app="billing",
             source_model="ProviderReturn",
-            source_id=f"{pret.id}:USD",
+            source_id=str(pret.id),
+            currency_code="USD",
             doc_serial=pret.serial,
         )
 
@@ -1100,6 +1228,40 @@ def create_return(
             source_model="ProviderReturn",
             source_id=str(pret.id),
         )
+
+    # Link payment history to settlement receipt (per currency)
+    if r2:
+        entries = CreditorDebt.objects.filter(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+        )
+        entry_by_currency = {
+            (getattr(e, "currency_code", "SYP") or "SYP").upper(): e
+            for e in entries
+        }
+        if collected_syp and collected_syp > DEC0:
+            entry = entry_by_currency.get("SYP")
+            if entry:
+                CreditorReceipt.objects.create(
+                    entry=entry,
+                    amount=q3(collected_syp),
+                    currency_code="SYP",
+                    receipt=r2,
+                    money_container=cash_container,
+                    fx_syp_per_usd_used=fx_for_receipt,
+                )
+        if collected_usd and collected_usd > DEC0:
+            entry = entry_by_currency.get("USD")
+            if entry:
+                CreditorReceipt.objects.create(
+                    entry=entry,
+                    amount=q3(collected_usd),
+                    currency_code="USD",
+                    receipt=r2,
+                    money_container=cash_container,
+                    fx_syp_per_usd_used=fx_for_receipt,
+                )
 
     # ----- AUDIT -----
     is_wizard = bool(any((row.get("container_splits") or []) for row in items))
@@ -1272,12 +1434,18 @@ def delete_return(*, actor, return_id: int) -> None:
         )
 
     # ----- Delete creditor entries/receipts -----
-    entries = CreditorDebt.objects.select_for_update().filter(
-        source_app="billing",
-        source_model="ProviderReturn",
-        source_id__in=[str(pret.id), f"{pret.id}:USD"],
+    from django.db.models import Q
+    entries = (
+        CreditorDebt.objects.select_for_update()
+        .filter(source_app="billing", source_model="ProviderReturn")
+        .filter(
+            Q(source_id=str(pret.id))
+            | Q(source_id=f"{pret.id}:USD")
+            | Q(legacy_source_id=str(pret.id))
+            | Q(legacy_source_id=f"{pret.id}:USD")
+        )
     )
-    CreditorReceipt.objects.filter(debt__in=entries).delete()
+    CreditorReceipt.objects.filter(entry__in=entries).delete()
     entries.delete()
 
     log_delete(
@@ -1307,152 +1475,262 @@ def delete_return(*, actor, return_id: int) -> None:
     pret.delete()
 
 @transaction.atomic
-def pay_full(*, actor, bill_id: int) -> Bill:
+def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, currency_code: str = "SYP") -> Bill:
     bill = Bill.objects.select_for_update().get(pk=bill_id)
-    # ensure a DebtorDebt exists (self-heal if someone created a bill before debts migration)
-    entry, _ = DebtorDebt.objects.select_for_update().get_or_create(
-        provider=bill.provider,
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-        defaults=dict(
-            total=q3(bill.total or DEC0),
+    cur = (currency_code or "SYP").upper()
+    if cur not in ("SYP", "USD"):
+        raise ValueError("Invalid currency")
+
+    from django.db.models import Q
+    entry = (
+        DebtorDebt.objects.select_for_update()
+        .filter(source_app="billing", source_model="Bill")
+        .filter(
+            Q(source_id=str(bill.id))
+            | Q(source_id=f"{bill.id}:USD")
+            | Q(legacy_source_id=str(bill.id))
+            | Q(legacy_source_id=f"{bill.id}:USD")
+        )
+        .filter(Q(currency_code=cur) | Q(currency_code__isnull=True))
+        .first()
+    )
+
+    if not entry:
+        total_amt = q3(bill.total_usd if cur == "USD" else bill.total_syp)
+        entry = DebtorDebt.objects.create(
+            provider=bill.provider,
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            total=total_amt,
             paid_amount=DEC0,
             status=DebtorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=bill.provider.name if bill.provider_id else "",
             doc_serial=bill.serial,
-        ),
+            currency_code=cur,
+        )
+
+    if not money_container_id:
+        money_container_id = bill.money_container_id
+    if not money_container_id:
+        raise ValueError("money_container_id is required")
+
+    DebtSV.pay_debt(
+        actor=actor,
+        entry_id=entry.id,
+        full=True,
+        money_container_id=money_container_id,
+        currency_code=cur,
     )
-    DebtSV.pay_debt(actor=actor, entry_id=entry.id, full=True)
 
     log_update(
         actor=actor,
         target=bill,
         title="Pay purchase bill",
-        message=f"Pay full for bill #{bill.serial}",
-        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "full"},
+        message=f"Pay full for bill #{bill.serial} ({cur})",
+        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "full", "currency": cur},
     )
-
 
     return bill
 
 
 @transaction.atomic
-def pay_partial(*, actor, bill_id: int, amount: Decimal) -> Bill:
+def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Optional[int] = None, currency_code: str = "SYP") -> Bill:
     amt = q3(amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
 
     bill = Bill.objects.select_for_update().get(pk=bill_id)
-    entry, _ = DebtorDebt.objects.select_for_update().get_or_create(
-        provider=bill.provider,
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-        defaults=dict(
-            total=q3(bill.total or DEC0),
+    cur = (currency_code or "SYP").upper()
+    if cur not in ("SYP", "USD"):
+        raise ValueError("Invalid currency")
+
+    from django.db.models import Q
+    entry = (
+        DebtorDebt.objects.select_for_update()
+        .filter(source_app="billing", source_model="Bill")
+        .filter(
+            Q(source_id=str(bill.id))
+            | Q(source_id=f"{bill.id}:USD")
+            | Q(legacy_source_id=str(bill.id))
+            | Q(legacy_source_id=f"{bill.id}:USD")
+        )
+        .filter(Q(currency_code=cur) | Q(currency_code__isnull=True))
+        .first()
+    )
+
+    if not entry:
+        total_amt = q3(bill.total_usd if cur == "USD" else bill.total_syp)
+        entry = DebtorDebt.objects.create(
+            provider=bill.provider,
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            total=total_amt,
             paid_amount=DEC0,
             status=DebtorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=bill.provider.name if bill.provider_id else "",
             doc_serial=bill.serial,
-        ),
-    )
-    # validate against remaining
+            currency_code=cur,
+        )
+
     if amt > q3(entry.remaining):
         raise ValueError(f"amount exceeds remaining ({q3(entry.remaining)})")
 
-    DebtSV.pay_debt(actor=actor, entry_id=entry.id, amount=amt, full=False)
+    if not money_container_id:
+        money_container_id = bill.money_container_id
+    if not money_container_id:
+        raise ValueError("money_container_id is required")
+
+    DebtSV.pay_debt(
+        actor=actor,
+        entry_id=entry.id,
+        amount=amt,
+        full=False,
+        money_container_id=money_container_id,
+        currency_code=cur,
+    )
 
     log_update(
         actor=actor,
         target=bill,
         title="Pay purchase bill",
-        message=f"Pay partial for bill #{bill.serial} amount={amt}",
-        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt)},
+        message=f"Pay partial for bill #{bill.serial} amount={amt} ({cur})",
+        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt), "currency": cur},
     )
-
 
     return bill
 
 
-
-# =======================================================================
-# RECEIVABLES (Provider Returns) – wrappers to debts layer
-# =======================================================================
-
 @transaction.atomic
-def collect_full(*, actor, return_id: int) -> ProviderReturn:
+def collect_full(*, actor, return_id: int, money_container_id: Optional[int] = None, currency_code: str = "SYP") -> ProviderReturn:
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
-    entry, _ = CreditorDebt.objects.select_for_update().get_or_create(
-        provider=pret.provider,
-        source_app="billing",
-        source_model="ProviderReturn",
-        source_id=str(pret.id),
-        defaults=dict(
-            total=q3(pret.total or DEC0),
+    cur = (currency_code or "SYP").upper()
+    if cur not in ("SYP", "USD"):
+        raise ValueError("Invalid currency")
+
+    from django.db.models import Q
+    entry = (
+        CreditorDebt.objects.select_for_update()
+        .filter(source_app="billing", source_model="ProviderReturn")
+        .filter(
+            Q(source_id=str(pret.id))
+            | Q(source_id=f"{pret.id}:USD")
+            | Q(legacy_source_id=str(pret.id))
+            | Q(legacy_source_id=f"{pret.id}:USD")
+        )
+        .filter(Q(currency_code=cur) | Q(currency_code__isnull=True))
+        .first()
+    )
+
+    if not entry:
+        total_amt = q3(pret.total_usd if cur == "USD" else pret.total_syp)
+        entry = CreditorDebt.objects.create(
+            provider=pret.provider,
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            total=total_amt,
             collected=DEC0,
             status=CreditorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=pret.provider.name if pret.provider_id else "",
             doc_serial=pret.serial,
-        ),
-    )
+            currency_code=cur,
+        )
 
-    DebtSV.collect_debt(actor=actor, entry_id=entry.id, full=True)
+    if not money_container_id:
+        money_container_id = getattr(pret, "money_container_id", None)
+    if not money_container_id:
+        raise ValueError("money_container_id is required")
+
+    DebtSV.collect_debt(
+        actor=actor,
+        entry_id=entry.id,
+        full=True,
+        money_container_id=money_container_id,
+        currency_code=cur,
+    )
 
     log_update(
         actor=actor,
         target=pret,
         title="Collect provider return",
-        message=f"Collect full for return #{pret.serial}",
-        meta={"return_id": pret.id, "entry_id": entry.id, "mode": "full"},
+        message=f"Collect full for return #{pret.serial} ({cur})",
+        meta={"return_id": pret.id, "entry_id": entry.id, "mode": "full", "currency": cur},
     )
-
 
     return pret
 
 @transaction.atomic
-def collect_partial(*, actor, return_id: int, amount: Decimal) -> ProviderReturn:
+def collect_partial(*, actor, return_id: int, amount: Decimal, money_container_id: Optional[int] = None, currency_code: str = "SYP") -> ProviderReturn:
     amt = q3(amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
 
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
-    entry, _ = CreditorDebt.objects.select_for_update().get_or_create(
-        provider=pret.provider,
-        source_app="billing",
-        source_model="ProviderReturn",
-        source_id=str(pret.id),
-        defaults=dict(
-            total=q3(pret.total or DEC0),
+    cur = (currency_code or "SYP").upper()
+    if cur not in ("SYP", "USD"):
+        raise ValueError("Invalid currency")
+
+    from django.db.models import Q
+    entry = (
+        CreditorDebt.objects.select_for_update()
+        .filter(source_app="billing", source_model="ProviderReturn")
+        .filter(
+            Q(source_id=str(pret.id))
+            | Q(source_id=f"{pret.id}:USD")
+            | Q(legacy_source_id=str(pret.id))
+            | Q(legacy_source_id=f"{pret.id}:USD")
+        )
+        .filter(Q(currency_code=cur) | Q(currency_code__isnull=True))
+        .first()
+    )
+
+    if not entry:
+        total_amt = q3(pret.total_usd if cur == "USD" else pret.total_syp)
+        entry = CreditorDebt.objects.create(
+            provider=pret.provider,
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            total=total_amt,
             collected=DEC0,
             status=CreditorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=pret.provider.name if pret.provider_id else "",
             doc_serial=pret.serial,
-        ),
-    )
+            currency_code=cur,
+        )
 
     if amt > q3(entry.remaining):
         raise ValueError(f"amount exceeds remaining ({q3(entry.remaining)})")
 
-    DebtSV.collect_debt(actor=actor, entry_id=entry.id, amount=amt, full=False)
+    if not money_container_id:
+        money_container_id = getattr(pret, "money_container_id", None)
+    if not money_container_id:
+        raise ValueError("money_container_id is required")
+
+    DebtSV.collect_debt(
+        actor=actor,
+        entry_id=entry.id,
+        amount=amt,
+        full=False,
+        money_container_id=money_container_id,
+        currency_code=cur,
+    )
 
     log_update(
         actor=actor,
         target=pret,
         title="Collect provider return",
-        message=f"Collect partial for return #{pret.serial} amount={amt}",
-        meta={"return_id": pret.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt)},
+        message=f"Collect partial for return #{pret.serial} amount={amt} ({cur})",
+        meta={"return_id": pret.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt), "currency": cur},
     )
 
     return pret
-
-# =======================================================================
-# MANUAL-DEBT wrappers (views already call SV.*)
-# =======================================================================
 
 @transaction.atomic
 def pay_manual_debt_full(*, actor, entry_id: int) -> DebtorDebt:

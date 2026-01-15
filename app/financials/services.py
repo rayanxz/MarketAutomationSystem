@@ -134,6 +134,14 @@ def q_currency(amount: Decimal, *, currency: Currency) -> Decimal:
     return amount.quantize(exp, rounding=ROUND_HALF_UP)
 
 
+def _apply_container_balance_delta(*, container: MoneyContainer, currency_code: str, amount: Decimal) -> None:
+    if currency_code == "SYP":
+        container.balance_syp = q_currency(container.balance_syp + amount, currency=Currency.objects.get(code="SYP"))
+    elif currency_code == "USD":
+        container.balance_usd = q_currency(container.balance_usd + amount, currency=Currency.objects.get(code="USD"))
+    container.save(update_fields=["balance_syp", "balance_usd"])
+
+
 def _mk_receipt(
     *,
     actor,
@@ -242,7 +250,10 @@ def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str,
         currency = Currency.objects.get(code=code)
         _add_line_container(receipt=r, container=container, currency=currency, amount=amt, meta={"opening": True})
 
-    return _post_receipt(r)
+    _post_receipt(r)
+    for code, amt in cleaned.items():
+        _apply_container_balance_delta(container=container, currency_code=code, amount=amt)
+    return r
 
 
 @transaction.atomic
@@ -261,7 +272,9 @@ def post_cash_add(*, actor, container_id: int, currency_code: str, amount: Decim
 
     r = _mk_receipt(actor=actor, kind=ReceiptKind.CASH_ADD, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=amt)
-    return _post_receipt(r)
+    _post_receipt(r)
+    _apply_container_balance_delta(container=container, currency_code=currency_code, amount=amt)
+    return r
 
 
 @transaction.atomic
@@ -338,7 +351,9 @@ def post_cash_withdraw(*, actor, container_id: int, currency_code: str, amount: 
 
     r = _mk_receipt(actor=actor, kind=ReceiptKind.CASH_WITHDRAW, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=-amt)
-    return _post_receipt(r)
+    _post_receipt(r)
+    _apply_container_balance_delta(container=container, currency_code=currency_code, amount=-amt)
+    return r
 
 
 @transaction.atomic
@@ -368,7 +383,10 @@ def post_transfer(*, actor, from_container_id: int, to_container_id: int, curren
     r = _mk_receipt(actor=actor, kind=ReceiptKind.CONTAINER_TRANSFER, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=from_c, currency=currency, amount=-amt, meta={"side": "from"})
     _add_line_container(receipt=r, container=to_c, currency=currency, amount=amt, meta={"side": "to"})
-    return _post_receipt(r)
+    _post_receipt(r)
+    _apply_container_balance_delta(container=from_c, currency_code=currency_code, amount=-amt)
+    _apply_container_balance_delta(container=to_c, currency_code=currency_code, amount=amt)
+    return r
 
 
 @transaction.atomic
@@ -429,7 +447,9 @@ def post_settlement(*, actor, container_id: int, counterparty_id: int, currency_
     r = _mk_receipt(actor=actor, kind=ReceiptKind.COUNTERPARTY_SETTLE, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=cash_amt)
     _add_line_counterparty(receipt=r, counterparty=cp, currency=currency, amount=-cash_amt)
-    return _post_receipt(r)
+    _post_receipt(r)
+    _apply_container_balance_delta(container=container, currency_code=currency_code, amount=cash_amt)
+    return r
 
 
 @transaction.atomic
@@ -463,7 +483,9 @@ def post_settlement_with_fx(
     r = _mk_receipt(actor=actor, kind=ReceiptKind.COUNTERPARTY_SETTLE, note=note, fx_syp_per_usd=fx, **source)
     _add_line_container(receipt=r, container=container, currency=currency, amount=cash_amt)
     _add_line_counterparty(receipt=r, counterparty=cp, currency=currency, amount=-cash_amt)
-    return _post_receipt(r)
+    _post_receipt(r)
+    _apply_container_balance_delta(container=container, currency_code=currency_code, amount=cash_amt)
+    return r
 
 
 @transaction.atomic
@@ -509,6 +531,15 @@ def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt
             )
 
     _post_receipt(r)
+
+    # apply container balance deltas for reversal lines
+    for ln in r.lines.all():
+        if ln.target_type == PostingTargetType.CONTAINER and ln.container_id:
+            _apply_container_balance_delta(
+                container=ln.container,
+                currency_code=ln.currency.code,
+                amount=ln.amount,
+            )
 
     orig.status = ReceiptStatus.REVERSED
     orig.save(update_fields=["status"])

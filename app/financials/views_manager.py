@@ -330,3 +330,43 @@ def container_movements(request: HttpRequest) -> HttpResponse:
         },
     }
     return render(request, "financials/manager/container_movements.html", ctx)
+
+
+@login_required
+@role_required(AccountProfile.Role.MANAGER)
+def container_manual_events(request: HttpRequest) -> HttpResponse:
+    containers = list(MoneyContainer.objects.all().order_by("name"))
+    currencies = list(Currency.objects.filter(is_active=True).order_by("code"))
+    fx = (
+        FxSettings.objects.filter(is_active=True)
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+
+    receipts = (
+        Receipt.objects
+        .filter(source_app="financials", source_model="ManualContainerEvent")
+        .prefetch_related("lines", "lines__container", "lines__currency", "actor")
+        .order_by("-id")[:200]
+    )
+    rows = []
+    for r in receipts:
+        from_ln = None
+        to_ln = None
+        for ln in r.lines.all():
+            if ln.target_type != PostingTargetType.CONTAINER:
+                continue
+            if ln.amount < 0 and from_ln is None:
+                from_ln = ln
+            elif ln.amount > 0 and to_ln is None:
+                to_ln = ln
+        rows.append({"receipt": r, "from_line": from_ln, "to_line": to_ln})
+
+    ctx = {
+        **_secondary_menu_ctx("manual"),
+        "containers": containers,
+        "currencies": currencies,
+        "fx_rate": fx.rate_syp_per_usd if fx else None,
+        "rows": rows,
+    }
+    return render(request, "financials/manager/container_manual_events.html", ctx)

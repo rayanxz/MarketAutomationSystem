@@ -93,6 +93,7 @@
           <th style="width:120px;">سيريال</th>
           <th style="width:140px;">نوع العميل</th>
           <th>الاسم</th>
+          <th style="width:90px;">??????</th>
           <th style="width:160px;">الإجمالي</th>
           <th style="width:160px;">المدفوع</th>
           <th style="width:160px;">المتبقي</th>
@@ -116,6 +117,14 @@
   <div class="box">
     <header>تأكيد التحصيل الكامل</header>
     <div id="full-text">هل أنت متأكد من التحصيل الكامل؟</div>
+    <div style="margin-top:8px;">
+      <select id="full-container" class="input">
+        <option value="">???? ??????? ???????</option>
+        {% for c in money_containers %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <footer>
       <button class="btn" data-close>إلغاء</button>
       <button class="btn primary" data-confirm>تأكيد</button>
@@ -130,6 +139,14 @@
       <p id="batch-text" style="margin:0 0 8px;"></p>
       <input id="batch-amount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
       <small id="batch-hint" class="muted"></small>
+      <div style="margin-top:8px;">
+        <select id="batch-container" class="input">
+          <option value="">???? ??????? ???????</option>
+          {% for c in money_containers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
     </div>
     <footer>
       <button class="btn" data-close>إلغاء</button>

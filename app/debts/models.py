@@ -2,6 +2,8 @@
 from __future__ import annotations
 from decimal import Decimal
 from django.db import models
+
+from core.currency import CURRENCY_CHOICES, SYP, USD
 from django.utils import timezone
 
 DEC0 = Decimal("0.000")
@@ -23,7 +25,10 @@ class DebtorDebt(models.Model):
     source_app   = models.CharField(max_length=64)
     source_model = models.CharField(max_length=64)   # "Bill" | "ManualDebt"
     source_id    = models.CharField(max_length=64)   # bill id as str | "manual:xxx"
+    legacy_source_id = models.CharField(max_length=64, blank=True, default="")
     created_at   = models.DateTimeField(default=timezone.now)
+
+    currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
 
     total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
     paid_amount = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
@@ -32,12 +37,19 @@ class DebtorDebt(models.Model):
     # manual/meta
     party_type  = models.CharField(max_length=16, choices=PartyType.choices, default=PartyType.PROVIDER)
     party_name  = models.CharField(max_length=128, blank=True)
+    customer    = models.ForeignKey("pos.CustomerProfile", on_delete=models.PROTECT, null=True, blank=True, related_name="debtor_entries")
     doc_serial  = models.PositiveIntegerField(null=True, blank=True)  # uses Bill serial namespace
     due_date    = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = "billing_debtorentry"
         managed = False 
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_app", "source_model", "source_id", "currency_code"],
+                name="uniq_debtor_by_source_currency",
+            ),
+        ]
         
 
     @property
@@ -54,6 +66,10 @@ class DebtorPayment(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     amount     = models.DecimalField(max_digits=14, decimal_places=3)
     journal_entry_id = models.IntegerField(null=True, blank=True)
+    currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
+    receipt = models.ForeignKey("financials.Receipt", null=True, blank=True, on_delete=models.PROTECT, related_name="debtor_payments")
+    money_container = models.ForeignKey("financials.MoneyContainer", null=True, blank=True, on_delete=models.PROTECT, related_name="debtor_payments")
+    fx_syp_per_usd_used = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 
     class Meta:
         db_table = "billing_debtorpayment"
@@ -74,7 +90,10 @@ class CreditorDebt(models.Model):
     source_app   = models.CharField(max_length=64)
     source_model = models.CharField(max_length=64)   # "ProviderReturn" | "ManualDebt"
     source_id    = models.CharField(max_length=64)   # return id as str | "manual:xxx"
+    legacy_source_id = models.CharField(max_length=64, blank=True, default="")
     created_at   = models.DateTimeField(default=timezone.now)
+
+    currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
 
     total     = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
     collected = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
@@ -83,12 +102,19 @@ class CreditorDebt(models.Model):
     # manual/meta
     party_type  = models.CharField(max_length=16, choices=PartyType.choices, default=PartyType.PROVIDER)
     party_name  = models.CharField(max_length=128, blank=True)
+    customer    = models.ForeignKey("pos.CustomerProfile", on_delete=models.PROTECT, null=True, blank=True, related_name="creditor_entries")
     doc_serial  = models.PositiveIntegerField(null=True, blank=True)  # uses ProviderReturn serial namespace
     due_date    = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = "billing_creditorentry"
         managed = False
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_app", "source_model", "source_id", "currency_code"],
+                name="uniq_creditor_by_source_currency",
+            ),
+        ]
     
 
     @property
@@ -105,6 +131,10 @@ class CreditorReceipt(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     amount     = models.DecimalField(max_digits=14, decimal_places=3)
     journal_entry_id = models.IntegerField(null=True, blank=True)
+    currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
+    receipt = models.ForeignKey("financials.Receipt", null=True, blank=True, on_delete=models.PROTECT, related_name="creditor_receipts")
+    money_container = models.ForeignKey("financials.MoneyContainer", null=True, blank=True, on_delete=models.PROTECT, related_name="creditor_receipts")
+    fx_syp_per_usd_used = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 
     class Meta:
         db_table = "billing_creditorreceipt"

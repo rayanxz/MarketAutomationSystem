@@ -4,12 +4,8 @@
 
   const API = {
    LIST: "/manager/debts/api/debts/",
-   PAY_FULL:  (item) => item.manual
-     ? `/manager/debts/manual/${item.id}/pay-full/`
-     : `/manager/billing/bills/${item.id}/pay-full/`,
-   PAY_BATCH: (item) => item.manual
-     ? `/manager/debts/manual/${item.id}/pay-batch/`
-     : `/manager/billing/bills/${item.id}/pay-batch/`,
+   PAY_FULL:  (entryId) => `/manager/debts/api/entry/debtor/${entryId}/pay-full/`,
+   PAY_BATCH: (entryId) => `/manager/debts/api/entry/debtor/${entryId}/pay-batch/`,
   };
 
   const $ = (s, r=document) => r.querySelector(s);
@@ -35,12 +31,14 @@
   const mBatchAmount  = $("#batch-amount");
   const mBatchConfirm = $('[data-confirm]', mBatch);
   const mBatchClose   = $('[data-close]',   mBatch);
+  const mFullContainer = $("#full-container");
+  const mBatchContainer = $("#batch-container");
 
   const VIEW_URL = (entryId) => `/manager/debts/view/debtor/${entryId}/`;
 
 
   let cursor = null, busy = false, done = false;
-  let target = { id: null, provider: "", remaining: 0, manual: false };
+  let target = { entryId: null, provider: "", remaining: 0, manual: false, currency: "SYP" };
 
   function nf(x){ const n = Number(x); return Number.isFinite(n) ? new Intl.NumberFormat().format(n) : (x ?? ""); }
   function eh(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -95,14 +93,16 @@ function rowHtml(src){
 
   return `
   <tr class="${statusClass(status)}"
-      data-bill="${eh(src.id ?? src.bill_id ?? "")}"
+      data-entry="${eh(src.entry_id ?? "")}"
       data-provider="${eh(partyName)}"
       data-remaining="${String(remainingNum)}"
-      data-manual="${src.manual ? "1" : "0"}">
+      data-manual="${src.manual ? "1" : "0"}"
+      data-currency="${eh(src.currency_code || "SYP")}">
 
       <td>${eh(serial)}</td>
       <td>${eh(arType(partyType))}</td>
       <td>${eh(partyName)}</td>
+      <td>${eh((src.currency_code || "SYP"))}</td>
       <td>${nf(totalNum)}</td>
       <td>${nf(paidNum)}</td>
       <td>${nf(remainingNum)}</td>
@@ -158,23 +158,26 @@ function rowHtml(src){
   loadMore?.addEventListener("click", () => load(false));
 
   rows.addEventListener("click", (e) => {
-  const tr = e.target.closest("tr[data-bill]");
+  const tr = e.target.closest("tr[data-entry]");
   if (!tr) return;
 
   const ds = tr.dataset;
-  target.id        = ds.bill || "";
+  target.entryId   = ds.entry || "";
   target.provider  = ds.provider || "";
   target.remaining = Number(ds.remaining || "0");
   target.manual    = (ds.manual === "1" || ds.manual === "true");
+  target.currency  = (ds.currency || "SYP").toUpperCase();
 
   if (e.target.classList.contains("js-full")){
-    mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)}؟`;
+    mFullText.textContent = `هل أنت متأكد من التسديد الكامل إلى (${target.provider}) بمبلغ ${nf(target.remaining)} ${target.currency}؟`;
+    if (mFullContainer) mFullContainer.value = "";
     openModal(mFull); return;
   }
   if (e.target.classList.contains("js-batch")){
     mBatchText.textContent = `أدخل الدفعة للمورد (${target.provider})`;
-    mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
+    mBatchHint.textContent = `المتبقي: ${nf(target.remaining)} ${target.currency}`;
     mBatchAmount.value = "";
+    if (mBatchContainer) mBatchContainer.value = "";
     openModal(mBatch); return;
   }
 });
@@ -190,9 +193,14 @@ function rowHtml(src){
   mBatch?.addEventListener("click", (e) => { if (e.target === mBatch) closeModal(mBatch); });
 
   mFullConfirm?.addEventListener("click", async () => {
-    if (!target.id) return;
+    if (!target.entryId) return;
     try{
-      const resp = await fetch(API.PAY_FULL(target), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const mcId = mFullContainer?.value || "";
+      if (!mcId){ alert("???? ??????? ???????."); return; }
+      const form = new FormData();
+      form.append("money_container_id", mcId);
+      form.append("currency_code", target.currency || "SYP");
+      const resp = await fetch(API.PAY_FULL(target.entryId), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json().catch(()=>({ok:false,error:"bad json"}));
       if (data.ok){ closeModal(mFull); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }
@@ -203,10 +211,15 @@ function rowHtml(src){
     if (!(v > 0)){ alert("أدخل قيمة موجبة."); return; }
     if (v > target.remaining){ alert("القيمة تتجاوز المبلغ المتبقي."); return; }
 
+    const mcId = mBatchContainer?.value || "";
+    if (!mcId){ alert("???? ??????? ???????."); return; }
+
     const form = new FormData();
     form.append("amount", String(v));
+    form.append("money_container_id", mcId);
+    form.append("currency_code", target.currency || "SYP");
     try{
-      const resp = await fetch(API.PAY_BATCH(target), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const resp = await fetch(API.PAY_BATCH(target.entryId), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json().catch(()=>({ok:false,error:"bad json"}));
       if (data.ok){ closeModal(mBatch); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }

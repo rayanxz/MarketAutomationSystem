@@ -15,6 +15,9 @@
   const ptype   = $("#ptype");
   const serial  = $("#serial");
   const amount  = $("#amount");
+  const currency = $("#currency");
+  const initialPayment = $("#initialPayment");
+  const moneyContainer = $("#moneyContainer");
   const due     = $("#due");
 
   const partyName = $("#partyName");
@@ -103,6 +106,19 @@
       saveErr.textContent = "أدخل مبلغاً موجباً.";
       return false;
     }
+    const initPay = Number(initialPayment.value || "0");
+    if (initPay < 0){
+      saveErr.textContent = "Initial payment must be >= 0.";
+      return false;
+    }
+    if (initPay > a){
+      saveErr.textContent = "Initial payment cannot exceed total amount.";
+      return false;
+    }
+    if (initPay > 0 && !moneyContainer.value){
+      saveErr.textContent = "Select a money container for the initial payment.";
+      return false;
+    }
     return true;
   }
 
@@ -115,6 +131,9 @@
       provider_id: Number(partyId.value),
       party_name: String(partyName.value||""),
       amount: String(amount.value||"0"),
+      currency_code: String(currency.value || "SYP"),
+      initial_payment: String(initialPayment.value || "0"),
+      money_container_id: moneyContainer.value ? Number(moneyContainer.value) : null,
       due_date: due.value || null,
     };
 

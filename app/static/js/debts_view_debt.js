@@ -10,9 +10,12 @@
 
   const btnFull  = $("#btnFull");
   const btnBatch = $("#btnBatch");
+  const mcSelect = $("#mcSelect");
   const mBatch   = $("#mBatch");
   const mAmt     = $("#mBatchAmount");
   const mHint    = $("#mBatchHint");
+
+  let currentCurrency = "SYP";
 
   const remDate  = $("#remDate");
   const btnRem   = $("#btnRem");
@@ -42,6 +45,8 @@
   const partyName = item.party_name || (item.provider?.name || "");
   const serial = item.doc_serial ?? "—";
   const statusAr = arStatus(item.status);
+  const currency = (item.currency_code || "SYP").toUpperCase();
+  currentCurrency = currency;
 
   // labels depend on direction
   const paidLabel = item.direction === "debtor" ? "المدفوع" : "المحصّل";
@@ -57,6 +62,7 @@
     ["اسم الطرف الآخر", partyName],
     ["رقم السيريال", serial],
     ["مصدر السجل", arSource(item)],
+    ["??????", currency],
   ];
 
   const metaSection = [
@@ -158,12 +164,15 @@ function arSource(item){
 
   if (item.direction === "debtor"){
     // ====== مدين ======
-    movHead.innerHTML = `<th>التاريخ</th><th>الدفعة</th>`;
+    movHead.innerHTML = `<th>???????</th><th>??????</th><th>??????</th><th>???????</th><th>???????</th>`;
     (item.payments || []).forEach(p => {
       movRows.insertAdjacentHTML("beforeend",
         `<tr>
           <td>${new Date(p.created_at).toLocaleString()}</td>
           <td>${fmtNum(p.amount)}</td>
+          <td>${p.currency_code || currentCurrency}</td>
+          <td>${p.container_name || ""}</td>
+          <td>${p.receipt_serial || ""}</td>
         </tr>`);
     });
     btnFull.textContent  = "تسديد كامل";
@@ -171,12 +180,15 @@ function arSource(item){
     $("#mBatchTitle").textContent = "إدخال دفعة";
   } else {
     // ====== دائن ======
-    movHead.innerHTML = `<th>التاريخ</th><th>التحصيل</th>`;
+    movHead.innerHTML = `<th>???????</th><th>??????</th><th>??????</th><th>???????</th><th>???????</th>`;
     (item.receipts || []).forEach(r => {
       movRows.insertAdjacentHTML("beforeend",
         `<tr>
           <td>${new Date(r.created_at).toLocaleString()}</td>
           <td>${fmtNum(r.amount)}</td>
+          <td>${r.currency_code || currentCurrency}</td>
+          <td>${r.container_name || ""}</td>
+          <td>${r.receipt_serial || ""}</td>
         </tr>`);
     });
     btnFull.textContent  = "تحصيل كامل";
@@ -229,7 +241,12 @@ function arSource(item){
 
   // actions
   btnFull.onclick = async () => {
-    const res = await postForm(S.API.PAY_FULL, new FormData());
+    const mcId = mcSelect?.value || "";
+    if (!mcId){ alert("???? ??????? ???????."); return; }
+    const form = new FormData();
+    form.append("money_container_id", mcId);
+    form.append("currency_code", currentCurrency || "SYP");
+    const res = await postForm(S.API.PAY_FULL, form);
     if (!res.ok){ alert(res.error || "error"); return; }
     await refresh();
   };
@@ -241,8 +258,12 @@ function arSource(item){
   };
 
   mBatch.querySelector("[data-confirm]").onclick = async () => {
+    const mcId = mcSelect?.value || "";
+    if (!mcId){ alert("???? ??????? ???????."); return; }
     const f = new FormData();
     f.append("amount", mAmt.value || "");
+    f.append("money_container_id", mcId);
+    f.append("currency_code", currentCurrency || "SYP");
     const res = await postForm(S.API.PAY_BATCH, f);
     if (!res.ok){ alert(res.error || "error"); return; }
     closeModal(mBatch);

@@ -15,6 +15,7 @@ from stock.models import ProductContainer, StockEntry  # ⬅ added StockEntry
 from .models import SalesBill, SalesBillRow, PosDay, PosLoginSession , PosShift
 from core.currency import SYP, USD
 from financials import services as FinSV
+from financials.models import Counterparty, CounterpartyType
 
 
 class InsufficientStockError(Exception):
@@ -33,6 +34,21 @@ class InsufficientStockError(Exception):
     def __init__(self, items: list[dict]):
         self.items = items
         super().__init__("INSUFFICIENT_STOCK")
+
+
+def _ensure_customer_counterparty(*, customer) -> Counterparty:
+    cp = Counterparty.objects.filter(type=CounterpartyType.CUSTOMER, customer_id=customer.id).first()
+    if cp:
+        if (cp.name or "").strip() != (customer.name or "").strip():
+            cp.name = (customer.name or "").strip()
+            cp.save(update_fields=["name"])
+        return cp
+    return Counterparty.objects.create(
+        type=CounterpartyType.CUSTOMER,
+        name=(customer.name or "").strip(),
+        customer_id=customer.id,
+        is_active=True,
+    )
 
 
 def get_or_create_work_day(now=None) -> PosDay:
@@ -352,13 +368,44 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
         amounts[USD] = paid_usd
 
     if amounts:
-        FinSV.post_pos_sale_receipt(
-            actor=actor,
-            container_id=bill.money_container_id,
-            amounts_by_code=amounts,
-            fx_syp_per_usd=fx_rate,
-            note="POS sale receipt",
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-        )
+        if bill.pay_status == SalesBill.PAY_FULL:
+            FinSV.post_pos_sale_receipt(
+                actor=actor,
+                container_id=bill.money_container_id,
+                amounts_by_code=amounts,
+                fx_syp_per_usd=fx_rate,
+                note="POS sale receipt",
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(bill.id),
+            )
+        else:
+            if not bill.customer_id:
+                raise RuntimeError("POS_CUSTOMER_REQUIRED_FOR_DEBT")
+            cp = _ensure_customer_counterparty(customer=bill.customer)
+            if paid_syp > 0:
+                FinSV.post_settlement_with_fx(
+                    actor=actor,
+                    container_id=bill.money_container_id,
+                    counterparty_id=cp.id,
+                    currency_code=SYP,
+                    cash_amount_signed=+q3(paid_syp),
+                    fx_syp_per_usd=fx_rate,
+                    note="POS sale settlement (SYP)",
+                    source_app="pos",
+                    source_model="SalesBill",
+                    source_id=str(bill.id),
+                )
+            if paid_usd > 0:
+                FinSV.post_settlement_with_fx(
+                    actor=actor,
+                    container_id=bill.money_container_id,
+                    counterparty_id=cp.id,
+                    currency_code=USD,
+                    cash_amount_signed=+q3(paid_usd),
+                    fx_syp_per_usd=fx_rate,
+                    note="POS sale settlement (USD)",
+                    source_app="pos",
+                    source_model="SalesBill",
+                    source_id=str(bill.id),
+                )

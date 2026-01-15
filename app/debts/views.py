@@ -12,6 +12,8 @@ from accounts.models import AccountProfile
 from catalog.views import role_required
 
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry, DebtReminder
+from financials.models import MoneyContainer, Receipt, ReceiptKind
+from django.db.models import Q
 from . import selectors as S
 from .serializers import debtor_row, creditor_row
 from debts import services as SV
@@ -19,15 +21,15 @@ from debts import services as SV
 # ---------- Pages ----------
 @role_required(AccountProfile.Role.MANAGER)
 def debts_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "debts/debts_list.html")
+    return render(request, "debts/debts_list.html", {"money_containers": _allowed_containers(request.user)})
 
 @role_required(AccountProfile.Role.MANAGER)
 def creditors_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "debts/creditors_list.html")
+    return render(request, "debts/creditors_list.html", {"money_containers": _allowed_containers(request.user)})
 
 @role_required(AccountProfile.Role.MANAGER)
 def add_debt(request: HttpRequest) -> HttpResponse:
-    return render(request, "debts/add_debt.html")
+    return render(request, "debts/add_debt.html", {"money_containers": _allowed_containers(request.user)})
 
 @role_required(AccountProfile.Role.MANAGER)
 def view_debt(request: HttpRequest, direction: str, entry_id: int) -> HttpResponse:
@@ -35,7 +37,15 @@ def view_debt(request: HttpRequest, direction: str, entry_id: int) -> HttpRespon
     direction = (direction or "").lower().strip()
     if direction not in {"debtor", "creditor"}:
         return render(request, "404.html", status=404)
-    return render(request, "debts/view_debt.html", {"direction": direction, "entry_id": entry_id})
+    return render(
+        request,
+        "debts/view_debt.html",
+        {
+            "direction": direction,
+            "entry_id": entry_id,
+            "money_containers": _allowed_containers(request.user),
+        },
+    )
 
 # ---------- Helpers ----------
 def _bad(msg: str, status: int = 400) -> JsonResponse:
@@ -66,19 +76,84 @@ def _int_or_none(s):
         return None
 
 
+def _allowed_containers(user):
+    qs = MoneyContainer.objects.filter(is_active=True).order_by("name")
+    if not (getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)):
+        qs = qs.filter(Q(allowed_users__isnull=True) | Q(allowed_users=user)).distinct()
+    return list(qs)
+
+
 def _entry_details(direction: str, entry_id: int) -> dict:
     """
     Return full details for one entry including:
     core fields, provider, payments/receipts, current reminder, reminders history.
     """
+    def _receipt_source_id(src_id: str, legacy_id: str) -> str:
+        base = (legacy_id or src_id or "").strip()
+        if base.endswith(":USD"):
+            base = base[:-4]
+        return base
+
+    def _exposure_receipts(source_app: str, source_model: str, source_id: str):
+        if not source_app or not source_model or not source_id:
+            return []
+        qs = (
+            Receipt.objects
+            .filter(
+                source_app=source_app,
+                source_model=source_model,
+                source_id=str(source_id),
+                kind=ReceiptKind.COUNTERPARTY_INC,
+            )
+            .order_by("-id")
+        )
+        out = []
+        for r in qs:
+            cur = None
+            for ln in r.lines.all():
+                cur = ln.currency.code
+                break
+            out.append(
+                {
+                    "id": r.id,
+                    "serial": r.serial,
+                    "status": r.status,
+                    "kind": r.kind,
+                    "currency_code": cur or "SYP",
+                }
+            )
+        return out
+
     if direction == "debtor":
         e = DebtorEntry.objects.select_related("provider").get(pk=entry_id)
-        payments = list(e.payments.order_by("id").values("id", "created_at", "amount", "journal_entry_id"))
+        payments = []
+        for p in e.payments.select_related("receipt", "money_container").order_by("id"):
+            rcpt = p.receipt
+            payments.append(
+                {
+                    "id": p.id,
+                    "created_at": p.created_at,
+                    "amount": str(p.amount),
+                    "currency_code": (getattr(p, "currency_code", None) or getattr(e, "currency_code", None) or "SYP"),
+                    "receipt_id": rcpt.id if rcpt else None,
+                    "receipt_serial": rcpt.serial if rcpt else None,
+                    "receipt_status": rcpt.status if rcpt else None,
+                    "container_id": p.money_container_id,
+                    "container_name": p.money_container.name if p.money_container_id else "",
+                    "fx_syp_per_usd_used": str(p.fx_syp_per_usd_used) if p.fx_syp_per_usd_used else None,
+                    "journal_entry_id": getattr(p, "journal_entry_id", None),
+                }
+            )
         paid = e.paid_amount or 0
         remaining = (e.total or 0) - paid
         rem_qs = DebtReminder.objects.filter(direction="debtor", debtor=e).order_by("-set_at")
         current_rem = rem_qs.first()
         history = [{"id": r.id, "set_at": r.set_at, "due_date": r.due_date} for r in rem_qs]
+        exposure_receipts = _exposure_receipts(
+            e.source_app,
+            e.source_model,
+            _receipt_source_id(e.source_id, getattr(e, "legacy_source_id", "")),
+        )
         return {
             "id": e.id,
             "direction": "debtor",
@@ -90,11 +165,14 @@ def _entry_details(direction: str, entry_id: int) -> dict:
             "party_type": getattr(e, "party_type", "provider"),
             "party_name": getattr(e, "party_name", "") or (e.provider.name if e.provider_id else ""),
             "provider": {"id": e.provider_id, "name": e.provider.name if e.provider_id else ""},
+            "customer": {"id": getattr(e, "customer_id", None), "name": e.customer.name if getattr(e, "customer", None) else ""},
+            "currency_code": (getattr(e, "currency_code", None) or "SYP"),
             "status": e.status,
             "total": str(e.total),
             "paid_amount": str(paid),
             "remaining": str(remaining),
             "payments": payments,
+            "exposure_receipts": exposure_receipts,
             "current_reminder": (
                 {"id": current_rem.id, "set_at": current_rem.set_at, "due_date": current_rem.due_date}
                 if current_rem else None
@@ -105,12 +183,34 @@ def _entry_details(direction: str, entry_id: int) -> dict:
 
     # creditor
     c = CreditorEntry.objects.select_related("provider").get(pk=entry_id)
-    receipts = list(c.receipts.order_by("id").values("id", "created_at", "amount", "journal_entry_id"))
+    receipts = []
+    for r in c.receipts.select_related("receipt", "money_container").order_by("id"):
+        rcpt = r.receipt
+        receipts.append(
+            {
+                "id": r.id,
+                "created_at": r.created_at,
+                "amount": str(r.amount),
+                "currency_code": (getattr(r, "currency_code", None) or getattr(c, "currency_code", None) or "SYP"),
+                "receipt_id": rcpt.id if rcpt else None,
+                "receipt_serial": rcpt.serial if rcpt else None,
+                "receipt_status": rcpt.status if rcpt else None,
+                "container_id": r.money_container_id,
+                "container_name": r.money_container.name if r.money_container_id else "",
+                "fx_syp_per_usd_used": str(r.fx_syp_per_usd_used) if r.fx_syp_per_usd_used else None,
+                "journal_entry_id": getattr(r, "journal_entry_id", None),
+            }
+        )
     collected = c.collected or 0
     remaining = (c.total or 0) - collected
     rem_qs = DebtReminder.objects.filter(direction="creditor", creditor=c).order_by("-set_at")
     current_rem = rem_qs.first()
     history = [{"id": r.id, "set_at": r.set_at, "due_date": r.due_date} for r in rem_qs]
+    exposure_receipts = _exposure_receipts(
+        c.source_app,
+        c.source_model,
+        _receipt_source_id(c.source_id, getattr(c, "legacy_source_id", "")),
+    )
     return {
         "id": c.id,
         "direction": "creditor",
@@ -122,11 +222,14 @@ def _entry_details(direction: str, entry_id: int) -> dict:
         "party_type": getattr(c, "party_type", "provider"),
         "party_name": getattr(c, "party_name", "") or (c.provider.name if c.provider_id else ""),
         "provider": {"id": c.provider_id, "name": c.provider.name if c.provider_id else ""},
+        "customer": {"id": getattr(c, "customer_id", None), "name": c.customer.name if getattr(c, "customer", None) else ""},
+        "currency_code": (getattr(c, "currency_code", None) or "SYP"),
         "status": c.status,
         "total": str(c.total),
         "paid_amount": str(collected),   # keep API shape same as list rows
         "remaining": str(remaining),
         "receipts": receipts,
+        "exposure_receipts": exposure_receipts,
         "current_reminder": (
             {"id": current_rem.id, "set_at": current_rem.set_at, "due_date": current_rem.due_date}
             if current_rem else None
@@ -240,6 +343,9 @@ def api_manual_debt_save(request: HttpRequest) -> JsonResponse:
         party_name = (payload.get("party_name") or "").strip()
 
     amount   = _dec(payload.get("amount"), "0")
+    currency_code = (payload.get("currency_code") or "SYP").strip().upper()
+    initial_payment = _dec(payload.get("initial_payment"), "0")
+    money_container_id = _int_or_none(payload.get("money_container_id"))
     due_date = _date(payload.get("due_date"))
 
     if party_type != "provider":
@@ -255,6 +361,9 @@ def api_manual_debt_save(request: HttpRequest) -> JsonResponse:
             provider_id=int(party_id) if party_id else None,
             party_name=party_name,
             amount=amount,
+            currency_code=currency_code,
+            initial_payment=initial_payment if initial_payment and initial_payment > 0 else None,
+            money_container_id=money_container_id,
             due_date=due_date,
         )
     except ValueError as ve:
@@ -270,10 +379,20 @@ def api_manual_debt_save(request: HttpRequest) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_manual_debt_pay_full(request: HttpRequest, entry_id: int) -> JsonResponse:
     try:
-        SV.pay_debt(actor=request.user, entry_id=entry_id, full=True)
+        money_container_id = _int_or_none(request.POST.get("money_container_id"))
+        currency_code = (request.POST.get("currency_code") or "").strip().upper() or None
+        SV.pay_debt(
+            actor=request.user,
+            entry_id=entry_id,
+            full=True,
+            money_container_id=money_container_id,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True})
     except DebtorEntry.DoesNotExist:
         return _bad("not found", 404)
+    except ValueError as e:
+        return _bad(str(e), 400)
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -287,7 +406,16 @@ def api_manual_debt_pay_batch(request: HttpRequest, entry_id: int) -> JsonRespon
         return _bad("Enter a positive amount.", 400)
 
     try:
-        SV.pay_debt(actor=request.user, entry_id=entry_id, amount=amount, full=False)
+        money_container_id = _int_or_none(request.POST.get("money_container_id"))
+        currency_code = (request.POST.get("currency_code") or "").strip().upper() or None
+        SV.pay_debt(
+            actor=request.user,
+            entry_id=entry_id,
+            amount=amount,
+            full=False,
+            money_container_id=money_container_id,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True})
     except ValueError as e:
         return _bad(str(e), 400)
@@ -301,10 +429,20 @@ def api_manual_debt_pay_batch(request: HttpRequest, entry_id: int) -> JsonRespon
 @role_required(AccountProfile.Role.MANAGER)
 def api_manual_creditor_collect_full(request: HttpRequest, entry_id: int) -> JsonResponse:
     try:
-        SV.collect_debt(actor=request.user, entry_id=entry_id, full=True)
+        money_container_id = _int_or_none(request.POST.get("money_container_id"))
+        currency_code = (request.POST.get("currency_code") or "").strip().upper() or None
+        SV.collect_debt(
+            actor=request.user,
+            entry_id=entry_id,
+            full=True,
+            money_container_id=money_container_id,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True})
     except CreditorEntry.DoesNotExist:
         return _bad("not found", 404)
+    except ValueError as e:
+        return _bad(str(e), 400)
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -316,7 +454,16 @@ def api_manual_creditor_collect_batch(request: HttpRequest, entry_id: int) -> Js
     if amount <= 0:
         return _bad("Enter a positive amount." , 400)
     try:
-        SV.collect_debt(actor=request.user, entry_id=entry_id, amount=amount, full=False)
+        money_container_id = _int_or_none(request.POST.get("money_container_id"))
+        currency_code = (request.POST.get("currency_code") or "").strip().upper() or None
+        SV.collect_debt(
+            actor=request.user,
+            entry_id=entry_id,
+            amount=amount,
+            full=False,
+            money_container_id=money_container_id,
+            currency_code=currency_code,
+        )
         return JsonResponse({"ok": True})
     except ValueError as e:
         return _bad(str(e), 400)
@@ -340,10 +487,24 @@ def api_debt_details(request: HttpRequest, direction: str, entry_id: int) -> Jso
 def api_entry_pay_full(request: HttpRequest, direction: str, entry_id: int) -> JsonResponse:
     direction = (direction or "").lower().strip()
     try:
+        money_container_id = _int_or_none(request.POST.get("money_container_id"))
+        currency_code = (request.POST.get("currency_code") or "").strip().upper() or None
         if direction == "debtor":
-            SV.pay_debt(actor=request.user, entry_id=entry_id, full=True)
+            SV.pay_debt(
+                actor=request.user,
+                entry_id=entry_id,
+                full=True,
+                money_container_id=money_container_id,
+                currency_code=currency_code,
+            )
         elif direction == "creditor":
-            SV.collect_debt(actor=request.user, entry_id=entry_id, full=True)
+            SV.collect_debt(
+                actor=request.user,
+                entry_id=entry_id,
+                full=True,
+                money_container_id=money_container_id,
+                currency_code=currency_code,
+            )
         else:
             return _bad("bad direction", 400)
         return JsonResponse({"ok": True})
@@ -365,10 +526,26 @@ def api_entry_pay_batch(request: HttpRequest, direction: str, entry_id: int) -> 
     if amount <= 0:
         return _bad("Enter a positive amount.", 400)
     try:
+        money_container_id = _int_or_none(request.POST.get("money_container_id"))
+        currency_code = (request.POST.get("currency_code") or "").strip().upper() or None
         if direction == "debtor":
-            SV.pay_debt(actor=request.user, entry_id=entry_id, amount=amount, full=False)
+            SV.pay_debt(
+                actor=request.user,
+                entry_id=entry_id,
+                amount=amount,
+                full=False,
+                money_container_id=money_container_id,
+                currency_code=currency_code,
+            )
         elif direction == "creditor":
-            SV.collect_debt(actor=request.user, entry_id=entry_id, amount=amount, full=False)
+            SV.collect_debt(
+                actor=request.user,
+                entry_id=entry_id,
+                amount=amount,
+                full=False,
+                money_container_id=money_container_id,
+                currency_code=currency_code,
+            )
         else:
             return _bad("bad direction", 400)
         return JsonResponse({"ok": True})

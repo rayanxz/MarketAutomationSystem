@@ -76,6 +76,34 @@
       <input id="amount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
     </div>
 
+    <!-- Currency -->
+    <div class="field" style="max-width:200px;">
+      <label class="label">Currency</label>
+      <select id="currency" class="select">
+        <option value="SYP">SYP</option>
+        <option value="USD">USD</option>
+      </select>
+      <small class="muted">Applies to debt amount.</small>
+    </div>
+
+    <!-- Initial payment -->
+    <div class="field" style="max-width:220px;">
+      <label class="label">Initial payment (optional)</label>
+      <input id="initialPayment" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+      <small class="muted">If provided, a receipt will be posted.</small>
+    </div>
+
+    <!-- Money container -->
+    <div class="field" style="max-width:240px;">
+      <label class="label">Money container (for initial payment)</label>
+      <select id="moneyContainer" class="select">
+        <option value="">--</option>
+        {% for c in money_containers %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
     <!-- Due date -->
     <div class="field" style="max-width:220px;">
       <label class="label">يجب تغطيته قبل (اختياري)</label>

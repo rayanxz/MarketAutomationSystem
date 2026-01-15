@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 
 from billing import services as BillingSV
 from billing.models import Provider, Bill, ProviderReturn
-from debts.models import CreditorDebt
+from debts.models import CreditorDebt, CreditorReceipt
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials.models import MoneyContainer, Currency, MoneyContainerCurrency
 from financials import services as FinSV
@@ -256,6 +256,41 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
 
         after = FinSV.container_balance(container_id=self.cash.id).get("SYP", DEC0)
         self.assertEqual(q3(after - before), q3(Decimal("1000")))
+
+    def test_partial_return_creates_creditor_receipt(self):
+        product = _create_min_product("ReturnPay")
+        bill = self._create_bill(product=product, qty=Decimal("2"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("500"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="HISTORICAL",
+        )
+
+        entry = CreditorDebt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="SYP",
+        )
+        receipt_row = CreditorReceipt.objects.filter(entry=entry).first()
+        self.assertIsNotNone(receipt_row)
+        self.assertIsNotNone(receipt_row.receipt_id)
 
     def test_unpaid_return_creates_creditor_debts(self):
         p1 = _create_min_product("SYP-Prod2")

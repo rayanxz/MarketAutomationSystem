@@ -13,8 +13,9 @@ from django.urls import reverse
 from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
+from debts.models import DebtorDebt, DebtorPayment
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from financials.models import Currency, MoneyContainer
+from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, Receipt, ReceiptKind, ReceiptStatus
 from financials import services as FinSV
 from inventory.models import ProductMovement, DEC0
 from stock.models import ProductContainer
@@ -56,6 +57,13 @@ class MultiCurrencyPurchaseBillTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        for code in ("SYP", "USD"):
+            cur = Currency.objects.get(code=code)
+            MoneyContainerCurrency.objects.get_or_create(
+                container=cls.cash,
+                currency=cur,
+                defaults={"is_enabled": True},
+            )
 
         cls.provider = Provider.objects.create(name="Test Provider")
 
@@ -198,6 +206,41 @@ class MultiCurrencyPurchaseBillTests(TestCase):
 
         prod2 = self._product(name="Helper USD", allow_syp_purch=False, allow_usd_purch=True)
         self.assertEqual(prod2.get_effective_default_purchase_currency(), "USD")
+
+    def test_partial_payment_creates_debtor_payment_with_receipt(self):
+        prod = self._product(name="Pay SYP", allow_syp_purch=True, allow_usd_purch=False)
+        items = [
+            {
+                "product_id": prod.id,
+                "unit_index": 1,
+                "qty_raw": "1",
+                "cost": "10",
+                "currency": "SYP",
+            }
+        ]
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("5"),
+            items=items,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+        )
+
+        entry = DebtorDebt.objects.get(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            currency_code="SYP",
+        )
+        payment = DebtorPayment.objects.filter(entry=entry).first()
+        self.assertIsNotNone(payment)
+        self.assertIsNotNone(payment.receipt_id)
+
+        receipt = Receipt.objects.get(pk=payment.receipt_id)
+        self.assertEqual(receipt.kind, ReceiptKind.COUNTERPARTY_SETTLE)
+        self.assertEqual(receipt.status, ReceiptStatus.POSTED)
 
         prod3 = self._product(name="Helper Both", allow_syp_purch=True, allow_usd_purch=True)
         prod3.default_purchase_currency = None

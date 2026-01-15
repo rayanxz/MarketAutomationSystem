@@ -1,0 +1,138 @@
+{% extends "financials/manager/base_financials.html" %}
+{% load static %}
+
+{% block title %}حركات يدوية للحاويات{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px">حركات يدوية للحاويات</h2>
+
+  <form class="card js-manual-form" style="padding:12px;margin-bottom:12px" method="post">
+    {% csrf_token %}
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+      <div>
+        <label>النوع</label>
+        <select class="input js-action" name="action">
+          <option value="add">إضافة</option>
+          <option value="withdraw">سحب</option>
+          <option value="transfer">تحويل</option>
+          <option value="exchange">صرف عملة</option>
+        </select>
+      </div>
+
+      <div class="js-field js-from">
+        <label>من حاوية</label>
+        <select class="input" name="from_container">
+          <option value="">--</option>
+          {% for c in containers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="js-field js-to">
+        <label>إلى حاوية</label>
+        <select class="input" name="to_container">
+          <option value="">--</option>
+          {% for c in containers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="js-field js-currency">
+        <label>العملة</label>
+        <select class="input" name="currency">
+          <option value="">--</option>
+          {% for cur in currencies %}
+            <option value="{{ cur.code }}">{{ cur.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="js-field js-currency-from">
+        <label>من عملة</label>
+        <select class="input" name="currency_from">
+          <option value="">--</option>
+          {% for cur in currencies %}
+            <option value="{{ cur.code }}">{{ cur.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="js-field js-currency-to">
+        <label>إلى عملة</label>
+        <select class="input" name="currency_to">
+          <option value="">--</option>
+          {% for cur in currencies %}
+            <option value="{{ cur.code }}">{{ cur.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>المبلغ</label>
+        <input class="input" name="amount" placeholder="0">
+      </div>
+
+      <div class="js-field js-fx">
+        <label>سعر الصرف (SYP لكل 1 USD)</label>
+        <input class="input" name="fx_rate" value="{{ fx_rate }}">
+      </div>
+
+      <div style="grid-column:1/-1">
+        <label>ملاحظة</label>
+        <input class="input" name="note" placeholder="اختياري">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn" type="submit">حفظ</button>
+      <span class="js-msg" style="align-self:center;opacity:.8"></span>
+    </div>
+  </form>
+
+  <div class="card" style="padding:0;overflow:auto">
+    <table class="tbl" style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="padding:10px;white-space:nowrap">التاريخ</th>
+          <th style="padding:10px;white-space:nowrap">النوع</th>
+          <th style="padding:10px;white-space:nowrap">من</th>
+          <th style="padding:10px;white-space:nowrap">إلى</th>
+          <th style="padding:10px;white-space:nowrap">العملة</th>
+          <th style="padding:10px;white-space:nowrap">المبلغ</th>
+          <th style="padding:10px;white-space:nowrap">سعر الصرف</th>
+          <th style="padding:10px;white-space:nowrap">المستخدم</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td style="padding:10px;white-space:nowrap">{{ row.receipt.created_at|date:"Y-m-d H:i" }}</td>
+            <td style="padding:10px;white-space:nowrap">{{ row.receipt.get_kind_display }}</td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if row.from_line %}{{ row.from_line.container.name }}{% endif %}
+            </td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if row.to_line %}{{ row.to_line.container.name }}{% endif %}
+            </td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if row.to_line %}{{ row.to_line.currency.code }}{% elif row.from_line %}{{ row.from_line.currency.code }}{% endif %}
+            </td>
+            <td style="padding:10px;white-space:nowrap">
+              {% if row.to_line %}{{ row.to_line.amount }}{% elif row.from_line %}{{ row.from_line.amount }}{% endif %}
+            </td>
+            <td style="padding:10px;white-space:nowrap">{{ row.receipt.fx_syp_per_usd }}</td>
+            <td style="padding:10px;white-space:nowrap">{{ row.receipt.actor.username }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8" style="padding:10px">لا يوجد حركات بعد</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script defer src="{% static 'js/financials_manual_events.js' %}"></script>
+{% endblock %}

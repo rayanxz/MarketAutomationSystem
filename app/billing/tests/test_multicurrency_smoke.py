@@ -13,7 +13,7 @@ from accounts.models import AccountProfile
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from debts.models import DebtorDebt
-from financials.models import Currency, MoneyContainer
+from financials.models import Currency, MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from inventory.models import ProductMovement, DEC0, q3
 from stock.models import ProductContainer, StockFifoLayer
@@ -52,6 +52,16 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
             container_type=MoneyContainer.ContainerType.DRAWER,
             is_active=True,
             created_by=cls.actor,
+        )
+        MoneyContainerCurrency.objects.get_or_create(
+            container=cls.cash,
+            currency=cls.syp,
+            defaults={"is_enabled": True},
+        )
+        MoneyContainerCurrency.objects.get_or_create(
+            container=cls.cash,
+            currency=cls.usd,
+            defaults={"is_enabled": True},
         )
 
         cls.provider = Provider.objects.create(name="Test Provider")
@@ -228,8 +238,8 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         url_syp = reverse("debts_api_entry_pay_batch", kwargs={"direction": "debtor", "entry_id": syp_entry.id})
         url_usd = reverse("debts_api_entry_pay_batch", kwargs={"direction": "debtor", "entry_id": usd_entry.id})
 
-        r1 = self.client.post(url_syp, data={"amount": "1000"})
-        r2 = self.client.post(url_usd, data={"amount": "5"})
+        r1 = self.client.post(url_syp, data={"amount": "1000", "money_container_id": self.cash.id, "currency_code": "SYP"})
+        r2 = self.client.post(url_usd, data={"amount": "5", "money_container_id": self.cash.id, "currency_code": "USD"})
         self.assertEqual(r1.status_code, 200, r1.content.decode("utf-8"))
         self.assertEqual(r2.status_code, 200, r2.content.decode("utf-8"))
         self.assertTrue(r1.json().get("ok"))
@@ -243,8 +253,8 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         # Pay remaining (full) via same endpoint
         rem_syp = q3(syp_entry.remaining)
         rem_usd = q3(usd_entry.remaining)
-        r3 = self.client.post(url_syp, data={"amount": str(rem_syp)})
-        r4 = self.client.post(url_usd, data={"amount": str(rem_usd)})
+        r3 = self.client.post(url_syp, data={"amount": str(rem_syp), "money_container_id": self.cash.id, "currency_code": "SYP"})
+        r4 = self.client.post(url_usd, data={"amount": str(rem_usd), "money_container_id": self.cash.id, "currency_code": "USD"})
         self.assertEqual(r3.status_code, 200, r3.content.decode("utf-8"))
         self.assertEqual(r4.status_code, 200, r4.content.decode("utf-8"))
         self.assertTrue(r3.json().get("ok"))

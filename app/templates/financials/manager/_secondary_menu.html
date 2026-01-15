@@ -1,16 +1,19 @@
-{% comment %}
+﻿{% comment %}
 Lower menu for financials pages.
 fin_active: list | create | movements
 {% endcomment %}
 
 <a class="{% if fin_active == 'create' %}btn-sec{% endif %}"
-   href="{% url 'financials:container_create' %}">إنشاء حاوية</a>
+   href="{% url 'financials:container_create' %}">Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø§ÙˆÙŠØ©</a>
 
 <a class="{% if fin_active == 'movements' %}btn-sec{% endif %}"
-   href="{% url 'financials:container_movements' %}">حركات الحاويات</a>
+   href="{% url 'financials:container_movements' %}">Ø­Ø±ÙƒØ§Øª Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</a>
+
+<a class="{% if fin_active == 'manual' %}btn-sec{% endif %}"
+   href="{% url 'financials:container_manual_events' %}">OU,UŸU+U?OO¦ OU,O-OU^USOO¦</a>
 
 <a class="{% if fin_active == 'list' %}btn-sec{% endif %}"
-   href="{% url 'financials:container_list' %}">قائمة الحاويات</a>
+   href="{% url 'financials:container_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</a>
    
 <a class="{% if fin_active == 'fx' %}btn-sec{% endif %}"
-   href="{% url 'financials:fx_settings' %}">سعر الصرف</a>
+   href="{% url 'financials:fx_settings' %}">Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù</a>

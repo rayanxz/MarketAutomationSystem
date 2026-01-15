@@ -6,9 +6,11 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.db import connection
 
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, ContainerFeature, Receipt
+from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, ContainerFeature, Receipt, Counterparty, CounterpartyType, ReceiptKind
+from debts.models import DebtorDebt, DebtorPayment, PartyType
 from financials import services as FinSV
 from inventory import services as InvSV
 from stock.models import ProductContainer
@@ -355,3 +357,213 @@ class PosMultiCurrencySalesTests(TestCase):
         prod = data["product"]
         self.assertEqual(prod["effective_default_sale_currency"], "SYP")
         self.assertEqual(Decimal(prod["price"]), Decimal("2500"))
+
+    def test_partial_pos_sale_creates_customer_debt_and_payment(self):
+        p_syp = self._create_product(
+            name="SYP Only",
+            allow_syp=True,
+            allow_usd=False,
+            default_syp="1000",
+            default_usd="0",
+        )
+        self._seed_stock(p_syp)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "partial",
+            "paid_amount": "400",
+            "total_amount": "0",
+            "settlement_mode": "all_syp",
+            "money_container_id": self.cash.id,
+            "customer_name": "POS Customer",
+            "create_new_customer": True,
+            "rows": [
+                {
+                    "product_id": p_syp.id,
+                    "name": p_syp.name,
+                    "number": p_syp.display_code,
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "1000",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 200, resp.content.decode())
+        data = resp.json()
+        self.assertTrue(data.get("ok"))
+
+        entry = DebtorDebt.objects.get(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(data["bill"]["id"]),
+            party_type=PartyType.CUSTOMER,
+            currency_code="SYP",
+        )
+        self.assertEqual(entry.total, Decimal("1000"))
+        self.assertEqual(entry.paid_amount, Decimal("400"))
+
+        payment = DebtorPayment.objects.filter(entry=entry).first()
+        self.assertIsNotNone(payment)
+        self.assertIsNotNone(payment.receipt_id)
+
+        cp = Counterparty.objects.get(type=CounterpartyType.CUSTOMER, customer_id=entry.customer_id)
+        bal = FinSV.counterparty_balance(counterparty_id=cp.id)
+        self.assertEqual(bal.get("SYP"), Decimal("600"))
+
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_syp, Decimal("400"))
+
+        self.assertTrue(
+            Receipt.objects.filter(
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(data["bill"]["id"]),
+                kind=ReceiptKind.COUNTERPARTY_INC,
+            ).exists()
+        )
+        self.assertTrue(
+            Receipt.objects.filter(
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(data["bill"]["id"]),
+                kind=ReceiptKind.COUNTERPARTY_SETTLE,
+            ).exists()
+        )
+
+    def test_unpaid_pos_sale_creates_customer_debt(self):
+        p_syp = self._create_product(
+            name="SYP Only 2",
+            allow_syp=True,
+            allow_usd=False,
+            default_syp="1200",
+            default_usd="0",
+        )
+        self._seed_stock(p_syp)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "none",
+            "paid_amount": "0",
+            "total_amount": "0",
+            "settlement_mode": "split",
+            "customer_name": "POS Customer 2",
+            "create_new_customer": True,
+            "rows": [
+                {
+                    "product_id": p_syp.id,
+                    "name": p_syp.name,
+                    "number": p_syp.display_code,
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "1200",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 200, resp.content.decode())
+        data = resp.json()
+        self.assertTrue(data.get("ok"))
+
+        self.assertTrue(
+            DebtorDebt.objects.filter(
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(data["bill"]["id"]),
+                party_type=PartyType.CUSTOMER,
+                currency_code="SYP",
+            ).exists()
+        )
+
+        entry = DebtorDebt.objects.get(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(data["bill"]["id"]),
+            party_type=PartyType.CUSTOMER,
+            currency_code="SYP",
+        )
+        cp = Counterparty.objects.get(type=CounterpartyType.CUSTOMER, customer_id=entry.customer_id)
+        bal = FinSV.counterparty_balance(counterparty_id=cp.id)
+        self.assertEqual(bal.get("SYP"), Decimal("1200"))
+
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_syp, Decimal("0"))
+
+        self.assertTrue(
+            Receipt.objects.filter(
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(data["bill"]["id"]),
+                kind=ReceiptKind.COUNTERPARTY_INC,
+            ).exists()
+        )
+
+    def test_full_paid_pos_sale_no_counterparty_exposure(self):
+        p_syp = self._create_product(
+            name="SYP Paid",
+            allow_syp=True,
+            allow_usd=False,
+            default_syp="500",
+            default_usd="0",
+        )
+        self._seed_stock(p_syp)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "full",
+            "paid_amount": "0",
+            "total_amount": "0",
+            "settlement_mode": "split",
+            "money_container_id": self.cash.id,
+            "rows": [
+                {
+                    "product_id": p_syp.id,
+                    "name": p_syp.name,
+                    "number": p_syp.display_code,
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "500",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 200, resp.content.decode())
+        data = resp.json()
+        self.assertTrue(data.get("ok"))
+
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_syp, Decimal("500"))
+
+        self.assertFalse(
+            Receipt.objects.filter(
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(data["bill"]["id"]),
+                kind=ReceiptKind.COUNTERPARTY_INC,
+            ).exists()
+        )
+
+    def test_schema_provider_nullable_for_customer_debts(self):
+        if connection.vendor != "sqlite":
+            return
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA table_info('billing_debtorentry')")
+            rows = cursor.fetchall()
+        notnull = None
+        for row in rows:
+            if row[1] == "provider_id":
+                notnull = row[3]
+                break
+        self.assertEqual(notnull, 0, "billing_debtorentry.provider_id must be nullable")

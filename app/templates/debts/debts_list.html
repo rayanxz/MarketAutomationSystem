@@ -98,7 +98,7 @@
          <th style="width:120px;">سيريال</th>
          <th style="width:140px;">نوع العميل</th>
          <th>الاسم</th>
-         <th style="width:100px;">??????</th>
+         <th style="width:100px;">العملة</th>
          <th style="width:160px;">الإجمالي</th>
          <th style="width:160px;">المدفوع</th>
          <th style="width:160px;">المتبقي</th>
@@ -122,6 +122,14 @@
   <div class="box">
     <header>تأكيد التسديد الكامل</header>
     <div id="full-text">هل أنت متأكد من التسديد الكامل؟</div>
+    <div style="margin-top:8px;">
+      <select id="full-container" class="input">
+        <option value="">???? ??????? ???????</option>
+        {% for c in money_containers %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <footer>
       <button class="btn" data-close>إلغاء</button>
       <button class="btn primary" data-confirm>تأكيد</button>
@@ -135,13 +143,15 @@
     <header>إدخال دفعة</header>
     <div class="body">
       <p id="batch-text" style="margin:0 0 8px;"></p>
-      <div id="batch-syp-field" style="margin-bottom:8px;">
-        <input id="batch-amount-syp" class="input" type="number" min="0" step="0.001" placeholder="0.000">
-        <small id="batch-hint-syp" class="muted"></small>
-      </div>
-      <div id="batch-usd-field" style="margin-bottom:8px;">
-        <input id="batch-amount-usd" class="input" type="number" min="0" step="0.001" placeholder="0.000">
-        <small id="batch-hint-usd" class="muted"></small>
+      <input id="batch-amount" class="input" type="number" min="0" step="0.001" placeholder="0.000">
+      <small id="batch-hint" class="muted"></small>
+      <div style="margin-top:8px;">
+        <select id="batch-container" class="input">
+          <option value="">???? ??????? ???????</option>
+          {% for c in money_containers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
       </div>
     </div>
     <footer>

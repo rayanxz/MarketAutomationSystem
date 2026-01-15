@@ -24,6 +24,9 @@ def debtor_row(d: DebtorEntry) -> Dict[str, Any]:
 
     provider_id = d.provider_id
     provider_name = d.provider.name if d.provider_id else ""
+    customer_id = getattr(d, "customer_id", None)
+    customer_name = d.customer.name if getattr(d, "customer", None) else ""
+    currency_code = (getattr(d, "currency_code", None) or "SYP").upper()
 
     ui_status = "paid" if d.remaining <= 0 else ("partial" if (d.paid_amount or 0) > 0 else "unpaid")
     ptype = (getattr(d, "party_type", None) or "provider")
@@ -36,6 +39,8 @@ def debtor_row(d: DebtorEntry) -> Dict[str, Any]:
         "party_type": ptype,
         "party_name": pname,
         "provider": {"id": provider_id, "name": provider_name},
+        "customer": {"id": customer_id, "name": customer_name},
+        "currency_code": currency_code,
         "total": str(d.total),
         "paid_amount": str(d.paid_amount or 0),
         "remaining": str(d.remaining),
@@ -57,6 +62,9 @@ def creditor_row(c: CreditorEntry) -> Dict[str, Any]:
 
     provider_id = c.provider_id
     provider_name = c.provider.name if c.provider_id else ""
+    customer_id = getattr(c, "customer_id", None)
+    customer_name = c.customer.name if getattr(c, "customer", None) else ""
+    currency_code = (getattr(c, "currency_code", None) or "SYP").upper()
 
     ui_status = "paid" if c.remaining <= 0 else ("partial" if (c.collected or 0) > 0 else "unpaid")
     ptype = (getattr(c, "party_type", None) or "provider")
@@ -69,6 +77,8 @@ def creditor_row(c: CreditorEntry) -> Dict[str, Any]:
         "party_type": ptype,
         "party_name": pname,
         "provider": {"id": provider_id, "name": provider_name},
+        "customer": {"id": customer_id, "name": customer_name},
+        "currency_code": currency_code,
         "total": str(c.total),
         "paid_amount": str(c.collected or 0),
         "remaining": str(c.remaining),

@@ -4,12 +4,8 @@
 
   const API = {
        LIST: "/manager/debts/api/creditors/",
-   COLLECT_FULL:  (item) => item.manual
-     ? `/manager/debts/manual-creditors/${item.id}/collect-full/`
-     : `/manager/billing/returns/${item.id}/collect-full/`,
-   COLLECT_BATCH: (item) => item.manual
-     ? `/manager/debts/manual-creditors/${item.id}/collect-batch/`
-     : `/manager/billing/returns/${item.id}/collect-batch/`,
+   COLLECT_FULL:  (entryId) => `/manager/debts/api/entry/creditor/${entryId}/pay-full/`,
+   COLLECT_BATCH: (entryId) => `/manager/debts/api/entry/creditor/${entryId}/pay-batch/`,
   };
 
   const rows     = el("#rows");
@@ -34,12 +30,14 @@
   const mBatchAmount  = el("#batch-amount");
   const mBatchConfirm = qs('[data-confirm]', mBatch);
   const mBatchClose   = qs('[data-close]',   mBatch);
+  const mFullContainer = el("#full-container");
+  const mBatchContainer = el("#batch-container");
 
   const VIEW_URL = (entryId) => `/manager/debts/view/creditor/${entryId}/`;
 
 
   let cursor = null, busy = false, done = false;
-  let target = { id: null, provider: "", remaining: 0 };
+  let target = { entryId: null, provider: "", remaining: 0, manual: false, currency: "SYP" };
 
   function el(s){ return document.querySelector(s); }
   function qs(s, root){ return (root || document).querySelector(s); }
@@ -94,14 +92,16 @@ function rowHtml(b){
 
   return `
     <tr class="${statusClass(b.status)}"
-      data-id="${b.id}"
+      data-entry="${b.entry_id ?? b.id}"
       data-provider="${escapeHtml(partyName)}"
       data-remaining="${String(remainingNum)}"
-      data-manual="${b.manual ? "1" : "0"}">
+      data-manual="${b.manual ? "1" : "0"}"
+      data-currency="${escapeHtml(b.currency_code || "SYP")}">
 
       <td>${serial}</td>
       <td>${escapeHtml(arType(partyType))}</td>
       <td>${escapeHtml(partyName)}</td>
+      <td>${escapeHtml(b.currency_code || "SYP")}</td>
       <td>${nf(totalNum)}</td>
       <td>${nf(paidNum)}</td>
       <td>${nf(remainingNum)}</td>
@@ -148,23 +148,26 @@ function rowHtml(b){
   loadMore.addEventListener("click", () => load(false));
 
   rows.addEventListener("click", (e) => {
-  const tr = e.target.closest("tr[data-id]");
+  const tr = e.target.closest("tr[data-entry]");
   if (!tr) return;
 
   const ds = tr.dataset;
-  target.id        = ds.id || "";
+  target.entryId   = ds.entry || "";
   target.provider  = ds.provider || "";
   target.remaining = Number(ds.remaining || "0");
   target.manual    = (ds.manual === "1" || ds.manual === "true");
+  target.currency  = (ds.currency || "SYP").toUpperCase();
 
   if (e.target.classList.contains("js-collect-full")){
-    mFullText.textContent = `هل أنت متأكد من تحصيل ${nf(target.remaining)} بالكامل من (${target.provider})؟`;
+    mFullText.textContent = `هل أنت متأكد من تحصيل ${nf(target.remaining)} ${target.currency} بالكامل من (${target.provider})؟`;
+    if (mFullContainer) mFullContainer.value = "";
     openModal(mFull); return;
   }
   if (e.target.classList.contains("js-collect-batch")){
     mBatchText.textContent = `أدخل التحصيل من المورد (${target.provider})`;
-    mBatchHint.textContent = `المتبقي: ${nf(target.remaining)}`;
+    mBatchHint.textContent = `المتبقي: ${nf(target.remaining)} ${target.currency}`;
     mBatchAmount.value = "";
+    if (mBatchContainer) mBatchContainer.value = "";
     openModal(mBatch); return;
   }
 });
@@ -180,9 +183,14 @@ function rowHtml(b){
   mBatch.addEventListener("click", (e) => { if (e.target === mBatch) closeModal(mBatch); });
 
   mFullConfirm.addEventListener("click", async () => {
-    if (!target.id) return;
+    if (!target.entryId) return;
     try{
-      const resp = await fetch(API.COLLECT_FULL(target), { method: "POST", headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const mcId = mFullContainer?.value || "";
+      if (!mcId){ alert("???? ??????? ???????."); return; }
+      const form = new FormData();
+      form.append("money_container_id", mcId);
+      form.append("currency_code", target.currency || "SYP");
+      const resp = await fetch(API.COLLECT_FULL(target.entryId), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json();
       if (data.ok){ closeModal(mFull); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }
@@ -193,10 +201,15 @@ function rowHtml(b){
     if (!(v > 0)){ alert("أدخل قيمة موجبة."); return; }
     if (v > target.remaining){ alert("القيمة تتجاوز المبلغ المتبقي."); return; }
 
+    const mcId = mBatchContainer?.value || "";
+    if (!mcId){ alert("???? ??????? ???????."); return; }
+
     const form = new FormData();
     form.append("amount", String(v));
+    form.append("money_container_id", mcId);
+    form.append("currency_code", target.currency || "SYP");
     try{
-      const resp = await fetch(API.COLLECT_BATCH(target), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
+      const resp = await fetch(API.COLLECT_BATCH(target.entryId), { method: "POST", body: form, headers: { "X-CSRFToken": getCsrf(), "Accept":"application/json" } });
       const data = await resp.json();
       if (data.ok){ closeModal(mBatch); load(true); } else { alert(data.error || "خطأ غير متوقع"); }
     }catch{ alert("فشل الاتصال بالخادم"); }
