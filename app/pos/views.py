@@ -18,7 +18,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 from django.template.loader import render_to_string
 
-from .models import PosDay, PosShift, PosLoginSession, SalesBill, CustomerProfile
+from .models import PosDay, PosShift, PosLoginSession, SalesBill, CustomerProfile, SalesReturn
 from debts.models import DebtorDebt, PartyType
 
 from inventory.models import ProductMovement , DEC0 , q3 , q4
@@ -776,6 +776,7 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
         "left_amount": left_amount,
         "sold_rows": display_rows,
         "has_cost_movements": parts_qs.exists(),
+        "sale_returns": SalesReturn.objects.filter(sale_bill=bill).select_related("stock_container", "posted_by").order_by("-id"),
     }
 
     return render(request, "pos/manager_bill_detail.html", context)

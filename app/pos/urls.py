@@ -1,6 +1,7 @@
 # app/pos/urls.py
 from django.urls import path
 from . import views
+from . import returns_views
 from .views_api import (
     api_barcode_lookup,
     api_search_name,
@@ -34,6 +35,9 @@ urlpatterns = [
     path("manager/overview/timeline/", views.pos_manager_overview_timeline, name="pos_manager_overview_timeline"),
 
     path("manager/bill/<int:bill_id>/", views.pos_manager_bill_detail, name="pos_manager_bill_detail"),
+    path("manager/bill/<int:bill_id>/return-wizard/", returns_views.pos_manager_sale_return_wizard, name="pos_manager_sale_return_wizard"),
+    path("manager/returns/<int:return_id>/settle/", returns_views.pos_manager_sale_return_settle, name="pos_manager_sale_return_settle"),
+    path("manager/returns/<int:return_id>/post/", returns_views.pos_manager_sale_return_post, name="pos_manager_sale_return_post"),
     path("manager/customers/", views.pos_manager_customers, name="pos_manager_customers"),
     path("manager/customers/debts/", views.pos_manager_customer_debts, name="pos_manager_customer_debts"),
 

@@ -363,9 +363,6 @@ def api_bill_save(request: HttpRequest):
             settlement_total = q3(total_syp + total_usd)
             settlement_currency = None
 
-        if not parked and pay_status == SalesBill.PAY_PARTIAL and settlement_mode == SalesBill.SETTLE_SPLIT:
-            return JsonResponse({"ok": False, "error": "PARTIAL_REQUIRES_SINGLE_CURRENCY"}, status=400)
-
         container = None
         if money_container_id:
             try:

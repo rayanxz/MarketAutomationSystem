@@ -1,0 +1,87 @@
+{# app/templates/pos/manager_sale_return_settle.html #}
+{% extends "manager/base_manager.html" %}
+{% load l10n formatting %}
+
+{% block title %}Customer Return Settlement{% endblock %}
+
+{% block content %}
+<div class="center-box" style="max-width: 1100px;">
+  <h2 style="margin-bottom: 8px;">Return Settlement - #{{ ret.serial|default:ret.id }}</h2>
+
+  {% if error_msg %}
+    <div class="warn" style="margin-bottom: 10px;">{{ error_msg }}</div>
+  {% endif %}
+
+  <div class="meta-grid" style="margin-bottom: 12px;">
+    <div class="meta-card">
+      <div><b>Bill:</b> #{{ bill.id }}</div>
+      <div><b>Customer:</b> {{ bill.customer_name|default:"-" }}</div>
+      <div><b>Stock container:</b> {{ ret.stock_container.name }}</div>
+    </div>
+    <div class="meta-card">
+      <div><b>Total SYP:</b> {{ total_syp|human_number }}</div>
+      <div><b>Total USD:</b> {{ total_usd|human_number }}</div>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-bottom: 12px;">
+    <div class="table-scroll" style="max-height: 260px;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 44px;">#</th>
+            <th style="width: 220px;">Product</th>
+            <th style="width: 100px;">Qty</th>
+            <th style="width: 100px;">Price</th>
+            <th style="width: 120px;">Line Total</th>
+            <th style="width: 60px;">Cur</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td class="name">{{ r.product.name }}</td>
+              <td>{{ r.qty_returned|human_number }}</td>
+              <td>{{ r.unit_price_at_sale|human_number }}</td>
+              <td>{{ r.line_total|human_number }}</td>
+              <td>{{ r.currency_code }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <form method="post" action="{% url 'pos:pos_manager_sale_return_post' ret.id %}">
+    {% csrf_token %}
+
+    <div style="margin-bottom: 10px;">
+      <label for="settle_mode"><b>Settlement mode</b></label>
+      <select id="settle_mode" name="settle_mode">
+        <option value="cash">Refund cash</option>
+        <option value="credit">Convert to customer credit</option>
+      </select>
+    </div>
+
+    <div style="margin-bottom: 10px;">
+      <label for="money_container_id"><b>Money container (for cash refunds)</b></label>
+      <select id="money_container_id" name="money_container_id">
+        <option value="">-- select --</option>
+        {% for c in money_containers %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% if not bill.customer_id %}
+      <div class="warn" style="margin-bottom: 10px;">No customer on bill. Credit settlement is not allowed.</div>
+    {% endif %}
+
+    <div style="margin-top: 12px;">
+      <button class="btn-sec" type="submit">Post Return</button>
+      <a class="btn-mini" href="{% url 'pos:pos_manager_bill_detail' bill.id %}">Back to Bill</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

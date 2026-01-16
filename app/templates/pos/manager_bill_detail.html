@@ -192,6 +192,11 @@
       <span class="pill">الدفع: {{ pay_label }}</span>
     </div>
   </div>
+  <div style="margin-bottom: 10px;">
+    {% if bill.finalized and not bill.parked %}
+      <a class="btn-sec" href="{% url 'pos:pos_manager_sale_return_wizard' bill.id %}">????? (Customer Return)</a>
+    {% endif %}
+  </div>
 
   <div class="meta-grid">
     <div class="meta-card">
@@ -336,5 +341,36 @@
   <div class="note">
     إذا تم استهلاك المادة من أكثر من دفعة FIFO، ستظهر المادة على أكثر من سطر (سطر لكل دفعة) حتى يبقى الجدول مرتب.
   </div>
+
+  {% if sale_returns %}
+    <div class="table-wrap" style="margin-top: 16px;">
+      <div class="table-scroll" style="max-height: 220px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 60px;">#</th>
+              <th style="width: 120px;">Status</th>
+              <th style="width: 130px;">Stock Container</th>
+              <th style="width: 120px;">Total SYP</th>
+              <th style="width: 120px;">Total USD</th>
+              <th style="width: 160px;">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in sale_returns %}
+              <tr>
+                <td>{{ r.serial|default:r.id }}</td>
+                <td>{{ r.status }}</td>
+                <td>{{ r.stock_container.name }}</td>
+                <td>{{ r.total_syp|human_number }}</td>
+                <td>{{ r.total_usd|human_number }}</td>
+                <td>{{ r.created_at|date:"Y-m-d H:i" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -4,11 +4,15 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.utils import timezone
+from django.db.models import Max
+from django.core.validators import MinValueValidator
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
 from financials.models import MoneyContainer
+from catalog.models import Product
+from stock.models import ProductContainer
 
 
 class CustomerProfile(models.Model):
@@ -343,3 +347,148 @@ class SalesBillRow(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product_name} x {self.qty}"
+
+
+# ================================
+# POS Sales Returns (Customer Return)
+# ================================
+
+class SalesReturn(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        POSTED = "posted", "Posted"
+        CANCELLED = "cancelled", "Cancelled"
+
+    serial = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
+
+    sale_bill = models.ForeignKey(
+        SalesBill,
+        on_delete=models.PROTECT,
+        related_name="returns",
+    )
+    customer = models.ForeignKey(
+        CustomerProfile,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="returns",
+    )
+    stock_container = models.ForeignKey(
+        ProductContainer,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_returns",
+    )
+
+    status = models.CharField(
+        max_length=12,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        db_index=True,
+    )
+
+    total_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+        validators=[MinValueValidator(0)],
+    )
+    total_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+        validators=[MinValueValidator(0)],
+    )
+
+    notes = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_returns_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    posted_at = models.DateTimeField(null=True, blank=True)
+    posted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="pos_sales_returns_posted",
+    )
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [
+            models.Index(fields=["sale_bill"]),
+            models.Index(fields=["status"]),
+        ]
+        constraints = [
+            models.CheckConstraint(check=models.Q(total_syp__gte=0), name="pos_ret_total_syp_non_negative"),
+            models.CheckConstraint(check=models.Q(total_usd__gte=0), name="pos_ret_total_usd_non_negative"),
+        ]
+
+    def __str__(self) -> str:
+        s = f"{self.serial or self.pk:03d}"
+        return f"SalesReturn #{s}"
+
+    def _assign_serial_locked(self) -> None:
+        last = SalesReturn.objects.select_for_update().aggregate(m=Max("serial")).get("m") or 0
+        self.serial = int(last) + 1
+
+    def save(self, *args, **kwargs):
+        if self.serial:
+            return super().save(*args, **kwargs)
+        for _ in range(8):
+            try:
+                with transaction.atomic():
+                    self._assign_serial_locked()
+                    return super().save(*args, **kwargs)
+            except IntegrityError:
+                self.serial = None
+                continue
+        raise
+
+
+class SalesReturnRow(models.Model):
+    ret = models.ForeignKey(
+        SalesReturn,
+        on_delete=models.CASCADE,
+        related_name="rows",
+    )
+    sale_row = models.ForeignKey(
+        SalesBillRow,
+        on_delete=models.PROTECT,
+        related_name="return_rows",
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        related_name="pos_return_rows",
+    )
+
+    uom_index = models.PositiveSmallIntegerField(default=1)
+    qty_returned = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
+
+    currency_code = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CHOICES,
+        default=SYP,
+        db_index=True,
+    )
+    unit_price_at_sale = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    line_total = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+
+    reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["ret"]),
+            models.Index(fields=["sale_row"]),
+            models.Index(fields=["product"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.product.name} x {self.qty_returned} (#{self.ret.serial or self.ret_id})"

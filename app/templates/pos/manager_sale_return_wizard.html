@@ -1,0 +1,100 @@
+{# app/templates/pos/manager_sale_return_wizard.html #}
+{% extends "manager/base_manager.html" %}
+{% load l10n formatting %}
+
+{% block title %}Customer Return Wizard{% endblock %}
+
+{% block content %}
+<div class="center-box" style="max-width: 1200px;">
+  <h2 style="margin-bottom: 8px;">Customer Return - Bill #{{ bill.id }}</h2>
+
+  {% if error_msg %}
+    <div class="warn" style="margin-bottom: 10px;">{{ error_msg }}</div>
+  {% endif %}
+
+  <div class="meta-grid" style="margin-bottom: 14px;">
+    <div class="meta-card">
+      <div><b>Date:</b> {% if bill.created_at %}{{ bill.created_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</div>
+      <div><b>Cashier:</b> {% if bill.cashier %}{{ bill.cashier.get_full_name|default:bill.cashier.username }}{% else %}-{% endif %}</div>
+    </div>
+    <div class="meta-card">
+      <div><b>Customer:</b> {{ bill.customer_name|default:"-" }}</div>
+      <div><b>Customer ID:</b> {{ bill.customer_id|default:"-" }}</div>
+    </div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div style="margin-bottom: 10px;">
+      <label for="stock_container_id"><b>Stock container</b></label>
+      <select id="stock_container_id" name="stock_container_id" required>
+        <option value="">-- select --</option>
+        {% for c in containers %}
+          <option value="{{ c.id }}" {% if selected_container_id %}{% if c.id|stringformat:"s" == selected_container_id %}selected{% endif %}{% elif default_container and c.id == default_container.id %}selected{% endif %}>{{ c.display_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-scroll" style="max-height: 380px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 44px;">#</th>
+              <th style="width: 220px;">Product</th>
+              <th style="width: 90px;">Sold</th>
+              <th style="width: 110px;">Returned</th>
+              <th style="width: 110px;">Remaining</th>
+              <th style="width: 120px;">Return Qty</th>
+              <th style="width: 140px;">Reason</th>
+              <th style="width: 80px;">Cur</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+              <tr>
+                <td>{{ forloop.counter }}</td>
+                <td class="name" title="{{ r.product_name }}">{{ r.product_name }}</td>
+                <td>{{ r.sold_qty|human_number }} {{ r.uom_label }}</td>
+                <td>{{ r.already_returned|human_number }}</td>
+                <td>{{ r.remaining_qty|human_number }}</td>
+                <td>
+                  <input
+                    type="number"
+                    name="ret_qty_{{ r.row_id }}"
+                    value="{{ r.ret_qty_raw }}"
+                    min="0"
+                    max="{{ r.remaining_qty }}"
+                    step="0.001"
+                    style="width: 90px;"
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    name="ret_reason_{{ r.row_id }}"
+                    value="{{ r.reason_raw }}"
+                    maxlength="255"
+                    style="width: 120px;"
+                  />
+                </td>
+                <td>{{ r.currency }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="8">No rows available for return.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top: 12px;">
+      <button class="btn-sec" type="submit">Continue to Settlement</button>
+      <a class="btn-mini" href="{% url 'pos:pos_manager_bill_detail' bill.id %}">Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
