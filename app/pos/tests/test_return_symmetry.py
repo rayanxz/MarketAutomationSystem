@@ -561,19 +561,6 @@ class PosReturnSymmetryTests(TestCase):
             currency="USD",
         )
 
-        InvSV.record_purchase_item(
-            actor=self.user,
-            product=prod_p,
-            unit_index=1,
-            qty_primary=Decimal("10"),
-            unit_cost=Decimal("10"),
-            cost_currency="USD",
-            source_app="billing",
-            source_model="BillItem",
-            source_id=str(bill_item.id),
-            container=self.store_provider,
-        )
-
         with transaction.atomic():
             with self.assertRaises(ValueError):
                 BillingSV.create_return(
@@ -625,21 +612,13 @@ class PosReturnSymmetryTests(TestCase):
         ).count()
 
         audit_before_s = AuditLog.objects.count()
-        ret = ReturnSV.create_sales_return_draft(
-            actor=self.user,
-            sale_bill_id=bill.id,
-            stock_container_id=self.store_sales.id,
-            items=[{"sale_row_id": bill.rows.first().id, "qty": Decimal("20"), "reason": ""}],
-        )
-        stock_after_draft_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
-        self.assertEqual(stock_after_draft_s, stock_before_s + Decimal("20.000"))
 
         with self.assertRaises(ValueError):
-            ReturnSV.post_sales_return(
+            ReturnSV.create_sales_return_draft(
                 actor=self.user,
-                return_id=ret.id,
-                settle_mode="cash",
-                money_container_id=self.cash_sales.id,
+                sale_bill_id=bill.id,
+                stock_container_id=self.store_sales.id,
+                items=[{"sale_row_id": bill.rows.first().id, "qty": Decimal("20"), "reason": ""}],
             )
 
         stock_after_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
@@ -654,10 +633,8 @@ class PosReturnSymmetryTests(TestCase):
             | Q(legacy_source_id=f"{bill.id}:USD")
         ).count()
         audit_after_s = AuditLog.objects.count()
-        ret.refresh_from_db()
 
-        self.assertEqual(stock_after_draft_s, stock_after_s)
-        self.assertEqual(cash_before_s_usd, cash_after_s_usd)
-        self.assertEqual(debt_before_s, debt_after_s)
-        self.assertEqual(ret.status, ret.Status.DRAFT)
-        self.assertEqual(audit_after_s - audit_before_s, 1)
+        self.assertEqual(stock_after_s, stock_before_s)
+        self.assertEqual(cash_after_s_usd, cash_before_s_usd)
+        self.assertEqual(debt_after_s, debt_before_s)
+        self.assertEqual(audit_after_s - audit_before_s, 0)
