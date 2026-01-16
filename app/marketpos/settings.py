@@ -26,7 +26,7 @@ INSTALLED_APPS = [
     "accounts",
     "catalog.apps.CatalogConfig",
     "billing",
-    "ledger",
+    #"ledger",
     "debts",
     "io_ops",
     "printing",

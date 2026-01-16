@@ -34,7 +34,7 @@ urlpatterns = [
     path("accounts/staff/<int:user_id>/edit/", acc_views.staff_edit, name="staff_edit"),
     path("accounts/staff/<int:user_id>/delete/", acc_views.staff_delete, name="staff_delete"),
    
-    path("manager/volt/", include(("ledger.urls", "ledger"), namespace="ledger")),
+    #path("manager/volt/", include(("ledger.urls", "ledger"), namespace="ledger")),
 
     path("manager/stock/", include(("stock.urls", "stock"), namespace="stock")),
    

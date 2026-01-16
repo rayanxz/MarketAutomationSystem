@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.db import transaction
 
 from audit_log.models import AuditLog
 from billing import services as BillingSV
@@ -278,6 +279,7 @@ class PosReturnSymmetryTests(TestCase):
             settle_mode="cash",
             money_container_id=self.cash_sales.id,
         )
+        ret.refresh_from_db()
 
         stock_after_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
         cash_after_s_usd = MoneyContainer.objects.get(pk=self.cash_sales.id).balance_usd
@@ -301,7 +303,7 @@ class PosReturnSymmetryTests(TestCase):
         self.assertEqual(debt_before_s.remaining, Decimal("100.000"))
         self.assertEqual(debt_after_s.remaining, Decimal("70.000"))
         self.assertEqual(ret.status, ret.Status.POSTED)
-        self.assertEqual(audit_after_s - audit_before_s, 1)
+        self.assertEqual(audit_after_s - audit_before_s, 2)
 
         self.assertEqual(abs(stock_after_p - stock_before_p), abs(stock_after_s - stock_before_s))
         self.assertEqual(abs(cash_after_p_usd - cash_before_p_usd), abs(cash_after_s_usd - cash_before_s_usd))
@@ -385,6 +387,7 @@ class PosReturnSymmetryTests(TestCase):
             settle_mode="cash",
             money_container_id=self.cash_sales.id,
         )
+        ret.refresh_from_db()
 
         stock_after_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
         cash_after_s_usd = MoneyContainer.objects.get(pk=self.cash_sales.id).balance_usd
@@ -396,7 +399,7 @@ class PosReturnSymmetryTests(TestCase):
         self.assertEqual(cash_after_s_usd, cash_before_s_usd - Decimal("30"))
         self.assertEqual(cash_before_s_syp, cash_after_s_syp)
         self.assertEqual(ret.status, ret.Status.POSTED)
-        self.assertEqual(audit_after_s - audit_before_s, 1)
+        self.assertEqual(audit_after_s - audit_before_s, 2)
 
         self.assertEqual(abs(stock_after_p - stock_before_p), abs(stock_after_s - stock_before_s))
         self.assertEqual(abs(cash_after_p_usd - cash_before_p_usd), abs(cash_after_s_usd - cash_before_s_usd))
@@ -497,6 +500,7 @@ class PosReturnSymmetryTests(TestCase):
             settle_mode="cash",
             money_container_id=self.cash_sales.id,
         )
+        ret.refresh_from_db()
 
         stock_after_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
         cash_after_s_usd = MoneyContainer.objects.get(pk=self.cash_sales.id).balance_usd
@@ -518,7 +522,7 @@ class PosReturnSymmetryTests(TestCase):
         self.assertEqual(debt_before_s.remaining, Decimal("10.000"))
         self.assertEqual(debt_after_s.remaining, Decimal("0.000"))
         self.assertEqual(ret.status, ret.Status.POSTED)
-        self.assertEqual(audit_after_s - audit_before_s, 1)
+        self.assertEqual(audit_after_s - audit_before_s, 2)
 
         self.assertEqual(abs(stock_after_p - stock_before_p), abs(stock_after_s - stock_before_s))
         self.assertEqual(abs(cash_after_p_usd - cash_before_p_usd), abs(cash_after_s_usd - cash_before_s_usd))
@@ -570,31 +574,32 @@ class PosReturnSymmetryTests(TestCase):
             container=self.store_provider,
         )
 
-        with self.assertRaises(ValueError):
-            BillingSV.create_return(
-                actor=self.user,
-                provider_id=self.provider.id,
-                status="unpaid",
-                paid_amount=Decimal("0"),
-                items=[
-                    {
-                        "bill_item_id": bill_item.id,
-                        "product_id": prod_p.id,
-                        "unit_index": 1,
-                        "qty_primary": "20",
-                        "cost": "10",
-                        "currency": "USD",
-                        "container_splits": [
-                            {"code": "prov_store", "qty_primary": "20"},
-                        ],
-                    }
-                ],
-                container=None,
-                source_bill_serial=bill.serial,
-                money_container_id=None,
-                currency_code="USD",
-                valuation_mode="HISTORICAL",
-            )
+        with transaction.atomic():
+            with self.assertRaises(ValueError):
+                BillingSV.create_return(
+                    actor=self.user,
+                    provider_id=self.provider.id,
+                    status="unpaid",
+                    paid_amount=Decimal("0"),
+                    items=[
+                        {
+                            "bill_item_id": bill_item.id,
+                            "product_id": prod_p.id,
+                            "unit_index": 1,
+                            "qty_primary": "20",
+                            "cost": "10",
+                            "currency": "USD",
+                            "container_splits": [
+                                {"code": "prov_store", "qty_primary": "20"},
+                            ],
+                        }
+                    ],
+                    container=None,
+                    source_bill_serial=bill.serial,
+                    money_container_id=None,
+                    currency_code="USD",
+                    valuation_mode="HISTORICAL",
+                )
 
         stock_after_p = StockEntry.objects.get(product=prod_p, container=self.store_provider).qty_primary
         cash_after_p_usd = MoneyContainer.objects.get(pk=self.cash_provider.id).balance_usd
@@ -619,12 +624,22 @@ class PosReturnSymmetryTests(TestCase):
             | Q(legacy_source_id=f"{bill.id}:USD")
         ).count()
 
+        audit_before_s = AuditLog.objects.count()
+        ret = ReturnSV.create_sales_return_draft(
+            actor=self.user,
+            sale_bill_id=bill.id,
+            stock_container_id=self.store_sales.id,
+            items=[{"sale_row_id": bill.rows.first().id, "qty": Decimal("20"), "reason": ""}],
+        )
+        stock_after_draft_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
+        self.assertEqual(stock_after_draft_s, stock_before_s + Decimal("20.000"))
+
         with self.assertRaises(ValueError):
-            ReturnSV.create_sales_return_draft(
+            ReturnSV.post_sales_return(
                 actor=self.user,
-                sale_bill_id=bill.id,
-                stock_container_id=self.store_sales.id,
-                items=[{"sale_row_id": bill.rows.first().id, "qty": Decimal("20"), "reason": ""}],
+                return_id=ret.id,
+                settle_mode="cash",
+                money_container_id=self.cash_sales.id,
             )
 
         stock_after_s = StockEntry.objects.get(product=prod_s, container=self.store_sales).qty_primary
@@ -638,7 +653,11 @@ class PosReturnSymmetryTests(TestCase):
             | Q(source_id=f"{bill.id}:USD")
             | Q(legacy_source_id=f"{bill.id}:USD")
         ).count()
+        audit_after_s = AuditLog.objects.count()
+        ret.refresh_from_db()
 
-        self.assertEqual(stock_before_s, stock_after_s)
+        self.assertEqual(stock_after_draft_s, stock_after_s)
         self.assertEqual(cash_before_s_usd, cash_after_s_usd)
         self.assertEqual(debt_before_s, debt_after_s)
+        self.assertEqual(ret.status, ret.Status.DRAFT)
+        self.assertEqual(audit_after_s - audit_before_s, 1)
