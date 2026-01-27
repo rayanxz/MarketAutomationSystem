@@ -18,18 +18,18 @@ User = get_user_model()
 # Validation policy
 # =========================
 
-# Username: English letters + spaces only, 3–12 chars
-USERNAME_RE = r'^[A-Za-z ]{3,12}$'
+# Username: English letters only, 3–12 chars
+USERNAME_RE = r'^[A-Za-z]{3,12}$'
 username_validator = RegexValidator(
     regex=USERNAME_RE,
-    message="اسم المستخدم يجب أن يحتوي على أحرف إنجليزية ومسافات فقط (من 3 إلى 12 حرفًا)."
+    message="اسم المستخدم يجب أن يحتوي على أحرف إنجليزية فقط (من 3 إلى 12 حرفًا)."
 )
 
-# Password: any non-whitespace, length 6–20
-PASSWORD_RE = r'^\S{6,20}$'
+# Password: ASCII letters/numbers/common symbols only, length 6–20 (no whitespace or Arabic)
+PASSWORD_RE = r'^[A-Za-z0-9!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|`~]{6,20}$'
 password_validator = RegexValidator(
     regex=PASSWORD_RE,
-    message="كلمة المرور يجب أن تكون 6–20 حرفًا دون أي مسافات."
+    message="كلمة المرور يجب أن تكون 6–20 حرفًا وتحتوي على أحرف إنجليزية/أرقام/رموز فقط دون مسافات."
 )
 
 def normalize_username(value: str) -> str:
@@ -216,7 +216,6 @@ class MainAccountUpdateForm(forms.Form):
     def __init__(self, main_user: AbstractBaseUser, *args, **kwargs):
         self.main_user = main_user
         super().__init__(*args, **kwargs)
-        self.fields["current_username"].initial = main_user.username
 
     def clean(self):
         cleaned = super().clean()

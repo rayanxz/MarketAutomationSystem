@@ -79,9 +79,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Username: hint the allowed pattern (client-side), and focus it
   if (u) {
-    u.setAttribute('placeholder','مثال: John Doe');
-    u.setAttribute('pattern','[A-Za-z ]{3,12}');
-    u.setAttribute('title','يسمح بحروف إنجليزية ومسافات فقط (3–12)');
+    u.setAttribute('placeholder','مثال: JohnDoe');
+    u.setAttribute('pattern','[A-Za-z]{3,12}');
+    u.setAttribute('title','يسمح بحروف إنجليزية فقط (3–12)');
     u.autocomplete = 'username';
     u.focus();
   }

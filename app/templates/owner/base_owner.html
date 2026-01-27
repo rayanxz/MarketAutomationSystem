@@ -3,9 +3,12 @@
 
 {# UPPER, global menu for Owner #}
 {% block menu_primary %}
-  <a href="{% url 'accounts' %}">إدارة الحسابات</a>
-  <a href="{% url 'owner_dash' %}">الصفحة الرئيسية</a>
-  <a href="{% url 'audit_log:owner_dashboard' %}">سجلات النظام</a>
+  {% with name=request.resolver_match.url_name %}
+    <a href="{% url 'accounts' %}"
+       class="{% if name == 'accounts' or name == 'accounts_list' or name == 'owner_edit' %}active{% endif %}">إدارة الحسابات</a>
+    <a href="{% url 'owner_dash' %}" class="{% if name == 'owner_dash' %}active{% endif %}">الصفحة الرئيسية</a>
+    <a href="{% url 'audit_log:owner_dashboard' %}" class="{% if name == 'owner_dashboard' %}active{% endif %}">سجلات النظام</a>
+  {% endwith %}
 
   {# ... add more owner-global items here ... #}
 {% endblock %}

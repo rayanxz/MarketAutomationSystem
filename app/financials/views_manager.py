@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import logging
 from typing import Dict, Any, List, Optional
 
 from django.contrib import messages
@@ -21,6 +22,9 @@ from financials.forms import MoneyContainerForm, build_opening_formset, FxSettin
 from financials.models import MoneyContainerCurrency 
 
 from django.db import IntegrityError
+
+
+logger = logging.getLogger(__name__)
 
 
 def _secondary_menu_ctx(active: str) -> Dict[str, Any]:
@@ -140,20 +144,35 @@ def container_create(request: HttpRequest) -> HttpResponse:
         # ===== Opening balance (backend safety) =====
         # even if user posts amounts for unchecked currencies, we IGNORE them
         amounts: Dict[str, Decimal] = {}
+        raw_amounts: Dict[str, Decimal] = {}
+        quantized_amounts: Dict[str, Decimal] = {}
         any_nonzero = False
+        currency_by_code = {c.code: c for c in all_currencies}
 
         for f in opening_forms:
             code = f.cleaned_data["currency_code"]
             amt = Decimal(f.cleaned_data.get("amount") or 0)
+            raw_amounts[code] = amt
 
             # ✅ extra safety: ignore unchecked currency amounts
             if code not in selected_codes:
                 amt = Decimal("0")
 
-            if amt != 0:
+            quantized = FSV.q_currency(amt, currency=currency_by_code[code])
+            quantized_amounts[code] = quantized
+            if quantized != 0:
                 any_nonzero = True
 
-            amounts[code] = amt
+            amounts[code] = quantized
+
+        logger.info(
+            "container_create opening amounts raw=%s quantized=%s amounts_for_post=%s any_nonzero=%s selected_codes=%s",
+            raw_amounts,
+            quantized_amounts,
+            amounts,
+            any_nonzero,
+            sorted(selected_codes),
+        )
 
         if any_nonzero:
             # post_initial_balance will also block disabled currencies,

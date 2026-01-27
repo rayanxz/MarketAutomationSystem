@@ -55,6 +55,7 @@ class Provider(models.Model):
         return self.name
 
 
+
 # =========================
 # Commercial document: Bill
 # =========================
@@ -537,5 +538,4 @@ class ProviderReturnItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
-
 

@@ -1,6 +1,5 @@
 {% with name=request.resolver_match.url_name %}
   <a href="{% url 'accounts' %}" class="{% if name == 'accounts' %}active{% endif %}">إنشاء حساب</a>
-  <a href="{% url 'accounts_list' %}#list">قائمة الحسابات</a>
-  <a href="{% url 'accounts' %}#roles">الأدوار</a>
+  <a href="{% url 'accounts_list' %}#list" class="{% if name == 'accounts_list' %}active{% endif %}">قائمة الحسابات</a>
   <a href="{% url 'owner_edit' %}" class="{% if name == 'owner_edit' %}active{% endif %}">تعديل حساب المالك</a>
 {% endwith %}

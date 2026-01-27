@@ -99,7 +99,10 @@ def login_view(request: HttpRequest) -> HttpResponse:
             logout(request)
             return redirect("login")
 
-        messages.success(request, "تم تسجيل الدخول بنجاح.")
+        if selected_role == AccountProfile.Role.OWNER:
+            messages.success(request, "تم تسجيل الدخول بنجاح.", extra_tags="owner")
+        else:
+            messages.success(request, "تم تسجيل الدخول بنجاح.")
         return redirect(role_to_url[selected_role])
 
     return render(request, "login.html", {"login_form": login_form, "selected_role": selected_role})
@@ -108,8 +111,13 @@ def login_view(request: HttpRequest) -> HttpResponse:
 @require_POST
 @login_required(login_url="login")
 def logout_view(request: HttpRequest) -> HttpResponse:
+    profile = profile_for(request.user)
+    is_owner_user = bool(profile and profile.is_owner)
     logout(request)
-    messages.success(request, "تم تسجيل الخروج.")
+    if is_owner_user:
+        messages.success(request, "تم تسجيل الخروج.", extra_tags="owner")
+    else:
+        messages.success(request, "تم تسجيل الخروج.")
     return redirect("login")
 
 
@@ -137,7 +145,7 @@ def manage_accounts(request: HttpRequest) -> HttpResponse:
         create_form = NewStaffAccountForm(request.POST)
         if create_form.is_valid():
             user = create_form.save()
-            messages.success(request, f"تم إنشاء الحساب: {user.username}")
+            messages.success(request, f"تم إنشاء الحساب: {user.username}", extra_tags="owner")
             return redirect("accounts")
         messages.error(request, "تحقق من الحقول وحاول مرة أخرى.")
     else:
@@ -152,7 +160,7 @@ def owner_edit_account(request: HttpRequest) -> HttpResponse:
     form = MainAccountUpdateForm(request.user, data=request.POST or None)
     if request.method == "POST" and form.is_valid():
         form.save()
-        messages.success(request, "تم تحديث بيانات حساب المالك. الرجاء تسجيل الدخول مرة أخرى.")
+        messages.success(request, "تم تحديث بيانات حساب المالك. الرجاء تسجيل الدخول مرة أخرى.", extra_tags="owner")
         logout(request)
         return redirect("login")
     return render(request, "owner/edit_account.html", {"form": form})
@@ -171,7 +179,7 @@ def accounts_list(request: HttpRequest) -> HttpResponse:
             form = StaffQuickEditForm(request.POST)
             if form.is_valid():
                 user = form.save()
-                messages.success(request, f"تم تحديث الحساب: {user.username}")
+                messages.success(request, f"تم تحديث الحساب: {user.username}", extra_tags="owner")
                 return redirect("accounts_list")
             messages.error(request, "تعذر التحديث. تحقق من المدخلات.")
         elif action == "delete":
@@ -180,7 +188,7 @@ def accounts_list(request: HttpRequest) -> HttpResponse:
                 target = form.cleaned_data["_target_user"]
                 username = target.username
                 form.delete()
-                messages.success(request, f"تم حذف الحساب: {username}")
+                messages.success(request, f"تم حذف الحساب: {username}", extra_tags="owner")
                 return redirect("accounts_list")
             messages.error(request, "تعذر الحذف. تحقق من المدخلات.")
         # fall through to re-render with messages
@@ -207,7 +215,7 @@ def staff_edit(request: HttpRequest, user_id: int) -> HttpResponse:
     form = StaffQuickEditForm({**request.POST, "user_id": user_id})
     if form.is_valid():
         user = form.save()
-        messages.success(request, f"تم تحديث الحساب: {user.username}")
+        messages.success(request, f"تم تحديث الحساب: {user.username}", extra_tags="owner")
         return redirect("accounts_list")
     for e in form.errors.get("__all__", []):
         messages.error(request, e)
@@ -225,7 +233,7 @@ def staff_delete(request: HttpRequest, user_id: int) -> HttpResponse:
         target = form.cleaned_data["_target_user"]
         username = target.username
         form.delete()
-        messages.success(request, f"تم حذف الحساب: {username}")
+        messages.success(request, f"تم حذف الحساب: {username}", extra_tags="owner")
         return redirect("accounts_list")
     for e in form.errors.get("__all__", []):
         messages.error(request, e)

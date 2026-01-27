@@ -34,13 +34,15 @@
 .menu-secondary .dd-panel a:hover{ background:#f5f7ff; }
 </style>
 
-<div class="tabs-row">
-  <div class="dd">
-    <a href="{% url 'manager_collections' %}" class="btn-sec">قائمة الزمر</a>
-    <div class="dd-panel">
-      <a href="{% url 'manager_collections' %}?add=1#add">إضافة زمرة</a>
+{% with name=request.resolver_match.url_name %}
+  <div class="tabs-row">
+    <div class="dd">
+      <a href="{% url 'manager_collections' %}" class="btn-sec{% if name == 'manager_collections' %} active{% endif %}">قائمة الزمر</a>
+      <div class="dd-panel">
+        <a href="{% url 'manager_collections' %}?add=1#add">إضافة زمرة</a>
+      </div>
     </div>
-  </div>
 
-  <a class="btn-sec" href="{% url 'manager_product_new' %}">إضافة منتج</a>
-</div>
+    <a class="btn-sec{% if name == 'manager_product_new' or name == 'manager_product_edit' %} active{% endif %}" href="{% url 'manager_product_new' %}">إضافة منتج</a>
+  </div>
+{% endwith %}

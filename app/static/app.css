@@ -62,7 +62,8 @@ body:has(.auth-wrap) .topbar{ display:none !important; }
   padding:6px 10px; font-size:14px;
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
-.menu-primary a:hover{ background:var(--fg-0); color:#111; }
+.menu-primary a:hover,
+.menu-primary a.active{ background:var(--fg-0); color:#111; }
 
 /* Row 2: SECONDARY (context) menu */
 .menu-secondary{

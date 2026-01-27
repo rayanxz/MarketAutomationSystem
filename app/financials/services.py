@@ -156,8 +156,9 @@ def _mk_receipt(
 ) -> Receipt:
     # ✅ hard block: any created receipt must carry FX
     fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else None
-    if fx is None or fx <= 0:
-        raise ValueError("FX is required for receipts.")
+    if kind != ReceiptKind.OPENING_BALANCE:
+        if fx is None or fx <= 0:
+            raise ValueError("FX is required for receipts.")
 
     kwargs = dict(
         serial="",
@@ -182,8 +183,9 @@ def _mk_receipt(
 
 def _post_receipt(r: Receipt) -> Receipt:
     # extra safety: refuse posting if FX missing
-    if r.fx_syp_per_usd is None or Decimal(r.fx_syp_per_usd) <= 0:
-        raise ValueError("Cannot post receipt without valid FX.")
+    if r.kind != ReceiptKind.OPENING_BALANCE:
+        if r.fx_syp_per_usd is None or Decimal(r.fx_syp_per_usd) <= 0:
+            raise ValueError("Cannot post receipt without valid FX.")
     r.status = ReceiptStatus.POSTED
     r.posted_at = timezone.now()
     r.save(update_fields=["status", "posted_at"])
@@ -216,7 +218,10 @@ def _add_line_counterparty(*, receipt: Receipt, counterparty: Counterparty, curr
 
 @transaction.atomic
 def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str, Decimal], note: str = "رصيد افتتاحي") -> Receipt:
-    fx = get_current_fx_syp_per_usd()  # ✅ required
+    try:
+        fx = get_current_fx_syp_per_usd()
+    except ValueError:
+        fx = None
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
     _assert_container_usable(container)
 

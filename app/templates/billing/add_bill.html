@@ -4,15 +4,17 @@
 {% block title %}إضافة فاتورة{% endblock %}
 
 {% block menu_secondary %}
-  <div class="tabs-row">
-    <a class="btn-sec active" href="{% url 'billing_add' %}">إضافة فاتورة</a>
-    <a class="btn-sec" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec" href="{% url 'debts_page' %}">قائمة المدين</a>
-    <a class="btn-sec" href="{% url 'debts_add' %}">إضافة دين</a>
-    <a class="btn-sec" href="{% url 'creditors_page' %}">قائمة الدائن</a>
-    <a class="btn-sec" href="{% url 'billing_providers' %}">قائمة الموردين</a>
-    <a class="btn-sec" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-  </div>
+  {% with name=request.resolver_match.url_name %}
+    <div class="tabs-row">
+      <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+      <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+      <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة المدين</a>
+      <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
+      <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">قائمة الدائن</a>
+      <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+      <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+    </div>
+  {% endwith %}
 {% endblock %}
 
 {% block extra_head %}
@@ -261,7 +263,7 @@
   <section class="bill-foot">
     <div class="foot-right">
       <button id="btnSave" class="btn btn-primary">حفظ</button>
-      <a id="btnCancel" class="btn" href="{% url 'billing_list' %}">إلغاء</a>
+      <a id="btnCancel" class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">إلغاء</a>
       <div id="saveErr" class="err" style="align-self:center;" hidden></div>
     </div>
 

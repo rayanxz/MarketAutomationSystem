@@ -4,11 +4,13 @@
 {% load formatting %}
 
 {% block menu_secondary %}
-  <div class="tabs-row">
-    <a class="btn-sec" href="{% url 'stock:stock_list' %}">قائمة المخزون</a>
-    <a class="btn-sec" href="{% url 'stock:stock_move' %}">نقل المنتجات</a>
-    <a class="btn-sec" href="{% url 'product_movements' %}">حركة المواد</a>
-  </div>
+  {% with name=request.resolver_match.url_name %}
+    <div class="tabs-row">
+      <a class="btn-sec{% if name == 'stock_list' %} active{% endif %}" href="{% url 'stock:stock_list' %}">قائمة المخزون</a>
+      <a class="btn-sec{% if name == 'stock_move' %} active{% endif %}" href="{% url 'stock:stock_move' %}">نقل المنتجات</a>
+      <a class="btn-sec{% if name == 'product_movements' %} active{% endif %}" href="{% url 'product_movements' %}">حركة المواد</a>
+    </div>
+  {% endwith %}
 {% endblock %}
 
 {% block extra_head %}

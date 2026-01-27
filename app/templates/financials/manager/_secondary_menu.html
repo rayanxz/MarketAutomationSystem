@@ -3,17 +3,17 @@ Lower menu for financials pages.
 fin_active: list | create | movements
 {% endcomment %}
 
-<a class="{% if fin_active == 'create' %}btn-sec{% endif %}"
+<a class="btn-sec{% if fin_active == 'create' %} active{% endif %}"
    href="{% url 'financials:container_create' %}">Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø§ÙˆÙŠØ©</a>
 
-<a class="{% if fin_active == 'movements' %}btn-sec{% endif %}"
+<a class="btn-sec{% if fin_active == 'movements' %} active{% endif %}"
    href="{% url 'financials:container_movements' %}">Ø­Ø±ÙƒØ§Øª Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</a>
 
-<a class="{% if fin_active == 'manual' %}btn-sec{% endif %}"
+<a class="btn-sec{% if fin_active == 'manual' %} active{% endif %}"
    href="{% url 'financials:container_manual_events' %}">OU,UŸU+U?OO¦ OU,O-OU^USOO¦</a>
 
-<a class="{% if fin_active == 'list' %}btn-sec{% endif %}"
+<a class="btn-sec{% if fin_active == 'list' %} active{% endif %}"
    href="{% url 'financials:container_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</a>
    
-<a class="{% if fin_active == 'fx' %}btn-sec{% endif %}"
+<a class="btn-sec{% if fin_active == 'fx' %} active{% endif %}"
    href="{% url 'financials:fx_settings' %}">Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù</a>

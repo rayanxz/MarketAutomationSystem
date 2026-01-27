@@ -21,7 +21,6 @@ from financials.models import MoneyContainer , Currency
 from financials import services as FinSV
 
 
-
 DEC2 = Decimal("0.01")
 
 

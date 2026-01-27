@@ -100,9 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   if (fields.new_username) {
-    fields.new_username.setAttribute('placeholder', 'مثال: John Doe');
-    fields.new_username.setAttribute('pattern','[A-Za-z ]{3,12}');
-    fields.new_username.setAttribute('title','يسمح بحروف إنجليزية ومسافات فقط (3–12)');
+    fields.new_username.setAttribute('placeholder', 'مثال: JohnDoe');
+    fields.new_username.setAttribute('pattern','[A-Za-z]{3,12}');
+    fields.new_username.setAttribute('title','يسمح بحروف إنجليزية فقط (3–12)');
   }
   [fields.owner_password, fields.new_pw1, fields.new_pw2].forEach(inp => {
     if (!inp) return;

@@ -5,10 +5,16 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.shortcuts import render, redirect
 
+from accounts.forms import password_validator
+
 
 class OwnerForm(forms.Form):
     username = forms.CharField(label="Username")
-    password = forms.CharField(widget=forms.PasswordInput, label="Password")
+    password = forms.CharField(
+        widget=forms.PasswordInput,
+        label="Password",
+        validators=[password_validator],
+    )
     email = forms.EmailField(required=False, label="Email (optional)")
 
 
