@@ -175,24 +175,73 @@
   }
 
   function bindPager(){
-  pgBtns.forEach((b)=>{
-    const go = b.dataset.go; // "1", "2", ..., "last"
-    b.onclick = () => {
-      const last = totalPages;
-      page = (go==='last') ? last : Math.max(1, Math.min(last, parseInt(go,10)));
-      load();
-    };
-  });
-  if (pgJump){
-    pgJump.value = String(page);
-    pgJump.onchange = () => {
-      const last = totalPages;
-      const v = parseInt(pgJump.value || '1', 10);
-      page = Math.max(1, Math.min(last, v));
-      load();
-    };
+    if (!pager) return;
+    const btnPrev = pager.querySelector('.pg-btn[data-go="prev"]');
+    const btnNext = pager.querySelector('.pg-btn[data-go="next"]');
+    const btnFirst = pager.querySelector('.pg-btn[data-go="first"]');
+    const btnLast = pager.querySelector('.pg-btn[data-go="last"]');
+    const numBtns = Array.from(pager.querySelectorAll('.pg-btn[data-go="1"], .pg-btn[data-go="2"], .pg-btn[data-go="3"]'));
+
+    const last = totalPages;
+    let start = Math.max(1, page - 1);
+    let end = Math.min(last, start + 2);
+    start = Math.max(1, end - 2);
+
+    numBtns.forEach((b, i) => {
+      const n = start + i;
+      b.hidden = (n > last);
+      b.dataset.go = String(n);
+      b.textContent = `<${n}>`;
+      b.classList.toggle('active', n === page);
+    });
+
+    if (btnFirst){
+      const dis = (page <= 1);
+      btnFirst.hidden = false;
+      btnFirst.disabled = dis;
+      btnFirst.classList.toggle('btn-disabled', dis);
+      btnFirst.onclick = () => { if (!dis){ page = 1; load(); } };
+    }
+    if (btnLast){
+      const dis = (page >= last);
+      btnLast.hidden = false;
+      btnLast.disabled = dis;
+      btnLast.classList.toggle('btn-disabled', dis);
+      btnLast.onclick = () => { if (!dis){ page = last; load(); } };
+    }
+
+    if (btnPrev){
+      const dis = (page <= 1);
+      btnPrev.hidden = false;
+      btnPrev.disabled = dis;
+      btnPrev.classList.toggle('btn-disabled', dis);
+      btnPrev.onclick = () => { if (!dis){ page -= 1; load(); } };
+    }
+    if (btnNext){
+      const dis = (page >= last);
+      btnNext.hidden = false;
+      btnNext.disabled = dis;
+      btnNext.classList.toggle('btn-disabled', dis);
+      btnNext.onclick = () => { if (!dis){ page += 1; load(); } };
+    }
+
+    numBtns.forEach((b)=>{
+      b.onclick = () => {
+        const go = parseInt(b.dataset.go || '1', 10);
+        page = Math.max(1, Math.min(last, go));
+        load();
+      };
+    });
+
+    if (pgJump){
+      pgJump.value = String(page);
+      pgJump.onchange = () => {
+        const v = parseInt(pgJump.value || '1', 10);
+        page = Math.max(1, Math.min(last, v));
+        load();
+      };
+    }
   }
-}
 
   let autoJumped = false;
 
@@ -231,11 +280,11 @@
     setCrumb();
     setLabel();
     setBack();
-    bindPager();
 
     try{
       const items = await fetchPage();
       renderItems(items);
+      bindPager();
       if (pgJump) pgJump.value = page;
       await maybeAutoJump(items);
     }catch(e){
