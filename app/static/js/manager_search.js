@@ -67,10 +67,18 @@
   };
 
   // Build suggestion list via DOM (avoid innerHTML injection)
-  const renderSuggestions = (arr) => {
+  const renderSuggestions = (arr, queryText = "") => {
     items = arr || [];
     if (!items.length) {
-      hideSuggestions();
+      if (!queryText) { hideSuggestions(); return; }
+      sug.innerHTML = "";
+      sug.hidden = false;
+      sug.setAttribute("role", "listbox");
+      const li = document.createElement("li");
+      li.textContent = "لم يتم العثور على منتج مطابق";
+      li.setAttribute("aria-disabled", "true");
+      sug.appendChild(li);
+      activeIndex = -1;
       return;
     }
 
@@ -111,6 +119,7 @@
     // DO NOT set cid here; we want to remain on collections level
     u.searchParams.set("hl_col", item.id); // highlight specific collection
     u.searchParams.set("cname", item.name || item.col_name || "");
+    if (item.page) u.searchParams.set("page", item.page);
     window.location.href = u.toString();
   }
 
@@ -120,6 +129,7 @@
     u.searchParams.set("cid", item.col_id);
     u.searchParams.set("cname", item.col_name || item.col_code || "");
     u.searchParams.set("hl_set", item.id);
+    if (item.page) u.searchParams.set("page", item.page);
     // do NOT set sid
     window.location.href = u.toString();
   }
@@ -134,6 +144,7 @@
       u.searchParams.set("sname", item.set_name || item.set_code);
     }
     u.searchParams.set("hl_prod", item.id);
+    if (item.page) u.searchParams.set("page", item.page);
     window.location.href = u.toString();
   }
 
@@ -160,13 +171,13 @@
         `${API_URL}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}`,
         { headers: { Accept: "application/json" }, signal: inFlight.signal }
       );
-      if (!res.ok) return renderSuggestions([]);
+      if (!res.ok) return renderSuggestions([], val);
       const data = await res.json();
-      if (!data.ok) return renderSuggestions([]);
-      renderSuggestions(data.items || []);
+      if (!data.ok) return renderSuggestions([], val);
+      renderSuggestions(data.items || [], val);
     } catch {
       // aborted or network error
-      renderSuggestions([]);
+      renderSuggestions([], val);
     } finally {
       inFlight = null;
     }

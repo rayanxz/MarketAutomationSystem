@@ -8,7 +8,7 @@
      class="{% if name == 'container_list' or name == 'container_create' or name == 'container_edit' or name == 'container_movements' or name == 'container_manual_events' or name == 'fx_settings' %}active{% endif %}">إدارة الحاويات المالية</a>
   <a class="btn-sec{% if name == 'products_import' or name == 'products_import_analyze' or name == 'products_import_map' or name == 'products_import_stage' or name == 'products_import_update_row' or name == 'products_import_commit' %} active{% endif %}"
      href="{% url 'products_import' %}">استيراد من إكسل</a>
-  <a class="btn-soft{% if name == 'products_export' or name == 'products_export_prepare' or name == 'products_export_download' %} active{% endif %}"
+  <a class="{% if name == 'products_export' or name == 'products_export_prepare' or name == 'products_export_download' %}btn-soft active{% else %}btn-sec{% endif %}"
      href="{% url 'products_export' %}">تصدير Excel/ODS</a>
   <a href="{% url 'stock:stock_list' %}"
      class="{% if name == 'stock_list' or name == 'stock_move' or name == 'product_movements' %}active{% endif %}">إدارة المخزون</a>

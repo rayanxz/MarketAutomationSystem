@@ -10,6 +10,11 @@
 
   if (!list) return;
 
+  const msgs = document.querySelectorAll('.messages .message.success');
+  if (msgs.length) {
+    setTimeout(() => msgs.forEach(m => m.remove()), 4000);
+  }
+
   const URLS = {
     collections: (page)     => `/manager/products/api/browser/collections/?page=${page}`,
     sets:        (cid,page) => `/manager/products/api/browser/sets/?cid=${cid}&page=${page}`,
@@ -57,18 +62,39 @@
     back.style.visibility = isTop ? 'hidden' : 'visible';
   }
 
+  let didHighlight = false;
+
+  function clearSearchState(){
+    const u = new URL(window.location.href);
+    u.searchParams.delete('hl_col');
+    u.searchParams.delete('hl_set');
+    u.searchParams.delete('hl_prod');
+    u.searchParams.delete('page');
+    u.searchParams.delete('cname');
+    u.searchParams.delete('ccode');
+    u.searchParams.delete('sname');
+    u.searchParams.delete('scode');
+    history.replaceState(null, '', u.toString());
+    hlCol = null;
+    hlSet = null;
+    hlProd = null;
+  }
+
   function highlightRowIfNeeded(row, it){
     if (level === 'collections' && hlCol && it.id === hlCol) {
       row.classList.add('active');
       setTimeout(()=>row.scrollIntoView({behavior:'smooth', block:'center'}), 0);
+      didHighlight = true;
     }
     if (level === 'sets' && hlSet && it.id === hlSet) {
       row.classList.add('active');
       setTimeout(()=>row.scrollIntoView({behavior:'smooth', block:'center'}), 0);
+      didHighlight = true;
     }
     if (level === 'products' && hlProd && it.id === hlProd) {
       row.classList.add('active');
       setTimeout(()=>row.scrollIntoView({behavior:'smooth', block:'center'}), 0);
+      didHighlight = true;
     }
   }
 
@@ -79,6 +105,7 @@
       return;
     }
 
+    didHighlight = false;
     items.forEach(it=>{
       const row  = el('div','item');
       row.dataset.id = it.id;
@@ -125,20 +152,25 @@
       highlightRowIfNeeded(row, it);
       list.appendChild(row);
     });
+    if (didHighlight) {
+      clearSearchState();
+      autoJumped = true;
+    }
   }
 
-  async function fetchPage(){
+  async function fetchPage(pageOverride){
+    const pg = pageOverride || page;
     let url;
-    if (level === 'collections') url = URLS.collections(page);
-    else if (level === 'sets')   url = URLS.sets(col?.id, page);
-    else                         url = URLS.products(set?.id, page);
+    if (level === 'collections') url = URLS.collections(pg);
+    else if (level === 'sets')   url = URLS.sets(col?.id, pg);
+    else                         url = URLS.products(set?.id, pg);
 
     const res = await fetch(url, { headers:{'Accept':'application/json'} });
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
     if (!data.ok) throw new Error('bad response');
 
-    totalPages = data.total_pages || 1;
+    if (!pageOverride) totalPages = data.total_pages || 1;
     return data.items || [];
   }
 
@@ -162,6 +194,39 @@
   }
 }
 
+  let autoJumped = false;
+
+  async function maybeAutoJump(items){
+    if (autoJumped) return;
+    const targetId =
+      (level === 'collections') ? hlCol :
+      (level === 'sets')        ? hlSet :
+      (level === 'products')    ? hlProd : null;
+    if (!targetId || totalPages <= 1) return;
+    if (items.some(it => it.id === targetId)) return;
+    autoJumped = true;
+    for (let p = 1; p <= totalPages; p++) {
+      if (p === page) continue;
+      const it = await fetchPage(p);
+      if (it.some(x => x.id === targetId)) {
+        page = p;
+        autoJumped = false;
+        const u = new URL(window.location.href);
+        u.searchParams.delete('hl_col');
+        u.searchParams.delete('hl_set');
+        u.searchParams.delete('hl_prod');
+        u.searchParams.delete('page');
+        u.searchParams.delete('cname');
+        u.searchParams.delete('ccode');
+        u.searchParams.delete('sname');
+        u.searchParams.delete('scode');
+        history.replaceState(null, '', u.toString());
+        await load();
+        return;
+      }
+    }
+  }
+
   async function load(){
     setCrumb();
     setLabel();
@@ -172,6 +237,7 @@
       const items = await fetchPage();
       renderItems(items);
       if (pgJump) pgJump.value = page;
+      await maybeAutoJump(items);
     }catch(e){
       list.innerHTML = `<div class="item muted">تعذّر تحميل العناصر.</div>`;
     }
@@ -195,6 +261,8 @@
 
     const cid = params.get('cid');
     const sid = params.get('sid');
+    const qp = parseInt(params.get('page') || '0', 10);
+    if (qp > 0) page = qp;
 
     hlCol  = params.get('hl_col')  ? parseInt(params.get('hl_col'),10)  : null;
     hlSet  = params.get('hl_set')  ? parseInt(params.get('hl_set'),10)  : null;

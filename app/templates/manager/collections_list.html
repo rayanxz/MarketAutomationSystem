@@ -115,13 +115,19 @@
         {% endif %}
         <div class="hint">سيتم رفض الاسم إذا كان مكررًا (بدون حساسية حالة).</div>
         <script>
-          document.addEventListener('DOMContentLoaded', () => {
+          function focusAddBox(){
             const box = document.getElementById('add');
-            if (!box.classList.contains('is-hidden')) {
-              const inp = box.querySelector('input[name="name"]');
-              if (inp) { inp.focus(); inp.select(); }
-            }
-          });
+            if (!box || box.classList.contains('is-hidden')) return;
+            const inp = box.querySelector('input[name="name"]');
+            if (inp) { setTimeout(() => { inp.focus(); inp.select(); }, 0); }
+          }
+          document.addEventListener('DOMContentLoaded', focusAddBox);
+          window.addEventListener('hashchange', focusAddBox);
+          const addBox = document.getElementById('add');
+          if (addBox) {
+            const obs = new MutationObserver(focusAddBox);
+            obs.observe(addBox, { attributes: true, attributeFilter: ['class'] });
+          }
         </script>
       </section>
 

@@ -30,7 +30,7 @@
 
 - fill the main page with a default background initially 
 `delayed , reason: will delay all visual "enhancements" then do them all together`
-- highlight the page of which the user is in it's page 
+- highlight the page of which the user is in it's page *checked*
 
 ## 1. catalog : 
 
