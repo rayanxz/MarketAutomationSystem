@@ -34,19 +34,21 @@
 
 ## 1. catalog : 
 
-- "no product matches the entered name" element in recommendation list of the search panel on the left
-- give messages (collection was created successfully , product was ....etc) a disappearing timer of 4 secs
-- make it that if the add a collection button is clicked the textbox auto starts expecting input , no need for clicking it 
-- searching for a collection/father set / product that is not in the first page in the pages panel should make the system auto take the user to the page that contains the element the user is looking for , highlighting is currently working great btw
-- fix the highlighted excel import/export button in upper menu while i am in products management page
+- "no product matches the entered name" element in recommendation list of the search panel on the left *checked*
+- give messages (collection was created successfully , product was ....etc) a disappearing timer of 4 secs *checked*
+- make it that if the add a collection button is clicked the textbox auto starts expecting input , no need for clicking it  *checked*
+- searching for a collection/father set / product that is not in the first page in the pages panel should make the system auto take the user to the page that contains the element the user is looking for , highlighting is currently working great btw *checked*
+- fix the highlighted excel import/export button in upper menu while i am in products management page *checked*
+- make the collection / father sets / products right panel maintain the same height (does not change height depending on how many rows it has) , and that height should be the same height as when it contains maximum amount of rows (15 rows) , and also make the pages navigation bottom section in the right panel maintain the same place in the page *checked*
 
-
-- make the collection / father sets / products right panel maintain the same height (does not change height depending on how many rows it has) , and that height should be the same height as when it contains maximum amount of rows (15 rows) , and also make the pages navigation bottom section in the right panel maintain the same place in the page
 - fix the layout of the adding new product form *visually*
-- make the recomendation list for search by name in search panel display up to 20 rows , but give it the height of 3 rows , and give it a scroll bar so user can navigate up and down through elements
-- let the system know that selecting same second unit as first in product adding form means that the product only has one unit of measurement , and which makes the system always depend on the first unit and disable the ability to enter a conversion factor in the form
 - remove the SYP radio button from the product adding form , keep the auto:SYP and dollars 
 - we should prevent user from deleting the first textbox of all of 4 (1st code , 1st barcode , 2nd code , 2nd barcode) textboxes in the adding product form
+
+- make the recomendation list for search by name in search panel display up to 20 rows , but give it the height of 3 rows , and give it a scroll bar so user can navigate up and down through elements
+
+- let the system know that selecting same second unit as first in product adding form means that the product only has one unit of measurement , and which makes the system always depend on the first unit and disable the ability to enter a conversion factor in the form
+
 - fix the updated latest cost , price in a product edit form when the default value is set
 - fix the codes and barcodes are not gettings saved and not shown in their textboxes in the edit page of a product 
 - remove the useless import excel button next to collection / father set deletions buttons 

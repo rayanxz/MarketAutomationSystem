@@ -289,11 +289,17 @@ class ProductCreateForm(forms.Form):
 
         # Legacy cost/price fallbacks (keep DB fields non-null)
         if cleaned.get("cost") in (None, ""):
-            eff_cur = cleaned.get("default_purchase_currency") or (SYP if allow_syp_purch else USD)
-            cleaned["cost"] = cleaned.get("default_cost_usd") if eff_cur == "USD" else cleaned.get("default_cost_syp")
+            if not allow_syp_purch and not allow_usd_purch:
+                cleaned["cost"] = Decimal("0.0000")
+            else:
+                eff_cur = cleaned.get("default_purchase_currency") or (SYP if allow_syp_purch else USD)
+                cleaned["cost"] = cleaned.get("default_cost_usd") if eff_cur == "USD" else cleaned.get("default_cost_syp")
         if cleaned.get("price") in (None, ""):
-            eff_cur = cleaned.get("default_sale_currency") or (SYP if allow_syp_sales else USD)
-            cleaned["price"] = cleaned.get("default_price_usd") if eff_cur == "USD" else cleaned.get("default_price_syp")
+            if not allow_syp_sales and not allow_usd_sales:
+                cleaned["price"] = Decimal("0.0000")
+            else:
+                eff_cur = cleaned.get("default_sale_currency") or (SYP if allow_syp_sales else USD)
+                cleaned["price"] = cleaned.get("default_price_usd") if eff_cur == "USD" else cleaned.get("default_price_syp")
 
         # Price vs cost (optional business rule)
         cost = cleaned.get("cost")
