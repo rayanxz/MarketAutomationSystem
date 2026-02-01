@@ -254,29 +254,36 @@ class ProductCreateForm(forms.Form):
         default_purchase_currency = cleaned.get("default_purchase_currency") or None
         default_sale_currency = cleaned.get("default_sale_currency") or None
 
+        if not allow_syp_purch and not allow_usd_purch:
+            cleaned["default_purchase_currency"] = None
+        if not allow_syp_sales and not allow_usd_sales:
+            cleaned["default_sale_currency"] = None
+
         if allow_syp_purch and not allow_usd_purch:
             cleaned["default_purchase_currency"] = SYP
         if allow_usd_purch and not allow_syp_purch:
             cleaned["default_purchase_currency"] = USD
 
-        if default_purchase_currency and default_purchase_currency not in ("SYP", "USD"):
-            self.add_error("default_purchase_currency", "Invalid currency.")
-        if default_purchase_currency == "SYP" and not allow_syp_purch:
-            self.add_error("default_purchase_currency", "Default purchase currency must be enabled.")
-        if default_purchase_currency == "USD" and not allow_usd_purch:
-            self.add_error("default_purchase_currency", "Default purchase currency must be enabled.")
+        if allow_syp_purch or allow_usd_purch:
+            if default_purchase_currency and default_purchase_currency not in ("SYP", "USD"):
+                self.add_error("default_purchase_currency", "Invalid currency.")
+            if default_purchase_currency == "SYP" and not allow_syp_purch:
+                self.add_error("default_purchase_currency", "Default purchase currency must be enabled.")
+            if default_purchase_currency == "USD" and not allow_usd_purch:
+                self.add_error("default_purchase_currency", "Default purchase currency must be enabled.")
 
         if allow_syp_sales and not allow_usd_sales:
             cleaned["default_sale_currency"] = SYP
         if allow_usd_sales and not allow_syp_sales:
             cleaned["default_sale_currency"] = USD
 
-        if default_sale_currency and default_sale_currency not in ("SYP", "USD"):
-            self.add_error("default_sale_currency", "Invalid currency.")
-        if default_sale_currency == "SYP" and not allow_syp_sales:
-            self.add_error("default_sale_currency", "Default sale currency must be enabled.")
-        if default_sale_currency == "USD" and not allow_usd_sales:
-            self.add_error("default_sale_currency", "Default sale currency must be enabled.")
+        if allow_syp_sales or allow_usd_sales:
+            if default_sale_currency and default_sale_currency not in ("SYP", "USD"):
+                self.add_error("default_sale_currency", "Invalid currency.")
+            if default_sale_currency == "SYP" and not allow_syp_sales:
+                self.add_error("default_sale_currency", "Default sale currency must be enabled.")
+            if default_sale_currency == "USD" and not allow_usd_sales:
+                self.add_error("default_sale_currency", "Default sale currency must be enabled.")
 
         if not allow_syp_purch:
             cleaned["default_cost_syp"] = Decimal("0.0000")
@@ -286,6 +293,25 @@ class ProductCreateForm(forms.Form):
             cleaned["default_price_syp"] = Decimal("0.0000")
         if not allow_usd_sales:
             cleaned["default_price_usd"] = Decimal("0.0000")
+
+        for fname in (
+            "default_cost_syp",
+            "default_cost_usd",
+            "default_price_syp",
+            "default_price_usd",
+            "latest_cost_syp",
+            "latest_cost_usd",
+            "latest_price_syp",
+            "latest_price_usd",
+            "cost",
+            "price",
+            "cost_syp",
+            "cost_usd",
+            "price_syp",
+            "price_usd",
+        ):
+            if cleaned.get(fname) in (None, ""):
+                cleaned[fname] = Decimal("0.0000")
 
         # Legacy cost/price fallbacks (keep DB fields non-null)
         if cleaned.get("cost") in (None, ""):

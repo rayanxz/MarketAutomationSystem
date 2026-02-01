@@ -40,9 +40,10 @@
 - searching for a collection/father set / product that is not in the first page in the pages panel should make the system auto take the user to the page that contains the element the user is looking for , highlighting is currently working great btw *checked*
 - fix the highlighted excel import/export button in upper menu while i am in products management page *checked*
 - make the collection / father sets / products right panel maintain the same height (does not change height depending on how many rows it has) , and that height should be the same height as when it contains maximum amount of rows (15 rows) , and also make the pages navigation bottom section in the right panel maintain the same place in the page *checked*
+- fix the layout of the adding new product form *visually* *checked*
 
-- fix the layout of the adding new product form *visually*
-- remove the SYP radio button from the product adding form , keep the auto:SYP and dollars 
+- remove the SYP radio button from the product adding form , keep the auto:SYP and dollars *checked*
+
 - we should prevent user from deleting the first textbox of all of 4 (1st code , 1st barcode , 2nd code , 2nd barcode) textboxes in the adding product form
 
 - make the recomendation list for search by name in search panel display up to 20 rows , but give it the height of 3 rows , and give it a scroll bar so user can navigate up and down through elements
@@ -62,6 +63,8 @@
 
 
 ## 2. excel import : 
+
+
 
 - move the page button to lower menu of products management page
 - improve the first phase page layout with some css , rn looks garbage 
