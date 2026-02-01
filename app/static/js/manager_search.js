@@ -68,7 +68,7 @@
 
   // Build suggestion list via DOM (avoid innerHTML injection)
   const renderSuggestions = (arr, queryText = "") => {
-    items = arr || [];
+    items = (arr || []).slice(0, 20);
     if (!items.length) {
       if (!queryText) { hideSuggestions(); return; }
       sug.innerHTML = "";
@@ -103,13 +103,13 @@
       meta.className = "s-path";
       meta.textContent = pathText(p);
 
-      li.append(icon, name, meta);
+      li.append(icon, name);
       li.addEventListener("click", () => onChoose(items[i]));
       frag.appendChild(li);
     });
 
     sug.appendChild(frag);
-    setActive(0);
+    activeIndex = -1;
   };
 
   // ---------- deep-link helpers ----------
@@ -209,7 +209,7 @@
       setActive((activeIndex - 1 + items.length) % items.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      onChoose(items[Math.max(0, activeIndex)]);
+      if (activeIndex >= 0) onChoose(items[activeIndex]);
     } else if (e.key === "Escape") {
       hideSuggestions();
     }

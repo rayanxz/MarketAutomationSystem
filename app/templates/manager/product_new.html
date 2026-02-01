@@ -37,9 +37,11 @@
   .err{ color:#b42318; font-size:12px; }
 
   /* Autocomplete */
-  .ac-list{ list-style:none; margin:4px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 20px rgba(0,0,0,.08); }
+  .ac-list{ list-style:none; margin:4px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 20px rgba(0,0,0,.08); max-height: calc(3 * 38px); overflow-y:auto; width:100%; }
   .ac-list[hidden]{ display:none; }
-  .ac-list li{ padding:8px 10px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .ac-list li{ padding:8px 10px; cursor:pointer; display:flex; gap:8px; align-items:center; min-height:38px; min-width:0; }
+  .ac-list li span{ min-width:0; }
+  .ac-list li span:not(.s-code):not(.code){ flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ac-list li:hover, .ac-list li.active { background:#eef2ff; }
   .code{ font-family: ui-monospace, Menlo, monospace; color:#64748b; margin-inline-start:auto; }
 

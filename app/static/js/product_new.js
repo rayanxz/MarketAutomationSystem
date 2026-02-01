@@ -37,23 +37,25 @@
     listEl.setAttribute("role", "listbox");
     const frag = document.createDocumentFragment();
 
-    items.forEach((it, idx) => {
+    const icon = listEl.id === "ac-col-list" ? "📁" : "👥";
+    const capped = (items || []).slice(0, 20);
+    capped.forEach((it, idx) => {
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.dataset.index = String(idx);
       li.dataset.id = it.id;
       li.dataset.code = it.code || "";
+      li.dataset.name = it.name || "";
+
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "s-code";
+      iconSpan.textContent = icon;
+      li.appendChild(iconSpan);
 
       // label text then code chip (use DOM nodes to avoid injection)
       const nameSpan = document.createElement("span");
       nameSpan.textContent = it.name || "";
       li.appendChild(nameSpan);
-
-      const code = document.createElement("span");
-      code.className = "code";
-      code.style.marginInlineStart = "auto";
-      code.textContent = it.code || "";
-      li.appendChild(code);
 
       // Use mousedown so focus doesn't leave the input before we pick
       li.addEventListener("mousedown", (e) => {
@@ -70,7 +72,7 @@
     // keyboard navigation
     let active = -1;
     function setActive(i) {
-      const lis = $$(".ac-list li", listEl);
+      const lis = $$("li", listEl);
       lis.forEach((el, n) => el.classList.toggle("active", n === i));
       active = i;
       const el = lis[i];
@@ -81,12 +83,11 @@
     }
     listEl._setActive = setActive;
     listEl._getActiveItem = () => {
-      const lis = $$(".ac-list li", listEl);
+      const lis = $$("li", listEl);
       return lis[active] || null;
     };
 
-    // preselect first item so Tab/Enter behavior is clear
-    setActive(0);
+    // no preselect
   }
 
   // ---- Collections AC (race-safe with AbortController) ----
@@ -112,7 +113,7 @@
   }
 
   function pickCollection(item) {
-    colInput.value = item.name || "";
+    colInput.value = (item.name || "").trim();
     selectedCollection = { id: item.id, code: item.code || "", name: item.name || "" };
     clearList(colList);
 
@@ -148,7 +149,7 @@
 
   colInput.addEventListener("keydown", (e) => {
     if (!colList || colList.hidden) return; // let Tab move focus normally
-    const lis = $$(".ac-list li", colList);
+    const lis = $$("li", colList);
     if (!lis.length) return;
 
     const cur = lis.findIndex((el) => el.classList.contains("active"));
@@ -173,7 +174,7 @@
       if (el) {
         pickCollection({
           id: +el.dataset.id,
-          name: el.querySelector("span")?.textContent.trim() || "",
+          name: (el.dataset.name || "").trim(),
           code: el.dataset.code || "",
         });
       }
@@ -205,7 +206,7 @@
   }
 
   function pickSet(item) {
-    setInput.value = item.name || "";
+    setInput.value = (item.name || "").trim();
     clearList(setList);
   }
 
@@ -228,7 +229,7 @@
 
   setInput.addEventListener("keydown", (e) => {
     if (!setList || setList.hidden) return; // allow normal Tab when list closed
-    const lis = $$(".ac-list li", setList);
+    const lis = $$("li", setList);
     if (!lis.length) return;
 
     const cur = lis.findIndex((el) => el.classList.contains("active"));
@@ -253,7 +254,7 @@
       if (el) {
         pickSet({
           id: +el.dataset.id,
-          name: el.querySelector("span")?.textContent.trim() || "",
+          name: (el.dataset.name || "").trim(),
           code: el.dataset.code || "",
         });
       }

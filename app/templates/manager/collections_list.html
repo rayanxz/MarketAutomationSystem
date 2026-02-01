@@ -31,7 +31,7 @@
   .name{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .code{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:#64748b; }
 
-  .mgr-products{ display:grid; grid-template-columns: 4fr 1fr; gap:0; background:#fff; border-radius:12px; box-shadow:var(--card-shadow); }
+  .mgr-products{ display:grid; grid-template-columns: 2fr 1fr; gap:0; background:#fff; border-radius:12px; box-shadow:var(--card-shadow); }
   .pane{ padding:16px; }
   .pane-left{ border-inline-end:1px solid #e5e7eb; }
   .pane-right{ position:relative; }
@@ -75,9 +75,12 @@
 
   .pane-title{ margin:6px 0 12px; }
   .search-box .modes{ display:flex; flex-direction:column; gap:6px; margin:10px 0; font-size:14px; }
-  .suggestions{ list-style:none; margin:6px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:10px; background:#fff; box-shadow:0 10px 24px rgba(0,0,0,.08); }
+  .suggestions{ list-style:none; margin:6px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:10px; background:#fff; box-shadow:0 10px 24px rgba(0,0,0,.08); max-height: calc(3 * 42px); overflow-y:auto; width:100%; }
   .suggestions[hidden]{ display:none; }
-  .suggestions li{ padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .suggestions li{ padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center; min-height:42px; min-width:0; }
+  .suggestions li span{ min-width:0; }
+  .suggestions li span:not(.s-code):not(.s-path){ flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .suggestions .s-path{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:45%; }
   .suggestions li:hover, .suggestions li.active{ background:#eef2ff; }
   .suggestions .s-code{ font-family: ui-monospace, Menlo, monospace; color:#64748b; }
   .suggestions .s-path{ color:#6b7280; font-size:12px; margin-inline-start:auto; }
