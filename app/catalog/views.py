@@ -412,7 +412,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 items = [item]
 
         elif mode == "name":
-            max_total = 8
+            max_total = 20
 
             prods = (
                 Product.objects
@@ -545,7 +545,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
     except Exception:
         items = []
 
-    return JsonResponse({"ok": True, "items": items[:8]})
+    return JsonResponse({"ok": True, "items": items[:20]})
 
 
 # =========================
@@ -1106,7 +1106,7 @@ def api_collections_ac(request: HttpRequest) -> JsonResponse:
         ProductCollection.objects
         .filter(name__icontains=q)
         .order_by("name")
-        .values("id", "name", "code")[:8]
+        .values("id", "name", "code")[:20]
     )
     return JsonResponse({"ok": True, "items": list(qs)})
 
@@ -1122,7 +1122,7 @@ def api_sets_ac(request: HttpRequest) -> JsonResponse:
         ProductSet.objects
         .filter(collection_id=cid, name__icontains=q)
         .order_by("name")
-        .values("id", "name", "code")[:8]
+        .values("id", "name", "code")[:20]
     )
     return JsonResponse({"ok": True, "items": list(qs)})
 
