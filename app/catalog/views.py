@@ -204,7 +204,6 @@ def manager_collections(request: HttpRequest) -> HttpResponse:
     }
     return render(request, "manager/collections_list.html", ctx)
 
-
 @role_required(AccountProfile.Role.MANAGER)
 def collection_rename(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method != "POST":
@@ -413,46 +412,89 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
 
         elif mode == "name":
             max_total = 20
+            scope = (request.GET.get("scope") or "all").strip().lower()
 
-            prods = (
-                Product.objects
-                .select_related("set__collection")
-                .filter(name__icontains=q, is_active=True)
-                .order_by("name")[:max_total]
-            )
-            prod_items = [fmt(p) for p in prods]
+            if scope == "product":
+                prods = (
+                    Product.objects
+                    .select_related("set__collection")
+                    .filter(name__icontains=q, is_active=True)
+                    .order_by("name")[:max_total]
+                )
+                items = [fmt(p) for p in prods]
+            elif scope == "set":
+                sets = (
+                    ProductSet.objects
+                    .select_related("collection")
+                    .filter(name__icontains=q)
+                    .order_by("name")[:max_total]
+                )
+                items = [{
+                    "type": "set",
+                    "id": s.id,
+                    "name": s.name,
+                    "set_code": s.code,
+                    "col_id": s.collection_id,
+                    "col_code": s.collection.code,
+                    "col_name": s.collection.name,
+                } for s in sets]
+            elif scope == "collection":
+                cols = (
+                    ProductCollection.objects
+                    .filter(name__icontains=q)
+                    .order_by("name")
+                    .values("id", "name", "code")[:max_total]
+                )
+                items = [{
+                    "type": "collection",
+                    "id": c["id"],
+                    "name": c["name"],
+                    "col_code": c["code"],
+                    "col_id": c["id"],
+                } for c in cols]
+            else:
+                mix_each = 6
+                prod_limit = max_total - (mix_each * 2)
 
-            cols = (
-                ProductCollection.objects
-                .filter(name__icontains=q)
-                .order_by("name")
-                .values("id", "name", "code")[:3]
-            )
-            col_items = [{
-                "type": "collection",
-                "id": c["id"],
-                "name": c["name"],
-                "col_code": c["code"],
-                "col_id": c["id"],
-            } for c in cols]
+                prods = (
+                    Product.objects
+                    .select_related("set__collection")
+                    .filter(name__icontains=q, is_active=True)
+                    .order_by("name")[:prod_limit]
+                )
+                prod_items = [fmt(p) for p in prods]
 
-            sets = (
-                ProductSet.objects
-                .select_related("collection")
-                .filter(name__icontains=q)
-                .order_by("name")[:3]
-            )
-            set_items = [{
-                "type": "set",
-                "id": s.id,
-                "name": s.name,
-                "set_code": s.code,
-                "col_id": s.collection_id,
-                "col_code": s.collection.code,
-                "col_name": s.collection.name,
-            } for s in sets]
+                cols = (
+                    ProductCollection.objects
+                    .filter(name__icontains=q)
+                    .order_by("name")
+                    .values("id", "name", "code")[:mix_each]
+                )
+                col_items = [{
+                    "type": "collection",
+                    "id": c["id"],
+                    "name": c["name"],
+                    "col_code": c["code"],
+                    "col_id": c["id"],
+                } for c in cols]
 
-            items = (prod_items + col_items + set_items)[:max_total]
+                sets = (
+                    ProductSet.objects
+                    .select_related("collection")
+                    .filter(name__icontains=q)
+                    .order_by("name")[:mix_each]
+                )
+                set_items = [{
+                    "type": "set",
+                    "id": s.id,
+                    "name": s.name,
+                    "set_code": s.code,
+                    "col_id": s.collection_id,
+                    "col_code": s.collection.code,
+                    "col_name": s.collection.name,
+                } for s in sets]
+
+                items = (prod_items + col_items + set_items)[:max_total]
 
         elif mode == "id":
             uid = (

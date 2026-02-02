@@ -5,6 +5,7 @@ from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import reverse, NoReverseMatch
 
+
 def _login_path():
     """
     Resolve LOGIN_URL to a path. Accepts a URL name ('login') or a path ('/login/').

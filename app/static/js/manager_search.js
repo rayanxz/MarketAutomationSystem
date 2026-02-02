@@ -6,26 +6,55 @@
   const q   = document.getElementById("q");
   const sug = document.getElementById("suggestions");
   const err = document.getElementById("searchErr");
+  const scopeBox = document.getElementById("nameScope");
   if (!q || !sug || !err) return;
 
   // ---------- constants ----------
   const MODE_KEY = "mgr.search.mode";
+  const SCOPE_KEY = "mgr.search.scope";
   const API_URL  = "/manager/products/api/search/";
   const ICON     = { collection: "📁", set: "👥", product: "📦" };
 
   // ---------- state ----------
   let mode = localStorage.getItem(MODE_KEY) || "barcode";
+  let scope = localStorage.getItem(SCOPE_KEY) || "all";
   let activeIndex = -1;
   let items = [];
   let debounceTimer = null;
   let inFlight = null; // AbortController for search
 
   // ---------- util ----------
+  const setScope = (s) => {
+    scope = s;
+    localStorage.setItem(SCOPE_KEY, scope);
+    hideSuggestions();
+    hideError();
+    activeIndex = -1;
+    if (q.value.trim()) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => doSearch(q.value.trim()), 150);
+    }
+  };
+
+  const updateScopeUI = () => {
+    if (!scopeBox) return;
+    const isName = (mode === "name");
+    if (isName && !scope) scope = "all";
+    scopeBox.querySelectorAll('input[name="scope"]').forEach((r) => {
+      r.disabled = !isName;
+      if (isName && r.value === scope) r.checked = true;
+    });
+    scopeBox.classList.toggle("is-disabled", !isName);
+    if (isName) localStorage.setItem(SCOPE_KEY, scope);
+  };
+
   const setMode = (m) => {
     mode = m;
     localStorage.setItem(MODE_KEY, mode);
+    updateScopeUI();
     hideSuggestions();
     hideError();
+    activeIndex = -1;
     q.value = "";
     q.focus();
   };
@@ -55,6 +84,18 @@
         li.removeAttribute("aria-selected");
       }
     });
+  };
+  const clearActive = () => {
+    activeIndex = -1;
+    const lis = [...sug.querySelectorAll("li[role='option']")];
+    lis.forEach((li) => li.classList.remove("active"));
+  };
+  const syncActiveIndex = () => {
+    if (activeIndex < 0) return;
+    const lis = [...sug.querySelectorAll("li[role='option']")];
+    if (!lis[activeIndex] || !lis[activeIndex].classList.contains("active")) {
+      activeIndex = -1;
+    }
   };
 
   const pathText = (it) => {
@@ -109,7 +150,7 @@
     });
 
     sug.appendChild(frag);
-    activeIndex = -1;
+    clearActive();
   };
 
   // ---------- deep-link helpers ----------
@@ -160,6 +201,11 @@
     r.checked = (r.value === mode);
     r.addEventListener("change", () => setMode(r.value));
   });
+  scopeBox && scopeBox.querySelectorAll('input[name="scope"]').forEach((r) => {
+    r.checked = (r.value === scope);
+    r.addEventListener("change", () => setScope(r.value));
+  });
+  updateScopeUI();
 
   // ---------- search ----------
   const doSearch = async (val) => {
@@ -168,7 +214,7 @@
 
     try {
       const res = await fetch(
-        `${API_URL}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}`,
+        `${API_URL}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}${mode === "name" ? `&scope=${encodeURIComponent(scope || "all")}` : ""}`,
         { headers: { Accept: "application/json" }, signal: inFlight.signal }
       );
       if (!res.ok) return renderSuggestions([], val);
@@ -189,6 +235,7 @@
     if (mode === "barcode") { hideSuggestions(); return; }
     const val = q.value.trim();
     if (!val) { hideSuggestions(); return; }
+    activeIndex = -1;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => doSearch(val), 150);
   });
@@ -197,22 +244,53 @@
   q.addEventListener("keydown", (e) => {
     if (sug.hidden || !items.length) return;
 
-    if (e.key === "Tab") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
-      const next = (activeIndex + (e.shiftKey ? -1 : 1) + items.length) % items.length;
+      syncActiveIndex();
+      const next = activeIndex < 0 ? 0 : Math.min(activeIndex + 1, items.length - 1);
       setActive(next);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActive((activeIndex + 1) % items.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((activeIndex - 1 + items.length) % items.length);
+      syncActiveIndex();
+      if (activeIndex < 0) return;
+      const prev = Math.max(activeIndex - 1, 0);
+      setActive(prev);
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (activeIndex >= 0) onChoose(items[activeIndex]);
     } else if (e.key === "Escape") {
       hideSuggestions();
     }
+  });
+
+  // Give suggestion list keyboard priority even when radios have focus
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (sug.hidden || !items.length) return;
+    if (!box.contains(document.activeElement)) return;
+    if (document.activeElement === q) return;
+    e.preventDefault();
+    if (e.key === "ArrowDown") {
+      syncActiveIndex();
+      const next = activeIndex < 0 ? 0 : Math.min(activeIndex + 1, items.length - 1);
+      setActive(next);
+    } else {
+      syncActiveIndex();
+      if (activeIndex < 0) return;
+      const prev = Math.max(activeIndex - 1, 0);
+      setActive(prev);
+    }
+  });
+
+  // Enter selection when focus is not on the input (radios, etc.)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    if (sug.hidden || !items.length) return;
+    if (!box.contains(document.activeElement)) return;
+    if (document.activeElement === q) return;
+    if (activeIndex < 0) return;
+    e.preventDefault();
+    onChoose(items[activeIndex]);
   });
 
   // Barcode mode → highlight product (not edit)

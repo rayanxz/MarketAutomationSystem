@@ -75,6 +75,9 @@
 
   .pane-title{ margin:6px 0 12px; }
   .search-box .modes{ display:flex; flex-direction:column; gap:6px; margin:10px 0; font-size:14px; }
+  .name-scope{ margin-inline-start:16px; padding-inline-start:10px; border-inline-start:2px solid #e5e7eb; display:flex; flex-direction:column; gap:6px; }
+  .name-scope-title{ font-size:13px; color:#6b7280; }
+  .name-scope.is-disabled{ opacity:.6; pointer-events:none; }
   .suggestions{ list-style:none; margin:6px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:10px; background:#fff; box-shadow:0 10px 24px rgba(0,0,0,.08); max-height: calc(3 * 42px); overflow-y:auto; width:100%; }
   .suggestions[hidden]{ display:none; }
   .suggestions li{ padding:10px 12px; cursor:pointer; display:flex; gap:8px; align-items:center; min-height:42px; min-width:0; }
@@ -201,6 +204,13 @@
         <label><input type="radio" name="mode" value="id"> عن طريق الكود</label>
         <label><input type="radio" name="mode" value="code"> عن طريق الرمز</label>
         <label><input type="radio" name="mode" value="name"> عن طريق الاسم</label>
+        <div class="name-scope" id="nameScope">
+          <div class="name-scope-title">نطاق البحث</div>
+          <label><input type="radio" name="scope" value="all" checked> الكل</label>
+          <label><input type="radio" name="scope" value="product"> المنتجات</label>
+          <label><input type="radio" name="scope" value="set"> المجموعات الأب</label>
+          <label><input type="radio" name="scope" value="collection"> الزمر</label>
+        </div>
       </div>
 
       <ul class="suggestions" id="suggestions" hidden></ul>
