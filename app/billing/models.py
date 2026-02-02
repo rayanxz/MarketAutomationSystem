@@ -292,6 +292,13 @@ class BillItem(models.Model):
     bill       = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="items")
     product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="bill_items")
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
+    conv_factor_at_txn = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("1.0000"),
+    )
+    unit_1_label_at_txn = models.CharField(max_length=32, default="")
+    unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
     cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     price      = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
@@ -519,6 +526,13 @@ class ProviderReturnItem(models.Model):
     ret        = models.ForeignKey(ProviderReturn, on_delete=models.CASCADE, related_name="items")
     product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="return_items")
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
+    conv_factor_at_txn = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("1.0000"),
+    )
+    unit_1_label_at_txn = models.CharField(max_length=32, default="")
+    unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
     currency   = models.CharField(
         max_length=3,

@@ -161,7 +161,9 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
     item_rows: list[dict[str, Any]] = []
     for it in pret.items.all():
         prod = it.product
-        unit_label = prod.get_unit_primary_display() or "الوحدة الأولى"
+        unit_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip()
+        if not unit_label:
+            unit_label = prod.get_unit_primary_display() or "الوحدة الأولى"
 
         cont = per_prod_cont.get(it.product_id, {})
         store_qty = cont.get("store", DEC0)
@@ -862,19 +864,21 @@ def bill_view(request, bill_id: int):
         if not prod:
             continue
 
-        unit1_label = prod.get_unit_primary_display() or ""
-        unit2_label = (
-            prod.get_unit_secondary_display()
-            if getattr(prod, "unit_secondary", None)
-            else ""
-        )
+        unit1_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip()
+        unit2_label = (getattr(it, "unit_2_label_at_txn", "") or "").strip()
+        if not unit1_label:
+            unit1_label = prod.get_unit_primary_display() or ""
+        if not unit2_label and getattr(prod, "unit_secondary", None):
+            unit2_label = prod.get_unit_secondary_display() or ""
 
         qty_primary = q3(it.qty_primary or DEC0)
-        cf = getattr(prod, "conversion_factor", None)
+        cf = getattr(it, "conv_factor_at_txn", None)
         try:
             cf_val = Decimal(str(cf)) if cf else None
         except Exception:
             cf_val = None
+        if not cf_val or cf_val <= 0:
+            cf_val = Decimal("1")
 
         qty_u1 = qty_primary
 
@@ -1138,7 +1142,9 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         if not prod:
             continue
 
-        unit1_label = prod.get_unit_primary_display() or ""
+        unit1_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip()
+        if not unit1_label:
+            unit1_label = prod.get_unit_primary_display() or ""
 
         left_qty = q3(left_map.get(it.id, DEC0))
 

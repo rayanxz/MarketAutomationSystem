@@ -284,9 +284,18 @@ def create_bill(
         # ---- convert to primary unit
         qty_primary = qty_raw
         cf = getattr(product, "conversion_factor", None)
-        if unit_idx == 2 and cf:
-            qty_primary *= Decimal(str(cf))
+        try:
+            cf_val = Decimal(str(cf)) if cf else Decimal("1")
+        except Exception:
+            cf_val = Decimal("1")
+        if cf_val <= 0:
+            cf_val = Decimal("1")
+        if unit_idx == 2:
+            qty_primary *= cf_val
         qty_primary = q3(qty_primary)
+
+        unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+        unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
 
         # ---- line total (in ITEM currency)
         line_total = (
@@ -300,6 +309,9 @@ def create_bill(
             bill=bill,
             product=product,
             unit_index=unit_idx,
+            conv_factor_at_txn=cf_val,
+            unit_1_label_at_txn=unit1_label or "",
+            unit_2_label_at_txn=unit2_label or "",
             qty_primary=qty_primary,
             cost=cost_u1,
             price=price_u1,
@@ -997,6 +1009,16 @@ def create_return(
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
+        cf = getattr(product, "conversion_factor", None)
+        try:
+            cf_val = Decimal(str(cf)) if cf else Decimal("1")
+        except Exception:
+            cf_val = Decimal("1")
+        if cf_val <= 0:
+            cf_val = Decimal("1")
+        unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+        unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+
         container_splits = row.get("container_splits") or []
         bill_item_id = row.get("bill_item_id")
         bill_item = bill_items.get(int(bill_item_id)) if bill_item_id else None
@@ -1029,9 +1051,8 @@ def create_return(
                 raise ValueError(f"qty must be > 0 at row {idx}")
 
             qty_primary = qty_raw
-            cf = getattr(product, "conversion_factor", None)
-            if unit_idx == 2 and cf:
-                qty_primary *= Decimal(str(cf))
+            if unit_idx == 2:
+                qty_primary *= cf_val
             qty_primary = q3(qty_primary)
 
         # ----- line total & ProviderReturnItem -----
@@ -1041,6 +1062,9 @@ def create_return(
             ret=pret,
             product=product,
             unit_index=unit_idx,
+            conv_factor_at_txn=cf_val,
+            unit_1_label_at_txn=unit1_label or "",
+            unit_2_label_at_txn=unit2_label or "",
             qty_primary=qty_primary,
             currency=item_currency,
             cost=cost_u1,

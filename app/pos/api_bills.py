@@ -508,11 +508,21 @@ def api_bill_save(request: HttpRequest):
         # Rewrite rows
         # =====================
         for r in rows:
+            pid = int(r.get("product_id") or 0)
+            prod = products.get(pid)
+            conv_val = _parse_decimal(getattr(prod, "conversion_factor", None)) if prod else Decimal("1")
+            if not conv_val or conv_val <= 0:
+                conv_val = Decimal("1")
+            unit1_label = prod.get_unit_primary_display() if prod and getattr(prod, "unit_primary", None) else ""
+            unit2_label = prod.get_unit_secondary_display() if prod and getattr(prod, "unit_secondary", None) else ""
             SalesBillRow.objects.create(
                 bill=bill,
-                product_id=int(r.get("product_id") or 0),
+                product_id=pid,
                 product_name=r.get("name") or "",
                 product_number=r.get("number") or "",
+                conv_factor_at_txn=conv_val,
+                unit_1_label_at_txn=unit1_label or "",
+                unit_2_label_at_txn=unit2_label or "",
                 qty=_parse_decimal(r.get("qty")),
                 uom_index=int(r.get("uom_index") or 1),
                 unit_price=_parse_decimal(r.get("unit_price")),

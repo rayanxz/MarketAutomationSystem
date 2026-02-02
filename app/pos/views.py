@@ -571,6 +571,7 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
 
     rows = list(bill.rows.all().order_by("id"))
     product_ids = {int(r.product_id) for r in rows if r.product_id}
+    row_by_pid = {int(r.product_id): r for r in rows if r.product_id}
 
     products = (
         Product.objects
@@ -581,10 +582,12 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
     unit_label_map = dict(UnitType.choices)
 
     def conv_for(pid: int) -> Decimal:
-        p = prod_map.get(pid)
-        if not p:
-            return Decimal("1")
-        c = p.conversion_factor or Decimal("1")
+        r = row_by_pid.get(pid)
+        if r and getattr(r, "conv_factor_at_txn", None):
+            c = r.conv_factor_at_txn
+        else:
+            p = prod_map.get(pid)
+            c = p.conversion_factor if p else Decimal("1")
         try:
             c = Decimal(str(c))
         except Exception:
@@ -592,6 +595,11 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
         return c if c > 0 else Decimal("1")
 
     def uom_label_for(pid: int, uom_index: int) -> str:
+        r = row_by_pid.get(pid)
+        if r:
+            if int(uom_index) == 2:
+                return (getattr(r, "unit_2_label_at_txn", "") or "").strip() or "—"
+            return (getattr(r, "unit_1_label_at_txn", "") or "").strip() or "—"
         p = prod_map.get(pid)
         if not p:
             return "—"

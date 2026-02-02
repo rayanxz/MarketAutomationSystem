@@ -137,6 +137,7 @@ def _qty_to_primary(
     product: Product,
     uom_index: int,
     qty: Decimal,
+    conv_override: Decimal | None = None,
 ) -> Tuple[Decimal, int]:
     """
     Convert qty based on UOM index to primary units.
@@ -146,7 +147,7 @@ def _qty_to_primary(
     if qty <= 0:
         return DEC0, 1
 
-    conv = getattr(product, "conversion_factor", None) or Decimal("1")
+    conv = conv_override if conv_override is not None else (getattr(product, "conversion_factor", None) or Decimal("1"))
     if uom_index == 2:
         # secondary → primary
         return q3(qty * conv), 2
@@ -154,7 +155,12 @@ def _qty_to_primary(
 
 
 def _calc_row_total(*, product: Product, row: SalesBillRow) -> Decimal:
-    qty_primary, _unit_index = _qty_to_primary(product, row.uom_index, row.qty)
+    qty_primary, _unit_index = _qty_to_primary(
+        product,
+        row.uom_index,
+        row.qty,
+        conv_override=getattr(row, "conv_factor_at_txn", None),
+    )
     if qty_primary <= 0:
         return DEC0
     base = q3(qty_primary * q3(row.unit_price or DEC0))
@@ -219,7 +225,10 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             continue
 
         qty_primary, _unit_index_used = _qty_to_primary(
-            product, row.uom_index, row.qty
+            product,
+            row.uom_index,
+            row.qty,
+            conv_override=getattr(row, "conv_factor_at_txn", None),
         )
         if qty_primary <= 0:
             continue
@@ -290,7 +299,10 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             continue
 
         qty_primary, unit_index_used = _qty_to_primary(
-            product, row.uom_index, row.qty
+            product,
+            row.uom_index,
+            row.qty,
+            conv_override=getattr(row, "conv_factor_at_txn", None),
         )
         if qty_primary <= 0:
             continue

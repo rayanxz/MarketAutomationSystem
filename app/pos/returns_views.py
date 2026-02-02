@@ -41,7 +41,7 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
         if product is None:
             continue
 
-        conv = _dec(getattr(product, "conversion_factor", None) or "1")
+        conv = _dec(getattr(r, "conv_factor_at_txn", None) or getattr(product, "conversion_factor", None) or "1")
         if conv <= 0:
             conv = Decimal("1")
 
@@ -60,9 +60,16 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
                 "row_id": r.id,
                 "product_name": r.product_name,
                 "currency": (r.sale_currency or "SYP").upper(),
-                "uom_label": unit_label_map.get(product.unit_secondary, product.unit_secondary)
-                if int(r.uom_index or 1) == 2 and product.unit_secondary
-                else unit_label_map.get(product.unit_primary, product.unit_primary),
+                "uom_label": (
+                    (getattr(r, "unit_2_label_at_txn", "") or "").strip()
+                    if int(r.uom_index or 1) == 2
+                    else (getattr(r, "unit_1_label_at_txn", "") or "").strip()
+                )
+                or (
+                    unit_label_map.get(product.unit_secondary, product.unit_secondary)
+                    if int(r.uom_index or 1) == 2 and product.unit_secondary
+                    else unit_label_map.get(product.unit_primary, product.unit_primary)
+                ),
                 "sold_qty": to_display(sold_primary),
                 "already_returned": to_display(already_primary),
                 "remaining_qty": to_display(remaining_primary),

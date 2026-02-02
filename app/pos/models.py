@@ -304,6 +304,13 @@ class SalesBillRow(models.Model):
     product_id = models.IntegerField()
     product_name = models.CharField(max_length=255)
     product_number = models.CharField(max_length=50, blank=True)
+    conv_factor_at_txn = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("1.0000"),
+    )
+    unit_1_label_at_txn = models.CharField(max_length=32, default="")
+    unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
 
     qty = models.DecimalField(
         max_digits=14,
@@ -469,6 +476,13 @@ class SalesReturnRow(models.Model):
     )
 
     uom_index = models.PositiveSmallIntegerField(default=1)
+    conv_factor_at_txn = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("1.0000"),
+    )
+    unit_1_label_at_txn = models.CharField(max_length=32, default="")
+    unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
     qty_returned = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
 
     currency_code = models.CharField(

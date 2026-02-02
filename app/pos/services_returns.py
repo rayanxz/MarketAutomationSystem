@@ -34,19 +34,19 @@ def _dec(x) -> Decimal:
         return Decimal("0")
 
 
-def _conv_for(product: Product) -> Decimal:
-    conv = _dec(getattr(product, "conversion_factor", None) or "1")
+def _conv_for(product: Product, conv_override: Decimal | None = None) -> Decimal:
+    conv = _dec(conv_override if conv_override is not None else (getattr(product, "conversion_factor", None) or "1"))
     if conv <= 0:
         conv = Decimal("1")
     return conv
 
 
-def _qty_to_primary(*, qty_raw: Decimal, uom_index: int, product: Product) -> Decimal:
+def _qty_to_primary(*, qty_raw: Decimal, uom_index: int, product: Product, conv_override: Decimal | None = None) -> Decimal:
     qty = q3(_dec(qty_raw))
     if qty <= DEC0:
         return DEC0
     if int(uom_index or 1) == 2:
-        qty = q3(qty * _conv_for(product))
+        qty = q3(qty * _conv_for(product, conv_override=conv_override))
     return q3(qty)
 
 
@@ -189,11 +189,22 @@ def create_sales_return_draft(
         qty_input = _dec(payload.get("qty"))
         reason = (payload.get("reason") or "").strip()[:255]
 
-        qty_primary = _qty_to_primary(qty_raw=qty_input, uom_index=sale_row.uom_index, product=product)
+        conv_at_txn = getattr(sale_row, "conv_factor_at_txn", None)
+        qty_primary = _qty_to_primary(
+            qty_raw=qty_input,
+            uom_index=sale_row.uom_index,
+            product=product,
+            conv_override=conv_at_txn,
+        )
         if qty_primary <= DEC0:
             continue
 
-        sold_qty_primary = _qty_to_primary(qty_raw=sale_row.qty, uom_index=sale_row.uom_index, product=product)
+        sold_qty_primary = _qty_to_primary(
+            qty_raw=sale_row.qty,
+            uom_index=sale_row.uom_index,
+            product=product,
+            conv_override=conv_at_txn,
+        )
         already_returned = returned_map.get(sale_row_id, DEC0)
         remaining = q3(sold_qty_primary - already_returned)
         if qty_primary > remaining:
@@ -215,6 +226,9 @@ def create_sales_return_draft(
             sale_row=sale_row,
             product=product,
             uom_index=int(sale_row.uom_index or 1),
+            conv_factor_at_txn=conv_at_txn or Decimal("1"),
+            unit_1_label_at_txn=(getattr(sale_row, "unit_1_label_at_txn", "") or "").strip(),
+            unit_2_label_at_txn=(getattr(sale_row, "unit_2_label_at_txn", "") or "").strip(),
             qty_returned=qty_primary,
             currency_code=(sale_row.sale_currency or "SYP").upper(),
             unit_price_at_sale=unit_price_primary,
