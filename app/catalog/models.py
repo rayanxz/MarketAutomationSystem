@@ -225,6 +225,10 @@ class Product(models.Model):
         n = self.product_number or 0
         return f"{n:03d}"
 
+    @property
+    def is_single_unit(self) -> bool:
+        return bool(self.unit_secondary) and self.unit_primary == self.unit_secondary
+
     # ---- validation & normalization ----
     def clean(self):
         # Ensure product codes don’t start with # or @ if someone sets product_number
@@ -233,15 +237,15 @@ class Product(models.Model):
 
         # Units rule
         if self.unit_secondary:
-            if not self.conversion_factor or self.conversion_factor <= 0:
-                raise ValidationError(
-                    {"conversion_factor": "Required and must be > 0 when second unit is set."}
-                )
-            # Prevent setting the same unit as primary/secondary
             if self.unit_primary == self.unit_secondary:
-                raise ValidationError({"unit_secondary": "لا يجوز أن تكون الوحدة الثانية مطابقة للأولى."})
+                if not self.conversion_factor or self.conversion_factor <= 0:
+                    self.conversion_factor = Decimal("1")
+            else:
+                if not self.conversion_factor or self.conversion_factor <= 0:
+                    raise ValidationError(
+                        {"conversion_factor": "Required and must be > 0 when second unit is set."}
+                    )
         else:
-            # when there is no second unit, wipe optional factor
             self.conversion_factor = None
 
         # Currency enable/disable rules (new flags)

@@ -45,6 +45,8 @@ def _qty_to_primary(*, qty_raw: Decimal, uom_index: int, product: Product, conv_
     qty = q3(_dec(qty_raw))
     if qty <= DEC0:
         return DEC0
+    if getattr(product, "is_single_unit", False):
+        uom_index = 1
     if int(uom_index or 1) == 2:
         qty = q3(qty * _conv_for(product, conv_override=conv_override))
     return q3(qty)

@@ -147,7 +147,11 @@ def _qty_to_primary(
     if qty <= 0:
         return DEC0, 1
 
-    conv = conv_override if conv_override is not None else (getattr(product, "conversion_factor", None) or Decimal("1"))
+    if getattr(product, "is_single_unit", False):
+        uom_index = 1
+        conv = Decimal("1")
+    else:
+        conv = conv_override if conv_override is not None else (getattr(product, "conversion_factor", None) or Decimal("1"))
     if uom_index == 2:
         # secondary → primary
         return q3(qty * conv), 2

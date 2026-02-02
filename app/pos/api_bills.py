@@ -35,7 +35,11 @@ def _calc_row_total(*, product: Product, row: dict) -> Decimal:
     uom_index = int(row.get("uom_index") or 1)
     unit_price = _parse_decimal(row.get("unit_price"))
 
-    conv = getattr(product, "conversion_factor", None) or Decimal("1")
+    if product.is_single_unit:
+        uom_index = 1
+        conv = Decimal("1")
+    else:
+        conv = getattr(product, "conversion_factor", None) or Decimal("1")
     qty_primary = q3(qty * conv) if uom_index == 2 else q3(qty)
     if qty_primary <= 0:
         return DEC0
@@ -510,11 +514,17 @@ def api_bill_save(request: HttpRequest):
         for r in rows:
             pid = int(r.get("product_id") or 0)
             prod = products.get(pid)
-            conv_val = _parse_decimal(getattr(prod, "conversion_factor", None)) if prod else Decimal("1")
+            if prod and prod.is_single_unit:
+                conv_val = Decimal("1")
+            else:
+                conv_val = _parse_decimal(getattr(prod, "conversion_factor", None)) if prod else Decimal("1")
             if not conv_val or conv_val <= 0:
                 conv_val = Decimal("1")
             unit1_label = prod.get_unit_primary_display() if prod and getattr(prod, "unit_primary", None) else ""
-            unit2_label = prod.get_unit_secondary_display() if prod and getattr(prod, "unit_secondary", None) else ""
+            unit2_label = "" if (prod and prod.is_single_unit) else (prod.get_unit_secondary_display() if prod and getattr(prod, "unit_secondary", None) else "")
+            uom_index = int(r.get("uom_index") or 1)
+            if prod and prod.is_single_unit:
+                uom_index = 1
             SalesBillRow.objects.create(
                 bill=bill,
                 product_id=pid,
@@ -524,7 +534,7 @@ def api_bill_save(request: HttpRequest):
                 unit_1_label_at_txn=unit1_label or "",
                 unit_2_label_at_txn=unit2_label or "",
                 qty=_parse_decimal(r.get("qty")),
-                uom_index=int(r.get("uom_index") or 1),
+                uom_index=uom_index,
                 unit_price=_parse_decimal(r.get("unit_price")),
                 sale_currency=(r.get("currency") or SYP),
                 disc_amount=_parse_decimal(r.get("disc_amount")),

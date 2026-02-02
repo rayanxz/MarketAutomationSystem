@@ -33,7 +33,7 @@ def product_payload(p: Product) -> Dict[str, Any]:
         },
         "notes": p.notes or "",
     }
-    if p.unit_secondary:
+    if p.unit_secondary and not p.is_single_unit:
         data["units"]["secondary"] = {"code": p.unit_secondary, "label": unit_label(p.unit_secondary)}
         data["units"]["conversion_factor"] = str(p.conversion_factor or Decimal("0"))
     return data
@@ -46,7 +46,7 @@ def api_barcode_lookup(request: HttpRequest, value: str):
         return JsonResponse({"ok": False, "error": "NOT_FOUND"})
     p = bc.product
     payload = product_payload(p)
-    payload["matched_unit_index"] = int(bc.unit_index)  # 1 or 2
+    payload["matched_unit_index"] = 1 if p.is_single_unit else int(bc.unit_index)  # 1 or 2
     return JsonResponse({"ok": True, "product": payload})
 
 @login_required
@@ -68,7 +68,7 @@ def api_lookup_code(request: HttpRequest, value: str):
         return JsonResponse({"ok": False, "error": "NOT_FOUND"})
     p = uid.product
     payload = product_payload(p)
-    payload["matched_unit_index"] = int(uid.unit_index)  # 1 or 2
+    payload["matched_unit_index"] = 1 if p.is_single_unit else int(uid.unit_index)  # 1 or 2
     return JsonResponse({"ok": True, "product": payload})
 
 @login_required

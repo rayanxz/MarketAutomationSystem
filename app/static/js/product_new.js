@@ -281,4 +281,34 @@
   // Disable set input until a collection is chosen (first render), then bootstrap
   setInput.disabled = true;
   bootstrapSelectedCollection();
+
+  // ---- Single-unit UI rules ----
+  const unitPrimary = document.querySelector('select[name="unit_primary"]');
+  const unitSecondary = document.querySelector('select[name="unit_secondary"]');
+  const convInput = document.querySelector('input[name="conversion_factor"]');
+  function enforceSingleUnitUI() {
+    const u1 = unitPrimary ? unitPrimary.value : "";
+    const u2 = unitSecondary ? unitSecondary.value : "";
+    const isSingle = !!u2 && u1 === u2;
+
+    if (convInput) convInput.disabled = isSingle;
+
+    const u2IdInputs = document.querySelectorAll('input[name="unit_secondary_ids[]"]');
+    const u2BarcodeInputs = document.querySelectorAll('input[name="barcodes_u2[]"]');
+    u2IdInputs.forEach((el) => { el.disabled = isSingle; });
+    u2BarcodeInputs.forEach((el) => { el.disabled = isSingle; });
+
+    document.querySelectorAll('#u2-ids button.btn-muted, #u2-barcodes button.btn-muted').forEach((btn) => {
+      btn.disabled = isSingle;
+    });
+  }
+
+  unitPrimary?.addEventListener("change", enforceSingleUnitUI);
+  unitSecondary?.addEventListener("change", enforceSingleUnitUI);
+  enforceSingleUnitUI();
+
+  const observer = new MutationObserver(() => {
+    enforceSingleUnitUI();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 })();

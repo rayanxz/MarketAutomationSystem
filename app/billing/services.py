@@ -250,7 +250,10 @@ def create_bill(
         if item_currency == "USD" and not allow_usd_purch:
             raise ValueError(f"USD purchasing not enabled for product at row {idx}")
 
-        unit_idx = 2 if int(row.get("unit_index") or 1) == 2 else 1
+        single_unit = bool(getattr(product, "unit_secondary", "")) and (
+            getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")
+        )
+        unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
 
         qty_raw = Decimal(str(row.get("qty_raw") or "0"))
         if qty_raw <= 0:
@@ -290,12 +293,14 @@ def create_bill(
             cf_val = Decimal("1")
         if cf_val <= 0:
             cf_val = Decimal("1")
+        if single_unit:
+            cf_val = Decimal("1")
         if unit_idx == 2:
             qty_primary *= cf_val
         qty_primary = q3(qty_primary)
 
         unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
-        unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+        unit2_label = "" if single_unit else (product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else "")
 
         # ---- line total (in ITEM currency)
         line_total = (
@@ -1005,7 +1010,10 @@ def create_return(
         pid = int(row["product_id"])
         product = products.get(pid) or get_object_or_404(Product.objects.select_for_update(), pk=pid)
 
-        unit_idx = 2 if int(row.get("unit_index") or 1) == 2 else 1
+        single_unit = bool(getattr(product, "unit_secondary", "")) and (
+            getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")
+        )
+        unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
 
@@ -1016,8 +1024,10 @@ def create_return(
             cf_val = Decimal("1")
         if cf_val <= 0:
             cf_val = Decimal("1")
+        if single_unit:
+            cf_val = Decimal("1")
         unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
-        unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+        unit2_label = "" if single_unit else (product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else "")
 
         container_splits = row.get("container_splits") or []
         bill_item_id = row.get("bill_item_id")

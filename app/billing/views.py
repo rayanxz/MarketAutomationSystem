@@ -414,17 +414,20 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
         col = getattr(getattr(p, "set", None), "collection", None)
         setobj = getattr(p, "set", None)
         matched_unit = None
+        single_unit = bool(getattr(p, "unit_secondary", "")) and (
+            getattr(p, "unit_primary", "") == getattr(p, "unit_secondary", "")
+        )
 
         if mode == "id":
             for uid in getattr(p, "unit_ids", []).all():
                 if (uid.value or "").lower() == q.lower():
-                    matched_unit = int(uid.unit_index)
+                    matched_unit = 1 if single_unit else int(uid.unit_index)
                     break
         elif mode == "barcode":
             for b in getattr(p, "barcodes", []).all():
                 val = getattr(b, "barcode", None) or getattr(b, "code", None)
                 if (val or "").lower() == q.lower():
-                    matched_unit = int(b.unit_index)
+                    matched_unit = 1 if single_unit else int(b.unit_index)
                     break
 
         items.append({
@@ -436,9 +439,9 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
             "set_name": getattr(setobj, "name", "") or "",
             "set_code": getattr(setobj, "code", "") or "",
             "unit_primary_label": p.get_unit_primary_display() or "الوحدة الأولى",
-            "unit_secondary_label": (p.get_unit_secondary_display() if p.unit_secondary else "") or "الوحدة الثانية",
-            "unit_secondary": getattr(p, "unit_secondary", "") or "",
-            "conversion_factor": getattr(p, "conversion_factor", 0) or 0,
+            "unit_secondary_label": "" if single_unit else ((p.get_unit_secondary_display() if p.unit_secondary else "") or "الوحدة الثانية"),
+            "unit_secondary": "" if single_unit else (getattr(p, "unit_secondary", "") or ""),
+            "conversion_factor": 1 if single_unit else (getattr(p, "conversion_factor", 0) or 0),
             "price": getattr(p, "price", None),
             "cost": getattr(p, "cost", None),
             "price_syp": getattr(p, "price_syp", None),

@@ -42,10 +42,14 @@ def record_movement(
     unit_cost_q = q4(Decimal(str(unit_cost)))
     total_cost_q = q3(abs(qty_primary_q) * unit_cost_q)
 
+    unit_idx = int(unit_index or 1)
+    if getattr(product, "is_single_unit", False):
+        unit_idx = 1
+
     mv = ProductMovement.objects.create(
         product=product,
         qty_primary=qty_primary_q,
-        unit_index=unit_index,
+        unit_index=unit_idx,
         unit_cost=unit_cost_q,
         total_cost=total_cost_q,
         movement_type=movement_type,

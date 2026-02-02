@@ -461,18 +461,20 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                         ProductBarcode.objects.get_or_create(
                             product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
                         )
-                    for bc in d.get("barcodes_u2", []):
-                        ProductBarcode.objects.get_or_create(
-                            product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
-                        )
+                    if not p.is_single_unit:
+                        for bc in d.get("barcodes_u2", []):
+                            ProductBarcode.objects.get_or_create(
+                                product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
+                            )
                     for val in d.get("unit_ids_u1", []):
                         ProductUnitId.objects.get_or_create(
                             product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
                         )
-                    for val in d.get("unit_ids_u2", []):
-                        ProductUnitId.objects.get_or_create(
-                            product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
-                        )
+                    if not p.is_single_unit:
+                        for val in d.get("unit_ids_u2", []):
+                            ProductUnitId.objects.get_or_create(
+                                product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
+                            )
 
                     updated += 1
                 else:
@@ -495,18 +497,20 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                         ProductBarcode.objects.create(
                             product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
                         )
-                    for bc in d.get("barcodes_u2", []):
-                        ProductBarcode.objects.create(
-                            product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
-                        )
+                    if not p.is_single_unit:
+                        for bc in d.get("barcodes_u2", []):
+                            ProductBarcode.objects.create(
+                                product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
+                            )
                     for val in d.get("unit_ids_u1", []):
                         ProductUnitId.objects.create(
                             product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
                         )
-                    for val in d.get("unit_ids_u2", []):
-                        ProductUnitId.objects.create(
-                            product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
-                        )
+                    if not p.is_single_unit:
+                        for val in d.get("unit_ids_u2", []):
+                            ProductUnitId.objects.create(
+                                product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
+                            )
 
                     if stock_qty is not None:
                         p.stock_qty = stock_qty

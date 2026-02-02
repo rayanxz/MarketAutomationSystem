@@ -52,6 +52,25 @@
   .btn-secondary:hover{ background:#eef2ff; }
   .w-full{ width:100%; }
 
+  /* Disabled / readonly visual state */
+  input:disabled, select:disabled, textarea:disabled, button:disabled,
+  input[readonly], textarea[readonly]{
+    background:#e5e7eb;
+    color:#6b7280;
+    cursor:not-allowed;
+    opacity:0.85;
+  }
+  input:disabled::placeholder, textarea:disabled::placeholder,
+  input[readonly]::placeholder, textarea[readonly]::placeholder{
+    color:#9ca3af;
+  }
+  .btn-muted:disabled, .del-btn:disabled, .btn-secondary:disabled, .btn-danger:disabled{
+    background:#e5e7eb;
+    border-color:#d1d5db;
+    color:#6b7280;
+    cursor:not-allowed;
+  }
+
   /* Modal */
   .modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; }
   .modal{ width:min(520px, 92vw); background:#fff; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,.25); padding:20px; }

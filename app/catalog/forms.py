@@ -66,6 +66,7 @@ class ProductCreateForm(forms.Form):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.instance = instance
         self._exclude_pk = exclude_pk if exclude_pk is not None else (instance.pk if instance else None)
 
         # Tiny UX touches
@@ -215,16 +216,19 @@ class ProductCreateForm(forms.Form):
         u2 = cleaned.get("unit_secondary") or ""
         cf = cleaned.get("conversion_factor")
 
-        # If a secondary unit is chosen -> conversion factor is required
-        if u2 and not cf:
-            self.add_error("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.")
-        # If no secondary unit -> nullify conversion factor
-        if not u2:
-            cleaned["conversion_factor"] = None
-
-        # Prevent setting the same unit as primary/secondary
         if u2 and u1 == u2:
-            self.add_error("unit_secondary", "لا يجوز أن تكون الوحدة الثانية مطابقة للأولى.")
+            if cleaned.get("conversion_factor") in (None, ""):
+                if self._exclude_pk and getattr(self.instance, "conversion_factor", None):
+                    cleaned["conversion_factor"] = self.instance.conversion_factor
+                else:
+                    cleaned["conversion_factor"] = Decimal("1")
+        else:
+            # If a secondary unit is chosen -> conversion factor is required
+            if u2 and not cf:
+                self.add_error("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.")
+            # If no secondary unit -> nullify conversion factor
+            if not u2:
+                cleaned["conversion_factor"] = None
 
         # --- Friendly duplicate barcode check (bulk + ignore self when editing) ---
         field_barcodes_u1 = self.parse_barcodes(cleaned.get("barcodes_u1"))

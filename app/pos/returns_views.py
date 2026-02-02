@@ -44,16 +44,21 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
         conv = _dec(getattr(r, "conv_factor_at_txn", None) or getattr(product, "conversion_factor", None) or "1")
         if conv <= 0:
             conv = Decimal("1")
+        if getattr(product, "is_single_unit", False):
+            conv = Decimal("1")
+            uom_index = 1
+        else:
+            uom_index = int(r.uom_index or 1)
 
         sold_qty = _dec(r.qty)
-        sold_primary = q3(sold_qty * conv) if int(r.uom_index or 1) == 2 else q3(sold_qty)
+        sold_primary = q3(sold_qty * conv) if uom_index == 2 else q3(sold_qty)
 
         already_primary = returned_map.get(int(r.id), DEC0)
         remaining_primary = q3(sold_primary - already_primary)
         if remaining_primary < DEC0:
             remaining_primary = DEC0
 
-        to_display = lambda q: q3(q / conv) if int(r.uom_index or 1) == 2 else q3(q)
+        to_display = lambda q: q3(q / conv) if uom_index == 2 else q3(q)
 
         rows.append(
             {
@@ -62,12 +67,12 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
                 "currency": (r.sale_currency or "SYP").upper(),
                 "uom_label": (
                     (getattr(r, "unit_2_label_at_txn", "") or "").strip()
-                    if int(r.uom_index or 1) == 2
+                    if uom_index == 2
                     else (getattr(r, "unit_1_label_at_txn", "") or "").strip()
                 )
                 or (
                     unit_label_map.get(product.unit_secondary, product.unit_secondary)
-                    if int(r.uom_index or 1) == 2 and product.unit_secondary
+                    if uom_index == 2 and product.unit_secondary
                     else unit_label_map.get(product.unit_primary, product.unit_primary)
                 ),
                 "sold_qty": to_display(sold_primary),

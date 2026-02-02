@@ -367,6 +367,9 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
     mode = (request.GET.get("mode") or "barcode").strip().lower()
 
     def fmt(p: Product) -> dict:
+        single_unit = bool(getattr(p, "unit_secondary", "")) and (
+            getattr(p, "unit_primary", "") == getattr(p, "unit_secondary", "")
+        )
         return {
             "type": "product",
             "id": p.id,
@@ -387,9 +390,9 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             # unit info (codes + human labels)
             "unit_primary": p.unit_primary,
             "unit_primary_label": p.get_unit_primary_display(),
-            "unit_secondary": p.unit_secondary or "",
-            "unit_secondary_label": p.get_unit_secondary_display() if p.unit_secondary else "",
-            "conversion_factor": str(p.conversion_factor or ""),
+            "unit_secondary": "" if single_unit else (p.unit_secondary or ""),
+            "unit_secondary_label": "" if single_unit else (p.get_unit_secondary_display() if p.unit_secondary else ""),
+            "conversion_factor": "1" if single_unit else str(p.conversion_factor or ""),
         }
 
     if not q:
@@ -407,7 +410,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             )
             if pb:
                 item = fmt(pb.product)
-                item["matched_unit"] = int(pb.unit_index)  # 1 or 2
+                item["matched_unit"] = 1 if pb.product.is_single_unit else int(pb.unit_index)  # 1 or 2
                 items = [item]
 
         elif mode == "name":
@@ -505,7 +508,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             )
             if uid:
                 item = fmt(uid.product)
-                item["matched_unit"] = int(uid.unit_index)  # 1 or 2
+                item["matched_unit"] = 1 if uid.product.is_single_unit else int(uid.unit_index)  # 1 or 2
                 items = [item]
 
         elif mode == "code":
@@ -688,8 +691,11 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 # ---- Unit IDs (lists) ----
                 u1_ids = _post_list(request, "unit_primary_ids")
                 u2_ids = _post_list(request, "unit_secondary_ids")
+                single_unit = bool(form.cleaned_data.get("unit_secondary")) and (
+                    form.cleaned_data.get("unit_secondary") == form.cleaned_data.get("unit_primary")
+                )
 
-                all_ids = list(dict.fromkeys(u1_ids + u2_ids))
+                all_ids = list(dict.fromkeys(u1_ids + (u2_ids if not single_unit else [])))
                 if all_ids:
                     existing_ids = set(
                         ProductUnitId.objects
@@ -705,10 +711,11 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     ProductUnitId.objects.create(
                         product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
                     )
-                for val in u2_ids:
-                    ProductUnitId.objects.create(
-                        product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
-                    )
+                if not single_unit:
+                    for val in u2_ids:
+                        ProductUnitId.objects.create(
+                            product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
+                        )
 
                 # ---- Barcodes (lists or textarea fallback) ----
                 bar_u1 = _post_list(request, "barcodes_u1") or ProductCreateForm.parse_barcodes(
@@ -718,7 +725,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     form.cleaned_data.get("barcodes_u2", "")
                 )
 
-                all_bcs = list(dict.fromkeys(bar_u1 + bar_u2))
+                all_bcs = list(dict.fromkeys(bar_u1 + (bar_u2 if not single_unit else [])))
                 if all_bcs:
                     existing_bcs = set(
                         ProductBarcode.objects
@@ -734,10 +741,11 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     ProductBarcode.objects.create(
                         product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
                     )
-                for bc in bar_u2:
-                    ProductBarcode.objects.create(
-                        product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
-                    )
+                if not single_unit:
+                    for bc in bar_u2:
+                        ProductBarcode.objects.create(
+                            product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
+                        )
 
             # AUDIT: create product (after everything is done)
             try:
@@ -966,6 +974,9 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 # ---- Unit IDs (replace when lists posted) ----
                 u1_ids = _post_list(request, "unit_primary_ids")
                 u2_ids = _post_list(request, "unit_secondary_ids")
+                single_unit = bool(form.cleaned_data.get("unit_secondary")) and (
+                    form.cleaned_data.get("unit_secondary") == form.cleaned_data.get("unit_primary")
+                )
 
                 if u1_ids:
                     ProductUnitId.objects.filter(
@@ -979,7 +990,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                             product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
                         )
 
-                if u2_ids:
+                if u2_ids and not single_unit:
                     ProductUnitId.objects.filter(
                         product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY
                     ).delete()
@@ -1010,7 +1021,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                             product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
                         )
 
-                if list_u2 or txt_u2:
+                if (list_u2 or txt_u2) and not single_unit:
                     new_u2 = list_u2 or txt_u2
                     ProductBarcode.objects.filter(
                         product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY
