@@ -133,6 +133,16 @@ def _snap_product(p: Product) -> dict:
     return d
 
 
+def _next_product_code() -> str:
+    last = (
+        Product.objects
+        .order_by("-product_number")
+        .values_list("product_number", flat=True)
+        .first()
+    )
+    n = 1 if not last else int(last) + 1
+    return f"{n:03d}"
+
 def _collect_ids_barcodes_from_post(request: HttpRequest) -> tuple[list[str], list[str], list[str], list[str]]:
     u1_ids = _post_list(request, "unit_primary_ids")
     u2_ids = _post_list(request, "unit_secondary_ids")
@@ -696,6 +706,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
 # =========================
 @role_required(AccountProfile.Role.MANAGER)
 def manager_product_new(request: HttpRequest) -> HttpResponse:
+    next_code = _next_product_code()
     if request.method == "POST":
         form = ProductCreateForm(request.POST)
         if not form.is_valid():
@@ -704,7 +715,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": False,
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                    "next_product_code": next_code,
+                },
             )
 
         # Resolve collection (CI)
@@ -721,7 +740,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": False,
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                    "next_product_code": next_code,
+                },
             )
 
         # Resolve or create set
@@ -758,7 +785,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": False,
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                    "next_product_code": next_code,
+                },
             )
 
         # Build product instance
@@ -775,7 +810,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": False,
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                    "next_product_code": next_code,
+                },
             )
         default_cost_syp = form.cleaned_data.get("default_cost_syp") or Decimal("0")
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
@@ -893,7 +936,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": False,
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                    "next_product_code": next_code,
+                },
             )
 
         except IntegrityError as e:
@@ -909,7 +960,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": False,
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                    "next_product_code": next_code,
+                },
             )
 
         messages.success(request, f"تم إنشاء المنتج «{p.name}» برقم {p.display_code}.")
@@ -920,7 +979,15 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "manager/product_new.html",
-        {"form": form, "editing": False, "u1_ids": [], "u2_ids": [], "bar_u1": [], "bar_u2": []},
+        {
+            "form": form,
+            "editing": False,
+            "u1_ids": [],
+            "u2_ids": [],
+            "bar_u1": [],
+            "bar_u2": [],
+            "next_product_code": next_code,
+        },
     )
 
 

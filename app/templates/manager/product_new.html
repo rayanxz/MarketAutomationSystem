@@ -35,6 +35,7 @@
 
   .help{ color:#6b7280; font-size:12px; }
   .err{ color:#b42318; font-size:12px; }
+  .id-badge{ background:#0f172a; color:#fff; border-radius:999px; padding:4px 10px; font-size:12px; font-weight:700; white-space:nowrap; }
 
   /* Autocomplete */
   .ac-list{ list-style:none; margin:4px 0 0; padding:0; border:1px solid #e5e7eb; border-radius:8px; background:#fff; box-shadow:0 8px 20px rgba(0,0,0,.08); max-height: calc(3 * 38px); overflow-y:auto; width:100%; }
@@ -88,7 +89,7 @@
   <div class="browser-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
     <div class="crumb" style="font-size:13px;color:#334155;background:#f1f5f9;padding:6px 10px;border-radius:999px;">
       {% if editing and product %}
-        {{ product.set.collection.name }}/{{ product.set.name }}/
+        {{ product.set.collection.name }}/{{ product.set.name }}/{{ product.name }}
       {% else %}
         /
       {% endif %}
@@ -115,7 +116,9 @@
       <h3>
         {% if editing %}تعديل منتج{% else %}بيانات المنتج{% endif %}
         {% if editing and product %}
-          <span class="muted">الكود: {{ product.display_code }} — {{ product.name }}</span>
+          <span class="id-badge">معرف المنتج: {{ product.display_code }}</span>
+        {% else %}
+          <span class="id-badge">معرف المنتج المتوقع: {{ next_product_code }}</span>
         {% endif %}
       </h3>
       {% if form.non_field_errors %}<div class="err">{{ form.non_field_errors.0 }}</div>{% endif %}
