@@ -45,7 +45,8 @@ def _post_list(request: HttpRequest, base: str) -> list[str]:
     Read repeated inputs named like base[] and return a trimmed, de-duplicated list.
     """
     seen, out = set(), []
-    for v in request.POST.getlist(f"{base}[]"):
+    vals = request.POST.getlist(f"{base}[]") or request.POST.getlist(base)
+    for v in vals:
         v = (v or "").strip()
         if v and v not in seen:
             seen.add(v)
@@ -131,6 +132,103 @@ def _snap_product(p: Product) -> dict:
         pass
     return d
 
+
+def _collect_ids_barcodes_from_post(request: HttpRequest) -> tuple[list[str], list[str], list[str], list[str]]:
+    u1_ids = _post_list(request, "unit_primary_ids")
+    u2_ids = _post_list(request, "unit_secondary_ids")
+    bar_u1 = _post_list(request, "barcodes_u1")
+    bar_u2 = _post_list(request, "barcodes_u2")
+    return u1_ids, u2_ids, bar_u1, bar_u2
+
+
+def _collect_ids_barcodes_from_product(p: Product) -> tuple[list[str], list[str], list[str], list[str]]:
+    u1_ids = list(
+        ProductUnitId.objects
+        .filter(product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY)
+        .order_by("id")
+        .values_list("value", flat=True)
+    )
+    u2_ids = list(
+        ProductUnitId.objects
+        .filter(product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY)
+        .order_by("id")
+        .values_list("value", flat=True)
+    )
+    bar_u1 = list(
+        ProductBarcode.objects
+        .filter(product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY)
+        .order_by("id")
+        .values_list("barcode", flat=True)
+    )
+    bar_u2 = list(
+        ProductBarcode.objects
+        .filter(product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY)
+        .order_by("id")
+        .values_list("barcode", flat=True)
+    )
+    return u1_ids, u2_ids, bar_u1, bar_u2
+
+
+def _validate_unit_ids_and_barcodes(
+    *,
+    form: ProductCreateForm,
+    product: Product | None,
+    u1_ids: list[str],
+    u2_ids: list[str],
+    bar_u1: list[str],
+    bar_u2: list[str],
+) -> bool:
+    ok = True
+
+    # Intra-product uniqueness (U1 vs U2)
+    dup_ids = sorted(set(u1_ids) & set(u2_ids))
+    if dup_ids:
+        msg = f"لا يمكن استخدام نفس المعرّف في الوحدتين: {', '.join(dup_ids)}"
+        form.add_error("unit_primary_ids", msg)
+        form.add_error("unit_secondary_ids", msg)
+        ok = False
+
+    dup_barcodes = sorted(set(bar_u1) & set(bar_u2))
+    if dup_barcodes:
+        msg = f"لا يمكن استخدام نفس الباركود في الوحدتين: {', '.join(dup_barcodes)}"
+        form.add_error("barcodes_u1", msg)
+        form.add_error("barcodes_u2", msg)
+        ok = False
+
+    # Global uniqueness (exclude current product on edit)
+    all_ids = list(dict.fromkeys(u1_ids + u2_ids))
+    if all_ids:
+        qs = ProductUnitId.objects.filter(value__in=all_ids)
+        if product is not None:
+            qs = qs.exclude(product=product)
+        taken_ids = set(qs.values_list("value", flat=True))
+        if taken_ids:
+            offending_u1 = [v for v in u1_ids if v in taken_ids]
+            offending_u2 = [v for v in u2_ids if v in taken_ids]
+            if offending_u1:
+                form.add_error("unit_primary_ids", f"هذه المعرّفات مستخدمة مسبقاً: {', '.join(offending_u1)}")
+                ok = False
+            if offending_u2:
+                form.add_error("unit_secondary_ids", f"هذه المعرّفات مستخدمة مسبقاً: {', '.join(offending_u2)}")
+                ok = False
+
+    all_barcodes = list(dict.fromkeys(bar_u1 + bar_u2))
+    if all_barcodes:
+        qs = ProductBarcode.objects.filter(barcode__in=all_barcodes)
+        if product is not None:
+            qs = qs.exclude(product=product)
+        taken_bc = set(qs.values_list("barcode", flat=True))
+        if taken_bc:
+            offending_u1 = [v for v in bar_u1 if v in taken_bc]
+            offending_u2 = [v for v in bar_u2 if v in taken_bc]
+            if offending_u1:
+                form.add_error("barcodes_u1", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u1)}")
+                ok = False
+            if offending_u2:
+                form.add_error("barcodes_u2", f"الباركودات التالية مستخدمة مسبقاً: {', '.join(offending_u2)}")
+                ok = False
+
+    return ok
 
 # ---------- role gate (manager; owner allowed by default) ----------
 def role_required(*roles: Iterable[str], allow_owner: bool = True):
@@ -602,7 +700,12 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         form = ProductCreateForm(request.POST)
         if not form.is_valid():
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": False})
+            u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
 
         # Resolve collection (CI)
         c_name = form.cleaned_data["collection_name"].strip()
@@ -614,7 +717,12 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         )
         if not col:
             form.add_error("collection_name", "الزمرة غير موجودة.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": False})
+            u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
 
         # Resolve or create set
         s_name = (form.cleaned_data["set_name"] or "").strip()
@@ -646,9 +754,29 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
 
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": False})
+            u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
 
         # Build product instance
+        u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+        if not _validate_unit_ids_and_barcodes(
+            form=form,
+            product=None,
+            u1_ids=u1_ids,
+            u2_ids=u2_ids,
+            bar_u1=bar_u1,
+            bar_u2=bar_u2,
+        ):
+            messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
         default_cost_syp = form.cleaned_data.get("default_cost_syp") or Decimal("0")
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
@@ -676,10 +804,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             default_cost_usd=default_cost_usd,
             default_price_syp=default_price_syp,
             default_price_usd=default_price_usd,
-            latest_cost_syp=default_cost_syp,
-            latest_cost_usd=default_cost_usd,
-            latest_price_syp=default_price_syp,
-            latest_price_usd=default_price_usd,
             notes=form.cleaned_data["notes"] or "",
         )
 
@@ -689,8 +813,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 p.save()
 
                 # ---- Unit IDs (lists) ----
-                u1_ids = _post_list(request, "unit_primary_ids")
-                u2_ids = _post_list(request, "unit_secondary_ids")
                 single_unit = bool(form.cleaned_data.get("unit_secondary")) and (
                     form.cleaned_data.get("unit_secondary") == form.cleaned_data.get("unit_primary")
                 )
@@ -717,13 +839,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                             product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
                         )
 
-                # ---- Barcodes (lists or textarea fallback) ----
-                bar_u1 = _post_list(request, "barcodes_u1") or ProductCreateForm.parse_barcodes(
-                    form.cleaned_data.get("barcodes_u1", "")
-                )
-                bar_u2 = _post_list(request, "barcodes_u2") or ProductCreateForm.parse_barcodes(
-                    form.cleaned_data.get("barcodes_u2", "")
-                )
+                # ---- Barcodes (lists) ----
 
                 all_bcs = list(dict.fromkeys(bar_u1 + (bar_u2 if not single_unit else [])))
                 if all_bcs:
@@ -774,7 +890,11 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 for msg in msgs:
                     form.add_error(mapping.get(field, None), msg)
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": False})
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
 
         except IntegrityError as e:
             emsg = str(e).lower()
@@ -786,14 +906,22 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 messages.error(request, "أحد الباركودات مستخدم مسبقاً.")
             else:
                 messages.error(request, "تعذّر حفظ المنتج بسبب تضارب في البيانات.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": False})
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": False, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
 
         messages.success(request, f"تم إنشاء المنتج «{p.name}» برقم {p.display_code}.")
         return redirect("manager_collections")
 
     # GET
     form = ProductCreateForm()
-    return render(request, "manager/product_new.html", {"form": form, "editing": False})
+    return render(
+        request,
+        "manager/product_new.html",
+        {"form": form, "editing": False, "u1_ids": [], "u2_ids": [], "bar_u1": [], "bar_u2": []},
+    )
 
 
 @require_GET
@@ -885,10 +1013,11 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         form = ProductCreateForm(request.POST, instance=p)
         if not form.is_valid():
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
+            u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": True, "product": p},
+                {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
             )
 
         c_name = form.cleaned_data["collection_name"].strip()
@@ -904,7 +1033,8 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         )
         if not col:
             form.add_error("collection_name", "الزمرة غير موجودة.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p})
+            u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2})
 
         # Resolve or create set
         st = None
@@ -934,9 +1064,26 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p})
+            u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2})
 
         # Update fields
+        u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
+        if not _validate_unit_ids_and_barcodes(
+            form=form,
+            product=p,
+            u1_ids=u1_ids,
+            u2_ids=u2_ids,
+            bar_u1=bar_u1,
+            bar_u2=bar_u2,
+        ):
+            messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
+
         p.name = form.cleaned_data["name"].strip()
         p.set = st
         p.unit_primary = form.cleaned_data["unit_primary"]
@@ -972,28 +1119,26 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 p.save()
 
                 # ---- Unit IDs (replace when lists posted) ----
-                u1_ids = _post_list(request, "unit_primary_ids")
-                u2_ids = _post_list(request, "unit_secondary_ids")
+                # Already validated + parsed above
                 single_unit = bool(form.cleaned_data.get("unit_secondary")) and (
                     form.cleaned_data.get("unit_secondary") == form.cleaned_data.get("unit_primary")
                 )
 
-                if u1_ids:
-                    ProductUnitId.objects.filter(
-                        product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY
-                    ).delete()
-                    for val in u1_ids:
-                        if ProductUnitId.objects.filter(value=val).exclude(product=p).exists():
-                            messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
-                            raise IntegrityError("duplicate unit id")
-                        ProductUnitId.objects.create(
-                            product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
-                        )
+                ProductUnitId.objects.filter(
+                    product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY
+                ).delete()
+                for val in u1_ids:
+                    if ProductUnitId.objects.filter(value=val).exclude(product=p).exists():
+                        messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
+                        raise IntegrityError("duplicate unit id")
+                    ProductUnitId.objects.create(
+                        product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
+                    )
 
-                if u2_ids and not single_unit:
-                    ProductUnitId.objects.filter(
-                        product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY
-                    ).delete()
+                ProductUnitId.objects.filter(
+                    product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY
+                ).delete()
+                if not single_unit:
                     for val in u2_ids:
                         if ProductUnitId.objects.filter(value=val).exclude(product=p).exists():
                             messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
@@ -1003,34 +1148,28 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                         )
 
                 # ---- Barcodes: replace when lists or textarea posted ----
-                list_u1 = _post_list(request, "barcodes_u1")
-                list_u2 = _post_list(request, "barcodes_u2")
-                txt_u1 = ProductCreateForm.parse_barcodes(request.POST.get("barcodes_u1", ""))
-                txt_u2 = ProductCreateForm.parse_barcodes(request.POST.get("barcodes_u2", ""))
+                list_u1 = bar_u1
+                list_u2 = bar_u2
 
-                if list_u1 or txt_u1:
-                    new_u1 = list_u1 or txt_u1
-                    ProductBarcode.objects.filter(
-                        product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY
-                    ).delete()
-                    for bc in new_u1:
+                ProductBarcode.objects.filter(
+                    product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY
+                ).delete()
+                for bc in list_u1:
+                    if ProductBarcode.objects.filter(barcode=bc).exclude(product=p).exists():
+                        messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
+                        raise IntegrityError("duplicate barcode")
+                    ProductBarcode.objects.create(
+                        product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
+                    )
+
+                ProductBarcode.objects.filter(
+                    product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY
+                ).delete()
+                if not single_unit:
+                    for bc in list_u2:
                         if ProductBarcode.objects.filter(barcode=bc).exclude(product=p).exists():
                             messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
                             raise IntegrityError("duplicate barcode")
-                        ProductBarcode.objects.create(
-                            product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
-                        )
-
-                if (list_u2 or txt_u2) and not single_unit:
-                    new_u2 = list_u2 or txt_u2
-                    ProductBarcode.objects.filter(
-                        product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY
-                    ).delete()
-                    for bc in new_u2:
-                        if ProductBarcode.objects.filter(barcode=bc).exclude(product=p).exists():
-                            messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
-                            raise IntegrityError("duplicate barcode")
-
                         ProductBarcode.objects.create(
                             product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
                         )
@@ -1056,7 +1195,11 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 form.add_error("name", "اسم المنتج موجود مسبقاً.")
             else:
                 messages.error(request, "تعذّر حفظ التعديلات. تحقّق من المعرّفات/الباركودات المتكررة.")
-            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p})
+            return render(
+                request,
+                "manager/product_new.html",
+                {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+            )
 
         messages.success(request, f"تم حفظ التعديلات للمنتج «{p.name}».")
         return redirect("manager_collections")
@@ -1086,16 +1229,15 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "default_cost_usd": p.default_cost_usd,
         "default_price_syp": p.default_price_syp,
         "default_price_usd": p.default_price_usd,
-        "latest_cost_syp": p.latest_cost_syp,
-        "latest_cost_usd": p.latest_cost_usd,
-        "latest_price_syp": p.latest_price_syp,
-        "latest_price_usd": p.latest_price_usd,
         "notes": p.notes or "",
-        "barcodes_u1": "",
-        "barcodes_u2": "",
     }
     form = ProductCreateForm(initial=initial, instance=p)
-    return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p})
+    u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_product(p)
+    return render(
+        request,
+        "manager/product_new.html",
+        {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+    )
 
 
 # ========================

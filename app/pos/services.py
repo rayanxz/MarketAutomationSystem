@@ -329,6 +329,21 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             container=container,
         )
 
+        # Update latest/default price from actual sales (per currency)
+        unit_price = q3(row.unit_price or DEC0)
+        if unit_price > DEC0:
+            row_currency = (row.sale_currency or SYP).upper()
+            if row_currency == USD:
+                product.default_price_usd = unit_price
+                product.latest_price_usd = unit_price
+                product.price_usd = unit_price
+                product.save(update_fields=["default_price_usd", "latest_price_usd", "price_usd"])
+            else:
+                product.default_price_syp = unit_price
+                product.latest_price_syp = unit_price
+                product.price_syp = unit_price
+                product.save(update_fields=["default_price_syp", "latest_price_syp", "price_syp"])
+
     # ==========================
     # 5) Financials: cash-in receipt (paid only)
     # ==========================

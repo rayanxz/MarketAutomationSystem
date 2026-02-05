@@ -51,6 +51,7 @@
   .btn-secondary{ background:#f3f4f6; color:#111; border:1px solid #e5e7eb; border-radius:8px; padding:8px 12px; }
   .btn-secondary:hover{ background:#eef2ff; }
   .w-full{ width:100%; }
+  .input.invalid{ border-color:#b42318; box-shadow:0 0 0 2px rgba(180,35,24,.08); }
 
   /* Disabled / readonly visual state */
   input:disabled, select:disabled, textarea:disabled, button:disabled,
@@ -224,21 +225,21 @@
       <div class="row-2">
         <div class="field">
           <label>آخر تكلفة (ليرة)</label>
-          {{ form.latest_cost_syp }}
+          <input class="input" value="{{ product.latest_cost_syp|default:'0' }}" disabled>
         </div>
         <div class="field">
           <label>آخر تكلفة (دولار)</label>
-          {{ form.latest_cost_usd }}
+          <input class="input" value="{{ product.latest_cost_usd|default:'0' }}" disabled>
         </div>
       </div>
       <div class="row-2">
         <div class="field">
           <label>آخر سعر بيع (ليرة)</label>
-          {{ form.latest_price_syp }}
+          <input class="input" value="{{ product.latest_price_syp|default:'0' }}" disabled>
         </div>
         <div class="field">
           <label>آخر سعر بيع (دولار)</label>
-          {{ form.latest_price_usd }}
+          <input class="input" value="{{ product.latest_price_usd|default:'0' }}" disabled>
         </div>
       </div>
     </section>
@@ -257,11 +258,16 @@
           <div id="u1-ids" class="stack" data-ensure-one data-name="unit_primary_ids[]" data-placeholder="ID...">
             {% for v in u1_ids %}
               <div class="inline-input">
-                <input name="unit_primary_ids[]" class="input" placeholder="ID..." dir="ltr" value="{{ v }}">
+                <input name="unit_primary_ids[]" class="input{% if form.errors.unit_primary_ids %} invalid{% endif %}" placeholder="ID..." dir="ltr" value="{{ v }}">
                 {% if not forloop.first %}<button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>{% endif %}
               </div>
             {% endfor %}
           </div>
+          {% if form.errors.unit_primary_ids %}
+            {% for err in form.errors.unit_primary_ids %}
+              <div class="err">{{ err }}</div>
+            {% endfor %}
+          {% endif %}
           <button type="button" class="btn-muted" onclick="addFieldWithDelete('u1-ids','unit_primary_ids[]','ID...')">+ إضافة</button>
         </div>
 
@@ -270,11 +276,16 @@
           <div id="u2-ids" class="stack" data-ensure-one data-name="unit_secondary_ids[]" data-placeholder="ID...">
             {% for v in u2_ids %}
               <div class="inline-input">
-                <input name="unit_secondary_ids[]" class="input" placeholder="ID..." dir="ltr" value="{{ v }}">
+                <input name="unit_secondary_ids[]" class="input{% if form.errors.unit_secondary_ids %} invalid{% endif %}" placeholder="ID..." dir="ltr" value="{{ v }}">
                 {% if not forloop.first %}<button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>{% endif %}
               </div>
             {% endfor %}
           </div>
+          {% if form.errors.unit_secondary_ids %}
+            {% for err in form.errors.unit_secondary_ids %}
+              <div class="err">{{ err }}</div>
+            {% endfor %}
+          {% endif %}
           <button type="button" class="btn-muted" onclick="addFieldWithDelete('u2-ids','unit_secondary_ids[]','ID...')">+ إضافة</button>
         </div>
       </div>
@@ -288,11 +299,16 @@
           <div id="u1-barcodes" class="stack" data-ensure-one data-name="barcodes_u1[]" data-placeholder="Barcode...">
             {% for v in bar_u1 %}
               <div class="inline-input">
-                <input name="barcodes_u1[]" class="input" dir="ltr" placeholder="Barcode..." value="{{ v }}">
+                <input name="barcodes_u1[]" class="input{% if form.errors.barcodes_u1 %} invalid{% endif %}" dir="ltr" placeholder="Barcode..." value="{{ v }}">
                 {% if not forloop.first %}<button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>{% endif %}
               </div>
             {% endfor %}
           </div>
+          {% if form.errors.barcodes_u1 %}
+            {% for err in form.errors.barcodes_u1 %}
+              <div class="err">{{ err }}</div>
+            {% endfor %}
+          {% endif %}
           <button type="button" class="btn-muted" onclick="addFieldWithDelete('u1-barcodes','barcodes_u1[]','Barcode...')">+ إضافة</button>
         </div>
 
@@ -301,11 +317,16 @@
           <div id="u2-barcodes" class="stack" data-ensure-one data-name="barcodes_u2[]" data-placeholder="Barcode...">
             {% for v in bar_u2 %}
               <div class="inline-input">
-                <input name="barcodes_u2[]" class="input" dir="ltr" placeholder="Barcode..." value="{{ v }}">
+                <input name="barcodes_u2[]" class="input{% if form.errors.barcodes_u2 %} invalid{% endif %}" dir="ltr" placeholder="Barcode..." value="{{ v }}">
                 {% if not forloop.first %}<button type="button" class="del-btn" onclick="this.parentElement.remove()">حذف</button>{% endif %}
               </div>
             {% endfor %}
           </div>
+          {% if form.errors.barcodes_u2 %}
+            {% for err in form.errors.barcodes_u2 %}
+              <div class="err">{{ err }}</div>
+            {% endfor %}
+          {% endif %}
           <button type="button" class="btn-muted" onclick="addFieldWithDelete('u2-barcodes','barcodes_u2[]','Barcode...')">+ إضافة</button>
         </div>
       </div>
@@ -418,16 +439,6 @@
       const dpSyp = document.querySelector('input[name="default_price_syp"]');
       const dpUsd = document.querySelector('input[name="default_price_usd"]');
 
-      const lcSyp = document.querySelector('input[name="latest_cost_syp"]');
-      const lcUsd = document.querySelector('input[name="latest_cost_usd"]');
-      const lpSyp = document.querySelector('input[name="latest_price_syp"]');
-      const lpUsd = document.querySelector('input[name="latest_price_usd"]');
-
-      function setReadonly(el){
-        if (!el) return;
-        el.readOnly = true;
-        el.disabled = true;
-      }
 
       function toggle(){
         const pSyp = !!allowSypPurch?.checked;
@@ -449,7 +460,6 @@
       });
       toggle();
 
-      [lcSyp, lcUsd, lpSyp, lpUsd].forEach(setReadonly);
     })();
 
     function openDeleteModal(){

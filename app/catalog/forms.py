@@ -91,10 +91,6 @@ class ProductCreateForm(forms.Form):
             "default_cost_usd",
             "default_price_syp",
             "default_price_usd",
-            "latest_cost_syp",
-            "latest_cost_usd",
-            "latest_price_syp",
-            "latest_price_usd",
             "conversion_factor",
             "stock_qty",
         ):
@@ -112,10 +108,6 @@ class ProductCreateForm(forms.Form):
                     "default_cost_usd",
                     "default_price_syp",
                     "default_price_usd",
-                    "latest_cost_syp",
-                    "latest_cost_usd",
-                    "latest_price_syp",
-                    "latest_price_usd",
                 ):
                     self.fields[n].widget.attrs.setdefault("step", "0.0001")
 
@@ -170,10 +162,9 @@ class ProductCreateForm(forms.Form):
     default_price_syp = forms.DecimalField(label="Default price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
     default_price_usd = forms.DecimalField(label="Default price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
 
-    latest_cost_syp = forms.DecimalField(label="Latest cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    latest_cost_usd = forms.DecimalField(label="Latest cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    latest_price_syp = forms.DecimalField(label="Latest price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    latest_price_usd = forms.DecimalField(label="Latest price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    # Unit IDs are handled as repeated inputs in the UI; fields exist for error binding only.
+    unit_primary_ids = forms.CharField(label="Unit IDs (primary)", required=False)
+    unit_secondary_ids = forms.CharField(label="Unit IDs (secondary)", required=False)
 
     notes = forms.CharField(
         label="ملاحظات",
@@ -303,10 +294,6 @@ class ProductCreateForm(forms.Form):
             "default_cost_usd",
             "default_price_syp",
             "default_price_usd",
-            "latest_cost_syp",
-            "latest_cost_usd",
-            "latest_price_syp",
-            "latest_price_usd",
             "cost",
             "price",
             "cost_syp",

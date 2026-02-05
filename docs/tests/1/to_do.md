@@ -44,25 +44,39 @@
 - remove the SYP radio button from the product adding form , keep the auto:SYP and dollars *checked*
 - we should prevent user from deleting the first textbox of all of 4 (1st code , 1st barcode , 2nd code , 2nd barcode) textboxes in the adding product form *checked*
 
-- make the recomendation list for search by name in search panel display up to 20 rows , but give it the height of 3 rows , and give it a scroll bar so user can navigate up and down through elements
+- make the recomendation list for search by name in search panel display up to 20 rows , but give it the height of 3 rows , and give it a scroll bar so user can navigate up and down through elements *checked*
 
-- let the system know that selecting same second unit as first in product adding form means that the product only has one unit of measurement , and which makes the system always depend on the first unit and disable the ability to enter a conversion factor in the form
+======================================================================================
 
-- fix the updated latest cost , price in a product edit form when the default value is set
-- fix the codes and barcodes are not gettings saved and not shown in their textboxes in the edit page of a product 
-- remove the useless import excel button next to collection / father set deletions buttons 
+- let the system know that selecting same second unit as first in product adding form means that the product only has one unit of measurement , and which makes the system always depend on the first unit and disable the ability to enter a conversion factor in the form *checked*
+
+**temporary report for above step** : 
+1) i managed to create  a new product that has same first unit as second , the system disabled the conversion factor , 2nd code and 2nd barcode textboxes 
+2) when i entered the edit page for that product , the conversion factor was disabled and set to 1 , *BUT the 2nd code and barcodes textboxes were enabled for input which is a big bug* 
+3) when i added that product to a purchase bill , the dropbox for the unit of measurement contained only 1 element and that's "item" (which is the 1st and 2nd unit of measurement that i've set to the product) which is great 
+
+======================================================================================
+
+- fix the updated latest cost , price in a product edit form when the default value is set `STILL NOT CHECKED delayed until the purchase bills bugs are fixed so i can test properly`
+
+- fix the codes and barcodes are not gettings saved and not shown in their textboxes in the edit page of a product <------
+- remove the useless import excel button next to collection / father set deletions buttons , cause now we have a disabled button in the top section of each father sets list and products list page
+
 - remove the logic of collection / father set all products cost / prices changing 
-- show the name of the product the user is editing in the path text up there
+- show the name of the product the user is editing in the path text up there , AND show the id (that's auto given by the system) in a proper way 
+
 - handle the current issue of deletions in the right way that satisfies a good accounting system
+
 - a feature we can add to product edit and addition page, is letting the manager allow discounts or not in sales , and if allowed let the manager set a limit or keep the discount up to the cashier 
 - we can give the manager the option to set a price / cost for second unit that is different from the price / cost of first unit x conversion factor , or the manager can let the system auto set the cost / price of the 2nd unit as it does now
 - show the id that the system is going to give to a product in the adding form 
 - add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one 
 
+- fix all the issues of product_add vs entering an existing product page in edit mode 
+
+- add a real time complier (fixer) to the product_new page while in edit mode , and in first addition mode as well , but some difference might happen between those 2 
 
 ## 2. excel import : 
-
-
 
 - move the page button to lower menu of products management page
 - improve the first phase page layout with some css , rn looks garbage 
