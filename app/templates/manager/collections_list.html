@@ -162,15 +162,12 @@
           <div id="actionsCol" hidden>
             <button type="button" class="btn-soft" id="btnColRename">إعادة تسمية الزمرة</button>
             <button type="button" class="btn-danger" id="btnColDelete">حذف الزمرة (شامل العناصر)</button>
-            <button type="button" class="btn-soft btn-disabled" id="btnColImport" title="قريباً">استيراد ملف Excel</button>
           </div>
 
           <!-- For Sets level (you clicked a set -> now at products level) -->
           <div id="actionsSet" hidden>
             <button type="button" class="btn-soft" id="btnSetRename">إعادة تسمية المجموعة الأب</button>
             <button type="button" class="btn-danger" id="btnSetDelete">حذف المجموعة الأب (شامل العناصر)</button>
-            <button type="button" class="btn-soft" id="btnSetBatch">تعديل جماعي لأسعار/كُلف المنتجات</button>
-            <button type="button" class="btn-soft btn-disabled" id="btnSetImport" title="قريباً">استيراد ملف Excel</button>
           </div>
         </div>
 
@@ -260,47 +257,6 @@
   </section>
 </div>
 
-<!-- Batch edit (set only) -->
-<div class="modal-backdrop" id="modalBatch">
-  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="batchH">
-    <header class="modal-h">
-      <h3 id="batchH">تعديل جماعي لأسعار/كُلف المنتجات (المجموعة الأب)</h3>
-      <button class="modal-x" data-close>×</button>
-    </header>
-    <div class="modal-body">
-      <div class="field">
-        <label for="batch_field">الحقل</label>
-        <select id="batch_field" class="select">
-          <option value="price">السعر</option>
-          <option value="cost">الكلفة</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="batch_mode">الطريقة</label>
-        <select id="batch_mode" class="select">
-          <option value="absolute">قيمة رقمية</option>
-          <option value="percent">نسبة مئوية%</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="batch_sign">الاتجاه</label>
-        <select id="batch_sign" class="select">
-          <option value="+">زيادة</option>
-          <option value="-">تنقيص</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="batch_value">القيمة</label>
-        <input id="batch_value" type="number" step="0.01" min="0" class="input" placeholder="مثال: 5 أو 10%">
-        <div class="help">ستُطبَّق على كل المنتجات ضمن المجموعة الأب المحددة.</div>
-      </div>
-      <div class="modal-f">
-        <button type="button" class="btn-primary" id="btnBatchApply">تطبيق</button>
-        <button type="button" class="btn-soft" data-close>إلغاء</button>
-      </div>
-    </div>
-  </section>
-</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -329,22 +285,12 @@
     const delBar      = delProg.querySelector('i');
     const delConfirm  = document.getElementById('btnDelConfirm');
 
-    const modalBatch  = document.getElementById('modalBatch');
-    const bField = document.getElementById('batch_field');
-    const bMode  = document.getElementById('batch_mode');
-    const bSign  = document.getElementById('batch_sign');
-    const bValue = document.getElementById('batch_value');
-    const bApply = document.getElementById('btnBatchApply');
-
     // Buttons
     const btnColRename = document.getElementById('btnColRename');
     const btnColDelete = document.getElementById('btnColDelete');
-    const btnColImport = document.getElementById('btnColImport');
 
     const btnSetRename = document.getElementById('btnSetRename');
     const btnSetDelete = document.getElementById('btnSetDelete');
-    const btnSetBatch  = document.getElementById('btnSetBatch');
-    const btnSetImport = document.getElementById('btnSetImport');
 
     // Current context (published by manager_browser.js)
     let ctx = { level:'collections', col:null, set:null };
@@ -354,7 +300,7 @@
 
     function openModal(el){ el && el.classList.add('show'); }
     function closeModal(el){ el && el.classList.remove('show'); }
-    function closeAll(){ [modalRename, modalDelete, modalBatch].forEach(closeModal); }
+    function closeAll(){ [modalRename, modalDelete].forEach(closeModal); }
 
     document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', closeAll));
     document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('click', e => {
@@ -449,10 +395,6 @@
       }
     });
 
-    btnColImport && btnColImport.addEventListener('click', () => {
-      alert('استيراد Excel: قريباً. (سيتم إدراج المنتجات داخل الزمرة المحددة)');
-    });
-
     // ----- Set actions -----
     btnSetRename && btnSetRename.addEventListener('click', () => {
       if (!ctx.set) return;
@@ -470,31 +412,6 @@
       delProg.hidden = true; delBar.style.width = '0%';
       delConfirm.dataset.mode = 'set';
       openModal(modalDelete);
-    });
-
-    btnSetBatch && btnSetBatch.addEventListener('click', () => {
-      if (!ctx.set) return;
-      bField.value='price'; bMode.value='absolute'; bSign.value='+'; bValue.value='';
-      openModal(modalBatch);
-      setTimeout(()=> bValue.focus(), 50);
-    });
-
-    bApply && bApply.addEventListener('click', async () => {
-      const field = bField.value;           // price|cost
-      const mode  = bMode.value;            // absolute|percent
-      const sign  = bSign.value;            // +|-
-      const val   = parseFloat(bValue.value);
-      if (!ctx.set || !field || !mode || !sign || !(val > 0)) { bValue.focus(); return; }
-      await fetch('/manager/products/api/edit/apply/', {
-        method:'POST',
-        headers:{'Content-Type':'application/json','X-CSRFToken':csrf,'Accept':'application/json'},
-        body: JSON.stringify({ ops: [{ op:'adjust', type:'set', id: ctx.set.id, field, mode, sign, delta: val }] })
-      }).catch(()=>{});
-      location.reload();
-    });
-
-    btnSetImport && btnSetImport.addEventListener('click', () => {
-      alert('استيراد Excel: قريباً. (سيتم إدراج المنتجات داخل المجموعة الأب المحددة)');
     });
 
   })();

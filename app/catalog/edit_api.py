@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 from django.db import transaction, IntegrityError
-from django.db.models import F, Value
 from django.db.models.deletion import ProtectedError
-from django.db.models.functions import Lower, Greatest
+from django.db.models.functions import Lower
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_POST
 
@@ -25,9 +23,6 @@ from catalog.views import role_required
 from audit_log.services import log_update, log_delete, snap_instance
 
 ALLOWED_TYPES = {"collection", "set"}
-ALLOWED_FIELDS = {"price", "cost"}
-ALLOWED_MODES = {"percent", "absolute"}
-ALLOWED_SIGNS = {"+", "-"}
 
 
 # ------------------------
@@ -38,21 +33,6 @@ def _as_int(x) -> int | None:
         return int(x)
     except Exception:
         return None
-
-
-def _as_decimal(x) -> Decimal | None:
-    try:
-        return Decimal(str(x))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-
-
-def _scope_qs(scope_type: str, scope_id: int):
-    if scope_type == "collection":
-        return Product.objects.filter(set__collection_id=scope_id)
-    if scope_type == "set":
-        return Product.objects.filter(set_id=scope_id)
-    raise ValueError("bad scope")
 
 
 def _get_or_create_trash_set(col: ProductCollection) -> ProductSet:
@@ -110,8 +90,6 @@ def edit_apply_batch(request: HttpRequest):
     {
       "ops": [
         {"op":"rename", "type":"collection"|"set", "id":123, "name":"New name"},
-        {"op":"adjust", "type":"collection"|"set", "id":123, "field":"price"|"cost",
-         "mode":"percent"|"absolute", "delta": 10.0, "sign":"+"|"-"},
         {"op":"delete", "type":"collection"|"set", "id":123}
       ]
     }
@@ -138,7 +116,7 @@ def edit_apply_batch(request: HttpRequest):
                 typ = (op.get("type") or "").strip().lower()
                 _id = _as_int(op.get("id"))
 
-                if kind not in {"rename", "adjust", "delete"}:
+                if kind not in {"rename", "delete"}:
                     results.append({"ok": False, "error": "bad op"})
                     continue
                 if typ not in ALLOWED_TYPES or not _id:
@@ -246,71 +224,6 @@ def edit_apply_batch(request: HttpRequest):
                         )
 
                         results.append({"ok": True})
-
-                # =========================
-                #          ADJUST
-                # =========================
-                elif kind == "adjust":
-                    field = (op.get("field") or "").strip().lower()
-                    mode = (op.get("mode") or "").strip().lower()
-                    sign = (op.get("sign") or "").strip()
-
-                    delta = _as_decimal(op.get("delta"))
-                    if field not in ALLOWED_FIELDS or mode not in ALLOWED_MODES or sign not in ALLOWED_SIGNS:
-                        results.append({"ok": False, "error": "bad params"})
-                        continue
-                    if delta is None or delta <= 0:
-                        results.append({"ok": False, "error": "delta must be > 0"})
-                        continue
-
-                    qs = _scope_qs(typ, _id)
-
-                    # IMPORTANT: count BEFORE update
-                    affected = qs.count()
-
-                    if affected <= 0:
-                        # still log (optional) but usually just return ok
-                        results.append({"ok": True, "affected": 0, "note": "no products"})
-                        continue
-
-                    if mode == "percent":
-                        factor = Decimal("1") + (delta / Decimal("100")) * (
-                            Decimal("1") if sign == "+" else Decimal("-1")
-                        )
-                        qs.update(**{
-                            field: Greatest(F(field) * factor, Value(Decimal("0")))
-                        })
-                    else:
-                        expr = F(field) + delta if sign == "+" else F(field) - delta
-                        qs.update(**{
-                            field: Greatest(expr, Value(Decimal("0")))
-                        })
-
-                    # audit (target is the scope object, not the products)
-                    before = target_before or snap_instance(target, ["name", "code"])
-                    after = snap_instance(target, ["name", "code"])
-                    log_update(
-                        actor=request.user,
-                        request=request,
-                        target=target,
-                        title="Adjust product pricing",
-                        message=f"Adjusted {field} ({mode} {sign}{delta}) for {affected} products",
-                        before=before,
-                        after=after,
-                        meta={
-                            "source": "catalog.edit_apply_batch",
-                            "op": op,
-                            "scope_type": typ,
-                            "scope_id": _id,
-                            "field": field,
-                            "mode": mode,
-                            "sign": sign,
-                            "delta": str(delta),
-                            "affected": affected,
-                        },
-                    )
-
-                    results.append({"ok": True, "affected": affected})
 
                 # =========================
                 #          DELETE
