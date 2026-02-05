@@ -15,6 +15,7 @@
   .card{ background:#fff; border-radius:12px; box-shadow:var(--card-shadow); padding:16px; }
   .card h3{ margin:0 0 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .card h3 .muted{ font-size:13px; color:#6b7280; font-weight:400; }
+  .crumb-path{ font-size:14px; font-weight:600; color:#1f2937; }
 
   .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
   .field label{ font-weight:600; }
@@ -87,7 +88,7 @@
 {% block content %}
 <div class="page">
   <div class="browser-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-    <div class="crumb" style="font-size:13px;color:#334155;background:#f1f5f9;padding:6px 10px;border-radius:999px;">
+    <div class="crumb crumb-path" id="productPath" data-mode="{% if editing %}edit{% else %}create{% endif %}" style="background:#f1f5f9;padding:6px 10px;border-radius:999px;">
       {% if editing and product %}
         {{ product.set.collection.name }}/{{ product.set.name }}/{{ product.name }}
       {% else %}
@@ -474,4 +475,24 @@
       if (el) el.style.display = 'none';
     }
   </script>
+  {% if not editing %}
+  <script>
+    (function(){
+      const pathEl = document.getElementById("productPath");
+      if (!pathEl) return;
+
+      function renderPath(detail){
+        const col = (detail?.collectionName || "").trim();
+        const set = (detail?.setName || "").trim();
+        if (!col) { pathEl.textContent = "/"; return; }
+        pathEl.textContent = set ? `/${col}/${set}` : `/${col}`;
+      }
+
+      document.addEventListener("product:path-commit", (e) => {
+        renderPath(e.detail);
+      });
+      renderPath({ collectionName: "", setName: "" });
+    })();
+  </script>
+  {% endif %}
 {% endblock %}

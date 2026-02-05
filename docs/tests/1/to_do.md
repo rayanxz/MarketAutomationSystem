@@ -60,11 +60,10 @@
 - fix the updated latest cost , price in a product edit form when the default value is set `STILL NOT CHECKED delayed until the purchase bills bugs are fixed so i can test properly`
 
 - fix the codes and barcodes are not gettings saved and not shown in their textboxes in the edit page of a product *checked*
+- remove the useless import excel button next to collection / father set deletions buttons , cause now we have a disabled button in the top section of each father sets list and products list pages *checked*
+- remove the logic of collection / father set all products cost / prices changing *checked*
 
-- remove the useless import excel button next to collection / father set deletions buttons , cause now we have a disabled button in the top section of each father sets list and products list pages
-
-- remove the logic of collection / father set all products cost / prices changing 
-- show the name of the product the user is editing in the path text up there , AND show the id (that's auto given by the system) in a proper way 
+- show the name of the product the user is editing in the path text up there , AND show the id (that's auto given by the system) in a proper way *checked*
 
 - handle the current issue of deletions in the right way that satisfies a good accounting system
 

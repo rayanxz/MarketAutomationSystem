@@ -11,6 +11,36 @@
 
   // Selected collection (enables sets AC)
   let selectedCollection = null;
+  let committedCollectionName = "";
+  let committedSetName = "";
+  let liveSetTyping = false;
+  const pathEl = document.getElementById("productPath");
+  const pathPreviewEnabled = pathEl && pathEl.dataset.mode === "create";
+  const createParentInput = document.querySelector('input[name="create_parent"]');
+
+  function emitPathCommit() {
+    if (!pathPreviewEnabled) return;
+    document.dispatchEvent(new CustomEvent("product:path-commit", {
+      detail: {
+        collectionName: committedCollectionName || "",
+        setName: committedSetName || "",
+      }
+    }));
+  }
+
+  function emitPathLiveSet(name) {
+    if (!pathPreviewEnabled) return;
+    document.dispatchEvent(new CustomEvent("product:path-commit", {
+      detail: {
+        collectionName: committedCollectionName || "",
+        setName: name || "",
+      }
+    }));
+  }
+
+  function isCreateParentChecked() {
+    return !!createParentInput?.checked;
+  }
 
   // ---- helpers ----
   const debounce = (fn, ms = 200) => {
@@ -115,6 +145,10 @@
   function pickCollection(item) {
     colInput.value = (item.name || "").trim();
     selectedCollection = { id: item.id, code: item.code || "", name: item.name || "" };
+    committedCollectionName = selectedCollection.name || "";
+    committedSetName = "";
+    liveSetTyping = false;
+    emitPathCommit();
     clearList(colList);
 
     // reset sets input when collection changes
@@ -128,6 +162,9 @@
   const onColType = debounce(async () => {
     const q = (colInput.value || "").trim();
     selectedCollection = null; // typing invalidates selection
+    committedCollectionName = "";
+    committedSetName = "";
+    liveSetTyping = false;
     setInput.value = "";
     setInput.disabled = true;
     clearList(setList);
@@ -144,11 +181,40 @@
   colInput.addEventListener("focus", onColType);
   colInput.addEventListener("blur", () => {
     // small delay so mousedown on an item can run first
-    setTimeout(() => clearList(colList), 120);
+    setTimeout(async () => {
+      clearList(colList);
+      const val = (colInput.value || "").trim();
+      if (!val) {
+        committedCollectionName = "";
+        committedSetName = "";
+        emitPathCommit();
+        return;
+      }
+      if (selectedCollection && val.toLowerCase() === (selectedCollection.name || "").toLowerCase()) {
+        committedCollectionName = selectedCollection.name || "";
+        emitPathCommit();
+        return;
+      }
+      const items = await fetchCollections(val);
+      const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+      if (exact) {
+        pickCollection(exact);
+      }
+    }, 120);
   });
 
   colInput.addEventListener("keydown", (e) => {
-    if (!colList || colList.hidden) return; // let Tab move focus normally
+    if (!colList || colList.hidden) {
+      if (e.key !== "Enter") return; // let Tab move focus normally
+      e.preventDefault();
+      const val = (colInput.value || "").trim();
+      if (!val) return;
+      fetchCollections(val).then((items) => {
+        const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+        if (exact) pickCollection(exact);
+      });
+      return;
+    }
     const lis = $$("li", colList);
     if (!lis.length) return;
 
@@ -176,6 +242,13 @@
           id: +el.dataset.id,
           name: (el.dataset.name || "").trim(),
           code: el.dataset.code || "",
+        });
+      } else {
+        const val = (colInput.value || "").trim();
+        if (!val) return;
+        fetchCollections(val).then((items) => {
+          const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+          if (exact) pickCollection(exact);
         });
       }
     } else if (e.key === "Escape") {
@@ -207,12 +280,22 @@
 
   function pickSet(item) {
     setInput.value = (item.name || "").trim();
+    committedSetName = (item.name || "").trim();
+    liveSetTyping = false;
+    emitPathCommit();
     clearList(setList);
   }
 
   let setToken = 0;
   const onSetType = debounce(async () => {
     const q = (setInput.value || "").trim();
+    committedSetName = "";
+    if (pathPreviewEnabled && isCreateParentChecked()) {
+      liveSetTyping = true;
+      emitPathLiveSet(q);
+      clearList(setList);
+      return;
+    }
     if (!q || !selectedCollection) return clearList(setList);
 
     const myToken = ++setToken;
@@ -224,11 +307,51 @@
   setInput.addEventListener("input", onSetType);
   setInput.addEventListener("focus", onSetType);
   setInput.addEventListener("blur", () => {
-    setTimeout(() => clearList(setList), 120);
+    setTimeout(async () => {
+      clearList(setList);
+      const val = (setInput.value || "").trim();
+      if (!val) {
+        committedSetName = "";
+        liveSetTyping = false;
+        emitPathCommit();
+        return;
+      }
+      if (committedSetName && val.toLowerCase() === committedSetName.toLowerCase()) {
+        emitPathCommit();
+        return;
+      }
+      if (pathPreviewEnabled && isCreateParentChecked()) {
+        liveSetTyping = true;
+        emitPathLiveSet(val);
+        return;
+      }
+      if (!selectedCollection) return;
+      const items = await fetchSets(val, selectedCollection.id);
+      const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+      if (exact) {
+        pickSet(exact);
+      }
+    }, 120);
   });
 
   setInput.addEventListener("keydown", (e) => {
-    if (!setList || setList.hidden) return; // allow normal Tab when list closed
+    if (!setList || setList.hidden) {
+      if (e.key !== "Enter") return; // allow normal Tab when list closed
+      e.preventDefault();
+      const val = (setInput.value || "").trim();
+      if (!val) return;
+      if (pathPreviewEnabled && isCreateParentChecked()) {
+        liveSetTyping = true;
+        emitPathLiveSet(val);
+        return;
+      }
+      if (!selectedCollection) return;
+      fetchSets(val, selectedCollection.id).then((items) => {
+        const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+        if (exact) pickSet(exact);
+      });
+      return;
+    }
     const lis = $$("li", setList);
     if (!lis.length) return;
 
@@ -257,6 +380,19 @@
           name: (el.dataset.name || "").trim(),
           code: el.dataset.code || "",
         });
+      } else {
+        const val = (setInput.value || "").trim();
+        if (!val) return;
+        if (pathPreviewEnabled && isCreateParentChecked()) {
+          liveSetTyping = true;
+          emitPathLiveSet(val);
+          return;
+        }
+        if (!selectedCollection) return;
+        fetchSets(val, selectedCollection.id).then((items) => {
+          const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+          if (exact) pickSet(exact);
+        });
       }
     } else if (e.key === "Escape") {
       clearList(setList);
@@ -275,7 +411,24 @@
     const exact = items.find(it => (it.name || "").toLowerCase() === text.toLowerCase());
     const pick = exact || items[0];
     selectedCollection = { id: pick.id, code: pick.code || "", name: pick.name || "" };
+    committedCollectionName = selectedCollection.name || "";
     setInput.disabled = false;
+    emitPathCommit();
+  }
+
+  if (pathPreviewEnabled && createParentInput) {
+    createParentInput.addEventListener("change", () => {
+      const val = (setInput?.value || "").trim();
+      if (isCreateParentChecked()) {
+        liveSetTyping = true;
+        emitPathLiveSet(val);
+        clearList(setList);
+      } else {
+        liveSetTyping = false;
+        committedSetName = "";
+        emitPathCommit();
+      }
+    });
   }
 
   // Disable set input until a collection is chosen (first render), then bootstrap
