@@ -12,8 +12,10 @@
   // ---------- constants ----------
   const MODE_KEY = "mgr.search.mode";
   const SCOPE_KEY = "mgr.search.scope";
+  const PENDING_KEY = "mgr.search.pending.open";
   const API_URL  = "/manager/products/api/search/";
   const ICON     = { collection: "📁", set: "👥", product: "📦" };
+  const PENDING_TTL_MS = 5 * 60 * 1000;
 
   // ---------- state ----------
   let mode = localStorage.getItem(MODE_KEY) || "barcode";
@@ -27,6 +29,7 @@
   const setScope = (s) => {
     scope = s;
     localStorage.setItem(SCOPE_KEY, scope);
+    sessionStorage.removeItem(PENDING_KEY);
     hideSuggestions();
     hideError();
     activeIndex = -1;
@@ -51,6 +54,7 @@
   const setMode = (m) => {
     mode = m;
     localStorage.setItem(MODE_KEY, mode);
+    sessionStorage.removeItem(PENDING_KEY);
     updateScopeUI();
     hideSuggestions();
     hideError();
@@ -153,6 +157,54 @@
     clearActive();
   };
 
+  const storePendingOpen = (it) => {
+    if (!it || !it.type || !it.id) return;
+    const payload = {
+      type: it.type,
+      id: it.id,
+      col_id: it.col_id,
+      set_id: it.set_id,
+      name: it.name,
+      col_name: it.col_name || it.col_code || "",
+      set_name: it.set_name || it.set_code || "",
+      query: (q.value || "").trim(),
+      ts: Date.now(),
+    };
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
+  };
+
+  const readPendingOpen = () => {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    try {
+      const data = JSON.parse(raw);
+      if (!data || !data.ts || (Date.now() - data.ts) > PENDING_TTL_MS) {
+        sessionStorage.removeItem(PENDING_KEY);
+        return null;
+      }
+      return data;
+    } catch {
+      sessionStorage.removeItem(PENDING_KEY);
+      return null;
+    }
+  };
+
+  const clearPendingOpen = () => {
+    sessionStorage.removeItem(PENDING_KEY);
+  };
+
+  const isEditableTarget = (el) => {
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    const tag = (el.tagName || "").toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select";
+  };
+
+  const isInDialog = (el) => {
+    if (!el || !el.closest) return false;
+    return !!el.closest('[role="dialog"], .modal, .modal-backdrop');
+  };
+
   // ---------- deep-link helpers ----------
   // Collection: stay on collections level and just highlight that collection
   function gotoCollection(item) {
@@ -189,8 +241,48 @@
     window.location.href = u.toString();
   }
 
+  function openCollection(item) {
+    if (!item?.id) return false;
+    const u = new URL("/manager/products/", window.location.origin);
+    u.searchParams.set("cid", item.id);
+    u.searchParams.set("cname", item.name || item.col_name || "");
+    window.location.href = u.toString();
+    return true;
+  }
+
+  function openSet(item) {
+    if (!item?.id || !item?.col_id) return false;
+    const u = new URL("/manager/products/", window.location.origin);
+    u.searchParams.set("cid", item.col_id);
+    u.searchParams.set("sid", item.id);
+    u.searchParams.set("cname", item.col_name || "");
+    if (item.set_name) u.searchParams.set("sname", item.set_name);
+    window.location.href = u.toString();
+    return true;
+  }
+
+  function openProduct(item) {
+    if (!item?.id) return false;
+    window.location.href = `/manager/products/${item.id}/edit/`;
+    return true;
+  }
+
+  function tryOpenPending() {
+    const pending = readPendingOpen();
+    if (!pending) return false;
+    const curQuery = (q.value || "").trim();
+    if (curQuery && pending.query && pending.query !== curQuery) return false;
+    let opened = false;
+    if (pending.type === "collection") opened = openCollection(pending);
+    else if (pending.type === "set") opened = openSet(pending);
+    else if (pending.type === "product") opened = openProduct(pending);
+    if (opened) clearPendingOpen();
+    return opened;
+  }
+
   function onChoose(it) {
     if (!it) return;
+    storePendingOpen(it);
     if (it.type === "collection") return gotoCollection(it);
     if (it.type === "set")        return gotoSet(it);
     return gotoProduct(it);
@@ -232,6 +324,7 @@
   // Typing (name / id / code modes)
   q.addEventListener("input", () => {
     hideError();
+    clearPendingOpen();
     if (mode === "barcode") { hideSuggestions(); return; }
     const val = q.value.trim();
     if (!val) { hideSuggestions(); return; }
@@ -257,7 +350,8 @@
       setActive(prev);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (activeIndex >= 0) onChoose(items[activeIndex]);
+      if (activeIndex >= 0) return onChoose(items[activeIndex]);
+      if (tryOpenPending()) return;
     } else if (e.key === "Escape") {
       hideSuggestions();
     }
@@ -293,11 +387,28 @@
     onChoose(items[activeIndex]);
   });
 
+  // Global Enter: open pending search result even if input lost focus
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    if (box.contains(document.activeElement)) return;
+    if (isEditableTarget(e.target)) return;
+    if (isInDialog(e.target)) return;
+    if (tryOpenPending()) e.preventDefault();
+  });
+
+  // Enter with no suggestions: try "open" on the highlighted search result
+  q.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    if (!sug.hidden && items.length) return;
+    if (tryOpenPending()) e.preventDefault();
+  });
+
   // Barcode mode → highlight product (not edit)
   q.addEventListener("keydown", async (e) => {
     if (mode !== "barcode" || e.key !== "Enter") return;
     const val = q.value.trim();
     if (!val) return;
+    clearPendingOpen();
 
     try {
       const res = await fetch(`${API_URL}?mode=barcode&q=${encodeURIComponent(val)}`, {
@@ -314,7 +425,9 @@
         err.hidden = false;
         return;
       }
-      gotoProduct({ ...(data.items[0] || {}), type: "product" });
+      const item = { ...(data.items[0] || {}), type: "product" };
+      storePendingOpen(item);
+      gotoProduct(item);
     } catch {
       err.textContent = "حدث خطأ في البحث.";
       err.hidden = false;
