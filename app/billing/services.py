@@ -191,6 +191,12 @@ def create_bill(
 
     intended_paid = q3(paid_amount)
     items = list(items)
+    prod_ids = [int(it["product_id"]) for it in items]
+    inactive_ids = list(
+        Product.objects.filter(id__in=prod_ids, is_active=False).values_list("id", flat=True)
+    )
+    if inactive_ids:
+        raise ValidationError("Product is archived and cannot be used in new operations.")
 
     fx_snapshot = Decimal(str(fx_usd_syp)) if fx_usd_syp is not None else None
     if fx_snapshot is None:
@@ -215,10 +221,9 @@ def create_bill(
     # -------------------------------
     # Pre-lock products
     # -------------------------------
-    prod_ids = [int(it["product_id"]) for it in items]
     products = {
         p.id: p
-        for p in Product.objects.select_for_update().filter(id__in=prod_ids)
+        for p in Product.objects.select_for_update().filter(id__in=prod_ids, is_active=True)
     }
 
     # -------------------------------
@@ -1004,7 +1009,12 @@ def create_return(
         }
 
     prod_ids = [int(it["product_id"]) for it in items]
-    products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids)}
+    inactive_ids = list(
+        Product.objects.filter(id__in=prod_ids, is_active=False).values_list("id", flat=True)
+    )
+    if inactive_ids:
+        raise ValidationError("Product is archived and cannot be used in new operations.")
+    products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=prod_ids, is_active=True)}
 
     for idx, row in enumerate(items, start=1):
         pid = int(row["product_id"])

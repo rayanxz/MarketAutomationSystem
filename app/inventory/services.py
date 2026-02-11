@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Optional, Dict, Any
 
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from catalog.models import Product
@@ -38,6 +39,8 @@ def record_movement(
         +ve => stock in
         -ve => stock out
     """
+    if not getattr(product, "is_active", True):
+        raise ValidationError("Product is archived and cannot be used in new operations.")
     qty_primary_q = q3(Decimal(str(qty_primary)))
     unit_cost_q = q4(Decimal(str(unit_cost)))
     total_cost_q = q3(abs(qty_primary_q) * unit_cost_q)
@@ -113,6 +116,8 @@ def record_purchase_item(
     - Updates StockEntry snapshot (via StockSV.apply_movement inside record_movement).
     - Adds a FIFO layer per (product, container) if container is set.
     """
+    if not getattr(product, "is_active", True):
+        raise ValidationError("Product is archived and cannot be used in new operations.")
 
     if container is None:
         raise ValueError("container is required for purchases")
@@ -170,6 +175,8 @@ def record_provider_return_item(
     - qty_primary should be NEGATIVE (stock goes OUT).
     - We consume FIFO layers from this container and compute effective unit cost.
     """
+    if not getattr(product, "is_active", True):
+        raise ValidationError("Product is archived and cannot be used in new operations.")
 
     if container is None:
         # provider returns without container can't use FIFO; block it because it's unsafe
@@ -239,6 +246,8 @@ def record_sale_item(
     - Creates ONE ProductMovement (summary, weighted avg cost)
     - Creates MULTIPLE SaleCostPart rows (true FIFO breakdown)
     """
+    if not getattr(product, "is_active", True):
+        raise ValidationError("Product is archived and cannot be used in new operations.")
 
     if container is None:
         raise ValueError("container is required for sales (FIFO requires container)")

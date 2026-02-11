@@ -387,9 +387,9 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
 
     qs = (
         Product.objects
+        .filter(is_active=True)
         .select_related("set", "set__collection")
         .prefetch_related("barcodes", "unit_ids")
-        .all()
     )
 
     def filter_barcode(qs_, v):

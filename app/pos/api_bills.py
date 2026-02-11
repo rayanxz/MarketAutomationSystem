@@ -305,7 +305,7 @@ def api_bill_save(request: HttpRequest):
             pid = int(r.get("product_id") or 0)
             if pid:
                 product_ids.append(pid)
-        products = Product.objects.in_bulk(product_ids)
+        products = Product.objects.filter(id__in=product_ids, is_active=True).in_bulk()
 
         for r in rows:
             pid = int(r.get("product_id") or 0)

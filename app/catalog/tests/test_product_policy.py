@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import AccountProfile
-from catalog.models import ProductCollection, ProductSet, Product, UnitType, ProductBarcode
+from catalog.models import ProductCollection, ProductSet, Product, UnitType, ProductBarcode, ProductUnitId
 from inventory.models import ProductMovement
 from stock.models import ProductContainer, StockFifoLayer
 
@@ -93,6 +93,30 @@ class ProductPolicyTests(TestCase):
         prod.refresh_from_db()
         self.assertFalse(prod.is_active)
 
+    def test_soft_delete_syncs_identifiers(self):
+        prod = self._create_product(collection_name="C5", set_name="S5", product_name="P5")
+        ProductBarcode.objects.create(product=prod, unit_index=1, barcode="BC-1", is_active=True)
+        ProductUnitId.objects.create(product=prod, unit_index=1, value="UID-1", is_active=True)
+        ProductMovement.objects.create(
+            product=prod,
+            qty_primary=Decimal("0"),
+            unit_index=1,
+            unit_cost=Decimal("0.0000"),
+            total_cost=Decimal("0.000"),
+            movement_type=ProductMovement.MovementType.ADJUSTMENT,
+            source_app="tests",
+            source_model="ProductPolicyTests",
+            source_id="2",
+        )
+        url = reverse("manager_product_delete", kwargs={"pk": prod.id})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+
+        prod.refresh_from_db()
+        self.assertFalse(prod.is_active)
+        self.assertFalse(ProductBarcode.objects.filter(product=prod, is_active=True).exists())
+        self.assertFalse(ProductUnitId.objects.filter(product=prod, is_active=True).exists())
+
     def test_delete_blocked_when_history_and_stock_not_zero(self):
         prod = self._create_product(collection_name="C3", set_name="S3", product_name="P3")
         container = ProductContainer.objects.get(code="store")
@@ -100,6 +124,23 @@ class ProductPolicyTests(TestCase):
             product=prod,
             container=container,
             qty_remaining=Decimal("1.000"),
+            unit_cost=Decimal("1.0000"),
+            cost_currency="SYP",
+        )
+        url = reverse("manager_product_delete", kwargs={"pk": prod.id})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("delete_blocked=1", resp.url)
+        prod.refresh_from_db()
+        self.assertTrue(prod.is_active)
+
+    def test_delete_blocked_when_history_and_stock_negative(self):
+        prod = self._create_product(collection_name="C4", set_name="S4", product_name="P4")
+        container = ProductContainer.objects.get(code="wh1")
+        StockFifoLayer.objects.create(
+            product=prod,
+            container=container,
+            qty_remaining=Decimal("-1.000"),
             unit_cost=Decimal("1.0000"),
             cost_currency="SYP",
         )

@@ -335,7 +335,7 @@ def stock_move(request: HttpRequest) -> HttpResponse:
                 # product
                 try:
                     pid = int(pid_raw)
-                    product = Product.objects.get(id=pid)
+                    product = Product.objects.get(id=pid, is_active=True)
                 except (ValueError, Product.DoesNotExist):
                     errors["rows"] = f"السطر رقم {idx}: المادة المحددة غير صحيحة."
                     break
@@ -495,7 +495,7 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
     if not q:
         return JsonResponse({"results": []})
 
-    qs = Product.objects.all()
+    qs = Product.objects.filter(is_active=True)
 
     if mode == "id":
         try:
@@ -555,7 +555,7 @@ def api_product_stock(request: HttpRequest) -> HttpResponse:
     pid_raw = (request.GET.get("product_id") or "").strip()
     try:
         pid = int(pid_raw)
-        product = Product.objects.get(id=pid)
+        product = Product.objects.get(id=pid, is_active=True)
     except (ValueError, Product.DoesNotExist):
         return JsonResponse({"ok": False, "error": "المادة غير موجودة."}, status=400)
 

@@ -443,9 +443,8 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
 
                     p = existing
 
-                    was_inactive = not p.is_active
-                    if was_inactive:
-                        p.is_active = True
+                    if not p.is_active:
+                        raise StageError(f"سطر {rid}: المنتج مؤرشف ولا يمكن تحديثه عبر الاستيراد.")
 
                     p.set = st_obj
                     p.unit_primary = unit_primary
@@ -458,9 +457,6 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                     p.notes = notes
                     p.full_clean()
                     p.save()
-                    if was_inactive:
-                        sync_identifiers_for_product(p, is_active=True)
-
                     for bc in d.get("barcodes_u1", []):
                         ProductBarcode.objects.get_or_create(
                             product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc,

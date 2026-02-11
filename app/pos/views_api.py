@@ -41,7 +41,12 @@ def product_payload(p: Product) -> Dict[str, Any]:
 @login_required
 @require_GET
 def api_barcode_lookup(request: HttpRequest, value: str):
-    bc = ProductBarcode.objects.select_related("product").filter(barcode=value).first()
+    bc = (
+        ProductBarcode.objects
+        .select_related("product")
+        .filter(barcode=value, product__is_active=True)
+        .first()
+    )
     if not bc:
         return JsonResponse({"ok": False, "error": "NOT_FOUND"})
     p = bc.product
@@ -56,14 +61,19 @@ def api_search_name(request: HttpRequest):
     limit = int(request.GET.get("limit") or 5)
     if not q:
         return JsonResponse({"ok": True, "hits": []})
-    qs = Product.objects.filter(name__icontains=q).order_by("name")[:limit]
+    qs = Product.objects.filter(is_active=True, name__icontains=q).order_by("name")[:limit]
     hits = [{"id": p.id, "name": p.name, "number": p.display_code} for p in qs]
     return JsonResponse({"ok": True, "hits": hits})
 
 @login_required
 @require_GET
 def api_lookup_code(request: HttpRequest, value: str):
-    uid = ProductUnitId.objects.select_related("product").filter(value=value).first()
+    uid = (
+        ProductUnitId.objects
+        .select_related("product")
+        .filter(value=value, product__is_active=True)
+        .first()
+    )
     if not uid:
         return JsonResponse({"ok": False, "error": "NOT_FOUND"})
     p = uid.product
@@ -75,7 +85,7 @@ def api_lookup_code(request: HttpRequest, value: str):
 @require_GET
 def api_lookup_id(request: HttpRequest, pk: int):
     try:
-        p = Product.objects.get(pk=pk)
+        p = Product.objects.get(pk=pk, is_active=True)
     except Product.DoesNotExist:
         return JsonResponse({"ok": False, "error": "NOT_FOUND"})
     payload = product_payload(p)

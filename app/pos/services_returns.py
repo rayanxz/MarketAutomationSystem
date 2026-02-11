@@ -6,6 +6,7 @@ from typing import Iterable, Dict, Any
 import logging
 
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from django.db.models import Sum, Q
 from django.utils import timezone
 
@@ -151,7 +152,9 @@ def create_sales_return_draft(
     row_map = {int(r.id): r for r in rows}
 
     product_ids = {int(r.product_id) for r in rows if r.product_id}
-    products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids)}
+    products = {p.id: p for p in Product.objects.select_for_update().filter(id__in=product_ids, is_active=True)}
+    if len(products) != len(product_ids):
+        raise ValidationError("Product is archived and cannot be used in new operations.")
 
     returned_map = returned_qty_by_sale_row(bill_id=bill.id)
 

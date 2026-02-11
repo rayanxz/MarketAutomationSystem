@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Iterable
 
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django.conf import settings
 
@@ -599,6 +600,8 @@ def transfer_from_batch(
         .select_related("product", "container")
         .get(pk=batch.pk)
     )
+    if not getattr(batch.product, "is_active", True):
+        raise ValidationError("Product is archived and cannot be used in new operations.")
 
     qty = q3(Decimal(str(qty_primary or DEC0)))
     if qty <= DEC0:
