@@ -191,7 +191,7 @@ def create_sales_return_draft(
         if product is None:
             raise ValueError("Product not found for return row.")
 
-        qty_input = _dec(payload.get("qty"))
+        qty_input = abs(_dec(payload.get("qty")))
         reason = (payload.get("reason") or "").strip()[:255]
 
         conv_at_txn = getattr(sale_row, "conv_factor_at_txn", None)
@@ -230,13 +230,18 @@ def create_sales_return_draft(
             ret=ret,
             sale_row=sale_row,
             product=product,
+            product_name_at_txn=(getattr(sale_row, "product_name", "") or "").strip(),
             uom_index=int(sale_row.uom_index or 1),
             conv_factor_at_txn=conv_at_txn or Decimal("1"),
             unit_1_label_at_txn=(getattr(sale_row, "unit_1_label_at_txn", "") or "").strip(),
             unit_2_label_at_txn=(getattr(sale_row, "unit_2_label_at_txn", "") or "").strip(),
+            qty_used_at_txn=qty_input,
             qty_returned=qty_primary,
             currency_code=(sale_row.sale_currency or "SYP").upper(),
             unit_price_at_sale=unit_price_primary,
+            discount_amount_at_txn=q3(sale_row.disc_amount or DEC0),
+            discount_pct_at_txn=q3(sale_row.disc_pct or DEC0),
+            fx_rate_at_txn=bill.fx_rate_used,
             line_total=line_total,
             reason=reason,
         )
@@ -346,6 +351,22 @@ def post_sales_return(
                 if unit_cost <= DEC0:
                     logger.warning("No SaleCostPart and product cost missing for return product_id=%s", product.id)
 
+            update_fields = []
+            if hasattr(r, "unit_cost_at_txn"):
+                r.unit_cost_at_txn = unit_cost
+                update_fields.append("unit_cost_at_txn")
+            if hasattr(r, "cost_currency_at_txn"):
+                r.cost_currency_at_txn = (cost_currency or "SYP").upper()
+                update_fields.append("cost_currency_at_txn")
+            if hasattr(r, "fx_rate_at_txn") and r.fx_rate_at_txn in (None, ""):
+                r.fx_rate_at_txn = bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd()
+                update_fields.append("fx_rate_at_txn")
+            if hasattr(r, "product_name_at_txn") and not (r.product_name_at_txn or "").strip():
+                r.product_name_at_txn = getattr(product, "name", "") or ""
+                update_fields.append("product_name_at_txn")
+            if update_fields:
+                r.save(update_fields=update_fields)
+
             StockSV.fifo_add_incoming(
                 product=product,
                 container=ret.stock_container,
@@ -363,6 +384,7 @@ def post_sales_return(
                 unit_index=int(r.uom_index or 1),
                 qty_primary=qty_primary,
                 unit_cost=unit_cost,
+                cost_currency=cost_currency,
                 movement_type=ProductMovement.MovementType.SALE_RETURN,
                 source_app="pos",
                 source_model="SalesReturn",
@@ -371,6 +393,18 @@ def post_sales_return(
                 origin_source_app="pos",
                 origin_source_model="SalesBill",
                 origin_source_id=str(bill.id),
+                product_name_at_txn=(getattr(r, "product_name_at_txn", "") or getattr(product, "name", "") or ""),
+                sale_unit_price_at_txn=getattr(r, "unit_price_at_sale", None),
+                sale_currency_at_txn=getattr(r, "currency_code", None),
+                fx_rate_at_txn=bill.fx_rate_used,
+                qty_used_at_txn=abs(getattr(r, "qty_used_at_txn", DEC0) or DEC0),
+                qty_primary_at_txn=qty_primary,
+                unit_index_used_at_txn=int(r.uom_index or 1),
+                conversion_factor_at_txn=getattr(r, "conv_factor_at_txn", None),
+                unit_1_label_at_txn=getattr(r, "unit_1_label_at_txn", "") or "",
+                unit_2_label_at_txn=getattr(r, "unit_2_label_at_txn", "") or "",
+                discount_amount_at_txn=getattr(r, "discount_amount_at_txn", None),
+                discount_pct_at_txn=getattr(r, "discount_pct_at_txn", None),
             )
 
         fx_rate = bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd()

@@ -22,6 +22,7 @@ def record_movement(
     unit_index: int,
     qty_primary: Decimal,
     unit_cost: Decimal,
+    cost_currency: str | None = None,
     movement_type: str,
     source_app: str,
     source_model: str,
@@ -31,6 +32,18 @@ def record_movement(
     origin_source_app: str = "",
     origin_source_model: str = "",
     origin_source_id: str | int = "",
+    product_name_at_txn: str | None = None,
+    sale_unit_price_at_txn: Decimal | None = None,
+    sale_currency_at_txn: str | None = None,
+    fx_rate_at_txn: Decimal | None = None,
+    qty_used_at_txn: Decimal | None = None,
+    qty_primary_at_txn: Decimal | None = None,
+    unit_index_used_at_txn: int | None = None,
+    conversion_factor_at_txn: Decimal | None = None,
+    unit_1_label_at_txn: str | None = None,
+    unit_2_label_at_txn: str | None = None,
+    discount_amount_at_txn: Decimal | None = None,
+    discount_pct_at_txn: Decimal | None = None,
 ) -> ProductMovement:
     """
     Core helper: logs a product movement AND updates product.stock_qty (and optional fields).
@@ -42,6 +55,7 @@ def record_movement(
     if not getattr(product, "is_active", True):
         raise ValidationError("Product is archived and cannot be used in new operations.")
     qty_primary_q = q3(Decimal(str(qty_primary)))
+    qty_primary_abs = q3(abs(qty_primary_q))
     unit_cost_q = q4(Decimal(str(unit_cost)))
     total_cost_q = q3(abs(qty_primary_q) * unit_cost_q)
 
@@ -49,12 +63,75 @@ def record_movement(
     if getattr(product, "is_single_unit", False):
         unit_idx = 1
 
+    # ---- snapshot defaults ----
+    if product_name_at_txn is None:
+        product_name_at_txn = getattr(product, "name", "") or ""
+
+    conv_val = conversion_factor_at_txn
+    if conv_val is None:
+        try:
+            conv_val = Decimal(str(getattr(product, "conversion_factor", None) or "1"))
+        except Exception:
+            conv_val = Decimal("1")
+    if not conv_val or conv_val <= 0:
+        conv_val = Decimal("1")
+    if getattr(product, "is_single_unit", False):
+        conv_val = Decimal("1")
+
+    if unit_1_label_at_txn is None:
+        unit_1_label_at_txn = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+    if unit_2_label_at_txn is None:
+        unit_2_label_at_txn = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+
+    if unit_index_used_at_txn is None:
+        unit_index_used_at_txn = unit_idx
+
+    if qty_primary_at_txn is None:
+        qty_primary_at_txn = qty_primary_abs
+    else:
+        try:
+            qty_primary_at_txn = q3(abs(Decimal(str(qty_primary_at_txn))))
+        except Exception:
+            qty_primary_at_txn = qty_primary_abs
+
+    if qty_used_at_txn is None:
+        if unit_idx == 2 and conv_val:
+            try:
+                qty_used_at_txn = q3(qty_primary_abs / Decimal(str(conv_val)))
+            except Exception:
+                qty_used_at_txn = qty_primary_abs
+        else:
+            qty_used_at_txn = qty_primary_abs
+    else:
+        try:
+            qty_used_at_txn = q3(abs(Decimal(str(qty_used_at_txn))))
+        except Exception:
+            qty_used_at_txn = qty_primary_abs
+
+    if cost_currency is not None:
+        cost_currency = (cost_currency or "").upper()
+    cost_currency_at_txn = (cost_currency or None)
+
     mv = ProductMovement.objects.create(
         product=product,
         qty_primary=qty_primary_q,
         unit_index=unit_idx,
         unit_cost=unit_cost_q,
         total_cost=total_cost_q,
+        product_name_at_txn=product_name_at_txn or "",
+        unit_cost_at_txn=unit_cost_q,
+        cost_currency_at_txn=cost_currency_at_txn,
+        sale_unit_price_at_txn=sale_unit_price_at_txn,
+        sale_currency_at_txn=(sale_currency_at_txn.upper() if sale_currency_at_txn else None),
+        fx_rate_at_txn=fx_rate_at_txn,
+        qty_used_at_txn=qty_used_at_txn,
+        qty_primary_at_txn=qty_primary_at_txn,
+        unit_index_used_at_txn=unit_index_used_at_txn,
+        conversion_factor_at_txn=conv_val,
+        unit_1_label_at_txn=unit_1_label_at_txn or "",
+        unit_2_label_at_txn=unit_2_label_at_txn or "",
+        discount_amount_at_txn=discount_amount_at_txn,
+        discount_pct_at_txn=discount_pct_at_txn,
         movement_type=movement_type,
         source_app=source_app,
         source_model=source_model,
@@ -122,6 +199,18 @@ def record_purchase_item(
     if container is None:
         raise ValueError("container is required for purchases")
 
+    # snapshot helpers
+    try:
+        conv_val = Decimal(str(getattr(product, "conversion_factor", None) or "1"))
+    except Exception:
+        conv_val = Decimal("1")
+    if not conv_val or conv_val <= 0 or getattr(product, "is_single_unit", False):
+        conv_val = Decimal("1")
+    unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+    unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+    qty_primary_q = q3(Decimal(str(qty_primary or DEC0)))
+    qty_used = qty_primary_q if int(unit_index or 1) == 1 else q3(qty_primary_q / conv_val)
+
     # 1) FIFO FIRST (so StockEntry sync can see it)
     if container is not None:
         StockSV.fifo_add_incoming(
@@ -142,6 +231,7 @@ def record_purchase_item(
         unit_index=unit_index,
         qty_primary=qty_primary,
         unit_cost=unit_cost,
+        cost_currency=cost_currency,
         movement_type=ProductMovement.MovementType.PURCHASE,
         source_app=source_app,
         source_model=source_model,
@@ -151,6 +241,13 @@ def record_purchase_item(
         origin_source_app=source_app,
         origin_source_model=source_model,
         origin_source_id=source_id,
+        product_name_at_txn=getattr(product, "name", "") or "",
+        qty_used_at_txn=qty_used,
+        qty_primary_at_txn=qty_primary_q,
+        unit_index_used_at_txn=int(unit_index or 1),
+        conversion_factor_at_txn=conv_val,
+        unit_1_label_at_txn=unit1_label,
+        unit_2_label_at_txn=unit2_label,
     )
 
     return mv
@@ -163,6 +260,7 @@ def record_provider_return_item(
     unit_index: int,
     qty_primary: Decimal,
     unit_cost: Decimal,
+    cost_currency: str | None = None,
     source_app: str,
     source_model: str,
     source_id: str | int,
@@ -189,6 +287,18 @@ def record_provider_return_item(
 
     qty_out = -qty  # positive amount going out
 
+    # snapshot helpers
+    try:
+        conv_val = Decimal(str(getattr(product, "conversion_factor", None) or "1"))
+    except Exception:
+        conv_val = Decimal("1")
+    if not conv_val or conv_val <= 0 or getattr(product, "is_single_unit", False):
+        conv_val = Decimal("1")
+    unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+    unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+    qty_primary_q = q3(Decimal(str(qty)))
+    qty_used = q3(abs(qty_primary_q)) if int(unit_index or 1) == 1 else q3(abs(qty_primary_q) / conv_val)
+
     eff_cost = unit_cost
     if container is not None:
         if fifo_scope:
@@ -214,6 +324,7 @@ def record_provider_return_item(
         unit_index=unit_index,
         qty_primary=qty,   # NEGATIVE
         unit_cost=eff_cost,
+        cost_currency=cost_currency,
         movement_type=ProductMovement.MovementType.PROVIDER_RETURN,
         source_app=source_app,
         source_model=source_model,
@@ -222,6 +333,13 @@ def record_provider_return_item(
         origin_source_app=(fifo_scope.get("source_app") if fifo_scope else ""),
         origin_source_model=(fifo_scope.get("source_model") if fifo_scope else ""),
         origin_source_id=(fifo_scope.get("source_id") if fifo_scope else ""),
+        product_name_at_txn=getattr(product, "name", "") or "",
+        qty_used_at_txn=qty_used,
+        qty_primary_at_txn=qty_primary_q,
+        unit_index_used_at_txn=int(unit_index or 1),
+        conversion_factor_at_txn=conv_val,
+        unit_1_label_at_txn=unit1_label,
+        unit_2_label_at_txn=unit2_label,
     )
 
 
@@ -235,6 +353,16 @@ def record_sale_item(
     unit_index: int,
     qty_primary: Decimal,
     unit_cost: Decimal,
+    sale_unit_price_at_txn: Decimal | None = None,
+    sale_currency_at_txn: str | None = None,
+    fx_rate_at_txn: Decimal | None = None,
+    discount_amount_at_txn: Decimal | None = None,
+    discount_pct_at_txn: Decimal | None = None,
+    qty_used_at_txn: Decimal | None = None,
+    conversion_factor_at_txn: Decimal | None = None,
+    unit_1_label_at_txn: str | None = None,
+    unit_2_label_at_txn: str | None = None,
+    product_name_at_txn: str | None = None,
     source_app: str,
     source_model: str,
     source_id: str | int,
@@ -251,6 +379,20 @@ def record_sale_item(
 
     if container is None:
         raise ValueError("container is required for sales (FIFO requires container)")
+
+    # snapshot helpers
+    try:
+        conv_val = Decimal(str(conversion_factor_at_txn if conversion_factor_at_txn is not None else (getattr(product, "conversion_factor", None) or "1")))
+    except Exception:
+        conv_val = Decimal("1")
+    if not conv_val or conv_val <= 0 or getattr(product, "is_single_unit", False):
+        conv_val = Decimal("1")
+    if unit_1_label_at_txn is None:
+        unit_1_label_at_txn = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+    if unit_2_label_at_txn is None:
+        unit_2_label_at_txn = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+    if product_name_at_txn is None:
+        product_name_at_txn = getattr(product, "name", "") or ""
 
 
     from inventory.models import SaleCostPart
@@ -287,6 +429,25 @@ def record_sale_item(
     else:
         eff_cost = q4(Decimal(str(unit_cost or DEC0)))
 
+    # cost currency best-effort from FIFO parts
+    cost_currency = None
+    for p in parts:
+        layer = p.get("fifo_layer")
+        if layer and getattr(layer, "cost_currency", None):
+            cost_currency = layer.cost_currency
+            break
+    if cost_currency is None:
+        cost_currency = (getattr(product, "default_currency", None) or "SYP")
+
+    if qty_used_at_txn is None:
+        if int(unit_index or 1) == 2 and conv_val:
+            try:
+                qty_used_at_txn = q3(qty_pos / conv_val)
+            except Exception:
+                qty_used_at_txn = q3(qty_pos)
+        else:
+            qty_used_at_txn = q3(qty_pos)
+
     # -----------------------------
     # Create ProductMovement
     # -----------------------------
@@ -296,11 +457,24 @@ def record_sale_item(
         unit_index=unit_index,
         qty_primary=-qty_pos,  # SALE = stock out
         unit_cost=eff_cost,
+        cost_currency=cost_currency,
         movement_type=ProductMovement.MovementType.SALE,
         source_app=source_app,
         source_model=source_model,
         source_id=source_id,
         container=container,
+        product_name_at_txn=product_name_at_txn or "",
+        sale_unit_price_at_txn=sale_unit_price_at_txn,
+        sale_currency_at_txn=sale_currency_at_txn,
+        fx_rate_at_txn=fx_rate_at_txn,
+        qty_used_at_txn=qty_used_at_txn,
+        qty_primary_at_txn=q3(qty_pos),
+        unit_index_used_at_txn=int(unit_index or 1),
+        conversion_factor_at_txn=conv_val,
+        unit_1_label_at_txn=unit_1_label_at_txn,
+        unit_2_label_at_txn=unit_2_label_at_txn,
+        discount_amount_at_txn=discount_amount_at_txn,
+        discount_pct_at_txn=discount_pct_at_txn,
     )
 
     # -----------------------------

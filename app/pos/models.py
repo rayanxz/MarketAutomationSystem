@@ -303,6 +303,7 @@ class SalesBillRow(models.Model):
 
     product_id = models.IntegerField()
     product_name = models.CharField(max_length=255)
+    product_name_at_txn = models.CharField(max_length=255, default="", blank=True)
     product_number = models.CharField(max_length=50, blank=True)
     conv_factor_at_txn = models.DecimalField(
         max_digits=12,
@@ -311,6 +312,7 @@ class SalesBillRow(models.Model):
     )
     unit_1_label_at_txn = models.CharField(max_length=32, default="")
     unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
+    qty_primary_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
 
     qty = models.DecimalField(
         max_digits=14,
@@ -333,6 +335,9 @@ class SalesBillRow(models.Model):
         choices=CURRENCY_CHOICES,
         default=SYP,
     )
+    unit_cost_at_txn = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    cost_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 
     disc_amount = models.DecimalField(
         max_digits=14,
@@ -474,6 +479,7 @@ class SalesReturnRow(models.Model):
         on_delete=models.PROTECT,
         related_name="pos_return_rows",
     )
+    product_name_at_txn = models.CharField(max_length=255, default="", blank=True)
 
     uom_index = models.PositiveSmallIntegerField(default=1)
     conv_factor_at_txn = models.DecimalField(
@@ -483,6 +489,7 @@ class SalesReturnRow(models.Model):
     )
     unit_1_label_at_txn = models.CharField(max_length=32, default="")
     unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
+    qty_used_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     qty_returned = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
 
     currency_code = models.CharField(
@@ -492,6 +499,11 @@ class SalesReturnRow(models.Model):
         db_index=True,
     )
     unit_price_at_sale = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    unit_cost_at_txn = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    cost_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    discount_amount_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    discount_pct_at_txn = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     line_total = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
 
     reason = models.CharField(max_length=255, blank=True)
@@ -505,4 +517,5 @@ class SalesReturnRow(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.product.name} x {self.qty_returned} (#{self.ret.serial or self.ret_id})"
+        name = (self.product_name_at_txn or "").strip() or getattr(self.product, "name", "")
+        return f"{name} x {self.qty_returned} (#{self.ret.serial or self.ret_id})"

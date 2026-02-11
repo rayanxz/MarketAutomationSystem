@@ -17,6 +17,10 @@ from catalog.models import (
 
 from catalog.import_rules import apply_rules
 from catalog.services.deletion_policy import sync_identifiers_for_product
+from inventory.models import q3, q4, DEC0
+from inventory import services as InvSV
+from stock import services as StockSV
+from stock.models import ProductContainer
 
 from catalog.io_records import CatalogDataJob
 from audit_log.services import log_create
@@ -389,6 +393,71 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
 
     created = updated = skipped = 0
 
+    def _apply_stock_qty_snapshot(*, product: Product, stock_qty: Decimal | None, rid: int):
+        if stock_qty is None:
+            return
+        store = ProductContainer.objects.filter(code="store").first()
+        if store is None:
+            store = ProductContainer.objects.create(
+                code="store",
+                name="Store",
+                is_store=True,
+                is_active=True,
+            )
+
+        current = q3(StockSV.total_stock_primary(product))
+        desired = q3(Decimal(str(stock_qty)))
+        delta = q3(desired - current)
+        if delta == DEC0:
+            return
+
+        unit_cost = q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+        cost_currency = (getattr(product, "default_currency", None) or "SYP")
+
+        if delta > DEC0:
+            StockSV.fifo_add_incoming(
+                product=product,
+                container=store,
+                qty_primary=delta,
+                unit_cost=unit_cost,
+                cost_currency=cost_currency,
+                source_app="catalog",
+                source_model="Import",
+                source_id=str(rid),
+            )
+            InvSV.record_movement(
+                actor=actor,
+                product=product,
+                unit_index=1,
+                qty_primary=delta,
+                unit_cost=unit_cost,
+                cost_currency=cost_currency,
+                movement_type="adjustment",
+                source_app="catalog",
+                source_model="Import",
+                source_id=str(rid),
+                container=store,
+            )
+        else:
+            eff_cost = StockSV.fifo_consume(
+                product=product,
+                container=store,
+                qty_out_primary=abs(delta),
+            )
+            InvSV.record_movement(
+                actor=actor,
+                product=product,
+                unit_index=1,
+                qty_primary=delta,
+                unit_cost=eff_cost,
+                cost_currency=cost_currency,
+                movement_type="adjustment",
+                source_app="catalog",
+                source_model="Import",
+                source_id=str(rid),
+                container=store,
+            )
+
     with transaction.atomic():
         for r in st["rows"]:
             d = r["data"]
@@ -452,11 +521,10 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                     p.conversion_factor = conv_factor
                     p.cost = cost
                     p.price = price
-                    if stock_qty is not None:
-                        p.stock_qty = stock_qty
                     p.notes = notes
                     p.full_clean()
                     p.save()
+                    _apply_stock_qty_snapshot(product=p, stock_qty=stock_qty, rid=rid)
                     for bc in d.get("barcodes_u1", []):
                         ProductBarcode.objects.get_or_create(
                             product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc,
@@ -516,9 +584,7 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                                 product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val, is_active=p.is_active
                             )
 
-                    if stock_qty is not None:
-                        p.stock_qty = stock_qty
-                        p.save(update_fields=["stock_qty"])
+                    _apply_stock_qty_snapshot(product=p, stock_qty=stock_qty, rid=rid)
 
                     created += 1
 

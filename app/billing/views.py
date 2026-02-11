@@ -174,7 +174,7 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
         item_rows.append(
             {
                 "item": it,
-                "product_name": getattr(prod, "name", "") or "",
+                "product_name": (getattr(it, "product_name_at_txn", "") or getattr(prod, "name", "") or ""),
                 "unit_label": unit_label,
                 "store_qty": store_qty,
                 "wh1_qty": wh1_qty,
@@ -254,7 +254,7 @@ def _build_return_items_from_form(request: HttpRequest, bill: Bill, left_map: di
         try:
             qty = Decimal(raw_qty)
         except Exception:
-            raise ValueError(f"الكمية المدخلة للمنتج '{it.product.name}' غير صحيحة.")
+            raise ValueError(f"الكمية المدخلة للمنتج '{getattr(it, 'product_name_at_txn', '') or it.product.name}' غير صحيحة.")
 
         if qty <= 0:
             continue  # ignore zeros / negatives
@@ -262,7 +262,7 @@ def _build_return_items_from_form(request: HttpRequest, bill: Bill, left_map: di
         left_allowed = left_map.get(it.id, DEC0)
         if qty > left_allowed:
             raise ValueError(
-                f"الكمية المرتجعة للمنتج '{it.product.name}' أكبر من الكمية المتبقية ({left_allowed})."
+                f"الكمية المرتجعة للمنتج '{getattr(it, 'product_name_at_txn', '') or it.product.name}' أكبر من الكمية المتبقية ({left_allowed})."
             )
 
         field_cost = f"return_cost_{it.id}"
@@ -270,7 +270,7 @@ def _build_return_items_from_form(request: HttpRequest, bill: Bill, left_map: di
         try:
             cost = Decimal(raw_cost) if raw_cost else (it.cost or Decimal("0"))
         except Exception:
-            raise ValueError(f"كلفة المرتجع للمنتج '{it.product.name}' غير صحيحة.")
+            raise ValueError(f"كلفة المرتجع للمنتج '{getattr(it, 'product_name_at_txn', '') or it.product.name}' غير صحيحة.")
 
         if cost < 0:
             cost = -cost
@@ -940,7 +940,7 @@ def bill_view(request, bill_id: int):
         items_rows.append(
             {
                 "item_id": it.id,
-                "product_name": getattr(prod, "name", "") or "",
+                "product_name": (getattr(it, "product_name_at_txn", "") or getattr(prod, "name", "") or ""),
                 "unit1_label": unit1_label,
                 "unit2_label": unit2_label,
                 "cost": it.cost,
@@ -1168,7 +1168,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         rows.append(
             {
                 "item_id": it.id,
-                "product_name": getattr(prod, "name", "") or "",
+                "product_name": (getattr(it, "product_name_at_txn", "") or getattr(prod, "name", "") or ""),
                 "unit1_label": unit1_label,
                 "cost": it.cost,
                 "currency": getattr(it, "currency", None) or "SYP",

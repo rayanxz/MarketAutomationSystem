@@ -291,6 +291,7 @@ class BillItem(models.Model):
 
     bill       = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="items")
     product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="bill_items")
+    product_name_at_txn = models.CharField(max_length=255, default="", blank=True)
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
     conv_factor_at_txn = models.DecimalField(
         max_digits=12,
@@ -299,10 +300,12 @@ class BillItem(models.Model):
     )
     unit_1_label_at_txn = models.CharField(max_length=32, default="")
     unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
+    qty_used_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
     cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     price      = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -312,7 +315,8 @@ class BillItem(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.product.name} x {self.qty_primary} (#{self.bill.serial or self.bill_id})"
+        name = (self.product_name_at_txn or "").strip() or getattr(self.product, "name", "")
+        return f"{name} x {self.qty_primary} (#{self.bill.serial or self.bill_id})"
 
     def clean(self):
         super().clean()
@@ -525,6 +529,7 @@ class ProviderReturnItem(models.Model):
 
     ret        = models.ForeignKey(ProviderReturn, on_delete=models.CASCADE, related_name="items")
     product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="return_items")
+    product_name_at_txn = models.CharField(max_length=255, default="", blank=True)
     unit_index = models.IntegerField(choices=UnitIndex.choices, default=UnitIndex.PRIMARY)
     conv_factor_at_txn = models.DecimalField(
         max_digits=12,
@@ -533,6 +538,7 @@ class ProviderReturnItem(models.Model):
     )
     unit_1_label_at_txn = models.CharField(max_length=32, default="")
     unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
+    qty_used_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
     currency   = models.CharField(
         max_length=3,
@@ -542,6 +548,7 @@ class ProviderReturnItem(models.Model):
     )
     cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -551,5 +558,6 @@ class ProviderReturnItem(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.product.name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
+        name = (self.product_name_at_txn or "").strip() or getattr(self.product, "name", "")
+        return f"{name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
 

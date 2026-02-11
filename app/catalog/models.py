@@ -234,7 +234,7 @@ class Product(models.Model):
 
     @property
     def is_single_unit(self) -> bool:
-        return bool(self.unit_secondary) and self.unit_primary == self.unit_secondary
+        return not self.unit_secondary or self.unit_primary == self.unit_secondary
 
     # ---- validation & normalization ----
     def clean(self):

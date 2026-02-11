@@ -87,6 +87,22 @@ class ProductMovement(models.Model):
         help_text="Absolute value of qty_primary * unit_cost.",
     )
 
+    # ---- immutable snapshots (do NOT depend on live Product fields) ----
+    product_name_at_txn = models.CharField(max_length=255, default="", blank=True)
+    unit_cost_at_txn = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    cost_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
+    sale_unit_price_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    sale_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    qty_used_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    qty_primary_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    unit_index_used_at_txn = models.IntegerField(choices=UnitIndex.choices, null=True, blank=True)
+    conversion_factor_at_txn = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    unit_1_label_at_txn = models.CharField(max_length=32, default="", blank=True)
+    unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
+    discount_amount_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    discount_pct_at_txn = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
     movement_type = models.CharField(
         max_length=32,
         choices=MovementType.choices,
@@ -125,7 +141,10 @@ class ProductMovement(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.product.display_code} {self.movement_type} {self.qty_primary} @ {self.unit_cost}"
+        name = (self.product_name_at_txn or "").strip()
+        if not name:
+            name = getattr(self.product, "display_code", "")
+        return f"{name} {self.movement_type} {self.qty_primary} @ {self.unit_cost}"
 
     def clean(self):
         # normalize decimals

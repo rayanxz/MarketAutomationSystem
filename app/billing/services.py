@@ -255,7 +255,7 @@ def create_bill(
         if item_currency == "USD" and not allow_usd_purch:
             raise ValueError(f"USD purchasing not enabled for product at row {idx}")
 
-        single_unit = bool(getattr(product, "unit_secondary", "")) and (
+        single_unit = (not getattr(product, "unit_secondary", "")) or (
             getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")
         )
         unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
@@ -318,15 +318,18 @@ def create_bill(
         item = BillItem.objects.create(
             bill=bill,
             product=product,
+            product_name_at_txn=getattr(product, "name", "") or "",
             unit_index=unit_idx,
             conv_factor_at_txn=cf_val,
             unit_1_label_at_txn=unit1_label or "",
             unit_2_label_at_txn=unit2_label or "",
+            qty_used_at_txn=qty_raw,
             qty_primary=qty_primary,
             cost=cost_u1,
             price=price_u1,
             line_total=line_total,
             currency=item_currency,   # 🔥 NEW FIELD
+            fx_rate_at_txn=fx_snapshot,
         )
 
         # ---- inventory movement (currency-agnostic)
@@ -754,12 +757,17 @@ def delete_bill(*, actor, bill_id: int) -> None:
             )
 
             # 2) THEN movement
+            conv_val = Decimal(str(getattr(it, "conv_factor_at_txn", None) or "1"))
+            if not conv_val or conv_val <= 0:
+                conv_val = Decimal("1")
+            qty_used_val = qty_out if int(it.unit_index or 1) == 1 else q3(qty_out / conv_val)
             InvSV.record_movement(
                 actor=actor,
                 product=product,
                 unit_index=int(it.unit_index),
                 qty_primary=-qty_out,
                 unit_cost=eff_cost,
+                cost_currency=getattr(it, "currency", None),
                 movement_type=ProductMovement.MovementType.PURCHASE_REVERSAL,
                 source_app="billing",
                 source_model="BillItem",
@@ -769,6 +777,13 @@ def delete_bill(*, actor, bill_id: int) -> None:
                 origin_source_app="billing",
                 origin_source_model="BillItem",
                 origin_source_id=str(it.id),
+                product_name_at_txn=getattr(it, "product_name_at_txn", "") or "",
+                qty_used_at_txn=qty_used_val,
+                qty_primary_at_txn=-q3(qty_out),
+                unit_index_used_at_txn=int(it.unit_index or 1),
+                conversion_factor_at_txn=conv_val,
+                unit_1_label_at_txn=getattr(it, "unit_1_label_at_txn", "") or "",
+                unit_2_label_at_txn=getattr(it, "unit_2_label_at_txn", "") or "",
 
             )
 
@@ -1020,7 +1035,7 @@ def create_return(
         pid = int(row["product_id"])
         product = products.get(pid) or get_object_or_404(Product.objects.select_for_update(), pk=pid)
 
-        single_unit = bool(getattr(product, "unit_secondary", "")) and (
+        single_unit = (not getattr(product, "unit_secondary", "")) or (
             getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")
         )
         unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
@@ -1077,19 +1092,8 @@ def create_return(
 
         # ----- line total & ProviderReturnItem -----
         line_total = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
-
-        ProviderReturnItem.objects.create(
-            ret=pret,
-            product=product,
-            unit_index=unit_idx,
-            conv_factor_at_txn=cf_val,
-            unit_1_label_at_txn=unit1_label or "",
-            unit_2_label_at_txn=unit2_label or "",
-            qty_primary=qty_primary,
-            currency=item_currency,
-            cost=cost_u1,
-            line_total=line_total,
-        )
+        qty_used_val = abs(qty_primary) if unit_idx == 1 else q3(abs(qty_primary) / (cf_val or Decimal("1")))
+        fx_used_for_item = None
 
         # ----- totals per currency -----
         if item_currency == "USD":
@@ -1112,6 +1116,7 @@ def create_return(
             fx_used = Decimal(str(fx_used))
             if fx_used <= 0:
                 raise ValueError("FX rate is required for return valuation")
+            fx_used_for_item = fx_used
 
             if settlement_currency == "SYP" and item_currency == "USD":
                 converted = q3(line_total * fx_used)
@@ -1123,6 +1128,23 @@ def create_return(
                 settlement_total = q3(settlement_total + converted)
                 conv_base_sum = q3(conv_base_sum + line_total)
                 conv_converted_sum = q3(conv_converted_sum + converted)
+
+        # fix indentation error around ProviderReturnItem insertion
+        ProviderReturnItem.objects.create(
+            ret=pret,
+            product=product,
+            product_name_at_txn=getattr(product, "name", "") or "",
+            unit_index=unit_idx,
+            conv_factor_at_txn=cf_val,
+            unit_1_label_at_txn=unit1_label or "",
+            unit_2_label_at_txn=unit2_label or "",
+            qty_used_at_txn=qty_used_val,
+            qty_primary=qty_primary,
+            currency=item_currency,
+            cost=cost_u1,
+            line_total=line_total,
+            fx_rate_at_txn=fx_used_for_item,
+        )
 
         # ----- Inventory movements -----
         if container_splits:
@@ -1145,6 +1167,7 @@ def create_return(
                     unit_index=unit_idx,
                     qty_primary=-q3(q_split),
                     unit_cost=cost_u1,
+                    cost_currency=item_currency,
                     source_app="billing",
                     source_model="ProviderReturn",
                     source_id=pret.id,
@@ -1162,6 +1185,7 @@ def create_return(
                 unit_index=unit_idx,
                 qty_primary=-qty_primary,
                 unit_cost=cost_u1,
+                cost_currency=item_currency,
                 source_app="billing",
                 source_model="ProviderReturn",
                 source_id=pret.id,
@@ -1440,12 +1464,17 @@ def delete_return(*, actor, return_id: int) -> None:
         )
 
         # then record reversal movement
+        conv_val = Decimal(str(getattr(mv, "conversion_factor_at_txn", None) or "1"))
+        if not conv_val or conv_val <= 0:
+            conv_val = Decimal("1")
+        qty_used_val = qty_in if int(mv.unit_index or 1) == 1 else q3(qty_in / conv_val)
         InvSV.record_movement(
             actor=actor,
             product=mv.product,
             unit_index=int(mv.unit_index),
             qty_primary=qty_in,
             unit_cost=mv.unit_cost,
+            cost_currency=getattr(mv, "cost_currency_at_txn", None),
             movement_type=ProductMovement.MovementType.PROVIDER_RETURN_REVERSAL,
             source_app="billing",
             source_model="ProviderReturn",
@@ -1455,6 +1484,13 @@ def delete_return(*, actor, return_id: int) -> None:
             origin_source_app=(mv.origin_source_app or ""),
             origin_source_model=(mv.origin_source_model or ""),
             origin_source_id=(mv.origin_source_id or ""),
+            product_name_at_txn=getattr(mv, "product_name_at_txn", "") or getattr(mv.product, "name", ""),
+            qty_used_at_txn=qty_used_val,
+            qty_primary_at_txn=qty_in,
+            unit_index_used_at_txn=int(mv.unit_index or 1),
+            conversion_factor_at_txn=conv_val,
+            unit_1_label_at_txn=getattr(mv, "unit_1_label_at_txn", "") or "",
+            unit_2_label_at_txn=getattr(mv, "unit_2_label_at_txn", "") or "",
         )
 
     # ----- FINANCIALS reversal -----

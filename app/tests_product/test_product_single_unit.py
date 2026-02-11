@@ -80,6 +80,52 @@ class ProductSingleUnitTests(TestCase):
         self.assertIsNotNone(mv)
         self.assertEqual(mv.unit_index, 1)
 
+    def test_single_unit_missing_secondary_forces_primary(self):
+        _, pset = create_collection_set("C-SU1B", "S-SU1B")
+        prod = create_product(
+            name="ProdSingleNoSecondary",
+            set_obj=pset,
+            unit_primary=UnitType.PIECE,
+            unit_secondary="",
+            conversion_factor=None,
+            cost=Decimal("5.0000"),
+            price=Decimal("9.0000"),
+        )
+
+        bill = BillingSV.create_bill(
+            actor=self.user,
+            provider_id=self.provider.id,
+            status="paid",
+            paid_amount=Decimal("10.000"),
+            items=[
+                {
+                    "product_id": prod.id,
+                    "unit_index": 2,
+                    "qty_raw": "3",
+                    "cost": "5.0000",
+                    "price": "9.0000",
+                    "currency": "SYP",
+                }
+            ],
+            update_product_defaults=False,
+            container=self.container,
+            money_container_id=self.money_container.id,
+            settlement_currency="SYP",
+        )
+
+        item = BillItem.objects.get(bill=bill, product=prod)
+        self.assertEqual(item.unit_index, 1)
+        self.assertEqual(item.conv_factor_at_txn, Decimal("1"))
+        self.assertEqual(item.qty_primary, Decimal("3.000"))
+
+        mv = ProductMovement.objects.filter(
+            source_app="billing",
+            source_model="BillItem",
+            source_id=str(item.id),
+        ).first()
+        self.assertIsNotNone(mv)
+        self.assertEqual(mv.unit_index, 1)
+
     def test_edit_to_single_unit_does_not_change_old_bill_item(self):
         _, pset = create_collection_set("C-SU2", "S-SU2")
         prod = create_product(

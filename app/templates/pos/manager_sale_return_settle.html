@@ -41,7 +41,7 @@
           {% for r in rows %}
             <tr>
               <td>{{ forloop.counter }}</td>
-              <td class="name">{{ r.product.name }}</td>
+              <td class="name">{{ r.product_name_at_txn }}</td>
               <td>{{ r.qty_returned|human_number }}</td>
               <td>{{ r.unit_price_at_sale|human_number }}</td>
               <td>{{ r.line_total|human_number }}</td>

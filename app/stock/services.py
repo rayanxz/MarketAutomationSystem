@@ -645,12 +645,22 @@ def transfer_from_batch(
     )
 
     # 3) Now record movements (apply_movement will sync StockEntry from the *updated* FIFO)
+    try:
+        conv_val = Decimal(str(getattr(product, "conversion_factor", None) or "1"))
+    except Exception:
+        conv_val = Decimal("1")
+    if not conv_val or conv_val <= 0 or getattr(product, "is_single_unit", False):
+        conv_val = Decimal("1")
+    unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
+    unit2_label = product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else ""
+    qty_used_val = qty
     mv_out = InvSV.record_movement(
         actor=actor,
         product=product,
         unit_index=ProductMovement.UnitIndex.PRIMARY,
         qty_primary=-qty,
         unit_cost=unit_cost,
+        cost_currency=getattr(batch, "cost_currency", None),
         movement_type=ProductMovement.MovementType.ADJUSTMENT,
         source_app="stock",
         source_model="TransferBatch",
@@ -659,6 +669,13 @@ def transfer_from_batch(
         origin_source_app=batch.source_app or "",
         origin_source_model=batch.source_model or "",
         origin_source_id=batch.source_id or "",
+        product_name_at_txn=getattr(product, "name", "") or "",
+        qty_used_at_txn=qty_used_val,
+        qty_primary_at_txn=-q3(qty),
+        unit_index_used_at_txn=ProductMovement.UnitIndex.PRIMARY,
+        conversion_factor_at_txn=conv_val,
+        unit_1_label_at_txn=unit1_label,
+        unit_2_label_at_txn=unit2_label,
     )
 
     mv_in = InvSV.record_movement(
@@ -667,6 +684,7 @@ def transfer_from_batch(
         unit_index=ProductMovement.UnitIndex.PRIMARY,
         qty_primary=qty,
         unit_cost=unit_cost,
+        cost_currency=getattr(batch, "cost_currency", None),
         movement_type=ProductMovement.MovementType.ADJUSTMENT,
         source_app="stock",
         source_model="TransferBatch",
@@ -675,6 +693,13 @@ def transfer_from_batch(
         origin_source_app=batch.source_app or "",
         origin_source_model=batch.source_model or "",
         origin_source_id=batch.source_id or "",
+        product_name_at_txn=getattr(product, "name", "") or "",
+        qty_used_at_txn=qty_used_val,
+        qty_primary_at_txn=q3(qty),
+        unit_index_used_at_txn=ProductMovement.UnitIndex.PRIMARY,
+        conversion_factor_at_txn=conv_val,
+        unit_1_label_at_txn=unit1_label,
+        unit_2_label_at_txn=unit2_label,
     )
 
 

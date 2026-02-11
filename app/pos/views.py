@@ -691,7 +691,7 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
             net = q3(gross - disc_amount_total)
 
             display_rows.append(make_row(
-                name=r.product_name,
+                name=(getattr(r, "product_name_at_txn", "") or r.product_name),
                 qty=qty_sold,
                 uom_label=uom_label,
                 unit_price=unit_price_display,
@@ -754,7 +754,7 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
                     pass
 
             display_rows.append(make_row(
-                name=r.product_name,
+                name=(getattr(r, "product_name_at_txn", "") or r.product_name),
                 qty=part_qty_display,
                 uom_label=uom_label,
                 unit_price=unit_price_display,

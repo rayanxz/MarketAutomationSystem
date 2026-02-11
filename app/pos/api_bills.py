@@ -17,7 +17,7 @@ from catalog.models import Product
 from core.currency import SYP, USD
 from financials.models import MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
-from inventory.models import q3, DEC0
+from inventory.models import q3, q4, DEC0
 from . import services as POSSV
 
 from audit_log import services as AuditSV
@@ -525,18 +525,27 @@ def api_bill_save(request: HttpRequest):
             uom_index = int(r.get("uom_index") or 1)
             if prod and prod.is_single_unit:
                 uom_index = 1
+            qty_used = abs(_parse_decimal(r.get("qty")))
+            qty_primary = qty_used
+            if uom_index == 2:
+                qty_primary = q3(qty_used * q3(conv_val))
             SalesBillRow.objects.create(
                 bill=bill,
                 product_id=pid,
                 product_name=r.get("name") or "",
+                product_name_at_txn=r.get("name") or "",
                 product_number=r.get("number") or "",
                 conv_factor_at_txn=conv_val,
                 unit_1_label_at_txn=unit1_label or "",
                 unit_2_label_at_txn=unit2_label or "",
-                qty=_parse_decimal(r.get("qty")),
+                qty_primary_at_txn=qty_primary,
+                qty=qty_used,
                 uom_index=uom_index,
                 unit_price=_parse_decimal(r.get("unit_price")),
                 sale_currency=(r.get("currency") or SYP),
+                unit_cost_at_txn=q4(Decimal(str(getattr(prod, "cost", DEC0) or DEC0))),
+                cost_currency_at_txn=(getattr(prod, "default_currency", None) or "SYP"),
+                fx_rate_at_txn=fx_rate,
                 disc_amount=_parse_decimal(r.get("disc_amount")),
                 disc_pct=_parse_decimal(r.get("disc_pct") or 0),
                 notes=r.get("notes") or "",

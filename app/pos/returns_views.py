@@ -41,14 +41,13 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
         if product is None:
             continue
 
-        conv = _dec(getattr(r, "conv_factor_at_txn", None) or getattr(product, "conversion_factor", None) or "1")
+        conv = _dec(getattr(r, "conv_factor_at_txn", None) or "1")
         if conv <= 0:
             conv = Decimal("1")
-        if getattr(product, "is_single_unit", False):
+        uom_index = int(r.uom_index or 1)
+        if not (getattr(r, "unit_2_label_at_txn", "") or "").strip() and uom_index == 2:
             conv = Decimal("1")
             uom_index = 1
-        else:
-            uom_index = int(r.uom_index or 1)
 
         sold_qty = _dec(r.qty)
         sold_primary = q3(sold_qty * conv) if uom_index == 2 else q3(sold_qty)
@@ -63,7 +62,7 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
         rows.append(
             {
                 "row_id": r.id,
-                "product_name": r.product_name,
+                "product_name": (getattr(r, "product_name_at_txn", "") or r.product_name),
                 "currency": (r.sale_currency or "SYP").upper(),
                 "uom_label": (
                     (getattr(r, "unit_2_label_at_txn", "") or "").strip()
