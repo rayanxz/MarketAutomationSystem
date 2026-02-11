@@ -62,19 +62,23 @@
 - fix the codes and barcodes are not gettings saved and not shown in their textboxes in the edit page of a product *checked*
 - remove the useless import excel button next to collection / father set deletions buttons , cause now we have a disabled button in the top section of each father sets list and products list pages *checked*
 - remove the logic of collection / father set all products cost / prices changing *checked*
-
 - show the name of the product the user is editing in the path text up there , AND show the id (that's auto given by the system) in a proper way *checked*
+- show the id that the system is going to give to a product in the adding form *checked*
 
-- handle the current issue of deletions in the right way that satisfies a good accounting system
+
+- handle the current issue of deletions in the right way that satisfies a good accounting system **currently at**
 
 - a feature we can add to product edit and addition page, is letting the manager allow discounts or not in sales , and if allowed let the manager set a limit or keep the discount up to the cashier 
 - we can give the manager the option to set a price / cost for second unit that is different from the price / cost of first unit x conversion factor , or the manager can let the system auto set the cost / price of the 2nd unit as it does now
-- show the id that the system is going to give to a product in the adding form 
 - add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one 
 
 - fix all the issues of product_add vs entering an existing product page in edit mode 
 
 - add a real time complier (fixer) to the product_new page while in edit mode , and in first addition mode as well , but some difference might happen between those 2 
+
+- strict some options for product_new page in edit mode , like changing the product name , father set , collection , we will see what we need to strict 
+
+- some options in product_new can be added , such as allow sales/purchases in first/second unit of measurement (kinda like the currencies way of handling)
 
 ## 2. excel import : 
 

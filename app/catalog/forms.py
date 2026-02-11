@@ -191,7 +191,7 @@ class ProductCreateForm(forms.Form):
         name_norm = " ".join(raw.split())
         if not name_norm:
             raise ValidationError("يرجى إدخال اسم المنتج.")
-        qs = Product.objects.filter(name__iexact=name_norm)
+        qs = Product.objects.filter(name__iexact=name_norm, is_active=True)
         if self._exclude_pk:
             qs = qs.exclude(pk=self._exclude_pk)
         if qs.exists():
@@ -227,7 +227,7 @@ class ProductCreateForm(forms.Form):
         all_barcodes: List[str] = list(dict.fromkeys(field_barcodes_u1 + field_barcodes_u2))
 
         if all_barcodes:
-            qs = ProductBarcode.objects.filter(barcode__in=all_barcodes)
+            qs = ProductBarcode.objects.filter(barcode__in=all_barcodes, is_active=True)
             if self._exclude_pk:
                 qs = qs.exclude(product_id=self._exclude_pk)
             taken = set(qs.values_list("barcode", flat=True))

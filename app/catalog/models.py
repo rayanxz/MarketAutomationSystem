@@ -6,6 +6,7 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import IntegrityError, models, transaction
+from django.db.models import Q
 from django.db.models.functions import Lower
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
@@ -117,7 +118,7 @@ class UnitType(models.TextChoices):
 class Product(models.Model):
     # System-assigned sequential number; displayed as 3+ digit zero-padded string
     product_number = models.PositiveIntegerField(
-        unique=True, db_index=True, blank=True, null=True
+        unique=False, db_index=True, blank=True, null=True
     )
     is_active = models.BooleanField(default=True, db_index=True)
 
@@ -205,8 +206,14 @@ class Product(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
+                fields=["product_number"],
+                condition=Q(is_active=True),
+                name="uq_product_number_active",
+            ),
+            models.UniqueConstraint(
                 Lower("name"),
-                name="uq_product_name_ci",
+                condition=Q(is_active=True),
+                name="uq_product_name_ci_active",
                 violation_error_message="اسم المنتج موجود مسبقاً (بدون حساسية حالة الأحرف).",
             ),
         ]
@@ -371,11 +378,19 @@ class ProductUnitId(models.Model):
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="unit_ids")
     unit_index = models.IntegerField(choices=UnitIndex.choices)  # 1 or 2
-    value = models.CharField(max_length=32, unique=True, db_index=True)  # globally unique
+    value = models.CharField(max_length=32, unique=False, db_index=True)  # unique among active
+    is_active = models.BooleanField(default=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["value"],
+                condition=Q(is_active=True),
+                name="uq_unit_id_value_active",
+            ),
+        ]
         indexes = [
             models.Index(fields=["product"]),
             models.Index(fields=["unit_index"]),
@@ -396,11 +411,19 @@ class ProductBarcode(models.Model):
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="barcodes")
     unit_index = models.IntegerField(choices=UnitIndex.choices)  # 1 or 2
-    barcode = models.CharField(max_length=64, unique=True, db_index=True)
+    barcode = models.CharField(max_length=64, unique=False, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["barcode"],
+                condition=Q(is_active=True),
+                name="uq_barcode_active",
+            ),
+        ]
         indexes = [
             models.Index(fields=["product"]),
             models.Index(fields=["unit_index"]),

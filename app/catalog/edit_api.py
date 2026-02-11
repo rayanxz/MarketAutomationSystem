@@ -4,8 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from django.db import transaction, IntegrityError
-from django.db.models.deletion import ProtectedError
+from django.db import transaction
 from django.db.models.functions import Lower
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_POST
@@ -15,10 +14,9 @@ from catalog.models import (
     ProductCollection,
     ProductSet,
     Product,
-    ProductBarcode,
-    ProductUnitId,
 )
 from catalog.views import role_required
+from catalog.services.deletion_policy import sync_identifiers_for_products
 
 from audit_log.services import log_update, log_delete, snap_instance
 
@@ -34,19 +32,6 @@ def _as_int(x) -> int | None:
     except Exception:
         return None
 
-
-def _get_or_create_trash_set(col: ProductCollection) -> ProductSet:
-    """Find (case-insensitive) or create a 'Trash' set in the given collection."""
-    trash = (
-        ProductSet.objects
-        .filter(collection=col)
-        .annotate(n=Lower("name"))
-        .filter(n="سلة المحذوفات")
-        .first()
-    )
-    if not trash:
-        trash = ProductSet.objects.create(collection=col, name="سلة المحذوفات")
-    return trash
 
 
 def _bad(msg: str, status: int = 400) -> JsonResponse:
@@ -77,6 +62,26 @@ def _scope_target(typ: str, _id: int) -> tuple[Optional[object], Optional[dict]]
         return st, before
 
     return None, None
+
+
+def _archive_products_for_set(st: ProductSet) -> int:
+    qs = Product.objects.filter(set=st, is_active=True)
+    count = qs.update(is_active=False)
+    if count:
+        sync_identifiers_for_products(qs, is_active=False)
+    return count
+
+
+def _archive_products_for_collection(col: ProductCollection) -> int:
+    qs = Product.objects.filter(set__collection=col, is_active=True)
+    count = qs.update(is_active=False)
+    if count:
+        sync_identifiers_for_products(qs, is_active=False)
+    return count
+
+
+def _can_archive_entity(obj, field_name: str = "is_active") -> bool:
+    return hasattr(obj, field_name)
 
 
 # ------------------------
@@ -232,33 +237,34 @@ def edit_apply_batch(request: HttpRequest):
                     if typ == "collection":
                         col: ProductCollection = target  # type: ignore[assignment]
 
-                        # conservative: block if any products exist
-                        if Product.objects.filter(set__collection=col).exists():
-                            results.append({"ok": False, "error": "collection has products; deletion blocked"})
-                            continue
-
                         before = snap_instance(col, ["name", "code"])
+                        archived = _archive_products_for_collection(col)
 
-                        # delete sets then collection
-                        ProductSet.objects.filter(collection=col).delete()
-                        col.delete()
-
-                        log_delete(
-                            actor=request.user,
-                            request=request,
-                            target=col,  # identity still OK even if deleted (pk used)
-                            title="Delete collection",
-                            message=f"Collection deleted: {before.get('name')}",
-                            before=before,
-                            after=None,
-                            meta={
-                                "source": "catalog.edit_apply_batch",
-                                "op": op,
-                                "soft_delete": False,
-                            },
-                        )
-
-                        results.append({"ok": True})
+                        if _can_archive_entity(col):
+                            col.is_active = False  # type: ignore[attr-defined]
+                            col.save(update_fields=["is_active"])
+                            log_delete(
+                                actor=request.user,
+                                request=request,
+                                target=col,
+                                title="Archive collection",
+                                message=f"Collection archived: {before.get('name')}",
+                                before=before,
+                                after=snap_instance(col, ["name", "code"]),
+                                meta={
+                                    "source": "catalog.edit_apply_batch",
+                                    "op": op,
+                                    "soft_delete": True,
+                                    "products_archived": archived,
+                                },
+                            )
+                            results.append({"ok": True, "products_archived": archived})
+                        else:
+                            results.append({
+                                "ok": False,
+                                "error": "Deletion disabled; archive not implemented for collections yet.",
+                                "products_archived": archived,
+                            })
 
                     else:
                         st: ProductSet = target  # type: ignore[assignment]
@@ -267,72 +273,33 @@ def edit_apply_batch(request: HttpRequest):
                         before_set["collection_code"] = getattr(st.collection, "code", None)
                         before_set["collection_name"] = getattr(st.collection, "name", None)
 
-                        qs_products = Product.objects.filter(set=st)
-                        prod_count = qs_products.count()
+                        archived = _archive_products_for_set(st)
 
-                        try:
-                            with transaction.atomic():
-                                # free globally-unique children
-                                ProductBarcode.objects.filter(product__in=qs_products).delete()
-                                ProductUnitId.objects.filter(product__in=qs_products).delete()
-
-                                # hard delete products (may raise ProtectedError)
-                                qs_products.delete()
-
-                                # delete set
-                                st.delete()
-
+                        if _can_archive_entity(st):
+                            st.is_active = False  # type: ignore[attr-defined]
+                            st.save(update_fields=["is_active"])
                             log_delete(
                                 actor=request.user,
                                 request=request,
                                 target=st,
-                                title="Delete set",
-                                message=f"Set deleted: {before_set.get('name')} (products removed: {prod_count})",
+                                title="Archive set",
+                                message=f"Set archived: {before_set.get('name')}",
                                 before=before_set,
-                                after=None,
+                                after=snap_instance(st, ["name", "code", "collection_id"]),
                                 meta={
                                     "source": "catalog.edit_apply_batch",
                                     "op": op,
-                                    "products_deleted": prod_count,
-                                    "fallback": None,
+                                    "soft_delete": True,
+                                    "products_archived": archived,
                                 },
                             )
-
-                            results.append({"ok": True})
-                            continue
-
-                        except ProtectedError:
-                            # fallback: move products to trash + archive
-                            with transaction.atomic():
-                                trash = _get_or_create_trash_set(st.collection)
-
-                                # barcodes/unit_ids already removed above – frees uniqueness
-                                Product.objects.filter(set=st).update(set=trash, is_active=False)
-
-                                # delete set after moving
-                                st.delete()
-
-                            log_delete(
-                                actor=request.user,
-                                request=request,
-                                target=st,
-                                title="Delete set (fallback to trash)",
-                                message=f"Set deleted: {before_set.get('name')} (products moved to trash)",
-                                before=before_set,
-                                after=None,
-                                meta={
-                                    "source": "catalog.edit_apply_batch",
-                                    "op": op,
-                                    "fallback": "moved_products_to_trash_and_archived",
-                                },
-                            )
-
-                            results.append({"ok": True, "note": "moved referenced products to trash"})
-                            continue
-
-                        except IntegrityError as e:
-                            results.append({"ok": False, "error": f"delete failed: {e.__class__.__name__}"})
-                            continue
+                            results.append({"ok": True, "products_archived": archived})
+                        else:
+                            results.append({
+                                "ok": False,
+                                "error": "Deletion disabled; archive not implemented for sets yet.",
+                                "products_archived": archived,
+                            })
 
     except Exception:
         # any crash: transaction rolls back

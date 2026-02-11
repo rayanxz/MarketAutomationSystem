@@ -16,6 +16,7 @@ from catalog.models import (
 )
 
 from catalog.import_rules import apply_rules
+from catalog.services.deletion_policy import sync_identifiers_for_product
 
 from catalog.io_records import CatalogDataJob
 from audit_log.services import log_create
@@ -102,8 +103,8 @@ def _db_maps():
                 for (n, pid) in Product.objects
                     .filter(is_active=True)
                     .values_list("name", "id")}
-    bar_map  = {b: pid for (b, pid) in ProductBarcode.objects.values_list("barcode", "product_id")}
-    uid_map  = {v: pid for (v, pid) in ProductUnitId.objects.values_list("value", "product_id")}
+    bar_map  = {b: pid for (b, pid) in ProductBarcode.objects.filter(is_active=True).values_list("barcode", "product_id")}
+    uid_map  = {v: pid for (v, pid) in ProductUnitId.objects.filter(is_active=True).values_list("value", "product_id")}
     return name_map, bar_map, uid_map
 
 
@@ -243,8 +244,8 @@ def stage_file_with_mapping(sid: str, mapping: Dict[str, int], options: Dict[str
         all_barcodes.update(_split_tokens(get_cell(i, "barcodes_u2")))
         all_ids.update(_split_tokens(get_cell(i, "unit_ids_u1")))
         all_ids.update(_split_tokens(get_cell(i, "unit_ids_u2")))
-    taken_bc = set(ProductBarcode.objects.filter(barcode__in=all_barcodes).values_list("barcode", flat=True)) if all_barcodes else set()
-    taken_ids = set(ProductUnitId.objects.filter(value__in=all_ids).values_list("value", flat=True)) if all_ids else set()
+    taken_bc = set(ProductBarcode.objects.filter(barcode__in=all_barcodes, is_active=True).values_list("barcode", flat=True)) if all_barcodes else set()
+    taken_ids = set(ProductUnitId.objects.filter(value__in=all_ids, is_active=True).values_list("value", flat=True)) if all_ids else set()
 
     for i in range(len(df)):
         d = {k: "" for k in ALL_FIELDS}
@@ -442,7 +443,8 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
 
                     p = existing
 
-                    if not p.is_active:
+                    was_inactive = not p.is_active
+                    if was_inactive:
                         p.is_active = True
 
                     p.set = st_obj
@@ -456,24 +458,30 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                     p.notes = notes
                     p.full_clean()
                     p.save()
+                    if was_inactive:
+                        sync_identifiers_for_product(p, is_active=True)
 
                     for bc in d.get("barcodes_u1", []):
                         ProductBarcode.objects.get_or_create(
-                            product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
+                            product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc,
+                            defaults={"is_active": p.is_active},
                         )
                     if not p.is_single_unit:
                         for bc in d.get("barcodes_u2", []):
                             ProductBarcode.objects.get_or_create(
-                                product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
+                                product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc,
+                                defaults={"is_active": p.is_active},
                             )
                     for val in d.get("unit_ids_u1", []):
                         ProductUnitId.objects.get_or_create(
-                            product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
+                            product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val,
+                            defaults={"is_active": p.is_active},
                         )
                     if not p.is_single_unit:
                         for val in d.get("unit_ids_u2", []):
                             ProductUnitId.objects.get_or_create(
-                                product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
+                                product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val,
+                                defaults={"is_active": p.is_active},
                             )
 
                     updated += 1
@@ -495,21 +503,21 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
 
                     for bc in d.get("barcodes_u1", []):
                         ProductBarcode.objects.create(
-                            product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc
+                            product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY, barcode=bc, is_active=p.is_active
                         )
                     if not p.is_single_unit:
                         for bc in d.get("barcodes_u2", []):
                             ProductBarcode.objects.create(
-                                product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc
+                                product=p, unit_index=ProductBarcode.UnitIndex.SECONDARY, barcode=bc, is_active=p.is_active
                             )
                     for val in d.get("unit_ids_u1", []):
                         ProductUnitId.objects.create(
-                            product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val
+                            product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY, value=val, is_active=p.is_active
                         )
                     if not p.is_single_unit:
                         for val in d.get("unit_ids_u2", []):
                             ProductUnitId.objects.create(
-                                product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val
+                                product=p, unit_index=ProductUnitId.UnitIndex.SECONDARY, value=val, is_active=p.is_active
                             )
 
                     if stock_qty is not None:
