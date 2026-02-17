@@ -62,13 +62,13 @@ def api_browser_products(request):
         return JsonResponse({"ok": False, "error": "bad params"}, status=400)
     if not sid:
         return JsonResponse({"ok": True, "items": [], "total": 0, "page": 1, "total_pages": 1})
-    qs = (Product.objects.filter(set_id=sid, is_active=True)
-          .order_by("product_number" , "id")
-          .values("id", "name", "product_number"))
+    qs = (
+        Product.objects.filter(set_id=sid, is_active=True)
+        .order_by("id")
+        .values("id", "name")
+    )
     total, pages, page, off, size = _page(qs, page)
-    items = [{"id": p["id"], "name": p["name"], "code": f'{(p["product_number"] or 0):03d}',
-              } 
-              for p in qs[off:off+size]]
+    items = [{"id": p["id"], "name": p["name"], "code": p["id"]} for p in qs[off:off+size]]
     return JsonResponse({
         "ok": True,
         "level": "products",

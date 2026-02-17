@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from decimal import Decimal
@@ -143,7 +143,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_syp.id,
                     "name": p_syp.name,
-                    "number": p_syp.display_code,
+                    "number": str(p_syp.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "1000",
@@ -154,7 +154,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_usd.id,
                     "name": p_usd.name,
-                    "number": p_usd.display_code,
+                    "number": str(p_usd.id),
                     "qty": "2",
                     "uom_index": 1,
                     "unit_price": "5",
@@ -203,7 +203,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_syp.id,
                     "name": p_syp.name,
-                    "number": p_syp.display_code,
+                    "number": str(p_syp.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "1000",
@@ -214,7 +214,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_usd.id,
                     "name": p_usd.name,
-                    "number": p_usd.display_code,
+                    "number": str(p_usd.id),
                     "qty": "2",
                     "uom_index": 1,
                     "unit_price": "5",
@@ -257,7 +257,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_syp.id,
                     "name": p_syp.name,
-                    "number": p_syp.display_code,
+                    "number": str(p_syp.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "1000",
@@ -291,7 +291,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_usd.id,
                     "name": p_usd.name,
-                    "number": p_usd.display_code,
+                    "number": str(p_usd.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "0",
@@ -326,7 +326,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_usd.id,
                     "name": p_usd.name,
-                    "number": p_usd.display_code,
+                    "number": str(p_usd.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "2",
@@ -382,7 +382,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_syp.id,
                     "name": p_syp.name,
-                    "number": p_syp.display_code,
+                    "number": str(p_syp.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "1000",
@@ -458,7 +458,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_syp.id,
                     "name": p_syp.name,
-                    "number": p_syp.display_code,
+                    "number": str(p_syp.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "1200",
@@ -528,7 +528,7 @@ class PosMultiCurrencySalesTests(TestCase):
                 {
                     "product_id": p_syp.id,
                     "name": p_syp.name,
-                    "number": p_syp.display_code,
+                    "number": str(p_syp.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "500",
@@ -567,3 +567,4 @@ class PosMultiCurrencySalesTests(TestCase):
                 notnull = row[3]
                 break
         self.assertEqual(notnull, 0, "billing_debtorentry.provider_id must be nullable")
+

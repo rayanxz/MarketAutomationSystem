@@ -240,7 +240,7 @@
                         <tr class="row-product row-product-header{% if item.qty < 0 %} row-negative{% elif item.qty == 0 %} row-zero{% endif %}"
                             data-name="{{ p.name|default_if_none:''|lower }}"
                             data-id="{{ p.id }}"
-                            data-code="{{ p.display_code|default_if_none:''|lower }}"
+                            data-code="{{ p.id }}"
                             data-barcode="{{ item.barcodes|default_if_none:''|lower }}"
                             data-collection="{% if col.collection %}{{ col.collection.name|lower }}{% else %}{% endif %}"
                             data-set="{% if s.set %}{{ s.set.name|lower }}{% else %}{% endif %}"
@@ -248,7 +248,7 @@
                           <td class="cell-product">
                             <span class="icon" aria-hidden="true">📦</span>
                             <span class="prod-name">{{ p.name }}</span>
-                            <span class="muted prod-code">({{ p.display_code }})</span>
+                            <span class="muted prod-code">({{ p.id }})</span>
                           </td>
                           <td class="col-date col-label">تاريخ الدفعة</td>
                           <td class="col-qty col-label">الكمية</td>
@@ -315,7 +315,7 @@
                           <td class="cell-product">
                             <span class="icon" aria-hidden="true">📦</span>
                             <span class="prod-name">{{ p.name }}</span>
-                            <span class="muted prod-code">({{ p.display_code }})</span>
+                            <span class="muted prod-code">({{ p.id }})</span>
                           </td>
                           <td class="col-qty col-label">الكمية</td>
                           <td class="col-uom col-label">الوحدة الأساسية</td>
@@ -327,7 +327,7 @@
                         <tr class="row-product{% if item.qty < 0 %} row-negative{% elif item.qty == 0 %} row-zero{% endif %}"
                             data-name="{{ p.name|default_if_none:''|lower }}"
                             data-id="{{ p.id }}"
-                            data-code="{{ p.display_code|default_if_none:''|lower }}"
+                            data-code="{{ p.id }}"
                             data-barcode="{{ item.barcodes|default_if_none:''|lower }}"
                             data-collection="{% if col.collection %}{{ col.collection.name|lower }}{% else %}{% endif %}"
                             data-set="{% if s.set %}{{ s.set.name|lower }}{% else %}{% endif %}"

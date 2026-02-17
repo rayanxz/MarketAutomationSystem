@@ -73,8 +73,8 @@ class ProductInventoryFlowTests(TestCase):
 
         stock_before = StockSV.total_stock_primary(prod)
 
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         StockSV.rebuild_all_from_inventory()
         stock_after = StockSV.total_stock_primary(prod)

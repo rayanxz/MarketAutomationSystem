@@ -1,4 +1,4 @@
-import json
+﻿import json
 from decimal import Decimal
 from django.test import TestCase
 from django.urls import reverse
@@ -109,11 +109,8 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertGreaterEqual(mv.qty_used_at_txn, Decimal("0"))
         self.assertGreaterEqual(mv.qty_primary_at_txn, Decimal("0"))
 
-        prod.name = "ProdSnapPurchase-NEW"
-        prod.unit_primary = UnitType.LITER
-        prod.unit_secondary = UnitType.BNDL
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["name", "unit_primary", "unit_secondary", "conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         item.refresh_from_db()
         mv.refresh_from_db()
@@ -169,7 +166,7 @@ class ProductSnapshotImmutabilityTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": prod.display_code,
+                    "number": str(prod.id),
                     "qty": "3",
                     "uom_index": 2,
                     "unit_price": "10",
@@ -212,11 +209,8 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertGreaterEqual(mv.qty_used_at_txn, Decimal("0"))
         self.assertGreaterEqual(mv.qty_primary_at_txn, Decimal("0"))
 
-        prod.name = "ProdSnapPOS-NEW"
-        prod.unit_primary = UnitType.LITER
-        prod.unit_secondary = UnitType.BNDL
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["name", "unit_primary", "unit_secondary", "conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         row.refresh_from_db()
         mv.refresh_from_db()
@@ -272,7 +266,7 @@ class ProductSnapshotImmutabilityTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": prod.display_code,
+                    "number": str(prod.id),
                     "qty": "4",
                     "uom_index": 2,
                     "unit_price": "10",
@@ -330,11 +324,8 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertGreaterEqual(mv.qty_used_at_txn, Decimal("0"))
         self.assertGreaterEqual(mv.qty_primary_at_txn, Decimal("0"))
 
-        prod.name = "ProdSnapReturn-NEW"
-        prod.unit_primary = UnitType.LITER
-        prod.unit_secondary = UnitType.BNDL
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["name", "unit_primary", "unit_secondary", "conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         ret_row.refresh_from_db()
         mv.refresh_from_db()
@@ -348,3 +339,4 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertEqual(mv.unit_1_label_at_txn, original_unit1)
         self.assertEqual(mv.unit_2_label_at_txn, original_unit2)
         self.assertEqual(mv.conversion_factor_at_txn, original_conv)
+

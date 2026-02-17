@@ -85,7 +85,6 @@ def _snap_product(p: Product) -> dict:
         p,
         [
             "name",
-            "product_number",
             "is_active",
             "set_id",
             "unit_primary",
@@ -117,11 +116,7 @@ def _snap_product(p: Product) -> dict:
             "notes",
         ],
     )
-    # nice-to-have context (doesn't change business logic)
-    try:
-        d["display_code"] = p.display_code
-    except Exception:
-        pass
+    d["code"] = p.id
     try:
         d["set_code"] = getattr(p.set, "code", None)
         d["set_name"] = getattr(p.set, "name", None)
@@ -140,16 +135,6 @@ def _snap_product(p: Product) -> dict:
         pass
     return d
 
-
-def _next_product_code() -> str:
-    last = (
-        Product.objects
-        .order_by("-product_number")
-        .values_list("product_number", flat=True)
-        .first()
-    )
-    n = 1 if not last else int(last) + 1
-    return f"{n:03d}"
 
 def _collect_ids_barcodes_from_post(request: HttpRequest) -> tuple[list[str], list[str], list[str], list[str]]:
     u1_ids = _post_list(request, "unit_primary_ids")
@@ -419,7 +404,7 @@ def _products_qs_for_collection(cid: int):
         Product.objects
         .filter(set__collection_id=cid, is_active=True)
         .select_related("set", "set__collection")
-        .order_by("product_number")
+        .order_by("id")
     )
 
 
@@ -437,7 +422,7 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
     if all_flag:
         items = [{
             "id": p.id,
-            "code": f"{p.product_number:03d}",
+            "code": p.id,
             "name": p.name,
             "set": {"id": p.set_id, "code": p.set.code, "name": p.set.name},
             "collection": {"id": cid},
@@ -457,7 +442,7 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
 
     items = [{
         "id": p.id,
-        "code": f"{p.product_number:03d}",
+        "code": p.id,
         "name": p.name,
         "set": {"id": p.set_id, "code": p.set.code, "name": p.set.name},
         "collection": {"id": cid},
@@ -475,7 +460,7 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
 def _page_for_product_in_collection(prod: Product) -> int:
     n = (
         _products_qs_for_collection(prod.set.collection_id)
-        .filter(product_number__lte=prod.product_number)
+        .filter(id__lte=prod.id)
         .count()
     )
     return max(1, ceil(n / PAGE_SIZE))
@@ -493,7 +478,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
         return {
             "type": "product",
             "id": p.id,
-            "code": f"{p.product_number:03d}",
+            "code": p.id,
             "name": p.name,
             "set_id": p.set_id,
             "set_code": p.set.code,
@@ -638,7 +623,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             if q.isdigit():
                 p = (
                     Product.objects.select_related("set__collection")
-                    .filter(product_number=int(q), is_active=True)
+                    .filter(id=int(q), is_active=True)
                     .first()
                 )
                 if p:
@@ -669,7 +654,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                     p = (
                         Product.objects.select_related("set__collection")
                         .filter(set=st, is_active=True)
-                        .order_by("product_number")
+                        .order_by("id")
                         .first()
                     )
                     if p:
@@ -694,10 +679,10 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                         )
                         if st:
                             try:
-                                pn = int(parts[2])
+                                pid = int(parts[2])
                                 p = (
                                     Product.objects.select_related("set__collection")
-                                    .filter(product_number=pn, set=st, is_active=True)
+                                    .filter(id=pid, set=st, is_active=True)
                                     .first()
                                 )
                                 if p:
@@ -718,7 +703,6 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
 # =========================
 @role_required(AccountProfile.Role.MANAGER)
 def manager_product_new(request: HttpRequest) -> HttpResponse:
-    next_code = _next_product_code()
     if request.method == "POST":
         form = ProductCreateForm(request.POST)
         if not form.is_valid():
@@ -734,7 +718,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                 },
             )
 
@@ -759,7 +742,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                 },
             )
 
@@ -804,7 +786,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                 },
             )
 
@@ -829,7 +810,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                 },
             )
         confirm_reuse = (request.POST.get("confirm_reuse_name") == "1")
@@ -847,7 +827,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                     "confirm_reuse_name": True,
                 },
             )
@@ -958,7 +937,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     request=request,
                     target=p,
                     title="Create product",
-                    message=f"Product created: {p.name} ({p.display_code})",
+                    message=f"Product created: {p.name} ({p.id})",
                     before=None,
                     after=_snap_product(p),
                     meta={"source": "catalog.manager_product_new"},
@@ -986,7 +965,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                 },
             )
 
@@ -1010,7 +988,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
-                    "next_product_code": next_code,
                 },
             )
 
@@ -1028,7 +1005,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             "u2_ids": [],
             "bar_u1": [],
             "bar_u2": [],
-            "next_product_code": next_code,
         },
     )
 
@@ -1125,7 +1101,16 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": True,
+                    "product": p,
+                    "product_has_history": p.has_history(),
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                },
             )
 
         c_name = form.cleaned_data["collection_name"].strip()
@@ -1142,7 +1127,20 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if not col:
             form.add_error("collection_name", "الزمرة غير موجودة.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2})
+            return render(
+                request,
+                "manager/product_new.html",
+                {
+                    "form": form,
+                    "editing": True,
+                    "product": p,
+                    "product_has_history": p.has_history(),
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                },
+            )
 
         # Resolve or create set
         st = None
@@ -1173,7 +1171,20 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(request, "manager/product_new.html", {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2})
+            return render(
+                request,
+                "manager/product_new.html",
+                {
+                    "form": form,
+                    "editing": True,
+                    "product": p,
+                    "product_has_history": p.has_history(),
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                },
+            )
 
         # Update fields
         u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
@@ -1189,7 +1200,16 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": True,
+                    "product": p,
+                    "product_has_history": p.has_history(),
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                },
             )
 
         p.name = form.cleaned_data["name"].strip()
@@ -1254,12 +1274,12 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                         if ProductUnitId.objects.filter(value=val, is_active=True).exclude(product=p).exists():
                             messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
                             raise IntegrityError("duplicate unit id")
-                    ProductUnitId.objects.create(
-                        product=p,
-                        unit_index=ProductUnitId.UnitIndex.SECONDARY,
-                        value=val,
-                        is_active=p.is_active,
-                    )
+                        ProductUnitId.objects.create(
+                            product=p,
+                            unit_index=ProductUnitId.UnitIndex.SECONDARY,
+                            value=val,
+                            is_active=p.is_active,
+                        )
 
                 # ---- Barcodes: replace when lists or textarea posted ----
                 list_u1 = bar_u1
@@ -1287,12 +1307,12 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                         if ProductBarcode.objects.filter(barcode=bc, is_active=True).exclude(product=p).exists():
                             messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
                             raise IntegrityError("duplicate barcode")
-                    ProductBarcode.objects.create(
-                        product=p,
-                        unit_index=ProductBarcode.UnitIndex.SECONDARY,
-                        barcode=bc,
-                        is_active=p.is_active,
-                    )
+                        ProductBarcode.objects.create(
+                            product=p,
+                            unit_index=ProductBarcode.UnitIndex.SECONDARY,
+                            barcode=bc,
+                            is_active=p.is_active,
+                        )
 
             # AUDIT: update product
             try:
@@ -1302,7 +1322,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                     request=request,
                     target=p2,
                     title="Update product",
-                    message=f"Product updated: {p2.name} ({p2.display_code})",
+                    message=f"Product updated: {p2.name} ({p2.id})",
                     before=before,
                     after=_snap_product(p2),
                     meta={"source": "catalog.manager_product_edit"},
@@ -1318,7 +1338,16 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return render(
                 request,
                 "manager/product_new.html",
-                {"form": form, "editing": True, "product": p, "u1_ids": u1_ids, "u2_ids": u2_ids, "bar_u1": bar_u1, "bar_u2": bar_u2},
+                {
+                    "form": form,
+                    "editing": True,
+                    "product": p,
+                    "product_has_history": p.has_history(),
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                },
             )
 
         messages.success(request, f"تم حفظ التعديلات للمنتج «{p.name}».")
@@ -1361,6 +1390,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "form": form,
             "editing": True,
             "product": p,
+            "product_has_history": p.has_history(),
             "u1_ids": u1_ids,
             "u2_ids": u2_ids,
             "bar_u1": bar_u1,

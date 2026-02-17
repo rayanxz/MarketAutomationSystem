@@ -403,9 +403,10 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
     elif mode == "barcode":
         qs = filter_barcode(qs, q)
     elif mode == "code":
-        qs = qs.filter(product_number__icontains=q)
+        qs = qs.filter(id=int(q)) if q.isdigit() else qs.none()
     else:
-        qs = qs.filter(Q(name__icontains=q) | Q(product_number__icontains=q))
+        name_q = Q(name__icontains=q)
+        qs = qs.filter(name_q | Q(id=int(q))) if q.isdigit() else qs.filter(name_q)
 
     qs = qs.order_by("name")[:20]
 
@@ -433,7 +434,7 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
         items.append({
             "id": p.id,
             "name": p.name,
-            "code": getattr(p, "product_number", "") or "",
+            "code": p.id,
             "col_name": getattr(col, "name", "") or "",
             "col_code": getattr(col, "code", "") or "",
             "set_name": getattr(setobj, "name", "") or "",
@@ -916,7 +917,7 @@ def bill_view(request, bill_id: int):
         sold_qty = q3(sold_by_item.get(it.id, DEC0))
 
         # product identifiers for search
-        prod_code = getattr(prod, "product_number", "") or ""
+        prod_code = str(getattr(prod, "id", "") or "")
         barcode_val = ""
         try:
             for b in getattr(prod, "barcodes", []).all():

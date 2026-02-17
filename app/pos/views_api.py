@@ -19,7 +19,7 @@ def product_payload(p: Product) -> Dict[str, Any]:
     data = {
         "id": p.id,
         "name": p.name,
-        "number": p.display_code,  # zero-padded string
+        "number": str(p.id),
         "price": str(default_price),  # effective default sale price per primary unit
         "default_price_syp": str(p.default_price_syp),
         "default_price_usd": str(p.default_price_usd),
@@ -62,7 +62,7 @@ def api_search_name(request: HttpRequest):
     if not q:
         return JsonResponse({"ok": True, "hits": []})
     qs = Product.objects.filter(is_active=True, name__icontains=q).order_by("name")[:limit]
-    hits = [{"id": p.id, "name": p.name, "number": p.display_code} for p in qs]
+    hits = [{"id": p.id, "name": p.name, "number": str(p.id)} for p in qs]
     return JsonResponse({"ok": True, "hits": hits})
 
 @login_required

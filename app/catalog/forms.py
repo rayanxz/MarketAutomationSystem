@@ -68,6 +68,9 @@ class ProductCreateForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.instance = instance
         self._exclude_pk = exclude_pk if exclude_pk is not None else (instance.pk if instance else None)
+        if instance is not None and not self.is_bound:
+            self.initial.setdefault("unit_primary", instance.unit_primary)
+            self.initial.setdefault("unit_secondary", instance.unit_secondary or "")
 
         # Tiny UX touches
         self.fields["collection_name"].widget.attrs.setdefault("class", "input")
@@ -207,19 +210,10 @@ class ProductCreateForm(forms.Form):
         u2 = cleaned.get("unit_secondary") or ""
         cf = cleaned.get("conversion_factor")
 
-        if u2 and u1 == u2:
-            if cleaned.get("conversion_factor") in (None, ""):
-                if self._exclude_pk and getattr(self.instance, "conversion_factor", None):
-                    cleaned["conversion_factor"] = self.instance.conversion_factor
-                else:
-                    cleaned["conversion_factor"] = Decimal("1")
-        else:
-            # If a secondary unit is chosen -> conversion factor is required
-            if u2 and not cf:
-                self.add_error("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.")
-            # If no secondary unit -> nullify conversion factor
-            if not u2:
-                cleaned["conversion_factor"] = None
+        # If a distinct secondary unit is chosen -> conversion factor is required.
+        # Canonical normalization is enforced at model level (Product.clean).
+        if u2 and u1 != u2 and not cf:
+            self.add_error("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.")
 
         # --- Friendly duplicate barcode check (bulk + ignore self when editing) ---
         field_barcodes_u1 = self.parse_barcodes(cleaned.get("barcodes_u1"))

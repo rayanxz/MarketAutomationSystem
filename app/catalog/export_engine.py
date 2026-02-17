@@ -1,6 +1,8 @@
-# catalog/export_engine.py
-from __future__ import annotations
-import os, uuid, json
+﻿from __future__ import annotations
+
+import json
+import os
+import uuid
 from typing import Any, Dict, Iterable, List
 
 import pandas as pd
@@ -25,21 +27,35 @@ UNIT_LABELS = {
     "G": "غ",
     "l": "ليتر",
     "L": "ليتر",
-    # add more if you use other codes
 }
+
 
 def _u(x: str | None) -> str:
     if not x:
         return ""
     return UNIT_LABELS.get(str(x).strip(), str(x).strip())
 
+
 DEFAULT_COLUMNS: List[str] = [
-    "name", "set", "unit_primary", "unit_secondary", "conversion_factor",
-    "cost", "price", "stock_qty", "product_number",
-    "barcodes_u1", "barcodes_u2", "unit_ids_u1", "unit_ids_u2", "notes",
+    "id",
+    "name",
+    "set",
+    "unit_primary",
+    "unit_secondary",
+    "conversion_factor",
+    "cost",
+    "price",
+    "stock_qty",
+    "barcodes_u1",
+    "barcodes_u2",
+    "unit_ids_u1",
+    "unit_ids_u2",
+    "notes",
 ]
 
+
 HEADER_LABELS: Dict[str, str] = {
+    "id": "رمز المنتج",
     "name": "الاسم",
     "set": "المجموعة الأب",
     "unit_primary": "الوحدة الأولى",
@@ -48,7 +64,6 @@ HEADER_LABELS: Dict[str, str] = {
     "cost": "الكلفة",
     "price": "السعر",
     "stock_qty": "الكمية بالمخزن",
-    "product_number": "رمز المنتج",
     "barcodes_u1": "باركودات U1",
     "barcodes_u2": "باركودات U2",
     "unit_ids_u1": "معرّفات U1",
@@ -56,8 +71,10 @@ HEADER_LABELS: Dict[str, str] = {
     "notes": "ملاحظات",
 }
 
+
 def _join(values: Iterable[str]) -> str:
     return " ".join(v for v in values if v)
+
 
 def _collect_rows(scope: str, ids: List[int] | None) -> List[Dict[str, Any]]:
     """
@@ -74,7 +91,6 @@ def _collect_rows(scope: str, ids: List[int] | None) -> List[Dict[str, Any]]:
         ids = ids or []
         if ids:
             qs = qs.filter(set_id__in=ids)
-    # scope == 'all' → no extra filter
 
     prod_ids = list(qs.values_list("id", flat=True))
 
@@ -93,24 +109,27 @@ def _collect_rows(scope: str, ids: List[int] | None) -> List[Dict[str, Any]]:
         (uid_u1 if unit_index == 1 else uid_u2)[pid].append(val)
 
     rows: List[Dict[str, Any]] = []
-    for p in qs.order_by("set__collection__name", "set__name", "product_number", "name"):
-        rows.append({
-            "name": p.name,
-            "set": p.set.name,
-            "unit_primary": _u(p.unit_primary),          # << Arabic label
-            "unit_secondary": _u(p.unit_secondary),      # << Arabic label
-            "conversion_factor": str(p.conversion_factor or ""),
-            "cost": str(p.cost),
-            "price": str(p.price),
-            "stock_qty": str(p.stock_qty),
-            "product_number": p.product_number or "",
-            "barcodes_u1": _join(bc_u1.get(p.id, [])),
-            "barcodes_u2": _join(bc_u2.get(p.id, [])),
-            "unit_ids_u1": _join(uid_u1.get(p.id, [])),
-            "unit_ids_u2": _join(uid_u2.get(p.id, [])),
-            "notes": p.notes or "",
-        })
+    for p in qs.order_by("set__collection__name", "set__name", "id"):
+        rows.append(
+            {
+                "id": p.id,
+                "name": p.name,
+                "set": p.set.name,
+                "unit_primary": _u(p.unit_primary),
+                "unit_secondary": _u(p.unit_secondary),
+                "conversion_factor": str(p.conversion_factor or ""),
+                "cost": str(p.cost),
+                "price": str(p.price),
+                "stock_qty": str(p.stock_qty),
+                "barcodes_u1": _join(bc_u1.get(p.id, [])),
+                "barcodes_u2": _join(bc_u2.get(p.id, [])),
+                "unit_ids_u1": _join(uid_u1.get(p.id, [])),
+                "unit_ids_u2": _join(uid_u2.get(p.id, [])),
+                "notes": p.notes or "",
+            }
+        )
     return rows
+
 
 def build_dataframe(rows: List[Dict[str, Any]], columns: List[str] | None) -> pd.DataFrame:
     cols = columns or DEFAULT_COLUMNS
@@ -118,6 +137,7 @@ def build_dataframe(rows: List[Dict[str, Any]], columns: List[str] | None) -> pd
         return pd.DataFrame(columns=cols)
     safe_cols = [c for c in cols if c in rows[0]]
     return pd.DataFrame(rows, columns=safe_cols)
+
 
 def make_file(
     scope: str,

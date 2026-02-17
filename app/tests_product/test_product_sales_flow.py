@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
@@ -88,7 +88,7 @@ class ProductSalesFlowTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": str(prod.product_number or ""),
+                    "number": str(prod.id),
                     "qty": "3",
                     "uom_index": 2,
                     "unit_price": "2.000",
@@ -113,8 +113,8 @@ class ProductSalesFlowTests(TestCase):
         self.assertEqual(row.conv_factor_at_txn, Decimal("2"))
         self.assertTrue(row.unit_1_label_at_txn)
 
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         row.refresh_from_db()
         self.assertEqual(row.qty, Decimal("3.000"))
@@ -147,7 +147,7 @@ class ProductSalesFlowTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": str(prod.product_number or ""),
+                    "number": str(prod.id),
                     "qty": "5",
                     "uom_index": 1,
                     "unit_price": "2.000",
@@ -199,7 +199,7 @@ class ProductSalesFlowTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": str(prod.product_number or ""),
+                    "number": str(prod.id),
                     "qty": "1",
                     "uom_index": 1,
                     "unit_price": "3.000",
@@ -219,3 +219,4 @@ class ProductSalesFlowTests(TestCase):
         bill_id = resp.json()["bill"]["id"]
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         self.assertEqual(row.sale_currency, "USD")
+

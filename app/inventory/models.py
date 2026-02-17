@@ -143,7 +143,7 @@ class ProductMovement(models.Model):
     def __str__(self) -> str:
         name = (self.product_name_at_txn or "").strip()
         if not name:
-            name = getattr(self.product, "display_code", "")
+            name = str(getattr(self.product, "id", ""))
         return f"{name} {self.movement_type} {self.qty_primary} @ {self.unit_cost}"
 
     def clean(self):

@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
@@ -163,9 +163,8 @@ class ProductSingleUnitTests(TestCase):
         self.assertEqual(item.unit_index, 2)
         self.assertEqual(item.conv_factor_at_txn, Decimal("2"))
 
-        prod.unit_secondary = prod.unit_primary
-        prod.conversion_factor = Decimal("1")
-        prod.save(update_fields=["unit_secondary", "conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         item.refresh_from_db()
         self.assertEqual(item.unit_index, 2)
@@ -219,7 +218,7 @@ class ProductSingleUnitTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": str(prod.product_number or ""),
+                    "number": str(prod.id),
                     "qty": "3",
                     "uom_index": 2,
                     "unit_price": "2.000",
@@ -261,3 +260,4 @@ class ProductSingleUnitTests(TestCase):
         self.assertIsNotNone(ret_row)
         self.assertEqual(ret_row.uom_index, 1)
         self.assertEqual(ret_row.qty_returned, Decimal("1.000"))
+

@@ -127,7 +127,7 @@
 
       const ic   = el('span','icon', iconName);
       const name = el('div','name', it.name);
-      const code = el('div','code', level==='products' ? `#${it.code}` : (it.code || ''));
+      const code = el('div','code', level==='products' ? `${it.code}` : (it.code || ''));
 
       row.style.display='flex';
       row.style.alignItems='center';

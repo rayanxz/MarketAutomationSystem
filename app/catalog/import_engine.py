@@ -167,7 +167,7 @@ REQUIRED = {"name", "set", "unit_primary", "unit_secondary", "conversion_factor"
 
 ALL_FIELDS = {
     "name", "set", "unit_primary", "unit_secondary", "conversion_factor",
-    "cost", "price", "stock_qty", "product_number",
+    "cost", "price", "stock_qty",
     "barcodes_u1", "barcodes_u2", "unit_ids_u1", "unit_ids_u2", "notes", "dup_action"
 }
 
@@ -261,9 +261,6 @@ def stage_file_with_mapping(sid: str, mapping: Dict[str, int], options: Dict[str
         d["cost"] = _to_dec(get_cell(i, "cost"), nd=4) or Decimal("0.0000")
         d["price"] = _to_dec(get_cell(i, "price"), nd=4) or Decimal("0.0000")
         d["stock_qty"] = _to_dec(get_cell(i, "stock_qty"), nd=3)
-
-        pn = str(get_cell(i, "product_number")).strip()
-        d["product_number"] = int(pn) if pn.isdigit() else None
 
         d["barcodes_u1"] = _split_tokens(get_cell(i, "barcodes_u1"))
         d["barcodes_u2"] = _split_tokens(get_cell(i, "barcodes_u2"))
@@ -560,8 +557,6 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
                         price=price,
                         notes=notes,
                     )
-                    if d.get("product_number"):
-                        p.product_number = d["product_number"]
                     p.full_clean()
                     p.save()
 

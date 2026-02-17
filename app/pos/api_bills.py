@@ -534,7 +534,7 @@ def api_bill_save(request: HttpRequest):
                 product_id=pid,
                 product_name=r.get("name") or "",
                 product_name_at_txn=r.get("name") or "",
-                product_number=r.get("number") or "",
+                product_number=str(r.get("number") or pid),
                 conv_factor_at_txn=conv_val,
                 unit_1_label_at_txn=unit1_label or "",
                 unit_2_label_at_txn=unit2_label or "",

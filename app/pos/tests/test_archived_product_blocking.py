@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from decimal import Decimal
@@ -106,7 +106,7 @@ class PosArchivedProductBlockingTests(TestCase):
             bill=bill,
             product_id=prod.id,
             product_name=prod.name,
-            product_number=prod.display_code,
+            product_number=str(prod.id),
             conv_factor_at_txn=Decimal("1.0000"),
             unit_1_label_at_txn=prod.get_unit_primary_display(),
             unit_2_label_at_txn="",
@@ -140,7 +140,7 @@ class PosArchivedProductBlockingTests(TestCase):
             bill=bill,
             product_id=prod.id,
             product_name=prod.name,
-            product_number=prod.display_code,
+            product_number=str(prod.id),
             conv_factor_at_txn=Decimal("1.0000"),
             unit_1_label_at_txn=prod.get_unit_primary_display(),
             unit_2_label_at_txn="",
@@ -179,3 +179,4 @@ class PosArchivedProductBlockingTests(TestCase):
                 return_id=ret.id,
                 settle_mode="credit",
             )
+

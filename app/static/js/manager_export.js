@@ -17,7 +17,7 @@
   const labelOf = k => LABELS[k] || k;
 
   // Exclude fields you don't want selectable
-  const EXCLUDED = new Set(["product_number","stock_qty"]);   // ID + quantity
+  const EXCLUDED = new Set(["stock_qty"]);
   const ALL_ALLOWED = ALL_COLUMNS_RAW.filter(k => !EXCLUDED.has(k));
 
   // ---------- steps ----------

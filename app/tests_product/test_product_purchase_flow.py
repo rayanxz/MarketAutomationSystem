@@ -65,8 +65,8 @@ class ProductPurchaseFlowTests(TestCase):
         self.assertEqual(item.conv_factor_at_txn, Decimal("2"))
         self.assertTrue(item.unit_1_label_at_txn)
 
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         qty_u2 = (item.qty_primary / item.conv_factor_at_txn) if item.unit_index == 2 else item.qty_primary
         self.assertEqual(qty_u2, Decimal("3.000"))

@@ -118,12 +118,17 @@
       <h3>
         {% if editing %}تعديل منتج{% else %}بيانات المنتج{% endif %}
         {% if editing and product %}
-          <span class="id-badge">معرف المنتج: {{ product.display_code }}</span>
+          <span class="id-badge">رمز المنتج: {{ product.id }}</span>
         {% else %}
-          <span class="id-badge">معرف المنتج المتوقع: {{ next_product_code }}</span>
+          <span class="id-badge">رمز المنتج: بعد الحفظ</span>
         {% endif %}
       </h3>
       {% if form.non_field_errors %}<div class="err">{{ form.non_field_errors.0 }}</div>{% endif %}
+      {% if editing and product and product_has_history %}
+        <div class="err" style="margin-top:8px;">
+          This product has history; core fields are locked. Archive + create a new product if you need different units/collection/set/name.
+        </div>
+      {% endif %}
 
       <div class="field">
         <label>اسم الزمرة</label>
@@ -165,7 +170,12 @@
         </div>
         <div class="field">
           <label>الوحدة الثانية </label>
-          {{ form.unit_secondary }}
+          <select name="unit_secondary" id="id_unit_secondary" class="input">
+            <option value="" {% if not form.unit_secondary.value %}selected{% endif %}>---------</option>
+            {% for value, label in form.fields.unit_secondary.choices %}
+              <option value="{{ value }}" {% if form.unit_secondary.value == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
           {% if form.errors.unit_secondary %}<div class="err">{{ form.errors.unit_secondary.0 }}</div>{% endif %}
         </div>
       </div>
@@ -397,6 +407,34 @@
 
 {% block extra_scripts %}
   <script src="{% static 'js/product_new.js' %}"></script>
+  {% if editing and product and product_has_history %}
+  <script>
+    (function () {
+      const lockInputs = ["collection_name", "set_name", "name", "conversion_factor"];
+      lockInputs.forEach((name) => {
+        const el = document.querySelector(`[name="${name}"]`);
+        if (el) {
+          el.setAttribute("readonly", "readonly");
+          el.classList.add("locked");
+        }
+      });
+      const selectNames = ["unit_primary", "unit_secondary"];
+      selectNames.forEach((name) => {
+        const el = document.querySelector(`[name="${name}"]`);
+        if (el) {
+          el.disabled = true;
+          el.classList.add("locked");
+          // Disabled controls are not posted; mirror the locked value to preserve submission payload.
+          const hidden = document.createElement("input");
+          hidden.type = "hidden";
+          hidden.name = name;
+          hidden.value = el.value || "";
+          el.form?.appendChild(hidden);
+        }
+      });
+    })();
+  </script>
+  {% endif %}
   <script>
     function addFieldWithoutDelete(containerId, name, placeholder){
       const wrap = document.getElementById(containerId);

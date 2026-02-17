@@ -1,18 +1,19 @@
-# catalog/models.py
+﻿# catalog/models.py
 from __future__ import annotations
 
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.apps import apps
 from django.core.validators import MinValueValidator, RegexValidator
-from django.db import IntegrityError, models, transaction
+from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Lower
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
 
 # =========================
-#   Collections (زُمَر)
+#   Collections (Ø²ÙÙ…ÙŽØ±)
 # =========================
 class ProductCollection(models.Model):
     """
@@ -39,7 +40,7 @@ class ProductCollection(models.Model):
             models.UniqueConstraint(
                 Lower("name"),
                 name="uq_collection_name_ci",
-                violation_error_message="اسم المجموعة موجود مسبقاً (حساسية غير مفعلة).",
+                violation_error_message="Ø§Ø³Ù… Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø­Ø³Ø§Ø³ÙŠØ© ØºÙŠØ± Ù…ÙØ¹Ù„Ø©).",
             ),
         ]
         indexes = [
@@ -48,7 +49,7 @@ class ProductCollection(models.Model):
         ordering = ["name"]
 
     def __str__(self) -> str:
-        return f"{self.code} — {self.name}"
+        return f"{self.code} â€” {self.name}"
 
     def save(self, *args, **kwargs):
         # validate first
@@ -61,7 +62,7 @@ class ProductCollection(models.Model):
 
 
 # =========================
-#   Sets (المجموعة الأب)
+#   Sets (Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ø§Ù„Ø£Ø¨)
 # =========================
 class ProductSet(models.Model):
     collection = models.ForeignKey(
@@ -89,7 +90,7 @@ class ProductSet(models.Model):
         ordering = ["collection__name", "name"]
 
     def __str__(self):
-        return f"{self.code} — {self.name} ({self.collection.code})"
+        return f"{self.code} â€” {self.name} ({self.collection.code})"
 
     def save(self, *args, **kwargs):
         # validate first
@@ -105,21 +106,17 @@ class ProductSet(models.Model):
 #   Units enum
 # =========================
 class UnitType(models.TextChoices):
-    GRAM = "g", "غرام"
-    PIECE = "pc", "قطعة"
-    LITER = "L", "ليتر"
-    PKG = "PKG", "طرد"     # primary packages (new)
-    BNDL = "BNDL", "حزمة"  # secondary packages (new)
+    GRAM = "g", "ØºØ±Ø§Ù…"
+    PIECE = "pc", "Ù‚Ø·Ø¹Ø©"
+    LITER = "L", "Ù„ÙŠØªØ±"
+    PKG = "PKG", "Ø·Ø±Ø¯"     # primary packages (new)
+    BNDL = "BNDL", "Ø­Ø²Ù…Ø©"  # secondary packages (new)
 
 
 # =========================
 #   Product
 # =========================
 class Product(models.Model):
-    # System-assigned sequential number; displayed as 3+ digit zero-padded string
-    product_number = models.PositiveIntegerField(
-        unique=False, db_index=True, blank=True, null=True
-    )
     is_active = models.BooleanField(default=True, db_index=True)
 
     # Name (case-insensitive unique enforced via DB constraint below)
@@ -198,23 +195,13 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # Guard against using '#' or '@' for products (must start with a digit)
-    code_format_validator = RegexValidator(
-        r'^(?![#@])\d', 'Product code must start with a digit (not # or @)'
-    )
-
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["product_number"],
-                condition=Q(is_active=True),
-                name="uq_product_number_active",
-            ),
             models.UniqueConstraint(
                 Lower("name"),
                 condition=Q(is_active=True),
                 name="uq_product_name_ci_active",
-                violation_error_message="اسم المنتج موجود مسبقاً (بدون حساسية حالة الأحرف).",
+                violation_error_message="Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø¨Ø¯ÙˆÙ† Ø­Ø³Ø§Ø³ÙŠØ© Ø­Ø§Ù„Ø© Ø§Ù„Ø£Ø­Ø±Ù).",
             ),
         ]
         indexes = [
@@ -224,29 +211,80 @@ class Product(models.Model):
         ordering = ["name"]
 
     def __str__(self):
-        return f"{self.display_code} — {self.name}"
-
-    @property
-    def display_code(self) -> str:
-        # human format like 001, 010, 1000 (min 3 digits)
-        n = self.product_number or 0
-        return f"{n:03d}"
+        return f"{self.id} â€” {self.name}"
 
     @property
     def is_single_unit(self) -> bool:
         return not self.unit_secondary or self.unit_primary == self.unit_secondary
 
+    def has_history(self) -> bool:
+        """
+        True if any historical usage exists for this product.
+        """
+        if not self.pk:
+            return False
+        checks = [
+            ("inventory", "ProductMovement", {"product_id": self.pk}),
+            ("billing", "BillItem", {"product_id": self.pk}),
+            ("billing", "ProviderReturnItem", {"product_id": self.pk}),
+            ("pos", "SalesBillRow", {"product_id": self.pk}),
+            ("pos", "SalesReturnRow", {"product_id": self.pk}),
+            # Derived cost layers (may be rebuilt); keep as a conservative signal.
+            ("stock", "StockFifoLayer", {"product_id": self.pk}),
+        ]
+        for app_label, model_name, kwargs in checks:
+            try:
+                Model = apps.get_model(app_label, model_name)
+            except LookupError:
+                continue
+            if Model.objects.filter(**kwargs).exists():
+                return True
+        return False
+
+    def locked_fields_changed(self, old: "Product") -> list[str]:
+        def _norm_secondary(val: str | None) -> str:
+            return (val or "").strip()
+
+        def _norm_conv(val, unit_secondary: str) -> Decimal | None:
+            if not unit_secondary:
+                return None
+            if val in (None, ""):
+                return None
+            try:
+                return Decimal(str(val))
+            except Exception:
+                return None
+
+        changed: list[str] = []
+
+        if (old.name or "").strip() != (self.name or "").strip():
+            changed.append("name")
+        if int(getattr(old, "set_id", 0) or 0) != int(getattr(self, "set_id", 0) or 0):
+            changed.append("set")
+        if (old.unit_primary or "") != (self.unit_primary or ""):
+            changed.append("unit_primary")
+
+        old_sec = _norm_secondary(old.unit_secondary)
+        new_sec = _norm_secondary(self.unit_secondary)
+        if old_sec != new_sec:
+            changed.append("unit_secondary")
+
+        old_requires_conv = bool(old_sec and old_sec != (old.unit_primary or ""))
+        new_requires_conv = bool(new_sec and new_sec != (self.unit_primary or ""))
+        if old_requires_conv or new_requires_conv:
+            old_conv = _norm_conv(old.conversion_factor, old_sec)
+            new_conv = _norm_conv(self.conversion_factor, new_sec)
+            if old_conv != new_conv:
+                changed.append("conversion_factor")
+
+        return changed
+
     # ---- validation & normalization ----
     def clean(self):
-        # Ensure product codes don’t start with # or @ if someone sets product_number
-        if self.product_number is not None:
-            self.code_format_validator(str(self.product_number))
-
         # Units rule
         if self.unit_secondary:
             if self.unit_primary == self.unit_secondary:
-                if not self.conversion_factor or self.conversion_factor <= 0:
-                    self.conversion_factor = Decimal("1")
+                self.conversion_factor = Decimal("1")
             else:
                 if not self.conversion_factor or self.conversion_factor <= 0:
                     raise ValidationError(
@@ -254,6 +292,19 @@ class Product(models.Model):
                     )
         else:
             self.conversion_factor = None
+
+        # Lock core identity fields once history exists
+        if self.pk:
+            try:
+                old = Product.objects.get(pk=self.pk)
+            except Product.DoesNotExist:
+                old = None
+            if old is not None:
+                changed = self.locked_fields_changed(old)
+                if changed and old.has_history():
+                    raise ValidationError(
+                        {f: "This field is locked after the product has history." for f in changed}
+                    )
 
         # Currency enable/disable rules (new flags)
         purchase_syp = bool(self.allow_syp_purchasing)
@@ -316,29 +367,7 @@ class Product(models.Model):
     def save(self, *args, **kwargs):
         # validate + normalize first
         self.full_clean()
-
-        # Assign the next product_number if not provided (importers can set it explicitly)
-        if not self.product_number:
-            # Simple max+1 with retry for rare race conditions
-            for _ in range(5):
-                try:
-                    with transaction.atomic():
-                        last = (
-                            Product.objects.select_for_update()
-                            .order_by("-product_number")
-                            .values_list("product_number", flat=True)
-                            .first()
-                        )
-                        self.product_number = 1 if last is None else last + 1
-                        super().save(*args, **kwargs)
-                        return
-                except IntegrityError:
-                    # retry on unique race
-                    continue
-            # final attempt without lock
-            super().save(*args, **kwargs)
-        else:
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     # ---- currency helpers ----
     def get_effective_default_purchase_currency(self) -> str:
@@ -373,8 +402,8 @@ class Product(models.Model):
 # =========================
 class ProductUnitId(models.Model):
     class UnitIndex(models.IntegerChoices):
-        PRIMARY = 1, "الوحدة الأولى"
-        SECONDARY = 2, "الوحدة الثانية"
+        PRIMARY = 1, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰"
+        SECONDARY = 2, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©"
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="unit_ids")
     unit_index = models.IntegerField(choices=UnitIndex.choices)  # 1 or 2
@@ -398,7 +427,7 @@ class ProductUnitId(models.Model):
 
     def __str__(self):
         u = "U1" if self.unit_index == self.UnitIndex.PRIMARY else "U2"
-        return f"{self.value} ({u} — {self.product.display_code})"
+        return f"{self.value} ({u} â€” {self.product_id})"
 
 
 # =========================
@@ -406,8 +435,8 @@ class ProductUnitId(models.Model):
 # =========================
 class ProductBarcode(models.Model):
     class UnitIndex(models.IntegerChoices):
-        PRIMARY = 1, "الوحدة الأولى"
-        SECONDARY = 2, "الوحدة الثانية"
+        PRIMARY = 1, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰"
+        SECONDARY = 2, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©"
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="barcodes")
     unit_index = models.IntegerField(choices=UnitIndex.choices)  # 1 or 2
@@ -431,6 +460,7 @@ class ProductBarcode(models.Model):
 
     def __str__(self):
         u = "U1" if self.unit_index == self.UnitIndex.PRIMARY else "U2"
-        return f"{self.barcode} ({u} — {self.product.display_code})"
+        return f"{self.barcode} ({u} â€” {self.product_id})"
     
+
 

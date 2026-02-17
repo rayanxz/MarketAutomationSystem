@@ -107,7 +107,7 @@ class StockEntry(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.product.display_code} @ {self.container.code}: {self.qty_primary}"
+        return f"{self.product_id} @ {self.container.code}: {self.qty_primary}"
 
 
 class StockFifoLayer(models.Model):
@@ -170,4 +170,4 @@ class StockFifoLayer(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"FIFO {self.product.display_code} @ {self.container.code}: {self.qty_remaining} @ {self.unit_cost}"
+        return f"FIFO {self.product_id} @ {self.container.code}: {self.qty_remaining} @ {self.unit_cost}"

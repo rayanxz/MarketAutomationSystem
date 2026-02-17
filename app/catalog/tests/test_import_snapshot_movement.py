@@ -49,7 +49,6 @@ class ImportStockSnapshotMovementTests(TestCase):
                                 "cost": "1.0000",
                                 "price": "2.0000",
                                 "stock_qty": "5",
-                                "product_number": None,
                                 "barcodes_u1": [],
                                 "barcodes_u2": [],
                                 "unit_ids_u1": [],

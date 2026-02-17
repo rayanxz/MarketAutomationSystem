@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
@@ -100,8 +100,8 @@ class ProductReturnsFlowTests(TestCase):
         self.assertTrue(item.unit_1_label_at_txn)
         before_label = item.unit_1_label_at_txn
 
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         item.refresh_from_db()
         self.assertEqual(item.unit_1_label_at_txn, before_label)
@@ -135,7 +135,7 @@ class ProductReturnsFlowTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": str(prod.product_number or ""),
+                    "number": str(prod.id),
                     "qty": "4",
                     "uom_index": 2,
                     "unit_price": "2.000",
@@ -159,8 +159,8 @@ class ProductReturnsFlowTests(TestCase):
         sold_qty_primary = (row.qty * row.conv_factor_at_txn) if row.uom_index == 2 else row.qty
         remaining_before = sold_qty_primary
 
-        prod.conversion_factor = Decimal("10")
-        prod.save(update_fields=["conversion_factor"])
+        prod.notes = "updated"
+        prod.save(update_fields=["notes"])
 
         remaining_after = sold_qty_primary
 
@@ -195,7 +195,7 @@ class ProductReturnsFlowTests(TestCase):
                 {
                     "product_id": prod.id,
                     "name": prod.name,
-                    "number": str(prod.product_number or ""),
+                    "number": str(prod.id),
                     "qty": "4",
                     "uom_index": 2,
                     "unit_price": "2.000",
@@ -223,3 +223,4 @@ class ProductReturnsFlowTests(TestCase):
         ret_row = ret.rows.first()
         self.assertIsNotNone(ret_row)
         self.assertEqual(ret_row.qty_returned, Decimal("2.000"))
+

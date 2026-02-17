@@ -504,8 +504,7 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
         except ValueError:
             qs = qs.none()
     elif mode == "code":
-        # use product_number (consistent with the rest of the system)
-        qs = qs.filter(product_number__icontains=q)
+        qs = qs.filter(id=int(q)) if q.isdigit() else qs.none()
     elif mode == "barcode":
         qs = qs.filter(
             Q(barcodes__code__icontains=q) | Q(barcodes__value__icontains=q)
@@ -530,12 +529,7 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
             {
                 "id": p.id,
                 "name": p.name or "",
-                # prefer display_code, fallback to product_number
-                "code": (
-                    getattr(p, "display_code", "")
-                    or getattr(p, "product_number", "")
-                    or ""
-                ),
+                "code": p.id,
                 "path": " / ".join(path_parts),
             }
         )

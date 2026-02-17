@@ -138,7 +138,7 @@ class PosReturnSymmetryTests(TestCase):
             bill=bill,
             product_id=product.id,
             product_name=product.name,
-            product_number="001",
+            product_number=str(product.id),
             qty=Decimal("6"),
             uom_index=1,
             unit_price=Decimal("15"),

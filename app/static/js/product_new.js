@@ -444,7 +444,7 @@
     const u2 = unitSecondary ? unitSecondary.value : "";
     const isSingle = !!u2 && u1 === u2;
 
-    if (convInput) convInput.disabled = isSingle;
+    if (convInput) convInput.readOnly = isSingle;
 
     const u2IdInputs = document.querySelectorAll('input[name="unit_secondary_ids[]"]');
     const u2BarcodeInputs = document.querySelectorAll('input[name="barcodes_u2[]"]');

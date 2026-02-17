@@ -61,7 +61,6 @@ class ImportArchivedProductBlockingTests(TestCase):
                                 "cost": "1.0000",
                                 "price": "2.0000",
                                 "stock_qty": "",
-                                "product_number": None,
                                 "barcodes_u1": [],
                                 "barcodes_u2": [],
                                 "unit_ids_u1": [],
@@ -85,4 +84,3 @@ class ImportArchivedProductBlockingTests(TestCase):
         self.archived.refresh_from_db()
         self.assertFalse(self.archived.is_active)
         self.assertEqual(Product.objects.filter(name=self.archived.name).count(), 1)
-

@@ -218,7 +218,7 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
             bill=pos_bill,
             product_id=self.product.id,
             product_name=self.product.name,
-            product_number="SKU-1",
+            product_number=str(self.product.id),
             qty=Decimal("1"),
             uom_index=1,
             unit_price=Decimal("100"),

@@ -81,7 +81,7 @@
     return (items || []).filter(looksLikeProduct).map(p => ({
       id: p.id,
       name: p.name,
-      // backend returns product_number as 'code'
+      // backend returns product id as 'code'
       code: p.code || p.prod_code || "",
       col_name: p.col_name || p.col || "",
       col_code: p.col_code || "",
