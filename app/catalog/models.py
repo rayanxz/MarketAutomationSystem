@@ -105,11 +105,11 @@ class ProductSet(models.Model):
 #   Units enum
 # =========================
 class UnitType(models.TextChoices):
-    GRAM = "g", "ØºØ±Ø§Ù…"
-    PIECE = "pc", "Ù‚Ø·Ø¹Ø©"
-    LITER = "L", "Ù„ÙŠØªØ±"
-    PKG = "PKG", "Ø·Ø±Ø¯"     # primary packages (new)
-    BNDL = "BNDL", "Ø­Ø²Ù…Ø©"  # secondary packages (new)
+    GRAM = "g", "غرام"
+    PIECE = "pc", "قطعة"
+    LITER = "L", "لتر"
+    PKG = "PKG", "طرد"     # primary packages (new)
+    BNDL = "BNDL", "حزمة"  # secondary packages (new)
 
 
 # =========================

@@ -4,16 +4,16 @@ fin_active: list | create | movements
 {% endcomment %}
 
 <a class="btn-sec{% if fin_active == 'create' %} active{% endif %}"
-   href="{% url 'financials:container_create' %}">Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø§ÙˆÙŠØ©</a>
+   href="{% url 'financials:container_create' %}">انشاء حاوية مال </a>
 
 <a class="btn-sec{% if fin_active == 'movements' %} active{% endif %}"
-   href="{% url 'financials:container_movements' %}">Ø­Ø±ÙƒØ§Øª Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</a>
+   href="{% url 'financials:container_movements' %}">حركة حاويات المال</a>
 
 <a class="btn-sec{% if fin_active == 'manual' %} active{% endif %}"
-   href="{% url 'financials:container_manual_events' %}">OU,UŸU+U?OO¦ OU,O-OU^USOO¦</a>
+   href="{% url 'financials:container_manual_events' %}">انشاء حركات يدوية لحاويات المال</a>
 
 <a class="btn-sec{% if fin_active == 'list' %} active{% endif %}"
-   href="{% url 'financials:container_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</a>
+   href="{% url 'financials:container_list' %}">قائمة حاويات المال</a>
    
 <a class="btn-sec{% if fin_active == 'fx' %} active{% endif %}"
-   href="{% url 'financials:fx_settings' %}">Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù</a>
+   href="{% url 'financials:fx_settings' %}">سعر الصرف</a>

@@ -358,18 +358,18 @@
 
       {% if editing and product %}
       <div class="actions-row">
-        <a class="btn-secondary" href="{% url 'manager_collections' %}">Back</a>
+        <a class="btn-secondary" href="{% url 'manager_collections' %}">رجوع</a>
         {% if product.is_active %}
-          <button type="button" class="btn-danger" onclick="openDeleteModal()">Disable Product</button>
+          <button type="button" class="btn-danger" onclick="openDeleteModal()">تعطيل المنتج</button>
         {% else %}
           <button type="submit"
                   class="btn-secondary"
                   formaction="{% url 'manager_product_reactivate' product.id %}"
                   formmethod="post"
-                  formnovalidate>Reactivate Product</button>
+                  formnovalidate>استرجاع المنتج</button>
         {% endif %}
         {% if hard_delete_allowed %}
-          <button type="button" class="btn-danger" onclick="openHardDeleteModal()">Hard Delete</button>
+          <button type="button" class="btn-danger" onclick="openHardDeleteModal()">حذف نهائي</button>
         {% endif %}
       </div>
       {% endif %}
@@ -380,13 +380,13 @@
 {% if editing and product %}
   <div id="delete-modal" class="modal-backdrop">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
-      <h4 id="delTitle">Disable Product</h4>
-      <p>Disable product "{{ product.name }}"? This keeps history intact and allows future reactivation.</p>
+      <h4 id="delTitle">تعطيل المنتج</h4>
+      <p>تعطيل المنتج "{{ product.name }}"? يبقي على السجلات المحفوظة, ويمكن اعادة التفعيل لاحقا.</p>
       <div class="modal-actions">
-        <button type="button" class="btn-light" onclick="closeDeleteModal()">Cancel</button>
+        <button type="button" class="btn-light" onclick="closeDeleteModal()">الغاء</button>
         <form method="post" action="{% url 'manager_product_delete' product.id %}">
           {% csrf_token %}
-          <button type="submit" class="btn-danger">Confirm Disable</button>
+          <button type="submit" class="btn-danger">تأكيد الحذف</button>
         </form>
       </div>
     </div>
@@ -395,13 +395,13 @@
 {% if hard_delete_allowed %}
   <div id="hard-delete-modal" class="modal-backdrop">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="hardDelTitle">
-      <h4 id="hardDelTitle">Hard Delete Product</h4>
-      <p>This will permanently delete "{{ product.name }}". This action cannot be undone.</p>
+      <h4 id="hardDelTitle">حذف نهائي للمنتج</h4>
+      <p>سيتم الحذف النهائي للمنتج "{{ product.name }}". ولا يمكن التراجع عن هذه الخطوة.</p>
       <div class="modal-actions">
-        <button type="button" class="btn-light" onclick="closeHardDeleteModal()">Cancel</button>
+        <button type="button" class="btn-light" onclick="closeHardDeleteModal()">الغاء</button>
         <form method="post" action="{% url 'manager_product_hard_delete' product.id %}">
           {% csrf_token %}
-          <button type="submit" class="btn-danger">Confirm Hard Delete</button>
+          <button type="submit" class="btn-danger">تأكيد الحذف النهائي</button>
         </form>
       </div>
     </div>
