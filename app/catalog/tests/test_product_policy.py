@@ -44,7 +44,6 @@ class ProductPolicyTests(TestCase):
         *,
         name: str,
         barcode: Optional[str] = None,
-        confirm_reuse: bool = False,
         unit_primary: str = UnitType.PIECE,
         unit_secondary: str = "",
         conversion_factor: Optional[str] = "",
@@ -74,8 +73,6 @@ class ProductPolicyTests(TestCase):
             data["conversion_factor"] = conversion_factor
         if barcode:
             data["barcodes_u1[]"] = [barcode]
-        if confirm_reuse:
-            data["confirm_reuse_name"] = "1"
         url = reverse("manager_product_new")
         return self.client.post(url, data=data)
 
@@ -113,9 +110,17 @@ class ProductPolicyTests(TestCase):
         url = reverse("manager_product_edit", kwargs={"pk": product.id})
         return self.client.post(url, data=data)
 
-    def test_hard_delete_allowed_when_no_history_and_zero_stock(self):
+    def test_default_delete_disables_when_no_history_and_zero_stock(self):
         prod = self._create_product(collection_name="C1", set_name="S1", product_name="P1")
         url = reverse("manager_product_delete", kwargs={"pk": prod.id})
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+        prod.refresh_from_db()
+        self.assertFalse(prod.is_active)
+
+    def test_hard_delete_allowed_when_no_history_and_zero_stock(self):
+        prod = self._create_product(collection_name="C1X", set_name="S1X", product_name="P1X")
+        url = reverse("manager_product_hard_delete", kwargs={"pk": prod.id})
         resp = self.client.post(url)
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(Product.objects.filter(id=prod.id).exists())
@@ -197,19 +202,15 @@ class ProductPolicyTests(TestCase):
         prod.refresh_from_db()
         self.assertTrue(prod.is_active)
 
-    def test_name_reuse_requires_confirmation(self):
+    def test_name_reuse_disabled_product_blocked(self):
         prod = self._create_product(collection_name="C", set_name="S", product_name="P4", active=False)
         prod.is_active = False
         prod.save(update_fields=["is_active"])
 
         resp = self._post_product(name="P4")
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.context["confirm_reuse_name"])
+        self.assertIn("name", resp.context["form"].errors)
         self.assertEqual(Product.objects.filter(name="P4").count(), 1)
-
-        resp = self._post_product(name="P4", confirm_reuse=True)
-        self.assertEqual(resp.status_code, 302)
-        self.assertEqual(Product.objects.filter(name="P4").count(), 2)
 
     def test_name_duplicate_active_blocked(self):
         self._create_product(collection_name="C", set_name="S", product_name="P5", active=True)
@@ -217,12 +218,13 @@ class ProductPolicyTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("name", resp.context["form"].errors)
 
-    def test_barcode_reuse_inactive_allowed_and_active_blocked(self):
+    def test_barcode_reuse_inactive_blocked_and_active_blocked(self):
         prod_inactive = self._create_product(collection_name="C", set_name="S", product_name="P6", active=False)
         ProductBarcode.objects.create(product=prod_inactive, unit_index=1, barcode="BC-1", is_active=False)
 
         resp = self._post_product(name="P6-NEW", barcode="BC-1")
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(any("barcodes_u1" in k for k in resp.context["form"].errors.keys()))
 
         prod_active = self._create_product(collection_name="C", set_name="S", product_name="P7", active=True)
         ProductBarcode.objects.create(product=prod_active, unit_index=1, barcode="BC-2", is_active=True)

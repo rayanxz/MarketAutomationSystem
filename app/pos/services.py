@@ -5,6 +5,7 @@ from decimal import Decimal
 from collections import defaultdict
 from typing import Tuple
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -223,10 +224,10 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
         try:
             product = product_cache.get(row.product_id)
             if product is None:
-                product = Product.objects.get(pk=row.product_id)
+                product = Product.objects.get(pk=row.product_id, is_active=True)
                 product_cache[row.product_id] = product
         except Product.DoesNotExist:
-            continue
+            raise ValidationError("Product is archived and cannot be used in new operations.")
 
         qty_primary, _unit_index_used = _qty_to_primary(
             product,
@@ -298,9 +299,9 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
     for row in rows:
         # Might be a product that was deleted from catalog; skip
         try:
-            product = Product.objects.get(pk=row.product_id)
+            product = Product.objects.get(pk=row.product_id, is_active=True)
         except Product.DoesNotExist:
-            continue
+            raise ValidationError("Product is archived and cannot be used in new operations.")
 
         qty_primary, unit_index_used = _qty_to_primary(
             product,
@@ -370,9 +371,9 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
     if total_syp == 0 and total_usd == 0:
         for row in rows:
             try:
-                product = Product.objects.get(pk=row.product_id)
+                product = Product.objects.get(pk=row.product_id, is_active=True)
             except Product.DoesNotExist:
-                continue
+                raise ValidationError("Product is archived and cannot be used in new operations.")
             row_total = _calc_row_total(product=product, row=row)
             row_currency = (row.sale_currency or SYP).upper()
             if row_currency == USD:

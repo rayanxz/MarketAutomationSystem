@@ -580,6 +580,10 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             )
 
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
+    except ValidationError as e:
+        msg = "; ".join(e.messages) if getattr(e, "messages", None) else str(e)
+        logger.warning("api_bill_save validation failed: %s", msg)
+        return _bad(msg or "validation failed", 400)
     except Exception as e:
         logger.exception("api_bill_save failed")
         if settings.DEBUG:

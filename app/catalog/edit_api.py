@@ -16,7 +16,10 @@ from catalog.models import (
     Product,
 )
 from catalog.views import role_required
-from catalog.services.deletion_policy import sync_identifiers_for_products
+from catalog.services.deletion_policy import (
+    ProductDisableBlockedError,
+    disable_product,
+)
 
 from audit_log.services import log_update, log_delete, snap_instance
 
@@ -65,18 +68,18 @@ def _scope_target(typ: str, _id: int) -> tuple[Optional[object], Optional[dict]]
 
 
 def _archive_products_for_set(st: ProductSet) -> int:
-    qs = Product.objects.filter(set=st, is_active=True)
-    count = qs.update(is_active=False)
-    if count:
-        sync_identifiers_for_products(qs, is_active=False)
+    count = 0
+    for p in Product.objects.filter(set=st, is_active=True).order_by("id"):
+        disable_product(p)
+        count += 1
     return count
 
 
 def _archive_products_for_collection(col: ProductCollection) -> int:
-    qs = Product.objects.filter(set__collection=col, is_active=True)
-    count = qs.update(is_active=False)
-    if count:
-        sync_identifiers_for_products(qs, is_active=False)
+    count = 0
+    for p in Product.objects.filter(set__collection=col, is_active=True).order_by("id"):
+        disable_product(p)
+        count += 1
     return count
 
 
@@ -238,7 +241,14 @@ def edit_apply_batch(request: HttpRequest):
                         col: ProductCollection = target  # type: ignore[assignment]
 
                         before = snap_instance(col, ["name", "code"])
-                        archived = _archive_products_for_collection(col)
+                        try:
+                            archived = _archive_products_for_collection(col)
+                        except ProductDisableBlockedError:
+                            results.append({
+                                "ok": False,
+                                "error": "Cannot disable one or more products: stock must be zero in store/wh1/wh2.",
+                            })
+                            continue
 
                         if _can_archive_entity(col):
                             col.is_active = False  # type: ignore[attr-defined]
@@ -273,7 +283,14 @@ def edit_apply_batch(request: HttpRequest):
                         before_set["collection_code"] = getattr(st.collection, "code", None)
                         before_set["collection_name"] = getattr(st.collection, "name", None)
 
-                        archived = _archive_products_for_set(st)
+                        try:
+                            archived = _archive_products_for_set(st)
+                        except ProductDisableBlockedError:
+                            results.append({
+                                "ok": False,
+                                "error": "Cannot disable one or more products: stock must be zero in store/wh1/wh2.",
+                            })
+                            continue
 
                         if _can_archive_entity(st):
                             st.is_active = False  # type: ignore[attr-defined]

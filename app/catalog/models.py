@@ -7,7 +7,6 @@ from django.core.exceptions import ValidationError
 from django.apps import apps
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
-from django.db.models import Q
 from django.db.models.functions import Lower
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
@@ -199,8 +198,7 @@ class Product(models.Model):
         constraints = [
             models.UniqueConstraint(
                 Lower("name"),
-                condition=Q(is_active=True),
-                name="uq_product_name_ci_active",
+                name="uq_product_name_ci_global",
                 violation_error_message="Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø¨Ø¯ÙˆÙ† Ø­Ø³Ø§Ø³ÙŠØ© Ø­Ø§Ù„Ø© Ø§Ù„Ø£Ø­Ø±Ù).",
             ),
         ]
@@ -416,8 +414,7 @@ class ProductUnitId(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["value"],
-                condition=Q(is_active=True),
-                name="uq_unit_id_value_active",
+                name="uq_unit_id_value_global",
             ),
         ]
         indexes = [
@@ -449,8 +446,7 @@ class ProductBarcode(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["barcode"],
-                condition=Q(is_active=True),
-                name="uq_barcode_active",
+                name="uq_barcode_global",
             ),
         ]
         indexes = [

@@ -99,16 +99,15 @@ def _read_df(sid: str) -> pd.DataFrame:
 def _db_maps():
     """
     Returns:
-      - db_name_to_pid (lowercased name -> product_id)  [ACTIVE products only]
+      - db_name_to_pid (lowercased name -> product_id)  [all products]
       - db_bar_to_pid  (barcode -> product_id)          [all]
       - db_uid_to_pid  (unit_id -> product_id)          [all]
     """
     name_map = {n.lower(): pid
                 for (n, pid) in Product.objects
-                    .filter(is_active=True)
                     .values_list("name", "id")}
-    bar_map  = {b: pid for (b, pid) in ProductBarcode.objects.filter(is_active=True).values_list("barcode", "product_id")}
-    uid_map  = {v: pid for (v, pid) in ProductUnitId.objects.filter(is_active=True).values_list("value", "product_id")}
+    bar_map  = {b: pid for (b, pid) in ProductBarcode.objects.values_list("barcode", "product_id")}
+    uid_map  = {v: pid for (v, pid) in ProductUnitId.objects.values_list("value", "product_id")}
     return name_map, bar_map, uid_map
 
 
@@ -248,8 +247,8 @@ def stage_file_with_mapping(sid: str, mapping: Dict[str, int], options: Dict[str
         all_barcodes.update(_split_tokens(get_cell(i, "barcodes_u2")))
         all_ids.update(_split_tokens(get_cell(i, "unit_ids_u1")))
         all_ids.update(_split_tokens(get_cell(i, "unit_ids_u2")))
-    taken_bc = set(ProductBarcode.objects.filter(barcode__in=all_barcodes, is_active=True).values_list("barcode", flat=True)) if all_barcodes else set()
-    taken_ids = set(ProductUnitId.objects.filter(value__in=all_ids, is_active=True).values_list("value", flat=True)) if all_ids else set()
+    taken_bc = set(ProductBarcode.objects.filter(barcode__in=all_barcodes).values_list("barcode", flat=True)) if all_barcodes else set()
+    taken_ids = set(ProductUnitId.objects.filter(value__in=all_ids).values_list("value", flat=True)) if all_ids else set()
 
     for i in range(len(df)):
         d = {k: "" for k in ALL_FIELDS}

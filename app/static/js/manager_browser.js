@@ -7,6 +7,7 @@
   const crumb  = document.getElementById('crumb');
   const levelL = document.getElementById('levelLabel');
   const back   = document.getElementById('btnBack');
+  const showDisabledToggle = document.getElementById('showDisabledProducts');
 
   if (!list) return;
 
@@ -18,7 +19,7 @@
   const URLS = {
     collections: (page)     => `/manager/products/api/browser/collections/?page=${page}`,
     sets:        (cid,page) => `/manager/products/api/browser/sets/?cid=${cid}&page=${page}`,
-    products:    (sid,page) => `/manager/products/api/browser/products/?sid=${sid}&page=${page}`,
+    products:    (sid,page,showDisabled) => `/manager/products/api/browser/products/?sid=${sid}&page=${page}&show_disabled=${showDisabled ? '1' : '0'}`,
   };
 
   const ICON = { collection: '📁', set: '👥', product: '📦' };
@@ -128,11 +129,19 @@
       const ic   = el('span','icon', iconName);
       const name = el('div','name', it.name);
       const code = el('div','code', level==='products' ? `${it.code}` : (it.code || ''));
-
+      if (level === 'products' && it.is_active === false) {
+        row.classList.add('is-disabled');
+        const badge = el('span', 'status-badge', 'DISABLED');
+        row.appendChild(ic);
+        row.append(name);
+        row.append(badge);
+        row.append(code);
+      } else {
+        row.append(ic,name,code);
+      }
       row.style.display='flex';
       row.style.alignItems='center';
       row.style.gap='10px';
-      row.append(ic,name,code);
 
       // Left-click
       row.addEventListener('click', () => {
@@ -160,10 +169,11 @@
 
   async function fetchPage(pageOverride){
     const pg = pageOverride || page;
+    const showDisabled = !!showDisabledToggle?.checked;
     let url;
     if (level === 'collections') url = URLS.collections(pg);
     else if (level === 'sets')   url = URLS.sets(col?.id, pg);
-    else                         url = URLS.products(set?.id, pg);
+    else                         url = URLS.products(set?.id, pg, showDisabled);
 
     const res = await fetch(url, { headers:{'Accept':'application/json'} });
     if (!res.ok) throw new Error('fetch failed');
@@ -301,6 +311,15 @@
       }
       if (level === 'sets') {
         level = 'collections'; page = 1; set = null; col = null; hlSet = null; load(); return;
+      }
+    });
+  }
+
+  if (showDisabledToggle) {
+    showDisabledToggle.addEventListener('change', () => {
+      if (level === 'products') {
+        page = 1;
+        load();
       }
     });
   }

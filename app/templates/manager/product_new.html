@@ -111,7 +111,6 @@
         autocomplete="off"
         action="{% if editing and product %}{% url 'manager_product_edit' product.id %}{% else %}{% url 'manager_product_new' %}{% endif %}">
     {% csrf_token %}
-    <input type="hidden" name="confirm_reuse_name" id="confirmReuseName" value="0">
 
     <!-- Left: product essentials -->
     <section class="card">
@@ -359,8 +358,19 @@
 
       {% if editing and product %}
       <div class="actions-row">
-        <a class="btn-secondary" href="{% url 'manager_collections' %}">رجوع</a>
-        <button type="button" class="btn-danger" onclick="openDeleteModal()">حذف المنتج</button>
+        <a class="btn-secondary" href="{% url 'manager_collections' %}">Back</a>
+        {% if product.is_active %}
+          <button type="button" class="btn-danger" onclick="openDeleteModal()">Disable Product</button>
+        {% else %}
+          <button type="submit"
+                  class="btn-secondary"
+                  formaction="{% url 'manager_product_reactivate' product.id %}"
+                  formmethod="post"
+                  formnovalidate>Reactivate Product</button>
+        {% endif %}
+        {% if hard_delete_allowed %}
+          <button type="button" class="btn-danger" onclick="openHardDeleteModal()">Hard Delete</button>
+        {% endif %}
       </div>
       {% endif %}
     </section>
@@ -370,17 +380,33 @@
 {% if editing and product %}
   <div id="delete-modal" class="modal-backdrop">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
-      <h4 id="delTitle">تأكيد الحذف</h4>
-      <p>هل أنت متأكد من حذف المنتج «{{ product.name }}»؟ لا يمكن التراجع عن هذه العملية.</p>
+      <h4 id="delTitle">Disable Product</h4>
+      <p>Disable product "{{ product.name }}"? This keeps history intact and allows future reactivation.</p>
       <div class="modal-actions">
-        <button type="button" class="btn-light" onclick="closeDeleteModal()">إلغاء</button>
+        <button type="button" class="btn-light" onclick="closeDeleteModal()">Cancel</button>
         <form method="post" action="{% url 'manager_product_delete' product.id %}">
           {% csrf_token %}
-          <button type="submit" class="btn-danger">تأكيد الحذف</button>
+          <button type="submit" class="btn-danger">Confirm Disable</button>
         </form>
       </div>
     </div>
   </div>
+
+{% if hard_delete_allowed %}
+  <div id="hard-delete-modal" class="modal-backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="hardDelTitle">
+      <h4 id="hardDelTitle">Hard Delete Product</h4>
+      <p>This will permanently delete "{{ product.name }}". This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-light" onclick="closeHardDeleteModal()">Cancel</button>
+        <form method="post" action="{% url 'manager_product_hard_delete' product.id %}">
+          {% csrf_token %}
+          <button type="submit" class="btn-danger">Confirm Hard Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endif %}
 {% endif %}
 
   <div id="delete-blocked-modal" class="modal-backdrop">
@@ -389,17 +415,6 @@
       <p>لا يمكن حذف المنتج , قم بتسوية المنتجات في المخزن قبل الحذف</p>
       <div class="modal-actions">
         <button type="button" class="btn-light" onclick="closeDeleteBlockedModal()">إغلاق</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="name-reuse-modal" class="modal-backdrop">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nameReuseTitle">
-      <h4 id="nameReuseTitle">تأكيد</h4>
-      <p>هذا الاسم مستخدم لمنتج محذوف، وقد يسبب التباساً عند مراجعة السجلات القديمة. هل تريد المتابعة؟</p>
-      <div class="modal-actions">
-        <button type="button" class="btn-light" onclick="closeNameReuseModal()">إلغاء</button>
-        <button type="button" class="btn-danger" onclick="confirmNameReuse()">متابعة</button>
       </div>
     </div>
   </div>
@@ -534,6 +549,14 @@
       const el = document.getElementById('delete-modal');
       if (el) el.style.display = 'none';
     }
+    function openHardDeleteModal(){
+      const el = document.getElementById('hard-delete-modal');
+      if (el) el.style.display = 'flex';
+    }
+    function closeHardDeleteModal(){
+      const el = document.getElementById('hard-delete-modal');
+      if (el) el.style.display = 'none';
+    }
 
     function openDeleteBlockedModal(){
       const el = document.getElementById('delete-blocked-modal');
@@ -544,27 +567,8 @@
       if (el) el.style.display = 'none';
     }
 
-    function openNameReuseModal(){
-      const el = document.getElementById('name-reuse-modal');
-      if (el) el.style.display = 'flex';
-    }
-    function closeNameReuseModal(){
-      const el = document.getElementById('name-reuse-modal');
-      if (el) el.style.display = 'none';
-    }
-    function confirmNameReuse(){
-      const inp = document.getElementById('confirmReuseName');
-      if (inp) inp.value = '1';
-      const form = document.querySelector('form.pn-wrap');
-      if (form) form.submit();
-    }
-
     {% if delete_blocked %}
       openDeleteBlockedModal();
-    {% endif %}
-
-    {% if confirm_reuse_name %}
-      openNameReuseModal();
     {% endif %}
   </script>
   {% if not editing %}

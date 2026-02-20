@@ -107,7 +107,7 @@ class BillingArchivedProductBlockingTests(TestCase):
             data=json.dumps(payload),
             content_type="application/json",
         )
-        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.status_code, 400)
         self.assertFalse(resp.json().get("ok"))
 
     def test_create_bill_rejects_archived_product(self):
@@ -151,4 +151,3 @@ class BillingArchivedProductBlockingTests(TestCase):
                 ],
                 container=self.store,
             )
-

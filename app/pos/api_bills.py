@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_POST, require_GET
 from django.utils import timezone
@@ -593,6 +594,10 @@ def api_bill_save(request: HttpRequest):
                     {"ok": False, "error": str(e)},
                     status=400,
                 )
+            except ValidationError as e:
+                transaction.set_rollback(True)
+                msg = "; ".join([str(m) for m in e.messages]) if getattr(e, "messages", None) else str(e)
+                return JsonResponse({"ok": False, "error": msg}, status=400)
             try:
                 _sync_customer_debt(bill=bill, actor=request.user)
             except ValueError as e:

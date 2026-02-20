@@ -597,7 +597,7 @@ def api_product_batches(request: HttpRequest) -> HttpResponse:
     # product
     try:
         pid = int(pid_raw)
-        product = Product.objects.get(id=pid)
+        product = Product.objects.get(id=pid, is_active=True)
     except (ValueError, Product.DoesNotExist):
         return JsonResponse(
             {"ok": False, "error": "المادة غير موجودة."},

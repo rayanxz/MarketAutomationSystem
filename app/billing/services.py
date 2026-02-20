@@ -231,9 +231,9 @@ def create_bill(
     # -------------------------------
     for idx, row in enumerate(items, start=1):
         pid = int(row["product_id"])
-        product = products.get(pid) or get_object_or_404(
-            Product.objects.select_for_update(), pk=pid
-        )
+        product = products.get(pid)
+        if product is None:
+            raise ValidationError(f"Product {pid} is archived and cannot be used in new operations.")
 
         allow_syp_purch = getattr(product, "allow_syp_purchasing", product.enable_syp)
         allow_usd_purch = getattr(product, "allow_usd_purchasing", product.enable_usd)
@@ -1033,7 +1033,9 @@ def create_return(
 
     for idx, row in enumerate(items, start=1):
         pid = int(row["product_id"])
-        product = products.get(pid) or get_object_or_404(Product.objects.select_for_update(), pk=pid)
+        product = products.get(pid)
+        if product is None:
+            raise ValidationError(f"Product {pid} is archived and cannot be used in new operations.")
 
         single_unit = (not getattr(product, "unit_secondary", "")) or (
             getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")

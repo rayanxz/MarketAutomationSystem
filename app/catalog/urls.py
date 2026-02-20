@@ -14,6 +14,8 @@ from catalog.views import (
     collection_rename,
     collection_delete,   # (kept; not used by the new UI)
     manager_product_delete,
+    manager_product_hard_delete,
+    manager_product_reactivate,
 
     # JSON APIs (two-pane + search + autocompletes)
     api_collection_products,
@@ -71,6 +73,8 @@ urlpatterns = [
 
     # Product delete
     path("manager/products/delete/<int:pk>/", manager_product_delete, name="manager_product_delete"),
+    path("manager/products/<int:pk>/reactivate/", manager_product_reactivate, name="manager_product_reactivate"),
+    path("manager/products/<int:pk>/hard-delete/", manager_product_hard_delete, name="manager_product_hard_delete"),
 
     # Hierarchy browser APIs
     path("manager/products/api/browser/collections/", api_browser_collections, name="api_browser_collections"),

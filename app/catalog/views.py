@@ -36,10 +36,12 @@ from catalog.models import (
 from audit_log.services import log_create, log_update, log_delete, snap_instance
 from inventory.models import q3
 from catalog.services.deletion_policy import (
-    has_any_history,
-    stock_by_container,
-    sync_identifiers_for_product,
-    sync_identifiers_for_products,
+    ProductDisableBlockedError,
+    ProductHardDeleteBlockedError,
+    can_hard_delete,
+    disable_product,
+    hard_delete_product,
+    reactivate_product,
 )
 
 
@@ -201,7 +203,7 @@ def _validate_unit_ids_and_barcodes(
     # Global uniqueness (exclude current product on edit)
     all_ids = list(dict.fromkeys(u1_ids + u2_ids))
     if all_ids:
-        qs = ProductUnitId.objects.filter(value__in=all_ids, is_active=True)
+        qs = ProductUnitId.objects.filter(value__in=all_ids)
         if product is not None:
             qs = qs.exclude(product=product)
         taken_ids = set(qs.values_list("value", flat=True))
@@ -217,7 +219,7 @@ def _validate_unit_ids_and_barcodes(
 
     all_barcodes = list(dict.fromkeys(bar_u1 + bar_u2))
     if all_barcodes:
-        qs = ProductBarcode.objects.filter(barcode__in=all_barcodes, is_active=True)
+        qs = ProductBarcode.objects.filter(barcode__in=all_barcodes)
         if product is not None:
             qs = qs.exclude(product=product)
         taken_bc = set(qs.values_list("barcode", flat=True))
@@ -364,10 +366,17 @@ def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
     col = get_object_or_404(ProductCollection, pk=pk)
 
     before = _snap_collection(col)
-    qs_products = Product.objects.filter(set__collection=col, is_active=True)
-    archived = qs_products.update(is_active=False)
-    if archived:
-        sync_identifiers_for_products(qs_products, is_active=False)
+    archived = 0
+    try:
+        for prod in Product.objects.filter(set__collection=col, is_active=True).order_by("id"):
+            disable_product(prod)
+            archived += 1
+    except ProductDisableBlockedError:
+        messages.error(
+            request,
+            "Cannot disable products in this collection until stock is zero in store/wh1/wh2.",
+        )
+        return _go("manager_collections", "edit=1")
 
     if hasattr(col, "is_active"):
         col.is_active = False  # type: ignore[attr-defined]
@@ -399,13 +408,16 @@ def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
 # =========================
 #     JSON API (UI)
 # =========================
-def _products_qs_for_collection(cid: int):
-    return (
+def _products_qs_for_collection(cid: int, *, show_disabled: bool = False):
+    qs = (
         Product.objects
-        .filter(set__collection_id=cid, is_active=True)
+        .filter(set__collection_id=cid)
         .select_related("set", "set__collection")
         .order_by("id")
     )
+    if not show_disabled:
+        qs = qs.filter(is_active=True)
+    return qs
 
 
 @role_required(AccountProfile.Role.MANAGER)
@@ -415,7 +427,8 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
     - Default: paginated (PAGE_SIZE).
     - If ?all=1 -> returns ALL items (no pagination). JS will group by parent set.
     """
-    qs = _products_qs_for_collection(cid)
+    show_disabled = (request.GET.get("show_disabled") in {"1", "true", "yes"})
+    qs = _products_qs_for_collection(cid, show_disabled=show_disabled)
 
     # --- NEW: all=1 returns everything (for tree view) ---
     all_flag = (request.GET.get("all") in {"1", "true", "yes"})
@@ -424,6 +437,7 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
             "id": p.id,
             "code": p.id,
             "name": p.name,
+            "is_active": bool(p.is_active),
             "set": {"id": p.set_id, "code": p.set.code, "name": p.set.name},
             "collection": {"id": cid},
         } for p in qs]
@@ -444,6 +458,7 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
         "id": p.id,
         "code": p.id,
         "name": p.name,
+        "is_active": bool(p.is_active),
         "set": {"id": p.set_id, "code": p.set.code, "name": p.set.name},
         "collection": {"id": cid},
     } for p in qs[off:off + PAGE_SIZE]]
@@ -812,24 +827,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "bar_u2": bar_u2,
                 },
             )
-        confirm_reuse = (request.POST.get("confirm_reuse_name") == "1")
-        inactive_name_exists = (
-            Product.objects.filter(name__iexact=form.cleaned_data["name"], is_active=False).exists()
-        )
-        if inactive_name_exists and not confirm_reuse:
-            return render(
-                request,
-                "manager/product_new.html",
-                {
-                    "form": form,
-                    "editing": False,
-                    "u1_ids": u1_ids,
-                    "u2_ids": u2_ids,
-                    "bar_u1": bar_u1,
-                    "bar_u2": bar_u2,
-                    "confirm_reuse_name": True,
-                },
-            )
         default_cost_syp = form.cleaned_data.get("default_cost_syp") or Decimal("0")
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
@@ -874,7 +871,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 if all_ids:
                     existing_ids = set(
                         ProductUnitId.objects
-                        .filter(value__in=all_ids, is_active=True)
+                        .filter(value__in=all_ids)
                         .values_list("value", flat=True)
                     )
                     for val in all_ids:
@@ -904,7 +901,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 if all_bcs:
                     existing_bcs = set(
                         ProductBarcode.objects
-                        .filter(barcode__in=all_bcs, is_active=True)
+                        .filter(barcode__in=all_bcs)
                         .values_list("barcode", flat=True)
                     )
                     for bc in all_bcs:
@@ -1019,66 +1016,104 @@ def manager_product_delete(request: HttpRequest, pk: int) -> HttpResponse:
     before = _snap_product(p)
 
     try:
-        stock_map = stock_by_container(p)
+        p_after, stock_map = disable_product(p)
         stock_meta = {k: str(q3(v)) for k, v in stock_map.items()}
-        all_zero = all(q3(qty) == q3(Decimal("0.000")) for qty in stock_map.values())
-        has_history = has_any_history(p)
-
-        if (not has_history) and all_zero:
-            with transaction.atomic():
-                try:
-                    log_delete(
-                        actor=request.user,
-                        request=request,
-                        target=p,
-                        title="Delete product",
-                        message=f"Product deleted: {before.get('name', p.name)}",
-                        before=before,
-                        after=None,
-                        meta={
-                            "source": "catalog.manager_product_delete",
-                            "hard_delete": True,
-                            "has_history": False,
-                            "stock_by_container": stock_meta,
-                        },
-                    )
-                except Exception:
-                    pass
-                p.delete()
-            messages.success(request, f"تم حذف المنتج «{before.get('name', p.name)}».")
-            return redirect("manager_collections")
-
-        if has_history and all_zero:
-            if p.is_active:
-                with transaction.atomic():
-                    p.is_active = False
-                    p.save(update_fields=["is_active"])
-                    sync_identifiers_for_product(p, is_active=False)
-            try:
-                log_delete(
-                    actor=request.user,
-                    request=request,
-                    target=p,
-                    title="Archive product",
-                    message=f"Product archived: {p.name}",
-                    before=before,
-                    after=_snap_product(p),
-                    meta={
-                        "source": "catalog.manager_product_delete",
-                        "soft_delete": True,
-                        "has_history": True,
-                        "stock_by_container": stock_meta,
-                    },
-                )
-            except Exception:
-                pass
-            messages.info(request, f"تم أرشفة المنتج «{p.name}».")
-            return redirect("manager_collections")
-
+        try:
+            log_delete(
+                actor=request.user,
+                request=request,
+                target=p_after,
+                title="Disable product",
+                message=f"Product disabled: {p_after.name}",
+                before=before,
+                after=_snap_product(p_after),
+                meta={
+                    "source": "catalog.manager_product_delete",
+                    "disable": True,
+                    "stock_by_container": stock_meta,
+                },
+            )
+        except Exception:
+            pass
+        messages.info(request, f"?? ????? ?????? ?{p_after.name}?.")
+        return redirect("manager_collections")
+    except ProductDisableBlockedError:
         return redirect(f"{reverse('manager_product_edit', args=[p.id])}?delete_blocked=1")
-
     except Exception:
-        messages.error(request, "تعذّر حذف المنتج.")
+        messages.error(request, "????? ??? ??????.")
+        return redirect("manager_collections")
+
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def manager_product_reactivate(request: HttpRequest, pk: int) -> HttpResponse:
+    p = get_object_or_404(Product, pk=pk)
+    before = _snap_product(p)
+    try:
+        p_after = reactivate_product(p)
+        try:
+            log_update(
+                actor=request.user,
+                request=request,
+                target=p_after,
+                title="Reactivate product",
+                message=f"Product reactivated: {p_after.name}",
+                before=before,
+                after=_snap_product(p_after),
+                meta={
+                    "source": "catalog.manager_product_reactivate",
+                    "reactivate": True,
+                },
+            )
+        except Exception:
+            pass
+        messages.success(request, f"?? ????? ????? ?????? ?{p_after.name}?.")
+        return redirect("manager_collections")
+    except IntegrityError:
+        messages.error(request, "????? ????? ????? ?????? ???? ????? ?? ?????????/????????.")
+        return redirect(f"{reverse('manager_product_edit', args=[p.id])}")
+    except Exception:
+        messages.error(request, "????? ????? ????? ??????.")
+        return redirect("manager_collections")
+
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def manager_product_hard_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    p = get_object_or_404(Product, pk=pk)
+    before = _snap_product(p)
+    pname = before.get("name", p.name)
+    try:
+        stock_map, has_history = hard_delete_product(p)
+        stock_meta = {k: str(q3(v)) for k, v in stock_map.items()}
+        try:
+            log_delete(
+                actor=request.user,
+                request=request,
+                target=p,
+                title="Hard delete product",
+                message=f"Product hard deleted: {pname}",
+                before=before,
+                after=None,
+                meta={
+                    "source": "catalog.manager_product_hard_delete",
+                    "hard_delete": True,
+                    "has_history": bool(has_history),
+                    "stock_by_container": stock_meta,
+                },
+            )
+        except Exception:
+            pass
+        messages.success(request, f"?? ????? ??????? ?????? ?{pname}?.")
+        return redirect("manager_collections")
+    except ProductHardDeleteBlockedError:
+        messages.error(
+            request,
+            "????? ??????? ??? ?????: ???? ?? ??? ???? ?????/????? ??? ?????? ??? ?? ?? ???????.",
+        )
+        return redirect(f"{reverse('manager_product_edit', args=[pk])}")
+    except Exception:
+        messages.error(request, "????? ????? ??????? ??????.")
         return redirect("manager_collections")
 
 
@@ -1256,7 +1291,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                     product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY
                 ).delete()
                 for val in u1_ids:
-                    if ProductUnitId.objects.filter(value=val, is_active=True).exclude(product=p).exists():
+                    if ProductUnitId.objects.filter(value=val).exclude(product=p).exists():
                         messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
                         raise IntegrityError("duplicate unit id")
                     ProductUnitId.objects.create(
@@ -1271,7 +1306,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 ).delete()
                 if not single_unit:
                     for val in u2_ids:
-                        if ProductUnitId.objects.filter(value=val, is_active=True).exclude(product=p).exists():
+                        if ProductUnitId.objects.filter(value=val).exclude(product=p).exists():
                             messages.error(request, f"معرّف الوحدة {val} مستخدم مسبقاً.")
                             raise IntegrityError("duplicate unit id")
                         ProductUnitId.objects.create(
@@ -1289,7 +1324,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                     product=p, unit_index=ProductBarcode.UnitIndex.PRIMARY
                 ).delete()
                 for bc in list_u1:
-                    if ProductBarcode.objects.filter(barcode=bc, is_active=True).exclude(product=p).exists():
+                    if ProductBarcode.objects.filter(barcode=bc).exclude(product=p).exists():
                         messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
                         raise IntegrityError("duplicate barcode")
                     ProductBarcode.objects.create(
@@ -1304,7 +1339,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 ).delete()
                 if not single_unit:
                     for bc in list_u2:
-                        if ProductBarcode.objects.filter(barcode=bc, is_active=True).exclude(product=p).exists():
+                        if ProductBarcode.objects.filter(barcode=bc).exclude(product=p).exists():
                             messages.error(request, f"الباركود {bc} مستخدم مسبقاً.")
                             raise IntegrityError("duplicate barcode")
                         ProductBarcode.objects.create(
@@ -1383,6 +1418,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
     form = ProductCreateForm(initial=initial, instance=p)
     u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_product(p)
     delete_blocked = (request.GET.get("delete_blocked") in {"1", "true", "yes"})
+    hard_delete_allowed = can_hard_delete(p)
     return render(
         request,
         "manager/product_new.html",
@@ -1396,6 +1432,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "bar_u1": bar_u1,
             "bar_u2": bar_u2,
             "delete_blocked": delete_blocked,
+            "hard_delete_allowed": hard_delete_allowed,
         },
     )
 
@@ -1424,10 +1461,10 @@ def api_collection_cascade_delete(request: HttpRequest, pk: int) -> JsonResponse
 
     try:
         with transaction.atomic():
-            qs_products = Product.objects.filter(set__collection=col, is_active=True)
-            archived = qs_products.update(is_active=False)
-            if archived:
-                sync_identifiers_for_products(qs_products, is_active=False)
+            archived = 0
+            for prod in Product.objects.filter(set__collection=col, is_active=True).order_by("id"):
+                disable_product(prod)
+                archived += 1
 
             if hasattr(col, "is_active"):
                 col.is_active = False  # type: ignore[attr-defined]
