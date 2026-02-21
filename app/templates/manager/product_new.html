@@ -119,7 +119,7 @@
         {% if editing and product %}
           <span class="id-badge">رمز المنتج: {{ product.id }}</span>
         {% else %}
-          <span class="id-badge">رمز المنتج: بعد الحفظ</span>
+          <span class="id-badge">رمز المنتج: {{ predicted_product_id }}</span>
         {% endif %}
       </h3>
       {% if form.non_field_errors %}<div class="err">{{ form.non_field_errors.0 }}</div>{% endif %}

@@ -8,7 +8,7 @@ from typing import Iterable
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.db.models.functions import Lower
 from django.http import (
@@ -50,6 +50,42 @@ PAGE_SIZE = 20  # products per "slide" in the left pane
 
 
 # ---------- helpers ----------
+def _predicted_next_product_id() -> int:
+    def _fallback_max_plus_one() -> int:
+        max_id = Product.objects.order_by("-id").values_list("id", flat=True).first()
+        return (int(max_id) + 1) if max_id is not None else 1
+
+    vendor = (connection.vendor or "").lower()
+    table_name = Product._meta.db_table
+
+    try:
+        with connection.cursor() as cur:
+            if vendor == "postgresql":
+                cur.execute("SELECT pg_get_serial_sequence(%s, %s)", [table_name, "id"])
+                row = cur.fetchone() or ()
+                seq_name = row[0] if row else None
+                if not seq_name:
+                    return _fallback_max_plus_one()
+                cur.execute(f"SELECT last_value, is_called FROM {seq_name}")
+                seq_row = cur.fetchone() or ()
+                if not seq_row:
+                    return _fallback_max_plus_one()
+                last_value = int(seq_row[0])
+                is_called = bool(seq_row[1])
+                return last_value + (1 if is_called else 0)
+
+            if vendor == "sqlite":
+                cur.execute("SELECT seq FROM sqlite_sequence WHERE name = %s", [table_name])
+                row = cur.fetchone()
+                if not row or row[0] is None:
+                    return 1
+                return int(row[0]) + 1
+    except Exception:
+        return _fallback_max_plus_one()
+
+    return _fallback_max_plus_one()
+
+
 def _post_list(request: HttpRequest, base: str) -> list[str]:
     """
     Read repeated inputs named like base[] and return a trimmed, de-duplicated list.
@@ -736,6 +772,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
+                    "predicted_product_id": _predicted_next_product_id(),
                 },
             )
 
@@ -760,6 +797,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
+                    "predicted_product_id": _predicted_next_product_id(),
                 },
             )
 
@@ -804,6 +842,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
+                    "predicted_product_id": _predicted_next_product_id(),
                 },
             )
 
@@ -828,6 +867,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
+                    "predicted_product_id": _predicted_next_product_id(),
                 },
             )
         default_cost_syp = form.cleaned_data.get("default_cost_syp") or Decimal("0")
@@ -963,6 +1003,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
+                    "predicted_product_id": _predicted_next_product_id(),
                 },
             )
 
@@ -986,6 +1027,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                     "u2_ids": u2_ids,
                     "bar_u1": bar_u1,
                     "bar_u2": bar_u2,
+                    "predicted_product_id": _predicted_next_product_id(),
                 },
             )
 
@@ -1003,6 +1045,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             "u2_ids": [],
             "bar_u1": [],
             "bar_u2": [],
+            "predicted_product_id": _predicted_next_product_id(),
         },
     )
 
