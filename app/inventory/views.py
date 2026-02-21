@@ -230,6 +230,7 @@ def manager_product_movements(request: HttpRequest) -> HttpResponse:
                 "other_party_type": other_party_type,
                 "other_party_name": other_party_name,
                 "container": mv.container,  # <- NEW
+                "product_is_active": bool(getattr(prod, "is_active", True)) if prod else True,
             }
         )
 

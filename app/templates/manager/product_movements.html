@@ -184,10 +184,10 @@
               </td>
 
               {# اسم المادة #}
-              <td>{{ row.product_name }}</td>
+              <td class="{% if row.product_is_active is False %}is-disabled{% endif %}">{{ row.product_name }}</td>
 
               {# الزمرة / المجموعة #}
-              <td>
+              <td class="{% if row.product_is_active is False %}is-disabled{% endif %}">
                 {% if row.collection %}{{ row.collection.name }} / {% endif %}
                 {% if row.set %}{{ row.set.name }}{% endif %}
               </td>

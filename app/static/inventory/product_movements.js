@@ -77,7 +77,7 @@
 
   /* ================= GENERIC AC WITH KEYBOARD ================= */
 
-  function initAC({ input, hidden, list, minChars, fetchItems, formatItem, isDisabled }) {
+  function initAC({ input, hidden, list, minChars, fetchItems, formatItem, itemClass, isDisabled }) {
     if (!input || !list) return;
 
     let timer = null;
@@ -97,7 +97,10 @@
         return;
       }
       list.innerHTML = items
-        .map((it, idx) => `<li data-idx="${idx}">${formatItem(it)}</li>`)
+        .map((it, idx) => {
+          const cls = (typeof itemClass === "function" ? itemClass(it) : "") || "";
+          return `<li data-idx="${idx}"${cls ? ` class="${cls}"` : ""}>${formatItem(it)}</li>`;
+        })
         .join("");
       list.hidden = false;
       activeIndex = -1;
@@ -219,7 +222,7 @@
     minChars: 2,
     isDisabled: () => !!prodInput && prodInput.disabled,
     async fetchItems(q) {
-      const url = PRODUCT_API + "?mode=name&q=" + encodeURIComponent(q);
+      const url = PRODUCT_API + "?mode=name&q=" + encodeURIComponent(q) + "&show_disabled=1";
       const r = await fetch(url, { headers: { Accept: "application/json" } });
       const data = await r.json();
       if (!data.ok || !Array.isArray(data.items)) return [];
@@ -227,8 +230,12 @@
         .filter((it) => it.type === "product")
         .map((p) => ({
           id: p.id,
+          is_active: p.is_active,
           label: `${p.code} - ${p.name}`,
         }));
+    },
+    itemClass(it) {
+      return it.is_active === false ? "is-disabled" : "";
     },
     formatItem(it) {
       return it.label;

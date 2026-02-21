@@ -13,6 +13,7 @@
   const MODE_KEY = "mgr.search.mode";
   const SCOPE_KEY = "mgr.search.scope";
   const PENDING_KEY = "mgr.search.pending.open";
+  const SHOW_DISABLED_KEY = "mgr.browser.show_disabled";
   const API_URL  = "/manager/products/api/search/";
   const ICON     = { collection: "📁", set: "👥", product: "📦" };
   const PENDING_TTL_MS = 5 * 60 * 1000;
@@ -111,6 +112,16 @@
     return `${col} · ${set}`;
   };
 
+  const readShowDisabled = () => {
+    const toggle = document.getElementById("showDisabledProducts");
+    if (toggle) return !!toggle.checked;
+    return localStorage.getItem(SHOW_DISABLED_KEY) === "1";
+  };
+
+  const applyShowDisabledToUrl = (u) => {
+    u.searchParams.set("show_disabled", readShowDisabled() ? "1" : "0");
+  };
+
   // Build suggestion list via DOM (avoid innerHTML injection)
   const renderSuggestions = (arr, queryText = "") => {
     items = (arr || []).slice(0, 20);
@@ -136,6 +147,9 @@
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.dataset.i = String(i);
+      if (p.type === "product" && p.is_active === false) {
+        li.classList.add("is-disabled");
+      }
 
       const icon = document.createElement("span");
       icon.className = "s-code";
@@ -212,6 +226,7 @@
     // DO NOT set cid here; we want to remain on collections level
     u.searchParams.set("hl_col", item.id); // highlight specific collection
     u.searchParams.set("cname", item.name || item.col_name || "");
+    applyShowDisabledToUrl(u);
     if (item.page) u.searchParams.set("page", item.page);
     window.location.href = u.toString();
   }
@@ -222,6 +237,7 @@
     u.searchParams.set("cid", item.col_id);
     u.searchParams.set("cname", item.col_name || item.col_code || "");
     u.searchParams.set("hl_set", item.id);
+    applyShowDisabledToUrl(u);
     if (item.page) u.searchParams.set("page", item.page);
     // do NOT set sid
     window.location.href = u.toString();
@@ -236,6 +252,7 @@
     if (item.set_name || item.set_code) {
       u.searchParams.set("sname", item.set_name || item.set_code);
     }
+    applyShowDisabledToUrl(u);
     u.searchParams.set("hl_prod", item.id);
     if (item.page) u.searchParams.set("page", item.page);
     window.location.href = u.toString();
@@ -246,6 +263,7 @@
     const u = new URL("/manager/products/", window.location.origin);
     u.searchParams.set("cid", item.id);
     u.searchParams.set("cname", item.name || item.col_name || "");
+    applyShowDisabledToUrl(u);
     window.location.href = u.toString();
     return true;
   }
@@ -257,6 +275,7 @@
     u.searchParams.set("sid", item.id);
     u.searchParams.set("cname", item.col_name || "");
     if (item.set_name) u.searchParams.set("sname", item.set_name);
+    applyShowDisabledToUrl(u);
     window.location.href = u.toString();
     return true;
   }
@@ -305,8 +324,13 @@
     inFlight = new AbortController();
 
     try {
+      const params = new URLSearchParams();
+      params.set("mode", mode);
+      params.set("q", val);
+      params.set("show_disabled", readShowDisabled() ? "1" : "0");
+      if (mode === "name") params.set("scope", scope || "all");
       const res = await fetch(
-        `${API_URL}?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(val)}${mode === "name" ? `&scope=${encodeURIComponent(scope || "all")}` : ""}`,
+        `${API_URL}?${params.toString()}`,
         { headers: { Accept: "application/json" }, signal: inFlight.signal }
       );
       if (!res.ok) return renderSuggestions([], val);
@@ -411,9 +435,10 @@
     clearPendingOpen();
 
     try {
-      const res = await fetch(`${API_URL}?mode=barcode&q=${encodeURIComponent(val)}`, {
-        headers: { Accept: "application/json" },
-      });
+      const res = await fetch(
+        `${API_URL}?mode=barcode&q=${encodeURIComponent(val)}&show_disabled=${readShowDisabled() ? "1" : "0"}`,
+        { headers: { Accept: "application/json" } }
+      );
       if (!res.ok) {
         err.textContent = "لم يتم العثور على نتيجة.";
         err.hidden = false;

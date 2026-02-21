@@ -55,3 +55,25 @@ class CatalogSearchArchivedTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json().get("items"), [])
 
+    def test_api_product_search_show_disabled_includes_archived_by_name(self):
+        archived = self._create_product(name="Archived Visible", active=False)
+        self._create_product(name="Active Visible", active=True)
+
+        url = reverse("api_product_search")
+        resp = self.client.get(
+            url,
+            {"q": archived.name, "mode": "name", "scope": "product", "show_disabled": 1},
+        )
+        self.assertEqual(resp.status_code, 200)
+        items = resp.json().get("items") or []
+        self.assertTrue(any(i.get("id") == archived.id for i in items))
+
+    def test_api_product_search_show_disabled_includes_archived_by_barcode(self):
+        archived = self._create_product(name="Archived Barcode Visible", active=False)
+        ProductBarcode.objects.create(product=archived, unit_index=1, barcode="BC-ARCH-V", is_active=False)
+
+        url = reverse("api_product_search")
+        resp = self.client.get(url, {"q": "BC-ARCH-V", "mode": "barcode", "show_disabled": 1})
+        self.assertEqual(resp.status_code, 200)
+        items = resp.json().get("items") or []
+        self.assertTrue(any(i.get("id") == archived.id for i in items))

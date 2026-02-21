@@ -472,9 +472,9 @@ def api_collection_products(request: HttpRequest, cid: int) -> JsonResponse:
     })
 
 
-def _page_for_product_in_collection(prod: Product) -> int:
+def _page_for_product_in_collection(prod: Product, *, show_disabled: bool = False) -> int:
     n = (
-        _products_qs_for_collection(prod.set.collection_id)
+        _products_qs_for_collection(prod.set.collection_id, show_disabled=show_disabled)
         .filter(id__lte=prod.id)
         .count()
     )
@@ -485,6 +485,7 @@ def _page_for_product_in_collection(prod: Product) -> int:
 def api_product_search(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
     mode = (request.GET.get("mode") or "barcode").strip().lower()
+    show_disabled = (request.GET.get("show_disabled") in {"1", "true", "yes"})
 
     def fmt(p: Product) -> dict:
         single_unit = bool(getattr(p, "is_single_unit", False))
@@ -499,7 +500,8 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             "col_code": p.set.collection.code,
             "col_id": p.set.collection_id,
             "col_name": p.set.collection.name,
-            "page": _page_for_product_in_collection(p),
+            "page": _page_for_product_in_collection(p, show_disabled=show_disabled),
+            "is_active": bool(p.is_active),
 
             # pricing
             "cost": str(p.cost),
@@ -520,12 +522,14 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
 
     try:
         if mode == "barcode":
-            pb = (
+            pb_qs = (
                 ProductBarcode.objects
                 .select_related("product__set__collection")
-                .filter(barcode=q, product__is_active=True)
-                .first()
+                .filter(barcode=q)
             )
+            if not show_disabled:
+                pb_qs = pb_qs.filter(product__is_active=True)
+            pb = pb_qs.first()
             if pb:
                 item = fmt(pb.product)
                 item["matched_unit"] = 1 if pb.product.is_single_unit else int(pb.unit_index)  # 1 or 2
@@ -536,12 +540,10 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             scope = (request.GET.get("scope") or "all").strip().lower()
 
             if scope == "product":
-                prods = (
-                    Product.objects
-                    .select_related("set__collection")
-                    .filter(name__icontains=q, is_active=True)
-                    .order_by("name")[:max_total]
-                )
+                prods = Product.objects.select_related("set__collection").filter(name__icontains=q)
+                if not show_disabled:
+                    prods = prods.filter(is_active=True)
+                prods = prods.order_by("name")[:max_total]
                 items = [fmt(p) for p in prods]
             elif scope == "set":
                 sets = (
@@ -577,12 +579,10 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 mix_each = 6
                 prod_limit = max_total - (mix_each * 2)
 
-                prods = (
-                    Product.objects
-                    .select_related("set__collection")
-                    .filter(name__icontains=q, is_active=True)
-                    .order_by("name")[:prod_limit]
-                )
+                prods = Product.objects.select_related("set__collection").filter(name__icontains=q)
+                if not show_disabled:
+                    prods = prods.filter(is_active=True)
+                prods = prods.order_by("name")[:prod_limit]
                 prod_items = [fmt(p) for p in prods]
 
                 cols = (
@@ -618,12 +618,14 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                 items = (prod_items + col_items + set_items)[:max_total]
 
         elif mode == "id":
-            uid = (
+            uid_qs = (
                 ProductUnitId.objects
                 .select_related("product__set__collection")
-                .filter(value__iexact=q, product__is_active=True)
-                .first()
+                .filter(value__iexact=q)
             )
+            if not show_disabled:
+                uid_qs = uid_qs.filter(product__is_active=True)
+            uid = uid_qs.first()
             if uid:
                 item = fmt(uid.product)
                 item["matched_unit"] = 1 if uid.product.is_single_unit else int(uid.unit_index)  # 1 or 2
@@ -634,11 +636,10 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             got = False
 
             if q.isdigit():
-                p = (
-                    Product.objects.select_related("set__collection")
-                    .filter(id=int(q), is_active=True)
-                    .first()
-                )
+                p_qs = Product.objects.select_related("set__collection").filter(id=int(q))
+                if not show_disabled:
+                    p_qs = p_qs.filter(is_active=True)
+                p = p_qs.first()
                 if p:
                     items = [fmt(p)]
                     got = True
@@ -651,7 +652,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                     .first()
                 )
                 if col:
-                    p = _products_qs_for_collection(col.id).first()
+                    p = _products_qs_for_collection(col.id, show_disabled=show_disabled).first()
                     if p:
                         items = [fmt(p)]
                         got = True
@@ -664,12 +665,14 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                     .first()
                 )
                 if st:
-                    p = (
+                    p_qs = (
                         Product.objects.select_related("set__collection")
-                        .filter(set=st, is_active=True)
+                        .filter(set=st)
                         .order_by("id")
-                        .first()
                     )
+                    if not show_disabled:
+                        p_qs = p_qs.filter(is_active=True)
+                    p = p_qs.first()
                     if p:
                         items = [fmt(p)]
                         got = True
@@ -693,11 +696,13 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
                         if st:
                             try:
                                 pid = int(parts[2])
-                                p = (
+                                p_qs = (
                                     Product.objects.select_related("set__collection")
-                                    .filter(id=pid, set=st, is_active=True)
-                                    .first()
+                                    .filter(id=pid, set=st)
                                 )
+                                if not show_disabled:
+                                    p_qs = p_qs.filter(is_active=True)
+                                p = p_qs.first()
                                 if p:
                                     items = [fmt(p)]
                             except ValueError:

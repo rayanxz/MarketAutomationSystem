@@ -8,6 +8,7 @@
   const levelL = document.getElementById('levelLabel');
   const back   = document.getElementById('btnBack');
   const showDisabledToggle = document.getElementById('showDisabledProducts');
+  const SHOW_DISABLED_KEY = 'mgr.browser.show_disabled';
 
   if (!list) return;
 
@@ -36,6 +37,20 @@
   let hlProd = null;
 
   const el = (t,c,txt)=>{ const e=document.createElement(t); if(c) e.className=c; if(txt!=null) e.textContent=txt; return e; };
+
+  function readStoredShowDisabled() {
+    return localStorage.getItem(SHOW_DISABLED_KEY) === '1';
+  }
+
+  function storeShowDisabled(v) {
+    localStorage.setItem(SHOW_DISABLED_KEY, v ? '1' : '0');
+  }
+
+  function syncShowDisabledInUrl(v) {
+    const u = new URL(window.location.href);
+    u.searchParams.set('show_disabled', v ? '1' : '0');
+    history.replaceState(null, '', u.toString());
+  }
 
   function publishContext(){
     document.dispatchEvent(new CustomEvent('mgr:context', { detail: { level, col, set } }));
@@ -131,14 +146,8 @@
       const code = el('div','code', level==='products' ? `${it.code}` : (it.code || ''));
       if (level === 'products' && it.is_active === false) {
         row.classList.add('is-disabled');
-        const badge = el('span', 'status-badge', 'DISABLED');
-        row.appendChild(ic);
-        row.append(name);
-        row.append(badge);
-        row.append(code);
-      } else {
-        row.append(ic,name,code);
       }
+      row.append(ic,name,code);
       row.style.display='flex';
       row.style.alignItems='center';
       row.style.gap='10px';
@@ -317,6 +326,9 @@
 
   if (showDisabledToggle) {
     showDisabledToggle.addEventListener('change', () => {
+      const showDisabled = !!showDisabledToggle.checked;
+      storeShowDisabled(showDisabled);
+      syncShowDisabledInUrl(showDisabled);
       if (level === 'products') {
         page = 1;
         load();
@@ -329,8 +341,19 @@
 
     const cid = params.get('cid');
     const sid = params.get('sid');
+    const showDisabledRaw = params.get('show_disabled');
     const qp = parseInt(params.get('page') || '0', 10);
     if (qp > 0) page = qp;
+
+    if (showDisabledToggle) {
+      const fromQuery = (showDisabledRaw != null)
+        ? ['1', 'true', 'yes'].includes(String(showDisabledRaw).toLowerCase())
+        : null;
+      const showDisabled = (fromQuery == null) ? readStoredShowDisabled() : fromQuery;
+      showDisabledToggle.checked = !!showDisabled;
+      storeShowDisabled(!!showDisabled);
+      syncShowDisabledInUrl(!!showDisabled);
+    }
 
     hlCol  = params.get('hl_col')  ? parseInt(params.get('hl_col'),10)  : null;
     hlSet  = params.get('hl_set')  ? parseInt(params.get('hl_set'),10)  : null;

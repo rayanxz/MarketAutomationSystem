@@ -80,6 +80,10 @@
 
 - some options in product_new can be added , such as allow sales/purchases in first/second unit of measurement (kinda like the currencies way of handling)
 
+- highlight the barcode textbox that was searched by in the product edit mode page when entered 
+
+- fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching 
+
 ## 2. excel import : 
 
 - move the page button to lower menu of products management page

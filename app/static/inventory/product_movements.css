@@ -101,6 +101,11 @@
   background: #f2f2f7;
 }
 
+.ac-list li.is-disabled {
+  color: #9ca3af;
+  background: #f8fafc;
+}
+
 /* ================= TABLE ================= */
 .mv-list {
   margin-top: 4px;
@@ -131,6 +136,10 @@
 .mv-table .col-date {
   white-space: nowrap;
   direction: ltr;
+}
+
+.mv-table .is-disabled {
+  color: #9ca3af;
 }
 
 /* ===== Quantity cell: keep td normal, flex only inside ===== */
