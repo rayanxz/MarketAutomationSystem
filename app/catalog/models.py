@@ -213,7 +213,7 @@ class Product(models.Model):
 
     @property
     def is_single_unit(self) -> bool:
-        return not self.unit_secondary or self.unit_primary == self.unit_secondary
+        return not self.unit_secondary
 
     def has_history(self) -> bool:
         """
@@ -267,8 +267,8 @@ class Product(models.Model):
         if old_sec != new_sec:
             changed.append("unit_secondary")
 
-        old_requires_conv = bool(old_sec and old_sec != (old.unit_primary or ""))
-        new_requires_conv = bool(new_sec and new_sec != (self.unit_primary or ""))
+        old_requires_conv = bool(old_sec)
+        new_requires_conv = bool(new_sec)
         if old_requires_conv or new_requires_conv:
             old_conv = _norm_conv(old.conversion_factor, old_sec)
             new_conv = _norm_conv(self.conversion_factor, new_sec)
@@ -282,12 +282,13 @@ class Product(models.Model):
         # Units rule
         if self.unit_secondary:
             if self.unit_primary == self.unit_secondary:
-                self.conversion_factor = Decimal("1")
-            else:
-                if not self.conversion_factor or self.conversion_factor <= 0:
-                    raise ValidationError(
-                        {"conversion_factor": "Required and must be > 0 when second unit is set."}
-                    )
+                raise ValidationError(
+                    {"unit_secondary": "Second unit must differ from primary unit."}
+                )
+            if not self.conversion_factor or self.conversion_factor <= 0:
+                raise ValidationError(
+                    {"conversion_factor": "Required and must be > 0 when second unit is set."}
+                )
         else:
             self.conversion_factor = None
 

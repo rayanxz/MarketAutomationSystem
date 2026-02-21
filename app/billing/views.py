@@ -415,9 +415,7 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
         col = getattr(getattr(p, "set", None), "collection", None)
         setobj = getattr(p, "set", None)
         matched_unit = None
-        single_unit = bool(getattr(p, "unit_secondary", "")) and (
-            getattr(p, "unit_primary", "") == getattr(p, "unit_secondary", "")
-        )
+        single_unit = bool(getattr(p, "is_single_unit", False))
 
         if mode == "id":
             for uid in getattr(p, "unit_ids", []).all():

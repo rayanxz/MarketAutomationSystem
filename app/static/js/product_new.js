@@ -440,11 +440,10 @@
   const unitSecondary = document.querySelector('select[name="unit_secondary"]');
   const convInput = document.querySelector('input[name="conversion_factor"]');
   function enforceSingleUnitUI() {
-    const u1 = unitPrimary ? unitPrimary.value : "";
     const u2 = unitSecondary ? unitSecondary.value : "";
-    const isSingle = !!u2 && u1 === u2;
+    const isSingle = !u2;
 
-    if (convInput) convInput.readOnly = isSingle;
+    if (convInput) convInput.disabled = isSingle;
 
     const u2IdInputs = document.querySelectorAll('input[name="unit_secondary_ids[]"]');
     const u2BarcodeInputs = document.querySelectorAll('input[name="barcodes_u2[]"]');

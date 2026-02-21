@@ -131,7 +131,7 @@ class ProductLockAfterMovementTests(TestCase):
         prod.refresh_from_db()
         self.assertTrue(prod.has_history())
 
-    def test_history_product_save_normalizes_stale_single_unit_conversion(self):
+    def test_history_product_save_rejects_stale_same_unit_state(self):
         prod = self._make_product(name="ProdHistNorm")
         InvSV.record_purchase_item(
             actor=self.user,
@@ -155,10 +155,5 @@ class ProductLockAfterMovementTests(TestCase):
 
         prod.refresh_from_db()
         prod.notes = "touch"
-        prod.save()
-        prod.refresh_from_db()
-        self.assertEqual(prod.conversion_factor, Decimal("1"))
-
-        prod.unit_secondary = UnitType.BNDL
         with self.assertRaises(ValidationError):
             prod.save()

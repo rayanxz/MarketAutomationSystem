@@ -255,9 +255,7 @@ def create_bill(
         if item_currency == "USD" and not allow_usd_purch:
             raise ValueError(f"USD purchasing not enabled for product at row {idx}")
 
-        single_unit = (not getattr(product, "unit_secondary", "")) or (
-            getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")
-        )
+        single_unit = bool(getattr(product, "is_single_unit", False))
         unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
 
         qty_raw = Decimal(str(row.get("qty_raw") or "0"))
@@ -1037,9 +1035,7 @@ def create_return(
         if product is None:
             raise ValidationError(f"Product {pid} is archived and cannot be used in new operations.")
 
-        single_unit = (not getattr(product, "unit_secondary", "")) or (
-            getattr(product, "unit_primary", "") == getattr(product, "unit_secondary", "")
-        )
+        single_unit = bool(getattr(product, "is_single_unit", False))
         unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None

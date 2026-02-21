@@ -170,7 +170,7 @@
         <div class="field">
           <label>الوحدة الثانية </label>
           <select name="unit_secondary" id="id_unit_secondary" class="input">
-            <option value="" {% if not form.unit_secondary.value %}selected{% endif %}>---------</option>
+            <option value="" {% if not form.unit_secondary.value %}selected{% endif %}>بدون وحدة ثانية</option>
             {% for value, label in form.fields.unit_secondary.choices %}
               <option value="{{ value }}" {% if form.unit_secondary.value == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}

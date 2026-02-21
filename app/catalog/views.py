@@ -487,9 +487,7 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
     mode = (request.GET.get("mode") or "barcode").strip().lower()
 
     def fmt(p: Product) -> dict:
-        single_unit = bool(getattr(p, "unit_secondary", "")) and (
-            getattr(p, "unit_primary", "") == getattr(p, "unit_secondary", "")
-        )
+        single_unit = bool(getattr(p, "is_single_unit", False))
         return {
             "type": "product",
             "id": p.id,
@@ -863,9 +861,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 p.save()
 
                 # ---- Unit IDs (lists) ----
-                single_unit = bool(form.cleaned_data.get("unit_secondary")) and (
-                    form.cleaned_data.get("unit_secondary") == form.cleaned_data.get("unit_primary")
-                )
+                single_unit = not bool(form.cleaned_data.get("unit_secondary"))
 
                 all_ids = list(dict.fromkeys(u1_ids + (u2_ids if not single_unit else [])))
                 if all_ids:
@@ -1283,9 +1279,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
                 # ---- Unit IDs (replace when lists posted) ----
                 # Already validated + parsed above
-                single_unit = bool(form.cleaned_data.get("unit_secondary")) and (
-                    form.cleaned_data.get("unit_secondary") == form.cleaned_data.get("unit_primary")
-                )
+                single_unit = not bool(form.cleaned_data.get("unit_secondary"))
 
                 ProductUnitId.objects.filter(
                     product=p, unit_index=ProductUnitId.UnitIndex.PRIMARY

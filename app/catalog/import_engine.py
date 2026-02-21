@@ -273,10 +273,12 @@ def stage_file_with_mapping(sid: str, mapping: Dict[str, int], options: Dict[str
             errs["name"] = "اسم المنتج مطلوب."
 
         if d["unit_secondary"]:
-            if not d["conversion_factor"]:
-                errs["conversion_factor"] = "مطلوب عند تحديد الوحدة الثانية."
             if d["unit_primary"] == d["unit_secondary"]:
-                errs["unit_secondary"] = "لا يجوز أن تكون الوحدة الثانية مطابقة للأولى."
+                errs["unit_secondary"] = "Second unit must differ from primary unit."
+            if not d["conversion_factor"]:
+                errs["conversion_factor"] = "Conversion factor is required when second unit is set."
+        elif d["conversion_factor"]:
+            errs["conversion_factor"] = "Conversion factor must be empty when no second unit is set."
 
         key = d["name"].lower() if d["name"] else ""
         if key:
@@ -362,10 +364,12 @@ def update_row_in_stage(sid: str, rid: int, field: str, value: Any):
 
     # unit + cf checks
     if (d.get("unit_secondary") or "").strip():
-        if not _to_dec(d.get("conversion_factor"), nd=4):
-            errs["conversion_factor"] = "مطلوب عند تحديد الوحدة الثانية."
         if (d.get("unit_primary") or "") == (d.get("unit_secondary") or ""):
-            errs["unit_secondary"] = "لا يجوز أن تكون الوحدة الثانية مطابقة للأولى."
+            errs["unit_secondary"] = "Second unit must differ from primary unit."
+        if not _to_dec(d.get("conversion_factor"), nd=4):
+            errs["conversion_factor"] = "Conversion factor is required when second unit is set."
+    elif _to_dec(d.get("conversion_factor"), nd=4):
+        errs["conversion_factor"] = "Conversion factor must be empty when no second unit is set."
 
     target["errors"] = errs
 
@@ -481,11 +485,13 @@ def commit_stage(sid: str, *, actor=None, request=None) -> Dict[str, Any]:
             if unit_secondary and unit_secondary not in _UNIT_VALID:
                 raise StageError(f"سطر {rid}: وحدة ثانية غير معروفة: {d.get('unit_secondary')!r}")
 
-            # If both set, they must be different when a CF is present
+            # Secondary unit rules (explicit single-unit mode)
             if unit_secondary and unit_primary == unit_secondary:
-                raise StageError(f"سطر {rid}: لا يجوز أن تكون الوحدة الثانية مطابقة للأولى.")
+                raise StageError(f"Row {rid}: second unit must differ from primary unit.")
             if unit_secondary and not conv_factor:
-                raise StageError(f"سطر {rid}: عامل التحويل مطلوب عند تحديد الوحدة الثانية.")
+                raise StageError(f"Row {rid}: conversion factor is required when second unit is set.")
+            if (not unit_secondary) and conv_factor:
+                raise StageError(f"Row {rid}: conversion factor must be empty when no second unit is set.")
 
             # set (create if missing)
             s_name = (d.get("set") or "").strip() or "غير مصنّف"

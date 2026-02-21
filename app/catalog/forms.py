@@ -210,9 +210,11 @@ class ProductCreateForm(forms.Form):
         u2 = cleaned.get("unit_secondary") or ""
         cf = cleaned.get("conversion_factor")
 
-        # If a distinct secondary unit is chosen -> conversion factor is required.
+        # If a secondary unit is chosen -> it must differ from primary and include conversion.
         # Canonical normalization is enforced at model level (Product.clean).
-        if u2 and u1 != u2 and not cf:
+        if u2 and u1 == u2:
+            self.add_error("unit_secondary", "Second unit must differ from primary unit.")
+        if u2 and not cf:
             self.add_error("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.")
 
         # --- Friendly duplicate barcode check (bulk + ignore self when editing) ---

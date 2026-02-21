@@ -233,7 +233,7 @@ class ProductPolicyTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(any("barcodes_u1" in k for k in resp.context["form"].errors.keys()))
 
-    def test_edit_same_units_normalizes_conversion_factor_to_one(self):
+    def test_edit_same_units_rejected(self):
         prod = self._create_product(collection_name="C8", set_name="S8", product_name="P8")
         prod.unit_secondary = UnitType.BNDL
         prod.conversion_factor = Decimal("12")
@@ -243,14 +243,15 @@ class ProductPolicyTests(TestCase):
             product=prod,
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.PIECE,
-            conversion_factor=None,  # emulate disabled field omitted from POST
+            conversion_factor="1",
         )
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("unit_secondary", resp.context["form"].errors)
 
         prod.refresh_from_db()
         self.assertEqual(prod.unit_primary, UnitType.PIECE)
-        self.assertEqual(prod.unit_secondary, UnitType.PIECE)
-        self.assertEqual(prod.conversion_factor, Decimal("1"))
+        self.assertEqual(prod.unit_secondary, UnitType.BNDL)
+        self.assertEqual(prod.conversion_factor, Decimal("12"))
 
     def test_edit_blank_secondary_normalizes_conversion_factor_to_null(self):
         prod = self._create_product(collection_name="C9", set_name="S9", product_name="P9")
@@ -271,23 +272,20 @@ class ProductPolicyTests(TestCase):
         self.assertEqual(prod.unit_secondary, "")
         self.assertIsNone(prod.conversion_factor)
 
-    def test_create_same_units_normalizes_conversion_factor_to_one(self):
+    def test_create_same_units_rejected(self):
         col, _ = ProductCollection.objects.get_or_create(name="C")
         ProductSet.objects.get_or_create(collection=col, name="S")
         resp = self._post_product(
             name="P10",
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.PIECE,
-            conversion_factor=None,  # emulate disabled field omitted from POST
+            conversion_factor="1",
         )
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("unit_secondary", resp.context["form"].errors)
+        self.assertFalse(Product.objects.filter(name="P10").exists())
 
-        prod = Product.objects.get(name="P10")
-        self.assertEqual(prod.unit_primary, UnitType.PIECE)
-        self.assertEqual(prod.unit_secondary, UnitType.PIECE)
-        self.assertEqual(prod.conversion_factor, Decimal("1"))
-
-    def test_history_product_normalization_and_unit_lock(self):
+    def test_history_product_with_stale_same_unit_rejected(self):
         prod = self._create_product(collection_name="C11", set_name="S11", product_name="P11")
         ProductMovement.objects.create(
             product=prod,
@@ -308,10 +306,5 @@ class ProductPolicyTests(TestCase):
 
         prod.refresh_from_db()
         prod.notes = "touch"
-        prod.save()
-        prod.refresh_from_db()
-        self.assertEqual(prod.conversion_factor, Decimal("1"))
-
-        prod.unit_secondary = UnitType.BNDL
         with self.assertRaises(ValidationError):
             prod.save()

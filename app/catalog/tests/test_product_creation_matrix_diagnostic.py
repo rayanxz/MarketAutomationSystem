@@ -103,10 +103,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "label": "Case B",
                 "unit_primary": UnitType.PIECE,
                 "unit_secondary": UnitType.PIECE,
-                "conversion_factor": None,  # omitted from POST
-                "expected_secondary": UnitType.PIECE,
-                "expected_cf": Decimal("1"),
-                "expected_single": True,
+                "conversion_factor": "1",
+                "expect_invalid": True,
                 "collection": "DIAG-C-B",
                 "set_name": "DIAG-S-B",
                 "product_name": "DIAG-P-B",
@@ -148,10 +146,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "label": "Case E",
                 "unit_primary": UnitType.LITER,
                 "unit_secondary": UnitType.LITER,
-                "conversion_factor": None,  # omitted from POST
-                "expected_secondary": UnitType.LITER,
-                "expected_cf": Decimal("1"),
-                "expected_single": True,
+                "conversion_factor": "1",
+                "expect_invalid": True,
                 "collection": "DIAG-C-E",
                 "set_name": "DIAG-S-E",
                 "product_name": "DIAG-P-E",
@@ -181,6 +177,14 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
 
             response = self.client.post(self.url, data=payload)
             with self.subTest(case=case["label"]):
+                expected_invalid = bool(case.get("expect_invalid"))
+                if expected_invalid:
+                    self.assertEqual(response.status_code, 200)
+                    self.assertFalse(Product.objects.filter(name=case["product_name"]).exists())
+                    passed += 1
+                    print(f"\n[{case['label']}] {case['product_name']}")
+                    print("OK: same-unit creation rejected as expected.")
+                    continue
                 self.assertEqual(response.status_code, 302)
 
             product = Product.objects.get(name=case["product_name"])

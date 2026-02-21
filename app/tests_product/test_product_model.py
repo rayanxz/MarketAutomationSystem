@@ -47,7 +47,7 @@ class ProductModelIntegrityTests(TestCase):
         with self.assertRaises(ValidationError):
             p.full_clean()
 
-    def test_secondary_same_as_primary_allowed(self):
+    def test_secondary_same_as_primary_rejected(self):
         _, pset = create_collection_set("C-P3", "S-P3")
         p = Product(
             name="ProdSameUnits",
@@ -58,7 +58,8 @@ class ProductModelIntegrityTests(TestCase):
             cost=Decimal("1.0000"),
             price=Decimal("2.0000"),
         )
-        p.full_clean()
+        with self.assertRaises(ValidationError):
+            p.full_clean()
 
     def test_conversion_factor_one_allowed(self):
         _, pset = create_collection_set("C-P4", "S-P4")
