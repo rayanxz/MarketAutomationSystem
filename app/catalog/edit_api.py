@@ -13,12 +13,13 @@ from accounts.models import AccountProfile
 from catalog.models import (
     ProductCollection,
     ProductSet,
-    Product,
 )
 from catalog.views import role_required
 from catalog.services.deletion_policy import (
-    ProductDisableBlockedError,
-    disable_product,
+    CollectionHardDeleteBlockedError,
+    FatherSetHardDeleteBlockedError,
+    hard_delete_collection,
+    hard_delete_father_set,
 )
 
 from audit_log.services import log_update, log_delete, snap_instance
@@ -65,26 +66,6 @@ def _scope_target(typ: str, _id: int) -> tuple[Optional[object], Optional[dict]]
         return st, before
 
     return None, None
-
-
-def _archive_products_for_set(st: ProductSet) -> int:
-    count = 0
-    for p in Product.objects.filter(set=st, is_active=True).order_by("id"):
-        disable_product(p)
-        count += 1
-    return count
-
-
-def _archive_products_for_collection(col: ProductCollection) -> int:
-    count = 0
-    for p in Product.objects.filter(set__collection=col, is_active=True).order_by("id"):
-        disable_product(p)
-        count += 1
-    return count
-
-
-def _can_archive_entity(obj, field_name: str = "is_active") -> bool:
-    return hasattr(obj, field_name)
 
 
 # ------------------------
@@ -242,39 +223,35 @@ def edit_apply_batch(request: HttpRequest):
 
                         before = snap_instance(col, ["name", "code"])
                         try:
-                            archived = _archive_products_for_collection(col)
-                        except ProductDisableBlockedError:
+                            deleted_sets, deleted_products = hard_delete_collection(col)
+                        except CollectionHardDeleteBlockedError:
                             results.append({
                                 "ok": False,
-                                "error": "Cannot disable one or more products: stock must be zero in store/wh1/wh2.",
+                                "error": "لا يمكن الحذف النهائي، بعض عناصر الزمرة/المجموعة الأب تحتوي على بيانات في النظام.",
                             })
                             continue
 
-                        if _can_archive_entity(col):
-                            col.is_active = False  # type: ignore[attr-defined]
-                            col.save(update_fields=["is_active"])
-                            log_delete(
-                                actor=request.user,
-                                request=request,
-                                target=col,
-                                title="Archive collection",
-                                message=f"Collection archived: {before.get('name')}",
-                                before=before,
-                                after=snap_instance(col, ["name", "code"]),
-                                meta={
-                                    "source": "catalog.edit_apply_batch",
-                                    "op": op,
-                                    "soft_delete": True,
-                                    "products_archived": archived,
-                                },
-                            )
-                            results.append({"ok": True, "products_archived": archived})
-                        else:
-                            results.append({
-                                "ok": False,
-                                "error": "Deletion disabled; archive not implemented for collections yet.",
-                                "products_archived": archived,
-                            })
+                        log_delete(
+                            actor=request.user,
+                            request=request,
+                            target=col,
+                            title="Hard delete collection",
+                            message=f"Collection hard deleted: {before.get('name')}",
+                            before=before,
+                            after=None,
+                            meta={
+                                "source": "catalog.edit_apply_batch",
+                                "op": op,
+                                "hard_delete": True,
+                                "deleted_sets": deleted_sets,
+                                "deleted_products": deleted_products,
+                            },
+                        )
+                        results.append({
+                            "ok": True,
+                            "deleted_sets": deleted_sets,
+                            "deleted_products": deleted_products,
+                        })
 
                     else:
                         st: ProductSet = target  # type: ignore[assignment]
@@ -284,39 +261,30 @@ def edit_apply_batch(request: HttpRequest):
                         before_set["collection_name"] = getattr(st.collection, "name", None)
 
                         try:
-                            archived = _archive_products_for_set(st)
-                        except ProductDisableBlockedError:
+                            deleted_products = hard_delete_father_set(st)
+                        except FatherSetHardDeleteBlockedError:
                             results.append({
                                 "ok": False,
-                                "error": "Cannot disable one or more products: stock must be zero in store/wh1/wh2.",
+                                "error": "لا يمكن الحذف النهائي، بعض عناصر الزمرة/المجموعة الأب تحتوي على بيانات في النظام.",
                             })
                             continue
 
-                        if _can_archive_entity(st):
-                            st.is_active = False  # type: ignore[attr-defined]
-                            st.save(update_fields=["is_active"])
-                            log_delete(
-                                actor=request.user,
-                                request=request,
-                                target=st,
-                                title="Archive set",
-                                message=f"Set archived: {before_set.get('name')}",
-                                before=before_set,
-                                after=snap_instance(st, ["name", "code", "collection_id"]),
-                                meta={
-                                    "source": "catalog.edit_apply_batch",
-                                    "op": op,
-                                    "soft_delete": True,
-                                    "products_archived": archived,
-                                },
-                            )
-                            results.append({"ok": True, "products_archived": archived})
-                        else:
-                            results.append({
-                                "ok": False,
-                                "error": "Deletion disabled; archive not implemented for sets yet.",
-                                "products_archived": archived,
-                            })
+                        log_delete(
+                            actor=request.user,
+                            request=request,
+                            target=st,
+                            title="Hard delete set",
+                            message=f"Father set hard deleted: {before_set.get('name')}",
+                            before=before_set,
+                            after=None,
+                            meta={
+                                "source": "catalog.edit_apply_batch",
+                                "op": op,
+                                "hard_delete": True,
+                                "deleted_products": deleted_products,
+                            },
+                        )
+                        results.append({"ok": True, "deleted_products": deleted_products})
 
     except Exception:
         # any crash: transaction rolls back

@@ -32,6 +32,7 @@ class ProductCollection(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    can_be_hard_deleted = models.BooleanField(default=True)
 
     class Meta:
         constraints = [
@@ -74,6 +75,7 @@ class ProductSet(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    can_be_hard_deleted = models.BooleanField(default=True)
 
     class Meta:
         constraints = [

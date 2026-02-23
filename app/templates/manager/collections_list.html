@@ -131,6 +131,39 @@
 
   .progress{ height:8px; background:#eef2ff; border-radius:999px; overflow:hidden; }
   .progress > i{ display:block; height:100%; width:0%; background:#0ea5e9; transition:width .25s ease; }
+
+  .hard-delete-busy{
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,.45);
+    z-index:5000;
+  }
+  .hard-delete-busy.show{ display:flex; }
+  .hard-delete-busy-card{
+    min-width:240px;
+    background:#fff;
+    border-radius:12px;
+    padding:16px 18px;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .hard-delete-busy-spinner{
+    width:18px;
+    height:18px;
+    border:2px solid #d1d5db;
+    border-top-color:#0ea5e9;
+    border-radius:50%;
+    animation:hardDeleteSpin .8s linear infinite;
+    flex:0 0 auto;
+  }
+  @keyframes hardDeleteSpin{
+    to{ transform:rotate(360deg); }
+  }
 </style>
 {% endblock %}
 
@@ -191,13 +224,13 @@
           <!-- For Collections level (you clicked a collection -> now at sets level) -->
           <div id="actionsCol" hidden>
             <button type="button" class="btn-soft" id="btnColRename">إعادة تسمية الزمرة</button>
-            <button type="button" class="btn-danger" id="btnColDelete">حذف الزمرة (شامل العناصر)</button>
+            <button type="button" class="btn-danger" id="btnColDelete">حذف نهائي للزمرة</button>
           </div>
 
           <!-- For Sets level (you clicked a set -> now at products level) -->
           <div id="actionsSet" hidden>
             <button type="button" class="btn-soft" id="btnSetRename">إعادة تسمية المجموعة الأب</button>
-            <button type="button" class="btn-danger" id="btnSetDelete">حذف المجموعة الأب (شامل العناصر)</button>
+            <button type="button" class="btn-danger" id="btnSetDelete">حذف نهائي للمجموعة الأب</button>
           </div>
         </div>
 
@@ -281,10 +314,17 @@
       <div class="progress" style="margin-top:10px;" id="delProgress" hidden><i></i></div>
       <div class="modal-f">
         <button type="button" class="btn-danger" id="btnDelConfirm">تأكيد الحذف</button>
-        <button type="button" class="btn-soft" data-close>إلغاء</button>
+        <button type="button" class="btn-soft" data-close id="btnDelCancel">إلغاء</button>
       </div>
     </div>
   </section>
+</div>
+
+<div class="hard-delete-busy" id="hardDeleteBusy" aria-hidden="true">
+  <div class="hard-delete-busy-card">
+    <span class="hard-delete-busy-spinner" aria-hidden="true"></span>
+    <span>جارٍ الحذف... يرجى الانتظار</span>
+  </div>
 </div>
 
 {% endblock %}
@@ -314,6 +354,8 @@
     const delProg     = document.getElementById('delProgress');
     const delBar      = delProg.querySelector('i');
     const delConfirm  = document.getElementById('btnDelConfirm');
+    const delCancel   = document.getElementById('btnDelCancel');
+    const hardDeleteBusy = document.getElementById('hardDeleteBusy');
 
     // Buttons
     const btnColRename = document.getElementById('btnColRename');
@@ -324,16 +366,61 @@
 
     // Current context (published by manager_browser.js)
     let ctx = { level:'collections', col:null, set:null };
+    let hardDeleteInFlight = false;
+    let deleteModalMode = 'confirm';
 
     function show(el){ el && (el.hidden = false); }
     function hide(el){ el && (el.hidden = true); }
+    function setButtonEnabled(btn, isEnabled){
+      if (!btn) return;
+      btn.disabled = !isEnabled;
+      btn.classList.toggle('btn-disabled', !isEnabled);
+    }
 
+    function switchToDeleteConfirmMode(){
+      deleteModalMode = 'confirm';
+      if (delConfirm) {
+        delConfirm.hidden = false;
+        delConfirm.disabled = false;
+      }
+      if (delCancel) delCancel.textContent = 'إلغاء';
+    }
+    function switchToDeleteErrorMode(errorMessage){
+      deleteModalMode = 'error';
+      if (delMsg) delMsg.textContent = errorMessage || 'delete failed';
+      if (delConfirm) {
+        delConfirm.hidden = true;
+        delConfirm.disabled = true;
+      }
+      if (delCancel) delCancel.textContent = 'رجوع';
+    }
     function openModal(el){ el && el.classList.add('show'); }
-    function closeModal(el){ el && el.classList.remove('show'); }
+    function closeModal(el){
+      if (!el) return;
+      el.classList.remove('show');
+      if (el === modalDelete) switchToDeleteConfirmMode();
+    }
     function closeAll(){ [modalRename, modalDelete].forEach(closeModal); }
+    function setHardDeleteBusy(isBusy){
+      hardDeleteInFlight = !!isBusy;
+      if (hardDeleteBusy) hardDeleteBusy.classList.toggle('show', !!isBusy);
+      setButtonEnabled(delConfirm, !isBusy);
+      if (btnColDelete) {
+        btnColDelete.disabled = !!isBusy || !(ctx && ctx.col && ctx.col.can_be_hard_deleted);
+        btnColDelete.classList.toggle('btn-disabled', btnColDelete.disabled);
+      }
+      if (btnSetDelete) {
+        btnSetDelete.disabled = !!isBusy || !(ctx && ctx.set && ctx.set.can_be_hard_deleted);
+        btnSetDelete.classList.toggle('btn-disabled', btnSetDelete.disabled);
+      }
+    }
 
-    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', closeAll));
+    document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', () => {
+      if (hardDeleteInFlight) return;
+      closeAll();
+    }));
     document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('click', e => {
+      if (hardDeleteInFlight) return;
       if (e.target === m) closeModal(m);
     }));
 
@@ -341,10 +428,21 @@
     document.addEventListener('mgr:context', (ev) => {
       ctx = ev.detail || ctx;
       // When viewing SETS -> collection actions
-      if (ctx.level === 'sets' && ctx.col) { show(actionsCol); hide(actionsSet); }
+      if (ctx.level === 'sets' && ctx.col) {
+        show(actionsCol);
+        hide(actionsSet);
+        setButtonEnabled(btnColDelete, !!ctx.col.can_be_hard_deleted);
+      }
       // When viewing PRODUCTS -> set actions
-      else if (ctx.level === 'products' && ctx.col && ctx.set) { hide(actionsCol); show(actionsSet); }
-      else { hide(actionsCol); hide(actionsSet); }
+      else if (ctx.level === 'products' && ctx.col && ctx.set) {
+        hide(actionsCol);
+        show(actionsSet);
+        setButtonEnabled(btnSetDelete, !!ctx.set.can_be_hard_deleted);
+      }
+      else {
+        hide(actionsCol);
+        hide(actionsSet);
+      }
     });
 
     // ----- Collection actions -----
@@ -379,6 +477,7 @@
 
     btnColDelete && btnColDelete.addEventListener('click', () => {
       if (!ctx.col) return;
+      switchToDeleteConfirmMode();
       document.getElementById('delH').textContent = 'حذف الزمرة';
       delMsg.textContent = `سيتم حذف الزمرة «${ctx.col.name || ''}» مع جميع المجموعات الأب والمنتجات داخلها. هل أنت متأكد؟`;
       delProg.hidden = true; delBar.style.width = '0%';
@@ -400,28 +499,59 @@
     });
 
     delConfirm && delConfirm.addEventListener('click', async () => {
+      if (hardDeleteInFlight || deleteModalMode === 'error') return;
       if (delConfirm.dataset.mode === 'collection' && ctx.col){
+        setHardDeleteBusy(true);
         delProg.hidden = false; delBar.style.width = '30%';
-        await fetch(`/manager/products/api/collections/${ctx.col.id}/cascade_delete/`, {
-          method:'POST', headers:{ 'X-CSRFToken': csrf, 'Accept':'application/json' }
-        }).catch(()=>{});
-        delBar.style.width = '100%';
-        window.location.href = `{% url 'manager_collections' %}`;
-      } else if (delConfirm.dataset.mode === 'set' && ctx.set){
-        delProg.hidden = false; delBar.style.width = '40%';
-        await fetch('/manager/products/api/edit/apply/', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','X-CSRFToken':csrf,'Accept':'application/json'},
-          body: JSON.stringify({ ops: [{ op:'delete', type:'set', id: ctx.set.id }] })
-        }).catch(()=>{});
-        delBar.style.width = '100%';
-        // go back to sets level
-        const u = new URL('{% url "manager_collections" %}', window.location.origin);
-        if (ctx.col) {
-          u.searchParams.set('cid', ctx.col.id);
-          u.searchParams.set('cname', ctx.col.name || '');
+        try{
+          const res = await fetch(`/manager/products/api/collections/${ctx.col.id}/cascade_delete/`, {
+            method:'POST', headers:{ 'X-CSRFToken': csrf, 'Accept':'application/json' }
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok || !data || data.ok !== true){
+            throw new Error((data && data.error) || 'delete failed');
+          }
+          delBar.style.width = '100%';
+          setHardDeleteBusy(false);
+          closeModal(modalDelete);
+          window.location.href = `{% url 'manager_collections' %}`;
+        } catch (err){
+          setHardDeleteBusy(false);
+          delProg.hidden = true;
+          delBar.style.width = '0%';
+          switchToDeleteErrorMode((err && err.message) ? err.message : 'delete failed');
         }
-        window.location.href = u.toString();
+      } else if (delConfirm.dataset.mode === 'set' && ctx.set){
+        setHardDeleteBusy(true);
+        delProg.hidden = false; delBar.style.width = '40%';
+        try{
+          const res = await fetch('/manager/products/api/edit/apply/', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','X-CSRFToken':csrf,'Accept':'application/json'},
+            body: JSON.stringify({ ops: [{ op:'delete', type:'set', id: ctx.set.id }] })
+          });
+          const data = await res.json().catch(() => null);
+          const opOk = !!(data && data.ok && data.results && data.results[0] && data.results[0].ok);
+          if (!res.ok || !opOk){
+            const opErr = data && data.results && data.results[0] ? data.results[0].error : null;
+            throw new Error(opErr || (data && data.error) || 'delete failed');
+          }
+          delBar.style.width = '100%';
+          setHardDeleteBusy(false);
+          closeModal(modalDelete);
+          // go back to sets level
+          const u = new URL('{% url "manager_collections" %}', window.location.origin);
+          if (ctx.col) {
+            u.searchParams.set('cid', ctx.col.id);
+            u.searchParams.set('cname', ctx.col.name || '');
+          }
+          window.location.href = u.toString();
+        } catch (err){
+          setHardDeleteBusy(false);
+          delProg.hidden = true;
+          delBar.style.width = '0%';
+          switchToDeleteErrorMode((err && err.message) ? err.message : 'delete failed');
+        }
       }
     });
 
@@ -437,6 +567,7 @@
 
     btnSetDelete && btnSetDelete.addEventListener('click', () => {
       if (!ctx.set) return;
+      switchToDeleteConfirmMode();
       document.getElementById('delH').textContent = 'حذف المجموعة الأب';
       delMsg.textContent = `سيتم حذف المجموعة الأب «${ctx.set.name || ''}» وكل المنتجات داخلها. هل أنت متأكد؟`;
       delProg.hidden = true; delBar.style.width = '0%';

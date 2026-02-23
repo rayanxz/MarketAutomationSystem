@@ -11,7 +11,7 @@ from inventory.models import ProductMovement
 from billing.models import BillItem, ProviderReturnItem
 from pos.models import SalesBillRow, SalesReturnRow
 from stock.models import StockEntry, StockFifoLayer, ProductContainer
-from catalog.models import ProductBarcode, ProductUnitId, Product
+from catalog.models import ProductBarcode, ProductUnitId, Product, ProductSet, ProductCollection
 
 DEC0 = Decimal("0.000")
 DEFAULT_CONTAINER_CODES: tuple[str, ...] = ("store", "wh1", "wh2")
@@ -37,6 +37,16 @@ class ProductHardDeleteBlockedError(ProductDeletionPolicyError):
         self.has_history = has_history
         self.stock_by_container = stock_by_container
         super().__init__("Hard delete is not allowed for this product.")
+
+
+class FatherSetHardDeleteBlockedError(ProductDeletionPolicyError):
+    def __init__(self):
+        super().__init__("Hard delete is not allowed for this father set.")
+
+
+class CollectionHardDeleteBlockedError(ProductDeletionPolicyError):
+    def __init__(self):
+        super().__init__("Hard delete is not allowed for this collection.")
 
 
 def stock_by_container(
@@ -94,6 +104,33 @@ def can_soft_delete(product: Product) -> bool:
     return all_zero_stock(product)
 
 
+def can_hard_delete_father_set(fs: ProductSet) -> bool:
+    if not fs.can_be_hard_deleted:
+        return False
+
+    products = list(Product.objects.filter(set_id=fs.id).only("id"))
+    if not products:
+        return True
+
+    return all(can_hard_delete(p) for p in products)
+
+
+def can_hard_delete_collection(collection: ProductCollection) -> bool:
+    if not collection.can_be_hard_deleted:
+        return False
+
+    set_ids = list(
+        ProductSet.objects.filter(collection_id=collection.id).values_list("id", flat=True)
+    )
+    if not set_ids:
+        return not Product.objects.filter(set__collection_id=collection.id).exists()
+
+    for fs in ProductSet.objects.filter(id__in=set_ids).only("id", "can_be_hard_deleted"):
+        if not can_hard_delete_father_set(fs):
+            return False
+    return True
+
+
 @transaction.atomic
 def disable_product(
     product: Product,
@@ -142,6 +179,63 @@ def hard_delete_product(
         )
     locked.delete()
     return stock_map, history
+
+
+@transaction.atomic
+def hard_delete_father_set(fs: ProductSet) -> int:
+    locked_fs = ProductSet.objects.select_for_update().get(pk=fs.pk)
+    products = list(Product.objects.filter(set_id=locked_fs.id).select_for_update().order_by("id"))
+
+    if not can_hard_delete_father_set(locked_fs):
+        raise FatherSetHardDeleteBlockedError()
+
+    deleted_products = 0
+    for product in products:
+        hard_delete_product(product)
+        deleted_products += 1
+
+    locked_fs.delete()
+    return deleted_products
+
+
+@transaction.atomic
+def hard_delete_collection(collection: ProductCollection) -> tuple[int, int]:
+    locked_col = ProductCollection.objects.select_for_update().get(pk=collection.pk)
+    sets = list(
+        ProductSet.objects.filter(collection_id=locked_col.id)
+        .select_for_update()
+        .order_by("id")
+    )
+
+    if not can_hard_delete_collection(locked_col):
+        raise CollectionHardDeleteBlockedError()
+
+    deleted_sets = 0
+    deleted_products = 0
+    for fs in sets:
+        deleted_products += hard_delete_father_set(fs)
+        deleted_sets += 1
+
+    locked_col.delete()
+    return deleted_sets, deleted_products
+
+
+def mark_hierarchy_non_hard_deletable(product_id: int) -> None:
+    row = (
+        Product.objects
+        .filter(pk=product_id)
+        .values("set_id", "set__collection_id")
+        .first()
+    )
+    if not row:
+        return
+
+    set_id = row.get("set_id")
+    collection_id = row.get("set__collection_id")
+    if set_id:
+        ProductSet.objects.filter(pk=set_id, can_be_hard_deleted=True).update(can_be_hard_deleted=False)
+    if collection_id:
+        ProductCollection.objects.filter(pk=collection_id, can_be_hard_deleted=True).update(can_be_hard_deleted=False)
 
 
 def sync_identifiers_for_product(product: Product, *, is_active: bool | None = None) -> None:

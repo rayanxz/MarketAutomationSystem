@@ -36,9 +36,11 @@ from catalog.models import (
 from audit_log.services import log_create, log_update, log_delete, snap_instance
 from inventory.models import q3
 from catalog.services.deletion_policy import (
+    CollectionHardDeleteBlockedError,
     ProductDisableBlockedError,
     ProductHardDeleteBlockedError,
     can_hard_delete,
+    hard_delete_collection,
     disable_product,
     hard_delete_product,
     reactivate_product,
@@ -402,41 +404,34 @@ def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
     col = get_object_or_404(ProductCollection, pk=pk)
 
     before = _snap_collection(col)
-    archived = 0
     try:
-        for prod in Product.objects.filter(set__collection=col, is_active=True).order_by("id"):
-            disable_product(prod)
-            archived += 1
-    except ProductDisableBlockedError:
+        deleted_sets, deleted_products = hard_delete_collection(col)
+    except CollectionHardDeleteBlockedError:
         messages.error(
             request,
-            "Cannot disable products in this collection until stock is zero in store/wh1/wh2.",
+            "لا يمكن الحذف النهائي، بعض عناصر الزمرة/المجموعة الأب تحتوي على بيانات في النظام.",
         )
         return _go("manager_collections", "edit=1")
 
-    if hasattr(col, "is_active"):
-        col.is_active = False  # type: ignore[attr-defined]
-        col.save(update_fields=["is_active"])
-        # AUDIT: archive collection
-        try:
-            log_delete(
-                actor=request.user,
-                request=request,
-                target=col,
-                title="Archive collection",
-                message=f"Collection archived: {before.get('name')}",
-                before=before,
-                after=_snap_collection(col),
-                meta={"source": "catalog.collection_delete", "soft_delete": True, "products_archived": archived},
-            )
-        except Exception:
-            pass
-        messages.success(request, "Collection archived; products archived.")
-    else:
-        messages.error(
-            request,
-            "Deletion disabled: collection archive not implemented yet. Products archived only.",
+    try:
+        log_delete(
+            actor=request.user,
+            request=request,
+            target=col,
+            title="Hard delete collection",
+            message=f"Collection hard deleted: {before.get('name')}",
+            before=before,
+            after=None,
+            meta={
+                "source": "catalog.collection_delete",
+                "hard_delete": True,
+                "deleted_sets": deleted_sets,
+                "deleted_products": deleted_products,
+            },
         )
+    except Exception:
+        pass
+    messages.success(request, "Collection hard deleted.")
 
     return _go("manager_collections", "edit=1")
 
@@ -1502,50 +1497,46 @@ def api_collection_cascade_delete(request: HttpRequest, pk: int) -> JsonResponse
     before = _snap_collection(col)
 
     try:
-        with transaction.atomic():
-            archived = 0
-            for prod in Product.objects.filter(set__collection=col, is_active=True).order_by("id"):
-                disable_product(prod)
-                archived += 1
-
-            if hasattr(col, "is_active"):
-                col.is_active = False  # type: ignore[attr-defined]
-                col.save(update_fields=["is_active"])
-
-                try:
-                    log_delete(
-                        actor=request.user,
-                        request=request,
-                        target=col,
-                        title="Archive collection",
-                        message=f"Collection archived: {before.get('name')}",
-                        before=before,
-                        after=_snap_collection(col),
-                        meta={
-                            "source": "catalog.api_collection_cascade_delete",
-                            "cascade": True,
-                            "soft_delete": True,
-                            "products_archived": archived,
-                        },
-                    )
-                except Exception:
-                    pass
-
-                return JsonResponse({"ok": True, "message": "Collection archived; products archived.", "products_archived": archived})
-
+        deleted_sets, deleted_products = hard_delete_collection(col)
+    except CollectionHardDeleteBlockedError:
         return JsonResponse(
             {
                 "ok": False,
-                "error": "Deletion disabled; archive not implemented for collections yet.",
-                "products_archived": archived,
+                "error": "لا يمكن الحذف النهائي، بعض عناصر الزمرة/المجموعة الأب تحتوي على بيانات في النظام.",
             },
             status=400,
         )
-
     except Exception:
         return JsonResponse({"ok": False, "error": "delete failed"}, status=500)
 
-    return JsonResponse({"ok": False, "error": "delete failed"}, status=500)
+    try:
+        log_delete(
+            actor=request.user,
+            request=request,
+            target=col,
+            title="Hard delete collection",
+            message=f"Collection hard deleted: {before.get('name')}",
+            before=before,
+            after=None,
+            meta={
+                "source": "catalog.api_collection_cascade_delete",
+                "cascade": True,
+                "hard_delete": True,
+                "deleted_sets": deleted_sets,
+                "deleted_products": deleted_products,
+            },
+        )
+    except Exception:
+        pass
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "Collection hard deleted.",
+            "deleted_sets": deleted_sets,
+            "deleted_products": deleted_products,
+        }
+    )
 
 
 @require_GET

@@ -24,7 +24,7 @@ def api_browser_collections(request):
         page = int(request.GET.get("page", "1"))
     except ValueError:
         page = 1
-    qs = ProductCollection.objects.order_by(Lower("name"), "id").values("id", "name", "code")
+    qs = ProductCollection.objects.order_by(Lower("name"), "id").values("id", "name", "code", "can_be_hard_deleted")
     total, pages, page, off, size = _page(qs, page)
     return JsonResponse({
         "ok": True,
@@ -43,12 +43,19 @@ def api_browser_sets(request):
         return JsonResponse({"ok": False, "error": "bad params"}, status=400)
     if not cid:
         return JsonResponse({"ok": True, "items": [], "total": 0, "page": 1, "total_pages": 1})
-    qs = ProductSet.objects.filter(collection_id=cid).order_by(Lower("name"), "id").values("id", "name", "code")
+    collection = ProductCollection.objects.filter(id=cid).values("can_be_hard_deleted").first()
+    qs = (
+        ProductSet.objects
+        .filter(collection_id=cid)
+        .order_by(Lower("name"), "id")
+        .values("id", "name", "code", "can_be_hard_deleted")
+    )
     total, pages, page, off, size = _page(qs, page)
     return JsonResponse({
         "ok": True,
         "level": "sets",
         "items": list(qs[off:off+size]),
+        "collection_can_be_hard_deleted": bool((collection or {}).get("can_be_hard_deleted", True)),
         "total": total, "page": page, "total_pages": pages
     })
 
@@ -63,6 +70,7 @@ def api_browser_products(request):
     if not sid:
         return JsonResponse({"ok": True, "items": [], "total": 0, "page": 1, "total_pages": 1})
     show_disabled = (request.GET.get("show_disabled") in {"1", "true", "yes"})
+    set_row = ProductSet.objects.filter(id=sid).values("can_be_hard_deleted").first()
     qs = (
         Product.objects.filter(set_id=sid)
         .order_by("id")
@@ -84,5 +92,6 @@ def api_browser_products(request):
         "ok": True,
         "level": "products",
         "items": items,
+        "set_can_be_hard_deleted": bool((set_row or {}).get("can_be_hard_deleted", True)),
         "total": total, "page": page, "total_pages": pages
     })

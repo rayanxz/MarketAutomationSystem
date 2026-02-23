@@ -156,11 +156,11 @@
       row.addEventListener('click', () => {
         if (level === 'collections') {
           hlCol = it.id;
-          col = { id: it.id, name: it.name, code: it.code };
+          col = { id: it.id, name: it.name, code: it.code, can_be_hard_deleted: !!it.can_be_hard_deleted };
           level = 'sets'; page = 1; load();
         } else if (level === 'sets') {
           hlSet = it.id;
-          set = { id: it.id, name: it.name, code: it.code };
+          set = { id: it.id, name: it.name, code: it.code, can_be_hard_deleted: !!it.can_be_hard_deleted };
           level = 'products'; page = 1; load();
         } else {
           window.location.href = `/manager/products/${it.id}/edit/`;
@@ -188,6 +188,12 @@
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
     if (!data.ok) throw new Error('bad response');
+    if (level === 'sets' && col) {
+      col.can_be_hard_deleted = !!data.collection_can_be_hard_deleted;
+    }
+    if (level === 'products' && set) {
+      set.can_be_hard_deleted = !!data.set_can_be_hard_deleted;
+    }
 
     if (!pageOverride) totalPages = data.total_pages || 1;
     return data.items || [];
@@ -368,7 +374,8 @@
       col = {
         id: parseInt(cid,10),
         name: params.get('cname') || null,
-        code: params.get('ccode') || null
+        code: params.get('ccode') || null,
+        can_be_hard_deleted: true
       };
       page = 1; load(); return;
     }
@@ -378,12 +385,14 @@
       col = {
         id: parseInt(cid,10),
         name: params.get('cname') || null,
-        code: params.get('ccode') || null
+        code: params.get('ccode') || null,
+        can_be_hard_deleted: true
       };
       set = {
         id: parseInt(sid,10),
         name: params.get('sname') || params.get('scode') || null,
-        code: params.get('scode') || null
+        code: params.get('scode') || null,
+        can_be_hard_deleted: true
       };
       page = 1; load(); return;
     }

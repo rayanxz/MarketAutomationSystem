@@ -6,4 +6,5 @@ class CatalogConfig(AppConfig):
     name = 'catalog'
 
     def ready(self):
-        from . import io_records #noqa
+        from . import io_records  # noqa
+        from . import signals  # noqa
