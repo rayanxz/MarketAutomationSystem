@@ -18,8 +18,40 @@
   .crumb-path{ font-size:14px; font-weight:600; color:#1f2937; }
 
   .field{ display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
-  .field label{ font-weight:600; }
+  .field > label{ font-weight:600; display:block; width:100%; text-align:right; direction:rtl; }
+  .field > label.inline-check{ display:flex; width:auto; direction:inherit; text-align:inherit; }
   .row-2{ display:grid; gap:10px; grid-template-columns: 1fr 1fr; }
+  .unit-row select[name="unit_primary"],
+  .unit-row select[name="unit_secondary"]{ width:100%; min-width:0; }
+
+  .currency-columns{ display:grid; grid-template-columns:1fr 1fr; gap:16px; direction:ltr; align-items:stretch; position:relative; }
+  .currency-columns::before{
+    content:"";
+    position:absolute;
+    top:0;
+    bottom:0;
+    inset-inline-start:50%;
+    width:1px;
+    background:#d1d5db;
+    transform:translateX(-0.5px);
+    pointer-events:none;
+  }
+  .currency-col{ direction:rtl; }
+  .currency-col-buy{ padding-inline-end:12px; }
+  .currency-col-sell{ padding-inline-start:12px; }
+  .currency-main-title{ margin-bottom:8px; }
+  .currency-col-title{ font-weight:600; text-align:right; direction:rtl; margin:0 0 8px; }
+  .currency-col .field{ align-items:stretch; }
+  .currency-options{ display:grid; gap:8px; }
+  .currency-options{ width:100%; }
+  .currency-options label{ display:flex; align-items:center; gap:8px; direction:rtl; text-align:right; justify-content:flex-start; width:100%; margin:0; padding:0; }
+  .currency-options input[type="checkbox"]{ margin:0; }
+  @media (max-width: 920px){
+    .currency-columns{ grid-template-columns:1fr; gap:10px; }
+    .currency-columns::before{ display:none; }
+    .currency-col-buy{ border-bottom:1px solid #e5e7eb; padding-inline-end:0; padding-bottom:10px; }
+    .currency-col-sell{ padding-inline-start:0; }
+  }
 
   .stack{ display:flex; flex-direction:column; gap:6px; }
 
@@ -149,7 +181,7 @@
                value="{{ form.set_name.value|default:'' }}">
         <ul class="ac-list" id="ac-set-list" hidden></ul>
         {% if form.errors.set_name %}<div class="err">{{ form.errors.set_name.0 }}</div>{% endif %}
-        <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+        <label class="inline-check" style="display:flex; gap:8px; align-items:center; margin-top:6px;">
           <input type="checkbox" name="create_parent" {% if form.create_parent.value %}checked{% endif %}>
           إنشاء مجموعة أب جديدة
         </label>
@@ -161,7 +193,7 @@
         {% if form.errors.name %}<div class="err">{{ form.errors.name.0 }}</div>{% endif %}
       </div>
 
-      <div class="row-2">
+      <div class="row-2 unit-row">
         <div class="field">
           <label>الوحدة الأولى</label>
           {{ form.unit_primary }}
@@ -169,12 +201,7 @@
         </div>
         <div class="field">
           <label>الوحدة الثانية </label>
-          <select name="unit_secondary" id="id_unit_secondary" class="input">
-            <option value="" {% if not form.unit_secondary.value %}selected{% endif %}>بدون وحدة ثانية</option>
-            {% for value, label in form.fields.unit_secondary.choices %}
-              <option value="{{ value }}" {% if form.unit_secondary.value == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+          {{ form.unit_secondary }}
           {% if form.errors.unit_secondary %}<div class="err">{{ form.errors.unit_secondary.0 }}</div>{% endif %}
         </div>
       </div>
@@ -186,74 +213,87 @@
         {% if form.errors.conversion_factor %}<div class="err">{{ form.errors.conversion_factor.0 }}</div>{% endif %}
       </div>
 
-      <div class="field">
+      <div class="field currency-main-title">
         <label>صلاحيات العملات</label>
-        <div class="row-2">
-          <label><input type="checkbox" id="allowSypPurch" name="allow_syp_purchasing" {% if form.allow_syp_purchasing.value %}checked{% endif %}> السماح بالشراء بالليرة</label>
-          <label><input type="checkbox" id="allowUsdPurch" name="allow_usd_purchasing" {% if form.allow_usd_purchasing.value %}checked{% endif %}> السماح بالشراء بالدولار</label>
-          <label><input type="checkbox" id="allowSypSales" name="allow_syp_sales" {% if form.allow_syp_sales.value %}checked{% endif %}> السماح بالبيع بالليرة</label>
-          <label><input type="checkbox" id="allowUsdSales" name="allow_usd_sales" {% if form.allow_usd_sales.value %}checked{% endif %}> السماح بالبيع بالدولار</label>
-        </div>
       </div>
 
-      <div class="row-2">
-        <div class="field">
-          <label>العملة الافتراضية للشراء</label>
-          <div id="purchaseCurRadios" class="stack">
-            <label><input type="radio" name="default_purchase_currency" value="SYP" {% if form.default_purchase_currency.value != "USD" %}checked{% endif %}> SYP (تلقائي)</label>
-            <label><input type="radio" name="default_purchase_currency" value="USD" {% if form.default_purchase_currency.value == "USD" %}checked{% endif %}> USD</label>
+      <div class="currency-columns">
+        <div class="currency-col currency-col-buy">
+          <div class="currency-col-title">شراء</div>
+          <div class="field">
+            <div class="currency-options">
+              <label><input type="checkbox" id="allowSypPurch" name="allow_syp_purchasing" {% if form.allow_syp_purchasing.value %}checked{% endif %}> السماح بالشراء بالليرة</label>
+              <label><input type="checkbox" id="allowUsdPurch" name="allow_usd_purchasing" {% if form.allow_usd_purchasing.value %}checked{% endif %}> السماح بالشراء بالدولار</label>
+            </div>
           </div>
-          {% if form.errors.default_purchase_currency %}<div class="err">{{ form.errors.default_purchase_currency.0 }}</div>{% endif %}
-        </div>
-        <div class="field">
-          <label>العملة الافتراضية للبيع</label>
-          <div id="saleCurRadios" class="stack">
-            <label><input type="radio" name="default_sale_currency" value="SYP" {% if form.default_sale_currency.value != "USD" %}checked{% endif %}> SYP (تلقائي)</label>
-            <label><input type="radio" name="default_sale_currency" value="USD" {% if form.default_sale_currency.value == "USD" %}checked{% endif %}> USD</label>
+
+          <div class="field">
+            <label>العملة الافتراضية للشراء</label>
+            <div id="purchaseCurRadios" class="stack">
+              <label><input type="radio" name="default_purchase_currency" value="SYP" {% if form.default_purchase_currency.value != "USD" %}checked{% endif %}> SYP (تلقائي)</label>
+              <label><input type="radio" name="default_purchase_currency" value="USD" {% if form.default_purchase_currency.value == "USD" %}checked{% endif %}> USD</label>
+            </div>
+            {% if form.errors.default_purchase_currency %}<div class="err">{{ form.errors.default_purchase_currency.0 }}</div>{% endif %}
           </div>
-          {% if form.errors.default_sale_currency %}<div class="err">{{ form.errors.default_sale_currency.0 }}</div>{% endif %}
-        </div>
-      </div>
 
-      <div class="row-2">
-        <div class="field">
-          <label>التكلفة الافتراضية (ليرة)</label>
-          {{ form.default_cost_syp }}
-        </div>
-        <div class="field">
-          <label>التكلفة الافتراضية (دولار)</label>
-          {{ form.default_cost_usd }}
-        </div>
-      </div>
-      <div class="row-2">
-        <div class="field">
-          <label>سعر البيع الافتراضي (ليرة)</label>
-          {{ form.default_price_syp }}
-        </div>
-        <div class="field">
-          <label>سعر البيع الافتراضي (دولار)</label>
-          {{ form.default_price_usd }}
-        </div>
-      </div>
+          <div class="field">
+            <label>التكلفة الافتراضية (ليرة)</label>
+            {{ form.default_cost_syp }}
+          </div>
 
-      <div class="row-2">
-        <div class="field">
-          <label>آخر تكلفة (ليرة)</label>
-          <input class="input" value="{{ product.latest_cost_syp|default:'0' }}" disabled>
+          <div class="field">
+            <label>التكلفة الافتراضية (دولار)</label>
+            {{ form.default_cost_usd }}
+          </div>
+
+          <div class="field">
+            <label>آخر تكلفة (ليرة)</label>
+            <input class="input" value="{{ product.latest_cost_syp|default:'0' }}" disabled>
+          </div>
+
+          <div class="field">
+            <label>آخر تكلفة (دولار)</label>
+            <input class="input" value="{{ product.latest_cost_usd|default:'0' }}" disabled>
+          </div>
         </div>
-        <div class="field">
-          <label>آخر تكلفة (دولار)</label>
-          <input class="input" value="{{ product.latest_cost_usd|default:'0' }}" disabled>
-        </div>
-      </div>
-      <div class="row-2">
-        <div class="field">
-          <label>آخر سعر بيع (ليرة)</label>
-          <input class="input" value="{{ product.latest_price_syp|default:'0' }}" disabled>
-        </div>
-        <div class="field">
-          <label>آخر سعر بيع (دولار)</label>
-          <input class="input" value="{{ product.latest_price_usd|default:'0' }}" disabled>
+
+        <div class="currency-col currency-col-sell">
+          <div class="currency-col-title">مبيع</div>
+          <div class="field">
+            <div class="currency-options">
+              <label><input type="checkbox" id="allowSypSales" name="allow_syp_sales" {% if form.allow_syp_sales.value %}checked{% endif %}> السماح بالبيع بالليرة</label>
+              <label><input type="checkbox" id="allowUsdSales" name="allow_usd_sales" {% if form.allow_usd_sales.value %}checked{% endif %}> السماح بالبيع بالدولار</label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>العملة الافتراضية للبيع</label>
+            <div id="saleCurRadios" class="stack">
+              <label><input type="radio" name="default_sale_currency" value="SYP" {% if form.default_sale_currency.value != "USD" %}checked{% endif %}> SYP (تلقائي)</label>
+              <label><input type="radio" name="default_sale_currency" value="USD" {% if form.default_sale_currency.value == "USD" %}checked{% endif %}> USD</label>
+            </div>
+            {% if form.errors.default_sale_currency %}<div class="err">{{ form.errors.default_sale_currency.0 }}</div>{% endif %}
+          </div>
+
+          <div class="field">
+            <label>سعر البيع الافتراضي (ليرة)</label>
+            {{ form.default_price_syp }}
+          </div>
+
+          <div class="field">
+            <label>سعر البيع الافتراضي (دولار)</label>
+            {{ form.default_price_usd }}
+          </div>
+
+          <div class="field">
+            <label>آخر سعر بيع (ليرة)</label>
+            <input class="input" value="{{ product.latest_price_syp|default:'0' }}" disabled>
+          </div>
+
+          <div class="field">
+            <label>آخر سعر بيع (دولار)</label>
+            <input class="input" value="{{ product.latest_price_usd|default:'0' }}" disabled>
+          </div>
         </div>
       </div>
     </section>
@@ -592,3 +632,4 @@
   </script>
   {% endif %}
 {% endblock %}
+

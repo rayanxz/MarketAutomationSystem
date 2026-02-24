@@ -122,9 +122,16 @@ class ProductCreateForm(forms.Form):
     # ---------- Product core ----------
     name = forms.CharField(label="اسم المنتج", max_length=128)
 
-    unit_primary = forms.ChoiceField(label="الوحدة الأولى", choices=UnitType.choices)
+    unit_primary = forms.ChoiceField(
+        label="الوحدة الأولى",
+        choices=UnitType.choices,
+        widget=forms.Select(attrs={"class": "input"}),
+    )
     unit_secondary = forms.ChoiceField(
-        label="الوحدة الثانية (اختياري)", choices=UnitType.choices, required=False
+        label="الوحدة الثانية (اختياري)",
+        choices=[("", "\u0628\u062f\u0648\u0646 \u0648\u062d\u062f\u0629 \u062b\u0627\u0646\u064a\u0629")] + list(UnitType.choices),
+        required=False,
+        widget=forms.Select(attrs={"class": "input"}),
     )
     conversion_factor = forms.DecimalField(
         label="عامل التحويل (عدد الوحدات الأولى في الثانية)",
