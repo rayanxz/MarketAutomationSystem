@@ -73,7 +73,7 @@
 - we can give the manager the option to set a price / cost for second unit that is different from the price / cost of first unit x conversion factor , or the manager can let the system auto set the cost / price of the 2nd unit as it does now
 `those 2 up are delayed , reason : wanna focus on fixing real bugs and implementing a solid structure in this phase rather then additional features`
 
-- add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one 
+- add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one **currently at**
 
 - fix all the issues of product_add vs entering an existing product page in edit mode 
 
@@ -88,6 +88,7 @@
 - fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching 
 
 - disallow choosing 2nd unit of measurement that is same as 1st (since we added the "no unit of measurement" option to 2nd dropbox)
+
 ## 2. excel import : 
 
 - move the page button to lower menu of products management page
@@ -127,7 +128,7 @@
 
 ## 5. financials :
 
-- fix the names of lower menu buttons
+- fix the names of lower menu buttons *checked*
 - do some changes on by default filled options while creating a new money container before user edit
 - all accounts disabled in accessable section of mc creation => no accounts can use it until this fact is changed
 - limit the expanding of notes textbox in mc creation page

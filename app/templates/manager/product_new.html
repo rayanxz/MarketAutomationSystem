@@ -46,6 +46,20 @@
   .currency-options{ width:100%; }
   .currency-options label{ display:flex; align-items:center; gap:8px; direction:rtl; text-align:right; justify-content:flex-start; width:100%; margin:0; padding:0; }
   .currency-options input[type="checkbox"]{ margin:0; }
+  .fx-input-wrap{ display:flex; align-items:stretch; gap:6px; direction:ltr; width:100%; }
+  .fx-input-wrap .input{ flex:1 1 auto; }
+  .fx-btn{
+    min-width:40px;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    background:#f8fafc;
+    color:#111827;
+    font-size:12px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .fx-btn:hover{ background:#eef2ff; }
+  .fx-msg{ margin-top:-4px; min-height:14px; }
   @media (max-width: 920px){
     .currency-columns{ grid-template-columns:1fr; gap:10px; }
     .currency-columns::before{ display:none; }
@@ -141,6 +155,7 @@
   <form method="post"
         class="pn-wrap"
         autocomplete="off"
+        data-fx-rate="{{ fx_rate_syp_per_usd|default:'' }}"
         action="{% if editing and product %}{% url 'manager_product_edit' product.id %}{% else %}{% url 'manager_product_new' %}{% endif %}">
     {% csrf_token %}
 
@@ -238,12 +253,20 @@
 
           <div class="field">
             <label>التكلفة الافتراضية (ليرة)</label>
-            {{ form.default_cost_syp }}
+            <div class="fx-input-wrap">
+              <button type="button" class="fx-btn" data-fx-group="purchase" data-fx-op="mul" data-fx-target="default_cost_syp" data-fx-source="default_cost_usd">FX</button>
+              {{ form.default_cost_syp }}
+            </div>
           </div>
 
           <div class="field">
             <label>التكلفة الافتراضية (دولار)</label>
-            {{ form.default_cost_usd }}
+            <div class="fx-input-wrap">
+              <button type="button" class="fx-btn" data-fx-group="purchase" data-fx-op="div" data-fx-target="default_cost_usd" data-fx-source="default_cost_syp">FX</button>
+              {{ form.default_cost_usd }}
+            </div>
+
+          <div class="err fx-msg" id="fx-msg-purchase" hidden></div>
           </div>
 
           <div class="field">
@@ -277,12 +300,20 @@
 
           <div class="field">
             <label>سعر البيع الافتراضي (ليرة)</label>
-            {{ form.default_price_syp }}
+            <div class="fx-input-wrap">
+              <button type="button" class="fx-btn" data-fx-group="sales" data-fx-op="mul" data-fx-target="default_price_syp" data-fx-source="default_price_usd">FX</button>
+              {{ form.default_price_syp }}
+            </div>
           </div>
 
           <div class="field">
             <label>سعر البيع الافتراضي (دولار)</label>
-            {{ form.default_price_usd }}
+            <div class="fx-input-wrap">
+              <button type="button" class="fx-btn" data-fx-group="sales" data-fx-op="div" data-fx-target="default_price_usd" data-fx-source="default_price_syp">FX</button>
+              {{ form.default_price_usd }}
+            </div>
+
+          <div class="err fx-msg" id="fx-msg-sales" hidden></div>
           </div>
 
           <div class="field">
@@ -557,6 +588,84 @@
       const dcUsd = document.querySelector('input[name="default_cost_usd"]');
       const dpSyp = document.querySelector('input[name="default_price_syp"]');
       const dpUsd = document.querySelector('input[name="default_price_usd"]');
+      const fxButtons = Array.from(document.querySelectorAll('.fx-btn'));
+      const fxMsgPurch = document.getElementById('fx-msg-purchase');
+      const fxMsgSales = document.getElementById('fx-msg-sales');
+      const fxRaw = (document.querySelector('form.pn-wrap')?.dataset.fxRate || '').trim();
+      const fxRate = Number.parseFloat(fxRaw);
+
+      function showFxError(group, msg){
+        const node = group === "purchase" ? fxMsgPurch : fxMsgSales;
+        if (!node) return;
+        node.textContent = msg;
+        node.hidden = false;
+      }
+
+      function clearFxError(group){
+        const node = group === "purchase" ? fxMsgPurch : fxMsgSales;
+        if (!node) return;
+        node.textContent = '';
+        node.hidden = true;
+      }
+
+      function parseNumericInput(el){
+        if (!el) return null;
+        const raw = (el.value || '').trim();
+        if (!raw) return null;
+        const n = Number.parseFloat(raw.replace(/,/g, ''));
+        return Number.isFinite(n) ? n : null;
+      }
+
+      function roundTo2(v){
+        return (Math.round((v + Number.EPSILON) * 100) / 100).toFixed(2);
+      }
+
+      function updateFxButtons(pSyp, pUsd, sSyp, sUsd){
+        const purchaseEnabled = pSyp && pUsd;
+        const salesEnabled = sSyp && sUsd;
+        fxButtons.forEach((btn) => {
+          const grp = btn.dataset.fxGroup;
+          btn.disabled = grp === 'purchase' ? !purchaseEnabled : !salesEnabled;
+        });
+        if (!purchaseEnabled) clearFxError('purchase');
+        if (!salesEnabled) clearFxError('sales');
+      }
+
+      function runFx(btn){
+        const group = btn.dataset.fxGroup || '';
+        clearFxError(group);
+
+        if (!Number.isFinite(fxRate) || fxRate <= 0){
+          showFxError(group, 'FX rate is not set.');
+          return;
+        }
+
+        const source = document.querySelector(`input[name="${btn.dataset.fxSource || ''}"]`);
+        const target = document.querySelector(`input[name="${btn.dataset.fxTarget || ''}"]`);
+        if (!source || !target) return;
+
+        const sourceVal = parseNumericInput(source);
+        if (sourceVal === null){
+          showFxError(group, 'You must enter a value in the other currency first.');
+          return;
+        }
+
+        let result = null;
+        if (btn.dataset.fxOp === 'mul') result = sourceVal * fxRate;
+        if (btn.dataset.fxOp === 'div') result = sourceVal / fxRate;
+        if (!Number.isFinite(result)){
+          showFxError(group, 'Unable to calculate FX value.');
+          return;
+        }
+
+        target.value = roundTo2(result);
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      fxButtons.forEach((btn) => {
+        btn.addEventListener('click', () => runFx(btn));
+      });
 
 
       function toggle(){
@@ -572,6 +681,7 @@
 
         if (purchaseRadios) purchaseRadios.style.display = (pSyp && pUsd) ? "" : "none";
         if (saleRadios) saleRadios.style.display = (sSyp && sUsd) ? "" : "none";
+        updateFxButtons(pSyp, pUsd, sSyp, sUsd);
       }
 
       [allowSypPurch, allowUsdPurch, allowSypSales, allowUsdSales].forEach(el => {
@@ -632,4 +742,5 @@
   </script>
   {% endif %}
 {% endblock %}
+
 

@@ -35,6 +35,7 @@ from catalog.models import (
 
 from audit_log.services import log_create, log_update, log_delete, snap_instance
 from inventory.models import q3
+from financials import services as FinancialsSV
 from catalog.services.deletion_policy import (
     CollectionHardDeleteBlockedError,
     ProductDisableBlockedError,
@@ -106,6 +107,19 @@ def _go(url_name: str, qs: str | None = None) -> HttpResponseRedirect:
     """small redirect helper (handles query strings safely)"""
     base = reverse(url_name)
     return HttpResponseRedirect(f"{base}?{qs}" if qs else base)
+
+
+
+def _current_fx_rate_for_ui() -> str:
+    try:
+        return str(FinancialsSV.get_current_fx_syp_per_usd())
+    except Exception:
+        return ""
+
+
+def _render_product_new_form(request: HttpRequest, context: dict) -> HttpResponse:
+    context.setdefault("fx_rate_syp_per_usd", _current_fx_rate_for_ui())
+    return render(request, "manager/product_new.html", context)
 
 
 def _snap_collection(col: ProductCollection) -> dict:
@@ -757,10 +771,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         if not form.is_valid():
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": False,
                     "u1_ids": u1_ids,
@@ -782,10 +793,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         if not col:
             form.add_error("collection_name", "الزمرة غير موجودة.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": False,
                     "u1_ids": u1_ids,
@@ -827,10 +835,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": False,
                     "u1_ids": u1_ids,
@@ -852,10 +857,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             bar_u2=bar_u2,
         ):
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": False,
                     "u1_ids": u1_ids,
@@ -988,10 +990,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 for msg in msgs:
                     form.add_error(mapping.get(field, None), msg)
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": False,
                     "u1_ids": u1_ids,
@@ -1012,10 +1011,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 messages.error(request, "أحد الباركودات مستخدم مسبقاً.")
             else:
                 messages.error(request, "تعذّر حفظ المنتج بسبب تضارب في البيانات.")
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": False,
                     "u1_ids": u1_ids,
@@ -1030,10 +1026,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         return redirect("manager_collections")
 
     form = ProductCreateForm()
-    return render(
-        request,
-        "manager/product_new.html",
-        {
+    return _render_product_new_form(request, {
             "form": form,
             "editing": False,
             "u1_ids": [],
@@ -1172,10 +1165,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if not form.is_valid():
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": True,
                     "product": p,
@@ -1201,10 +1191,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if not col:
             form.add_error("collection_name", "الزمرة غير موجودة.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": True,
                     "product": p,
@@ -1245,10 +1232,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if not st:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": True,
                     "product": p,
@@ -1271,10 +1255,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             bar_u2=bar_u2,
         ):
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": True,
                     "product": p,
@@ -1407,10 +1388,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 form.add_error("name", "اسم المنتج موجود مسبقاً.")
             else:
                 messages.error(request, "تعذّر حفظ التعديلات. تحقّق من المعرّفات/الباركودات المتكررة.")
-            return render(
-                request,
-                "manager/product_new.html",
-                {
+            return _render_product_new_form(request, {
                     "form": form,
                     "editing": True,
                     "product": p,
@@ -1456,10 +1434,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
     u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_product(p)
     delete_blocked = (request.GET.get("delete_blocked") in {"1", "true", "yes"})
     hard_delete_allowed = can_hard_delete(p)
-    return render(
-        request,
-        "manager/product_new.html",
-        {
+    return _render_product_new_form(request, {
             "form": form,
             "editing": True,
             "product": p,
@@ -1647,3 +1622,4 @@ def api_sets_create(request: HttpRequest) -> JsonResponse:
         pass
 
     return JsonResponse({"ok": True, "item": {"id": st.id, "name": st.name, "code": st.code}})
+
