@@ -129,6 +129,7 @@ class ArchivedProductBlockingTests(TestCase):
                 unit_index=1,
                 qty_primary=Decimal("1.000"),
                 unit_cost=Decimal("1.0000"),
+                cost_currency="SYP",
                 movement_type="adjustment",
                 source_app="tests",
                 source_model="ArchivedProductBlockingTests",

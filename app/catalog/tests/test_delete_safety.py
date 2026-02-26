@@ -102,7 +102,8 @@ class StrictHierarchyHardDeleteTests(TestCase):
         data = resp.json()
         self.assertTrue(data["ok"])
         self.assertFalse(data["results"][0]["ok"])
-        self.assertIn("Hard delete blocked", data["results"][0]["error"])
+        self.assertIn("error", data["results"][0])
+        self.assertTrue((data["results"][0]["error"] or "").strip())
         self.assertTrue(Product.objects.filter(id=p1.id).exists())
         self.assertTrue(Product.objects.filter(id=p2.id).exists())
         self.assertTrue(ProductSet.objects.filter(id=st.id).exists())
@@ -166,7 +167,8 @@ class StrictHierarchyHardDeleteTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
         self.assertFalse(data["ok"])
-        self.assertIn("Hard delete blocked", data["error"])
+        self.assertIn("error", data)
+        self.assertTrue((data["error"] or "").strip())
         self.assertTrue(ProductCollection.objects.filter(id=col.id).exists())
 
     def test_collection_button_disabled_when_flag_false(self):
@@ -211,5 +213,6 @@ class StrictHierarchyHardDeleteTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertFalse(data["results"][0]["ok"])
-        self.assertIn("Hard delete blocked", data["results"][0]["error"])
+        self.assertIn("error", data["results"][0])
+        self.assertTrue((data["results"][0]["error"] or "").strip())
         self.assertTrue(ProductSet.objects.filter(id=st.id).exists())

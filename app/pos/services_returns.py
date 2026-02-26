@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Iterable, Dict, Any
-import logging
 
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -16,6 +15,7 @@ from inventory import services as InvSV
 from inventory.models import SaleCostPart
 from stock import services as StockSV
 from stock.models import ProductContainer
+from stock.services import MissingCostBasisError
 from financials.models import MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from debts import services as DebtSV
@@ -24,8 +24,6 @@ from audit_log import services as AuditSV
 
 from .models import SalesBill, SalesBillRow, SalesReturn, SalesReturnRow
 from .services import _ensure_customer_counterparty
-
-logger = logging.getLogger(__name__)
 
 
 def _dec(x) -> Decimal:
@@ -108,18 +106,26 @@ def _avg_sale_cost_for_bill_product(*, bill_id: int, product_id: int) -> tuple[D
 
     total_cost = DEC0
     total_qty = DEC0
-    cost_currency = "SYP"
+    cost_currencies: set[str] = set()
 
     for p in parts:
         total_cost = q3(total_cost + q3(_dec(p.total_cost)))
         total_qty = q3(total_qty + q3(_dec(p.qty_primary)))
         if p.fifo_layer and getattr(p.fifo_layer, "cost_currency", None):
-            cost_currency = (p.fifo_layer.cost_currency or cost_currency).upper()
+            cur = (p.fifo_layer.cost_currency or "").upper()
+            if cur in ("SYP", "USD"):
+                cost_currencies.add(cur)
 
     if total_qty > DEC0:
-        return q4(total_cost / total_qty), cost_currency
+        if len(cost_currencies) != 1:
+            raise MissingCostBasisError(
+                f"Missing or mixed sale cost currencies for product {product_id} on bill {bill_id}."
+            )
+        return q4(total_cost / total_qty), next(iter(cost_currencies))
 
-    return q4(DEC0), cost_currency
+    raise MissingCostBasisError(
+        f"Missing sale cost parts for product {product_id} on bill {bill_id}."
+    )
 
 
 def create_sales_return_draft(
@@ -347,9 +353,9 @@ def post_sales_return(
                 product_id=product.id,
             )
             if unit_cost <= DEC0:
-                unit_cost = q4(_dec(getattr(product, "cost", DEC0)))
-                if unit_cost <= DEC0:
-                    logger.warning("No SaleCostPart and product cost missing for return product_id=%s", product.id)
+                raise MissingCostBasisError(
+                    f"Missing return cost basis for product {product.id}."
+                )
 
             update_fields = []
             if hasattr(r, "unit_cost_at_txn"):

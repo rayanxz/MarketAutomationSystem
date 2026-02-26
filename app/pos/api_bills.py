@@ -530,6 +530,13 @@ def api_bill_save(request: HttpRequest):
             qty_primary = qty_used
             if uom_index == 2:
                 qty_primary = q3(qty_used * q3(conv_val))
+            row_currency = (r.get("currency") or SYP).upper()
+            if row_currency == USD:
+                cost_hint = q4(Decimal(str(getattr(prod, "default_cost_usd", DEC0) or DEC0)))
+            else:
+                cost_hint = q4(Decimal(str(getattr(prod, "default_cost_syp", DEC0) or DEC0)))
+            if cost_hint <= DEC0:
+                cost_hint = None
             SalesBillRow.objects.create(
                 bill=bill,
                 product_id=pid,
@@ -543,9 +550,9 @@ def api_bill_save(request: HttpRequest):
                 qty=qty_used,
                 uom_index=uom_index,
                 unit_price=_parse_decimal(r.get("unit_price")),
-                sale_currency=(r.get("currency") or SYP),
-                unit_cost_at_txn=q4(Decimal(str(getattr(prod, "cost", DEC0) or DEC0))),
-                cost_currency_at_txn=(getattr(prod, "default_currency", None) or "SYP"),
+                sale_currency=row_currency,
+                unit_cost_at_txn=cost_hint,
+                cost_currency_at_txn=(row_currency if cost_hint is not None else None),
                 fx_rate_at_txn=fx_rate,
                 disc_amount=_parse_decimal(r.get("disc_amount")),
                 disc_pct=_parse_decimal(r.get("disc_pct") or 0),

@@ -244,8 +244,6 @@ def create_bill(
         if not item_currency:
             if hasattr(product, "get_effective_default_purchase_currency"):
                 item_currency = product.get_effective_default_purchase_currency()
-            else:
-                item_currency = (product.default_currency or "").upper()
         if not item_currency:
             item_currency = "SYP" if allow_syp_purch else "USD"
         if item_currency not in ("SYP", "USD"):

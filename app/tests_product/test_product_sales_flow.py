@@ -220,3 +220,55 @@ class ProductSalesFlowTests(TestCase):
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         self.assertEqual(row.sale_currency, "USD")
 
+    def test_pos_row_cost_hint_uses_currency_default_not_legacy_raw_cost(self):
+        _, pset = create_collection_set("C-S4", "S-S4")
+        prod = create_product(
+            name="ProdPOSCostHint",
+            set_obj=pset,
+            unit_primary=UnitType.PIECE,
+            unit_secondary="",
+            conversion_factor=None,
+            cost=Decimal("99.0000"),
+            price=Decimal("2.0000"),
+        )
+        prod.default_cost_syp = Decimal("1.2500")
+        prod.default_sale_currency = "SYP"
+        prod.save(update_fields=["default_cost_syp", "default_sale_currency"])
+
+        self.client.force_login(self.user)
+        payload = {
+            "id": None,
+            "parked": True,
+            "pay_status": SalesBill.PAY_FULL,
+            "total_amount": "0",
+            "paid_amount": "0",
+            "settlement_mode": SalesBill.SETTLE_SPLIT,
+            "money_container_id": self.money_container.id,
+            "customer_name": "",
+            "create_new_customer": False,
+            "rows": [
+                {
+                    "product_id": prod.id,
+                    "name": prod.name,
+                    "number": str(prod.id),
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "2.000",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                    "notes": "",
+                }
+            ],
+        }
+        resp = self.client.post(
+            reverse("pos:api_bill_save"),
+            data=payload,
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        bill_id = resp.json()["bill"]["id"]
+        row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
+        self.assertEqual(row.unit_cost_at_txn, Decimal("1.2500"))
+        self.assertEqual(row.cost_currency_at_txn, "SYP")
+

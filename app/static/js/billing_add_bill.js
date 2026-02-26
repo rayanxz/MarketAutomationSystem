@@ -67,13 +67,13 @@
   }
 
   function defaultCostFor(p, cur){
-    if (cur === "USD") return (p.default_cost_usd ?? p.cost_usd ?? p.cost ?? "");
-    return (p.default_cost_syp ?? p.cost_syp ?? p.cost ?? "");
+    if (cur === "USD") return (p.default_cost_usd ?? p.cost_usd ?? "");
+    return (p.default_cost_syp ?? p.cost_syp ?? "");
   }
 
   function defaultPriceFor(p, cur){
-    if (cur === "USD") return (p.default_price_usd ?? p.price_usd ?? p.price ?? "");
-    return (p.default_price_syp ?? p.price_syp ?? p.price ?? "");
+    if (cur === "USD") return (p.default_price_usd ?? p.price_usd ?? "");
+    return (p.default_price_syp ?? p.price_syp ?? "");
   }
 
 
@@ -92,8 +92,8 @@
       unit_secondary: p.unit_secondary,
       conversion_factor: p.conversion_factor || p.cf || 0,
       matched_unit: p.matched_unit || null,
-      cost: p.cost ?? "",
-      price: p.price ?? "",
+      cost: "",
+      price: "",
       cost_syp: p.cost_syp ?? "",
       cost_usd: p.cost_usd ?? "",
       price_syp: p.price_syp ?? "",
@@ -428,8 +428,6 @@ refreshAutoSerial();
     tr.dataset.costUsd = prod.default_cost_usd ?? prod.cost_usd ?? "";
     tr.dataset.priceSyp = prod.default_price_syp ?? prod.price_syp ?? "";
     tr.dataset.priceUsd = prod.default_price_usd ?? prod.price_usd ?? "";
-    tr.dataset.costBase = prod.cost ?? "";
-    tr.dataset.priceBase = prod.price ?? "";
 
     const cur = defaultPurchaseCurForProduct(prod);
     const curOptions = [];
@@ -487,7 +485,7 @@ refreshAutoSerial();
       const sel = (curSelect.value || "SYP").toUpperCase();
       if (curHidden) curHidden.value = sel;
       if (costInput && costInput.dataset.auto === "1") {
-        const v = (sel === "USD" ? (tr.dataset.costUsd || tr.dataset.costBase || "") : (tr.dataset.costSyp || tr.dataset.costBase || ""));
+        const v = (sel === "USD" ? (tr.dataset.costUsd || "") : (tr.dataset.costSyp || ""));
         costInput.value = v;
       }
       recalcBillTotal();

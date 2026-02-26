@@ -12,6 +12,7 @@ from catalog.models import Product
 from inventory.models import ProductMovement, q3, q4, DEC0
 from stock.models import ProductContainer
 from stock import services as StockSV
+from stock.services import MissingCostBasisError, MissingFifoCostBasisError
 
 
 @transaction.atomic
@@ -108,9 +109,12 @@ def record_movement(
         except Exception:
             qty_used_at_txn = qty_primary_abs
 
-    if cost_currency is not None:
-        cost_currency = (cost_currency or "").upper()
-    cost_currency_at_txn = (cost_currency or None)
+    cost_currency_norm = (cost_currency or "").strip().upper()
+    if cost_currency_norm not in ("SYP", "USD"):
+        raise MissingCostBasisError(
+            f"Missing or invalid movement cost currency for product {product.id}."
+        )
+    cost_currency_at_txn = cost_currency_norm
 
     mv = ProductMovement.objects.create(
         product=product,
@@ -198,6 +202,19 @@ def record_purchase_item(
 
     if container is None:
         raise ValueError("container is required for purchases")
+    cur = (cost_currency or "").strip().upper()
+    if cur not in ("SYP", "USD"):
+        if hasattr(product, "get_effective_default_purchase_currency"):
+            cur = (product.get_effective_default_purchase_currency() or "").upper()
+        if cur not in ("SYP", "USD"):
+            allow_syp = bool(getattr(product, "allow_syp_purchasing", False))
+            allow_usd = bool(getattr(product, "allow_usd_purchasing", False))
+            if allow_syp and not allow_usd:
+                cur = "SYP"
+            elif allow_usd and not allow_syp:
+                cur = "USD"
+    if cur not in ("SYP", "USD"):
+        raise MissingCostBasisError(f"Missing purchase cost currency for product {product.id}.")
 
     # snapshot helpers
     try:
@@ -218,7 +235,7 @@ def record_purchase_item(
             container=container,
             qty_primary=qty_primary,
             unit_cost=unit_cost,
-            cost_currency=cost_currency,
+            cost_currency=cur,
             source_app=source_app,
             source_model=source_model,
             source_id=source_id,
@@ -231,7 +248,7 @@ def record_purchase_item(
         unit_index=unit_index,
         qty_primary=qty_primary,
         unit_cost=unit_cost,
-        cost_currency=cost_currency,
+        cost_currency=cur,
         movement_type=ProductMovement.MovementType.PURCHASE,
         source_app=source_app,
         source_model=source_model,
@@ -279,6 +296,9 @@ def record_provider_return_item(
     if container is None:
         # provider returns without container can't use FIFO; block it because it's unsafe
         raise ValueError("container is required for provider returns (FIFO requires container)")
+    cur = (cost_currency or "").strip().upper()
+    if cur not in ("SYP", "USD"):
+        raise MissingCostBasisError(f"Missing provider-return cost currency for product {product.id}.")
 
     qty_primary_val = Decimal(str(qty_primary or 0))
     # ALWAYS treat provider return as OUT (negative)
@@ -324,7 +344,7 @@ def record_provider_return_item(
         unit_index=unit_index,
         qty_primary=qty,   # NEGATIVE
         unit_cost=eff_cost,
-        cost_currency=cost_currency,
+        cost_currency=cur,
         movement_type=ProductMovement.MovementType.PROVIDER_RETURN,
         source_app=source_app,
         source_model=source_model,
@@ -427,17 +447,25 @@ def record_sale_item(
     if total_qty > DEC0:
         eff_cost = q4(total_cost / total_qty)
     else:
-        eff_cost = q4(Decimal(str(unit_cost or DEC0)))
+        raise MissingFifoCostBasisError(
+            f"Missing FIFO cost basis for product {product.id} in container {container.code}."
+        )
 
-    # cost currency best-effort from FIFO parts
-    cost_currency = None
-    for p in parts:
-        layer = p.get("fifo_layer")
-        if layer and getattr(layer, "cost_currency", None):
-            cost_currency = layer.cost_currency
-            break
-    if cost_currency is None:
-        cost_currency = (getattr(product, "default_currency", None) or "SYP")
+    # enforce explicit + consistent FIFO cost currency
+    part_currencies = {
+        (p.get("cost_currency") or "").upper()
+        for p in parts
+        if (p.get("cost_currency") or "").upper() in ("SYP", "USD")
+    }
+    if not part_currencies:
+        raise MissingCostBasisError(
+            f"Missing FIFO cost currency for product {product.id} in container {container.code}."
+        )
+    if len(part_currencies) > 1:
+        raise MissingCostBasisError(
+            f"Mixed FIFO cost currencies for product {product.id} in container {container.code}."
+        )
+    cost_currency = next(iter(part_currencies))
 
     if qty_used_at_txn is None:
         if int(unit_index or 1) == 2 and conv_val:

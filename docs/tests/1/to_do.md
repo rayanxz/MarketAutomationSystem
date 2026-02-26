@@ -73,21 +73,25 @@
 - we can give the manager the option to set a price / cost for second unit that is different from the price / cost of first unit x conversion factor , or the manager can let the system auto set the cost / price of the 2nd unit as it does now
 `those 2 up are delayed , reason : wanna focus on fixing real bugs and implementing a solid structure in this phase rather then additional features`
 
-- add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one **currently at**
+- add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one *checked*
 
 - fix all the issues of product_add vs entering an existing product page in edit mode 
 
-- add a real time complier (fixer) to the product_new page while in edit mode , and in first addition mode as well , but some difference might happen between those 2 
+- add a real time complier (fixer) to the product_new page while in edit mode , and in first addition mode as well , but some difference might happen between those 2 , in general we can start by making current valudations come to life (show errors as soon as they triggered , not until the save button is clicked) and then we might manual test and add new ones **essential**
 
-- strict some options for product_new page in edit mode , like changing the product name , father set , collection , we will see what we need to strict 
+- strict some options for product_new page in edit mode , like changing the product name , father set , collection , we will see what we need to strict **essential**
 
 - some options in product_new can be added , such as allow sales/purchases in first/second unit of measurement (kinda like the currencies way of handling)
 
-- highlight the barcode textbox that was searched by in the product edit mode page when entered 
+- highlight the barcode textbox that was searched by in the product edit mode page when entered **essential**
 
-- fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching 
+- fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching **essential**
 
-- disallow choosing 2nd unit of measurement that is same as 1st (since we added the "no unit of measurement" option to 2nd dropbox)
+- disallow choosing 2nd unit of measurement that is same as 1st (since we added the "no unit of measurement" option to 2nd dropbox) **essential**
+
+=================================================================================
+
+`delayed until the whole system is tested and fixed completely for abvious reasons`
 
 ## 2. excel import : 
 
@@ -104,6 +108,9 @@
 - same as import 
 - fix steps structure , and keep it clean and abvious 
 - fix the css , different from the other system pages 
+
+=================================================================================
+
 
 ## 4. billing : 
 

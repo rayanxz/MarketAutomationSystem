@@ -6,6 +6,7 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from inventory.models import ProductMovement, q3
 from stock import services as StockSV
+from stock.services import MissingFifoCostBasisError
 from stock.models import StockFifoLayer
 from catalog.models import UnitType
 from .utils import (
@@ -111,3 +112,64 @@ class ProductInventoryFlowTests(TestCase):
         self.assertEqual(mvs.count(), 2)
         qtys = sorted([q3(mv.qty_primary) for mv in mvs])
         self.assertEqual(qtys, [Decimal("-2.000"), Decimal("2.000")])
+
+    def test_fifo_rebuild_preserves_cost_currency(self):
+        _, pset = create_collection_set("C-I3", "S-I3")
+        prod = create_product(
+            name="ProdRebuildCur",
+            set_obj=pset,
+            unit_primary=UnitType.PIECE,
+            unit_secondary="",
+            conversion_factor=None,
+        )
+        prod.allow_usd_purchasing = True
+        prod.default_purchase_currency = "USD"
+        prod.default_cost_usd = Decimal("3.5000")
+        prod.save(update_fields=["allow_usd_purchasing", "default_purchase_currency", "default_cost_usd"])
+
+        BillingSV.create_bill(
+            actor=self.user,
+            provider_id=self.provider.id,
+            status="paid",
+            paid_amount=Decimal("7.000"),
+            items=[
+                {
+                    "product_id": prod.id,
+                    "unit_index": 1,
+                    "qty_raw": "2",
+                    "cost": "3.5000",
+                    "price": "4.0000",
+                    "currency": "USD",
+                }
+            ],
+            update_product_defaults=False,
+            container=self.container,
+            money_container_id=self.money_container.id,
+            settlement_currency="USD",
+        )
+
+        before = list(StockFifoLayer.objects.filter(product=prod, container=self.container).values_list("cost_currency", flat=True))
+        self.assertTrue(before)
+        self.assertTrue(all(c == "USD" for c in before))
+
+        StockSV.rebuild_all_from_inventory()
+
+        after = list(StockFifoLayer.objects.filter(product=prod, container=self.container).values_list("cost_currency", flat=True))
+        self.assertTrue(after)
+        self.assertTrue(all(c == "USD" for c in after))
+
+    def test_fifo_consume_without_cost_basis_raises(self):
+        _, pset = create_collection_set("C-I4", "S-I4")
+        prod = create_product(
+            name="ProdNoFifo",
+            set_obj=pset,
+            unit_primary=UnitType.PIECE,
+            unit_secondary="",
+            conversion_factor=None,
+        )
+        with self.assertRaises(MissingFifoCostBasisError):
+            StockSV.fifo_consume(
+                product=prod,
+                container=self.container,
+                qty_out_primary=Decimal("1.000"),
+            )

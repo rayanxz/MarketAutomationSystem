@@ -297,8 +297,6 @@ class ProductCreateForm(forms.Form):
             "default_cost_usd",
             "default_price_syp",
             "default_price_usd",
-            "cost",
-            "price",
             "cost_syp",
             "cost_usd",
             "price_syp",
@@ -307,25 +305,12 @@ class ProductCreateForm(forms.Form):
             if cleaned.get(fname) in (None, ""):
                 cleaned[fname] = Decimal("0.0000")
 
-        # Legacy cost/price fallbacks (keep DB fields non-null)
+        # Keep legacy raw fields optional for compatibility-only paths.
+        # Runtime business logic must use explicit per-currency fields.
         if cleaned.get("cost") in (None, ""):
-            if not allow_syp_purch and not allow_usd_purch:
-                cleaned["cost"] = Decimal("0.0000")
-            else:
-                eff_cur = cleaned.get("default_purchase_currency") or (SYP if allow_syp_purch else USD)
-                cleaned["cost"] = cleaned.get("default_cost_usd") if eff_cur == "USD" else cleaned.get("default_cost_syp")
+            cleaned["cost"] = None
         if cleaned.get("price") in (None, ""):
-            if not allow_syp_sales and not allow_usd_sales:
-                cleaned["price"] = Decimal("0.0000")
-            else:
-                eff_cur = cleaned.get("default_sale_currency") or (SYP if allow_syp_sales else USD)
-                cleaned["price"] = cleaned.get("default_price_usd") if eff_cur == "USD" else cleaned.get("default_price_syp")
-
-        # Price vs cost (optional business rule)
-        cost = cleaned.get("cost")
-        price = cleaned.get("price")
-        if cost is not None and price is not None and price < cost:
-            self.add_error("price", "تحذير: السعر أقل من الكلفة.")
+            cleaned["price"] = None
 
         return cleaned
 

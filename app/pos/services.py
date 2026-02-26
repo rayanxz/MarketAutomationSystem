@@ -312,18 +312,12 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
         if qty_primary <= 0:
             continue
 
-        # For initial cost hint, we use product.cost if it exists, otherwise 0.
-        # record_sale_item will override this with FIFO cost if container is set.
-        unit_cost = getattr(product, "cost", None)
-        if unit_cost is None:
-            unit_cost = DEC0
-
         InvSV.record_sale_item(
             actor=actor,
             product=product,
             unit_index=unit_index_used,
             qty_primary=qty_primary,   # POSITIVE; wrapper will flip it to negative
-            unit_cost=unit_cost,
+            unit_cost=DEC0,
             sale_unit_price_at_txn=q3(row.unit_price or DEC0),
             sale_currency_at_txn=(row.sale_currency or SYP),
             fx_rate_at_txn=bill.fx_rate_used,

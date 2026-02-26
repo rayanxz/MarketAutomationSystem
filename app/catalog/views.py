@@ -871,6 +871,10 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
         default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
+        purchase_cur = (form.cleaned_data.get("default_purchase_currency") or "SYP").upper()
+        sale_cur = (form.cleaned_data.get("default_sale_currency") or "SYP").upper()
+        legacy_cost = default_cost_usd if purchase_cur == "USD" else default_cost_syp
+        legacy_price = default_price_usd if sale_cur == "USD" else default_price_syp
 
         p = Product(
             name=form.cleaned_data["name"],
@@ -878,8 +882,9 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             unit_primary=form.cleaned_data["unit_primary"],
             unit_secondary=form.cleaned_data["unit_secondary"] or "",
             conversion_factor=form.cleaned_data["conversion_factor"],
-            cost=form.cleaned_data["cost"],
-            price=form.cleaned_data["price"],
+            # compatibility mirror only; runtime logic uses per-currency defaults
+            cost=legacy_cost,
+            price=legacy_price,
             cost_syp=default_cost_syp,
             cost_usd=default_cost_usd,
             price_syp=default_price_syp,
@@ -1277,8 +1282,6 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
         default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
 
-        p.cost = form.cleaned_data["cost"]
-        p.price = form.cleaned_data["price"]
         p.cost_syp = default_cost_syp
         p.cost_usd = default_cost_usd
         p.price_syp = default_price_syp
@@ -1412,8 +1415,6 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "unit_primary": p.unit_primary,
         "unit_secondary": p.unit_secondary or "",
         "conversion_factor": p.conversion_factor,
-        "cost": p.cost,
-        "price": p.price,
         "cost_syp": p.cost_syp,
         "cost_usd": p.cost_usd,
         "price_syp": p.price_syp,

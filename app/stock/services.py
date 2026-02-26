@@ -17,6 +17,53 @@ from django.utils import timezone
 
 from datetime import datetime
 
+from django.apps import apps
+
+
+class MissingCostBasisError(ValueError):
+    """Raised when unit cost/currency cannot be determined explicitly."""
+
+
+class MissingFifoCostBasisError(MissingCostBasisError):
+    """Raised when FIFO layers are missing/incomplete for a required consume."""
+
+
+def _normalize_cost_currency(*, cost_currency: str | None, context: str) -> str:
+    cur = (cost_currency or "").strip().upper()
+    if cur not in ("SYP", "USD"):
+        raise MissingCostBasisError(f"Missing or invalid cost currency ({context}).")
+    return cur
+
+
+def _infer_cost_currency_from_movement(mv: ProductMovement) -> str:
+    cur = (getattr(mv, "cost_currency_at_txn", None) or "").upper()
+    if cur in ("SYP", "USD"):
+        return cur
+
+    src_app = (getattr(mv, "origin_source_app", None) or getattr(mv, "source_app", "")).lower()
+    src_model = getattr(mv, "origin_source_model", None) or getattr(mv, "source_model", "")
+    src_id = getattr(mv, "origin_source_id", None) or getattr(mv, "source_id", "")
+
+    if src_app == "billing" and src_model == "BillItem" and src_id:
+        try:
+            bill_item_id = int(src_id)
+        except Exception:
+            bill_item_id = None
+        if bill_item_id:
+            BillItem = apps.get_model("billing", "BillItem")
+            it = BillItem.objects.filter(id=bill_item_id).only("currency").first()
+            if it and getattr(it, "currency", None) in ("SYP", "USD"):
+                return it.currency
+
+    if src_app == "pos" and src_model in ("SalesReturn", "SalesBill") and getattr(mv, "sale_currency_at_txn", None):
+        sale_cur = (mv.sale_currency_at_txn or "").upper()
+        if sale_cur in ("SYP", "USD"):
+            return sale_cur
+
+    raise MissingCostBasisError(
+        f"Missing cost currency snapshot for movement {mv.id} (product={mv.product_id})."
+    )
+
 
 def total_stock_primary(product) -> Decimal:
     agg = StockEntry.objects.filter(product=product).aggregate(s=Sum("qty_primary"))
@@ -132,7 +179,10 @@ def fifo_add_incoming(
         return
 
     uc = q4(Decimal(str(unit_cost or DEC0)))
-    cur = (cost_currency or "SYP").upper()
+    cur = _normalize_cost_currency(
+        cost_currency=cost_currency,
+        context=f"product={product.id}, container={getattr(container, 'code', None)}",
+    )
 
     # Build query for "same logical batch"
     qs = (
@@ -192,17 +242,19 @@ def fifo_consume(
     Consume FIFO layers for an OUTGO movement (SALE, PROVIDER_RETURN, negative ADJUSTMENT).
 
     - qty_out_primary must be POSITIVE (how much stock is going OUT).
-    - Returns the *effective* unit cost (weighted average over all layers consumed).
-    - If layers are not enough, we fall back to product.cost (or last layer cost)
-      for the remaining quantity, without creating negative layers.
+    - Returns the *effective* unit cost (weighted average over all consumed layers).
+    - If layers are missing/not enough, raises MissingFifoCostBasisError.
     """
     if not container:
-        # No container = no per-container FIFO → fallback to product cost
-        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+        raise MissingFifoCostBasisError(
+            f"Missing FIFO cost basis for product {product.id}: container is required."
+        )
 
     need = q3(Decimal(str(qty_out_primary or DEC0)))
     if need <= DEC0:
-        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+        raise MissingFifoCostBasisError(
+            f"Missing FIFO cost basis for product {product.id}: quantity must be > 0."
+        )
 
     layers = (
         StockFifoLayer.objects
@@ -213,8 +265,6 @@ def fifo_consume(
 
     remaining = need
     total_cost = DEC0
-    last_cost: Decimal | None = None
-
     for layer in layers:
         if remaining <= DEC0:
             break
@@ -232,21 +282,16 @@ def fifo_consume(
         layer.save(update_fields=["qty_remaining"])
 
         remaining -= use
-        last_cost = uc
 
-    # If we need more than what layers had, use fallback (product.cost or last layer)
+    # Internal accounting invariant: we never invent cost outside FIFO.
     if remaining > DEC0:
-        fallback_uc = q4(
-            last_cost if last_cost is not None
-            else Decimal(str(getattr(product, "cost", DEC0) or DEC0))
+        raise MissingFifoCostBasisError(
+            "Missing FIFO cost basis for product "
+            f"{product.id} in container {container.code}: requested {need}, "
+            f"available {q3(need - remaining)}."
         )
-        total_cost += q3(remaining) * fallback_uc
 
-    if need <= DEC0:
-        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
-
-    eff_uc = total_cost / need
-    eff_uc = q4(eff_uc)
+    eff_uc = q4(total_cost / need)
 
     # لا نلمس StockEntry هنا أيضاً.
     # الحركات (ProductMovement) هي التي تعدّل StockEntry.
@@ -268,11 +313,15 @@ def fifo_consume_scoped(
     Used for provider-return-from-specific-bill-item logic.
     """
     if not container:
-        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+        raise MissingFifoCostBasisError(
+            f"Missing FIFO cost basis for product {product.id}: container is required."
+        )
 
     need = q3(Decimal(str(qty_out_primary or DEC0)))
     if need <= DEC0:
-        return q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
+        raise MissingFifoCostBasisError(
+            f"Missing FIFO cost basis for product {product.id}: quantity must be > 0."
+        )
 
     layers = (
         StockFifoLayer.objects
@@ -290,8 +339,6 @@ def fifo_consume_scoped(
 
     remaining = need
     total_cost = DEC0
-    last_cost: Decimal | None = None
-
     for layer in layers:
         if remaining <= DEC0:
             break
@@ -309,11 +356,13 @@ def fifo_consume_scoped(
         layer.save(update_fields=["qty_remaining"])
 
         remaining -= use
-        last_cost = uc
 
     # IMPORTANT: scoped consume must NOT fallback to other batches
     if remaining > DEC0:
-        raise ValueError("لا يمكن إرجاع كمية أكبر من المتبقي من نفس فاتورة الشراء (batch محدد).")
+        raise MissingFifoCostBasisError(
+            "Cannot consume scoped FIFO beyond remaining quantity "
+            f"(product={product.id}, container={container.code})."
+        )
 
     eff_uc = q4(total_cost / need)
     return eff_uc
@@ -341,15 +390,9 @@ def fifo_consume_with_parts(
     ]
     """
     if not container:
-        # fallback: single fake part using product cost
-        uc = q4(Decimal(str(getattr(product, "cost", DEC0) or DEC0)))
-        qty = q3(qty_out_primary or DEC0)
-        return [{
-            "fifo_layer": None,
-            "qty_primary": qty,
-            "unit_cost": uc,
-            "total_cost": q3(qty * uc),
-        }]
+        raise MissingFifoCostBasisError(
+            f"Missing FIFO cost basis for product {product.id}: container is required."
+        )
 
     need = q3(Decimal(str(qty_out_primary or DEC0)))
     if need <= DEC0:
@@ -364,8 +407,6 @@ def fifo_consume_with_parts(
 
     remaining = need
     parts: list[dict] = []
-    last_cost: Decimal | None = None
-
     for layer in layers:
         if remaining <= DEC0:
             break
@@ -382,17 +423,20 @@ def fifo_consume_with_parts(
             "qty_primary": q3(use),
             "unit_cost": uc,
             "total_cost": q3(use * uc),
+            "cost_currency": layer.cost_currency,
         })
 
         layer.qty_remaining = q3(avail - use)
         layer.save(update_fields=["qty_remaining"])
 
         remaining -= use
-        last_cost = uc
 
-        # fallback if FIFO not enough
-        if remaining > DEC0:
-            raise ValueError("INSUFFICIENT_FIFO_STOCK")
+    if remaining > DEC0:
+        raise MissingFifoCostBasisError(
+            "Missing FIFO cost basis for product "
+            f"{product.id} in container {container.code}: requested {need}, "
+            f"available {q3(need - remaining)}."
+        )
 
 
     return parts
@@ -423,11 +467,13 @@ def rebuild_fifo_from_inventory() -> None:
 
         qty = q3(Decimal(str(mv.qty_primary or DEC0)))
         if qty > DEC0:
+            mv_cost_currency = _infer_cost_currency_from_movement(mv)
             fifo_add_incoming(
                 product=mv.product,
                 container=mv.container,
                 qty_primary=qty,
                 unit_cost=mv.unit_cost,
+                cost_currency=mv_cost_currency,
                 source_app=(mv.origin_source_app or mv.source_app or ""),
                 source_model=(mv.origin_source_model or mv.source_model or ""),
                 source_id=(mv.origin_source_id or mv.source_id or ""),
@@ -638,6 +684,7 @@ def transfer_from_batch(
         container=to_container,
         qty_primary=qty,
         unit_cost=unit_cost,
+        cost_currency=getattr(batch, "cost_currency", None),
         source_app=batch.source_app or "",
         source_model=batch.source_model or "",
         source_id=batch.source_id or "",
