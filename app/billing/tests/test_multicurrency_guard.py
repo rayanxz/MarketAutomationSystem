@@ -63,8 +63,6 @@ class MultiCurrencyGuardTests(TestCase):
             name="USD Purch",
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal("1"),
-            price=Decimal("1"),
             allow_syp_purchasing=False,
             allow_usd_purchasing=True,
             allow_syp_sales=False,
@@ -96,3 +94,5 @@ class MultiCurrencyGuardTests(TestCase):
         item = BillItem.objects.get(bill=bill)
         self.assertEqual(item.currency, "USD")
         self.assertGreater(ProductMovement.objects.count(), 0)
+
+

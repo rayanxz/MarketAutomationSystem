@@ -69,8 +69,6 @@ class PurchaseBillSideEffectsTests(TestCase):
             name=name,
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal("1"),
-            price=Decimal("1"),
             allow_syp_purchasing=allow_syp_purch,
             allow_usd_purchasing=allow_usd_purch,
             allow_syp_sales=allow_syp_purch,
@@ -169,3 +167,5 @@ class PurchaseBillSideEffectsTests(TestCase):
                 source_id=str(bill.id),
             )
             self.assertGreater(rqs.count(), 0)
+
+

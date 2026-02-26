@@ -89,8 +89,6 @@ class PosSalesReturnTests(TestCase):
             name=name,
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal("1"),
-            price=Decimal(default_syp),
             allow_syp_sales=allow_syp,
             allow_usd_sales=allow_usd,
             allow_syp_purchasing=True,
@@ -400,3 +398,5 @@ class PosSalesReturnTests(TestCase):
         self.assertTrue(
             AuditLog.objects.filter(meta_json__icontains="pos.sale_return_posted").exists()
         )
+
+

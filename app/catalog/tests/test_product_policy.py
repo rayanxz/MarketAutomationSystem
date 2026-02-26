@@ -33,8 +33,6 @@ class ProductPolicyTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=active,
         )
         return p
@@ -91,8 +89,8 @@ class ProductPolicyTests(TestCase):
             "name": product.name,
             "unit_primary": unit_primary,
             "unit_secondary": unit_secondary,
-            "cost": str(product.cost),
-            "price": str(product.price),
+            "cost": str(product.default_cost_syp),
+            "price": str(product.default_price_syp),
             "allow_syp_sales": "on" if product.allow_syp_sales else "",
             "allow_syp_purchasing": "on" if product.allow_syp_purchasing else "",
             "allow_usd_sales": "on" if product.allow_usd_sales else "",
@@ -308,3 +306,5 @@ class ProductPolicyTests(TestCase):
         prod.notes = "touch"
         with self.assertRaises(ValidationError):
             prod.save()
+
+

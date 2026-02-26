@@ -108,8 +108,6 @@ class PosReturnSymmetryTests(TestCase):
             name=name,
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal("10"),
-            price=Decimal("15"),
             allow_syp_sales=False,
             allow_usd_sales=True,
             allow_syp_purchasing=True,
@@ -638,3 +636,5 @@ class PosReturnSymmetryTests(TestCase):
         self.assertEqual(cash_after_s_usd, cash_before_s_usd)
         self.assertEqual(debt_after_s, debt_before_s)
         self.assertEqual(audit_after_s - audit_before_s, 0)
+
+

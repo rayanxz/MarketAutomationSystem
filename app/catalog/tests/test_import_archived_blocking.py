@@ -27,8 +27,6 @@ class ImportArchivedProductBlockingTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=False,
         )
 
@@ -84,3 +82,5 @@ class ImportArchivedProductBlockingTests(TestCase):
         self.archived.refresh_from_db()
         self.assertFalse(self.archived.is_active)
         self.assertEqual(Product.objects.filter(name=self.archived.name).count(), 1)
+
+

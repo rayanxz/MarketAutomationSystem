@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from decimal import Decimal
@@ -84,8 +84,6 @@ class PosMultiCurrencySalesTests(TestCase):
             name=name,
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal("0"),
-            price=Decimal(default_syp),
             allow_syp_sales=allow_syp,
             allow_usd_sales=allow_usd,
             allow_syp_purchasing=True,
@@ -567,4 +565,6 @@ class PosMultiCurrencySalesTests(TestCase):
                 notnull = row[3]
                 break
         self.assertEqual(notnull, 0, "billing_debtorentry.provider_id must be nullable")
+
+
 

@@ -35,8 +35,6 @@ class ProductPurchaseFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("2"),
-            cost=Decimal("5.0000"),
-            price=Decimal("9.0000"),
         )
 
         bill = BillingSV.create_bill(
@@ -79,8 +77,6 @@ class ProductPurchaseFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("5"),
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
 
         bill = BillingSV.create_bill(
@@ -115,8 +111,6 @@ class ProductPurchaseFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         prod.allow_usd_purchasing = True
         prod.save(update_fields=["allow_usd_purchasing"])
@@ -144,3 +138,5 @@ class ProductPurchaseFlowTests(TestCase):
         )
         item = BillItem.objects.get(bill=bill, product=prod)
         self.assertEqual(item.currency, "USD")
+
+

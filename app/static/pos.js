@@ -953,9 +953,13 @@ async function openInquiryOverlay(product) {
   const convRaw = product.units?.conversion_factor;
   const conv    = convRaw != null ? String(convRaw) : null;
 
-  // 3) السعر: نستخدم نفس price القادم من الـ API (سعر للوحدة الأولى)
-  const priceNum = Number(product.price || 0);
+  // 3) السعر: يعتمد فقط على defaults per-currency + effective currency
   const priceCur = (product.effective_default_sale_currency || CUR_SYP).toUpperCase();
+  const priceNum = (
+    priceCur === CUR_USD
+      ? Number(product.default_price_usd || 0)
+      : Number(product.default_price_syp || 0)
+  );
 
   if (inqNameEl)     inqNameEl.textContent     = product.name || "";
   if (inqPriceEl)    inqPriceEl.textContent    = `${fmt(priceNum)} ${priceCur} / ${u1Label}`;
@@ -1404,9 +1408,8 @@ function toRow(p) {
   const allowUsd = !!p.allow_usd_sales;
   const effCur = (p.effective_default_sale_currency || CUR_SYP).toUpperCase();
 
-  const fallbackPrice = Number(p.price || 0);
-  const priceSyp = Number(p.default_price_syp || fallbackPrice || 0);
-  const priceUsd = Number(p.default_price_usd || fallbackPrice || 0);
+  const priceSyp = Number(p.default_price_syp || 0);
+  const priceUsd = Number(p.default_price_usd || 0);
 
   let cur = effCur;
   if (cur === CUR_USD && (!allowUsd || priceUsd <= 0) && allowSyp) cur = CUR_SYP;
@@ -1878,15 +1881,18 @@ async function loadBillFromBackend(id) {
             u1Label = p.units?.primary?.label || "الوحدة الأولى";
             u2Label = p.units?.secondary?.label || null;
 
-            // If for some reason unit_price is 0, fall back to product price
+            // If for some reason unit_price is 0, fall back to explicit default price.
             if (!price) {
-              price = Number(p.price || 0);
+              const fallbackCur = ((r.currency || p.effective_default_sale_currency || CUR_SYP) + "").toUpperCase();
+              price = fallbackCur === CUR_USD
+                ? Number(p.default_price_usd || 0)
+                : Number(p.default_price_syp || 0);
             }
 
             allowSyp = !!p.allow_syp_sales;
             allowUsd = !!p.allow_usd_sales;
-            priceSyp = Number(p.default_price_syp || p.price || 0);
-            priceUsd = Number(p.default_price_usd || p.price || 0);
+            priceSyp = Number(p.default_price_syp || 0);
+            priceUsd = Number(p.default_price_usd || 0);
             if (!r.currency) {
               effCur = (p.effective_default_sale_currency || CUR_SYP).toUpperCase();
             }

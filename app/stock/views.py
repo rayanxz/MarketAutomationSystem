@@ -147,8 +147,26 @@ def stock_list(request: HttpRequest) -> HttpResponse:
             }
 
         qty = e.qty_primary or DEC0
-        cost = getattr(p, "cost", Decimal("0.000"))
-        price = getattr(p, "price", Decimal("0.000"))
+        purchase_cur = (
+            p.get_effective_default_purchase_currency()
+            if hasattr(p, "get_effective_default_purchase_currency")
+            else "SYP"
+        )
+        sale_cur = (
+            p.get_effective_default_sale_currency()
+            if hasattr(p, "get_effective_default_sale_currency")
+            else "SYP"
+        )
+        cost = (
+            p.get_default_cost_for_currency(purchase_cur)
+            if hasattr(p, "get_default_cost_for_currency")
+            else Decimal("0.000")
+        )
+        price = (
+            p.get_default_price_for_currency(sale_cur)
+            if hasattr(p, "get_default_price_for_currency")
+            else Decimal("0.000")
+        )
 
         # collect barcodes into a single string for JS search
         barcodes_str = ""

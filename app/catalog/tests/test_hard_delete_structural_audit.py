@@ -39,8 +39,6 @@ class HardDeleteStructuralAuditTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
 
     def _movement(self, *, p: Product, source_id: str) -> ProductMovement:
@@ -205,3 +203,5 @@ class HardDeleteStructuralAuditTests(TestCase):
         self.assertTrue(allowed)
         # Audit guardrail: should complete and stay within a bounded query budget.
         self.assertLess(len(ctx.captured_queries), 5000)
+
+

@@ -32,8 +32,6 @@ class StrictHierarchyHardDeleteTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
 
     def _add_movement(self, product: Product) -> None:
@@ -216,3 +214,5 @@ class StrictHierarchyHardDeleteTests(TestCase):
         self.assertIn("error", data["results"][0])
         self.assertTrue((data["results"][0]["error"] or "").strip())
         self.assertTrue(ProductSet.objects.filter(id=st.id).exists())
+
+

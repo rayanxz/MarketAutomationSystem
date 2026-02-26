@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from decimal import Decimal
@@ -35,8 +35,6 @@ class PosArchivedProductBlockingTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=active,
         )
 
@@ -179,4 +177,6 @@ class PosArchivedProductBlockingTests(TestCase):
                 return_id=ret.id,
                 settle_mode="credit",
             )
+
+
 

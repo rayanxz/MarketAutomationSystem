@@ -34,8 +34,6 @@ class ArchivedProductBlockingTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=active,
         )
 
@@ -136,3 +134,5 @@ class ArchivedProductBlockingTests(TestCase):
                 source_id="1",
                 container=container,
             )
+
+

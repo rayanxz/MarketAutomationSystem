@@ -27,8 +27,6 @@ class ProductCreatePredictedIdTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=True,
         )
 
@@ -112,3 +110,5 @@ class ProductCreatePredictedIdTests(TestCase):
         self.assertEqual(resp_post.status_code, 302)
         created = Product.objects.get(name="CREATED-AFTER-GAP")
         self.assertEqual(created.id, 4)
+
+

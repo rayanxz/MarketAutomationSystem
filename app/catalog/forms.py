@@ -84,8 +84,6 @@ class ProductCreateForm(forms.Form):
 
         # Match decimal_places=4 so browsers don't fight the user
         for n in (
-            "cost",
-            "price",
             "cost_syp",
             "cost_usd",
             "price_syp",
@@ -100,8 +98,6 @@ class ProductCreateForm(forms.Form):
             if n in self.fields:
                 self.fields[n].widget.attrs.setdefault("class", "input")
                 if n in (
-                    "cost",
-                    "price",
                     "conversion_factor",
                     "cost_syp",
                     "cost_usd",
@@ -140,9 +136,6 @@ class ProductCreateForm(forms.Form):
         decimal_places=4,
         min_value=0.0001,
     )
-
-    cost = forms.DecimalField(label="Oچیلفة", max_digits=12, decimal_places=4, min_value=0, required=False)
-    price = forms.DecimalField(label="Oپرح", max_digits=12, decimal_places=4, min_value=0, required=False)
 
     # Legacy currency-aware fields (kept for backward compatibility)
     cost_syp = forms.DecimalField(label="Cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
@@ -304,13 +297,6 @@ class ProductCreateForm(forms.Form):
         ):
             if cleaned.get(fname) in (None, ""):
                 cleaned[fname] = Decimal("0.0000")
-
-        # Keep legacy raw fields optional for compatibility-only paths.
-        # Runtime business logic must use explicit per-currency fields.
-        if cleaned.get("cost") in (None, ""):
-            cleaned["cost"] = None
-        if cleaned.get("price") in (None, ""):
-            cleaned["price"] = None
 
         return cleaned
 

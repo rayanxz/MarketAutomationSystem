@@ -1,4 +1,4 @@
-﻿import json
+import json
 from decimal import Decimal
 from django.test import TestCase
 from django.urls import reverse
@@ -55,8 +55,6 @@ class ProductSnapshotImmutabilityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("2"),
-            cost=Decimal("5.0000"),
-            price=Decimal("9.0000"),
         )
 
         original_name = prod.name
@@ -133,8 +131,6 @@ class ProductSnapshotImmutabilityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("2"),
-            cost=Decimal("1.0000"),
-            price=Decimal("10.0000"),
         )
 
         original_name = prod.name
@@ -233,8 +229,6 @@ class ProductSnapshotImmutabilityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("2"),
-            cost=Decimal("1.0000"),
-            price=Decimal("10.0000"),
         )
 
         original_name = prod.name
@@ -339,4 +333,6 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertEqual(mv.unit_1_label_at_txn, original_unit1)
         self.assertEqual(mv.unit_2_label_at_txn, original_unit2)
         self.assertEqual(mv.conversion_factor_at_txn, original_conv)
+
+
 

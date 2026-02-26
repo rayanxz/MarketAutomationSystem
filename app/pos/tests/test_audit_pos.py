@@ -57,8 +57,6 @@ class PosAuditTests(TransactionTestCase):
             name="Audit Item",
             set=prod_set,
             unit_primary=UnitType.PIECE,
-            cost=1,
-            price=1,
             allow_syp_sales=True,
             allow_usd_sales=False,
             allow_syp_purchasing=True,

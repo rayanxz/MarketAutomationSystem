@@ -41,8 +41,6 @@ class ProductModelIntegrityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         with self.assertRaises(ValidationError):
             p.full_clean()
@@ -55,8 +53,6 @@ class ProductModelIntegrityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.PIECE,
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         with self.assertRaises(ValidationError):
             p.full_clean()
@@ -80,8 +76,6 @@ class ProductModelIntegrityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("0.0000"),
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         with self.assertRaises(ValidationError):
             p.full_clean()
@@ -98,8 +92,8 @@ class ProductModelIntegrityTests(TestCase):
             price=Decimal("9.8765"),
         )
         p.refresh_from_db()
-        self.assertEqual(p.cost, Decimal("1.2345"))
-        self.assertEqual(p.price, Decimal("9.8765"))
+        self.assertEqual(p.default_cost_syp, Decimal("1.2345"))
+        self.assertEqual(p.default_price_syp, Decimal("9.8765"))
 
         p_bad = Product(
             name="ProdPrecBad",
@@ -107,8 +101,10 @@ class ProductModelIntegrityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.234567"),
-            price=Decimal("9.876543"),
+            default_cost_syp=Decimal("1.234567"),
+            default_price_syp=Decimal("9.876543"),
+            allow_syp_purchasing=True,
+            allow_syp_sales=True,
         )
         with self.assertRaises(ValidationError):
             p_bad.full_clean()
@@ -158,3 +154,5 @@ class ProductModelIntegrityTests(TestCase):
         )
         with self.assertRaises(ProtectedError):
             prod.delete()
+
+

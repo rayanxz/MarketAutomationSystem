@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
@@ -67,8 +67,6 @@ class ProductSalesFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("2"),
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         self._stock_product(prod)
 
@@ -128,8 +126,6 @@ class ProductSalesFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("3"),
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         self._stock_product(prod)
         self.client.force_login(self.user)
@@ -176,8 +172,6 @@ class ProductSalesFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
         prod.allow_usd_sales = True
         prod.default_price_usd = Decimal("3.0000")
@@ -228,8 +222,6 @@ class ProductSalesFlowTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("99.0000"),
-            price=Decimal("2.0000"),
         )
         prod.default_cost_syp = Decimal("1.2500")
         prod.default_sale_currency = "SYP"
@@ -271,4 +263,6 @@ class ProductSalesFlowTests(TestCase):
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         self.assertEqual(row.unit_cost_at_txn, Decimal("1.2500"))
         self.assertEqual(row.cost_currency_at_txn, "SYP")
+
+
 

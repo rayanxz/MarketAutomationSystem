@@ -135,6 +135,26 @@ def _snap_set(st: ProductSet) -> dict:
 
 
 def _snap_product(p: Product) -> dict:
+    eff_purchase_cur = (
+        p.get_effective_default_purchase_currency()
+        if hasattr(p, "get_effective_default_purchase_currency")
+        else (getattr(p, "default_purchase_currency", None) or "SYP")
+    )
+    eff_sale_cur = (
+        p.get_effective_default_sale_currency()
+        if hasattr(p, "get_effective_default_sale_currency")
+        else (getattr(p, "default_sale_currency", None) or "SYP")
+    )
+    eff_cost = (
+        p.get_default_cost_for_currency(eff_purchase_cur)
+        if hasattr(p, "get_default_cost_for_currency")
+        else Decimal("0")
+    )
+    eff_price = (
+        p.get_default_price_for_currency(eff_sale_cur)
+        if hasattr(p, "get_default_price_for_currency")
+        else Decimal("0")
+    )
     d = snap_instance(
         p,
         [
@@ -144,8 +164,6 @@ def _snap_product(p: Product) -> dict:
             "unit_primary",
             "unit_secondary",
             "conversion_factor",
-            "cost",
-            "price",
             "cost_syp",
             "cost_usd",
             "price_syp",
@@ -170,6 +188,10 @@ def _snap_product(p: Product) -> dict:
             "notes",
         ],
     )
+    d["cost"] = eff_cost
+    d["price"] = eff_price
+    d["effective_default_purchase_currency"] = eff_purchase_cur
+    d["effective_default_sale_currency"] = eff_sale_cur
     d["code"] = p.id
     try:
         d["set_code"] = getattr(p.set, "code", None)
@@ -534,6 +556,26 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
 
     def fmt(p: Product) -> dict:
         single_unit = bool(getattr(p, "is_single_unit", False))
+        effective_purchase_currency = (
+            p.get_effective_default_purchase_currency()
+            if hasattr(p, "get_effective_default_purchase_currency")
+            else "SYP"
+        )
+        effective_sale_currency = (
+            p.get_effective_default_sale_currency()
+            if hasattr(p, "get_effective_default_sale_currency")
+            else "SYP"
+        )
+        effective_cost = (
+            p.get_default_cost_for_currency(effective_purchase_currency)
+            if hasattr(p, "get_default_cost_for_currency")
+            else Decimal("0")
+        )
+        effective_price = (
+            p.get_default_price_for_currency(effective_sale_currency)
+            if hasattr(p, "get_default_price_for_currency")
+            else Decimal("0")
+        )
         return {
             "type": "product",
             "id": p.id,
@@ -549,8 +591,8 @@ def api_product_search(request: HttpRequest) -> JsonResponse:
             "is_active": bool(p.is_active),
 
             # pricing
-            "cost": str(p.cost),
-            "price": str(p.price),
+            "cost": str(effective_cost),
+            "price": str(effective_price),
 
             # unit info (codes + human labels)
             "unit_primary": p.unit_primary,
@@ -871,10 +913,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
         default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
-        purchase_cur = (form.cleaned_data.get("default_purchase_currency") or "SYP").upper()
-        sale_cur = (form.cleaned_data.get("default_sale_currency") or "SYP").upper()
-        legacy_cost = default_cost_usd if purchase_cur == "USD" else default_cost_syp
-        legacy_price = default_price_usd if sale_cur == "USD" else default_price_syp
 
         p = Product(
             name=form.cleaned_data["name"],
@@ -882,9 +920,6 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
             unit_primary=form.cleaned_data["unit_primary"],
             unit_secondary=form.cleaned_data["unit_secondary"] or "",
             conversion_factor=form.cleaned_data["conversion_factor"],
-            # compatibility mirror only; runtime logic uses per-currency defaults
-            cost=legacy_cost,
-            price=legacy_price,
             cost_syp=default_cost_syp,
             cost_usd=default_cost_usd,
             price_syp=default_price_syp,

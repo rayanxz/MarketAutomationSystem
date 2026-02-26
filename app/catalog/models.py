@@ -141,10 +141,6 @@ class Product(models.Model):
         help_text="How many primary units in one secondary unit (e.g., 1000 g per 1 L).",
     )
 
-    # Money (legacy single-currency fields; kept for backward compatibility)
-    cost = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
-    price = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
-
     # Currency-aware defaults (legacy; kept to avoid breaking older code)
     cost_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     cost_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)

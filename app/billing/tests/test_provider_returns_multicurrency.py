@@ -54,8 +54,6 @@ def _create_min_product(name: str) -> Product:
         set=st,
         unit_primary=UnitType.PIECE,
         stock_qty=Decimal("0"),
-        cost=Decimal("1"),
-        price=Decimal("1"),
         allow_syp_purchasing=True,
         allow_usd_purchasing=True,
         allow_syp_sales=True,
@@ -396,3 +394,5 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         )
 
         self.assertIsNotNone(pret)
+
+

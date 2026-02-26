@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
@@ -42,8 +42,6 @@ class ProductSingleUnitTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("5.0000"),
-            price=Decimal("9.0000"),
         )
 
         bill = BillingSV.create_bill(
@@ -88,8 +86,6 @@ class ProductSingleUnitTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("5.0000"),
-            price=Decimal("9.0000"),
         )
 
         bill = BillingSV.create_bill(
@@ -134,8 +130,6 @@ class ProductSingleUnitTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
             conversion_factor=Decimal("2"),
-            cost=Decimal("5.0000"),
-            price=Decimal("9.0000"),
         )
 
         bill = BillingSV.create_bill(
@@ -178,8 +172,6 @@ class ProductSingleUnitTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
         )
 
         BillingSV.create_bill(
@@ -260,4 +252,6 @@ class ProductSingleUnitTests(TestCase):
         self.assertIsNotNone(ret_row)
         self.assertEqual(ret_row.uom_index, 1)
         self.assertEqual(ret_row.qty_returned, Decimal("1.000"))
+
+
 

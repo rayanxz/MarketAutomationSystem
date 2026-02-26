@@ -89,8 +89,6 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
             name=name,
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal(cost),
-            price=Decimal(price),
             allow_syp_purchasing=allow_syp,
             allow_syp_sales=allow_syp,
             allow_usd_purchasing=allow_usd,
@@ -264,3 +262,5 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         usd_entry.refresh_from_db()
         self.assertEqual(q3(syp_entry.remaining), DEC0)
         self.assertEqual(q3(usd_entry.remaining), DEC0)
+
+

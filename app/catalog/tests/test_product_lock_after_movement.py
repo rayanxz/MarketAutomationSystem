@@ -34,8 +34,6 @@ class ProductLockAfterMovementTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary=unit_secondary,
             conversion_factor=conv,
-            cost=Decimal("5.0000"),
-            price=Decimal("9.0000"),
         )
 
     def test_product_edit_before_history_allowed(self):
@@ -103,15 +101,15 @@ class ProductLockAfterMovementTests(TestCase):
 
         prod.refresh_from_db()
         prod.notes = "updated"
-        prod.cost = Decimal("7.0000")
-        prod.price = Decimal("11.0000")
+        prod.default_cost_syp = Decimal("7.0000")
+        prod.default_price_syp = Decimal("11.0000")
         prod.is_active = False
         prod.save()
 
         prod.refresh_from_db()
         self.assertEqual(prod.notes, "updated")
-        self.assertEqual(prod.cost, Decimal("7.0000"))
-        self.assertEqual(prod.price, Decimal("11.0000"))
+        self.assertEqual(prod.default_cost_syp, Decimal("7.0000"))
+        self.assertEqual(prod.default_price_syp, Decimal("11.0000"))
         self.assertFalse(prod.is_active)
 
     def test_has_history_detects_movement(self):
@@ -157,3 +155,5 @@ class ProductLockAfterMovementTests(TestCase):
         prod.notes = "touch"
         with self.assertRaises(ValidationError):
             prod.save()
+
+

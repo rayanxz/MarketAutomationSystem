@@ -428,6 +428,10 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
                 if (val or "").lower() == q.lower():
                     matched_unit = 1 if single_unit else int(b.unit_index)
                     break
+        effective_purchase_currency = p.get_effective_default_purchase_currency() if hasattr(p, "get_effective_default_purchase_currency") else (getattr(p, "default_purchase_currency", None) or "SYP")
+        effective_sale_currency = p.get_effective_default_sale_currency() if hasattr(p, "get_effective_default_sale_currency") else (getattr(p, "default_sale_currency", None) or "SYP")
+        effective_cost = p.get_default_cost_for_currency(effective_purchase_currency) if hasattr(p, "get_default_cost_for_currency") else Decimal("0")
+        effective_price = p.get_default_price_for_currency(effective_sale_currency) if hasattr(p, "get_default_price_for_currency") else Decimal("0")
 
         items.append({
             "id": p.id,
@@ -441,8 +445,8 @@ def api_products_search(request: HttpRequest) -> JsonResponse:
             "unit_secondary_label": "" if single_unit else ((p.get_unit_secondary_display() if p.unit_secondary else "") or "الوحدة الثانية"),
             "unit_secondary": "" if single_unit else (getattr(p, "unit_secondary", "") or ""),
             "conversion_factor": 1 if single_unit else (getattr(p, "conversion_factor", 0) or 0),
-            "price": getattr(p, "price", None),
-            "cost": getattr(p, "cost", None),
+            "price": effective_price,
+            "cost": effective_cost,
             "price_syp": getattr(p, "price_syp", None),
             "price_usd": getattr(p, "price_usd", None),
             "cost_syp": getattr(p, "cost_syp", None),

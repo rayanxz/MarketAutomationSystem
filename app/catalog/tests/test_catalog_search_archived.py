@@ -27,8 +27,6 @@ class CatalogSearchArchivedTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=active,
         )
 
@@ -77,3 +75,5 @@ class CatalogSearchArchivedTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         items = resp.json().get("items") or []
         self.assertTrue(any(i.get("id") == archived.id for i in items))
+
+

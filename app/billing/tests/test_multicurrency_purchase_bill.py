@@ -89,8 +89,6 @@ class MultiCurrencyPurchaseBillTests(TestCase):
             name=name,
             set=self.prod_set,
             unit_primary=UnitType.PIECE,
-            cost=Decimal("1"),
-            price=Decimal("1"),
             allow_syp_purchasing=allow_syp_purch,
             allow_usd_purchasing=allow_usd_purch,
             allow_syp_sales=allow_syp_sales if allow_syp_sales is not None else allow_syp_purch,
@@ -254,6 +252,8 @@ class MultiCurrencyPurchaseBillTests(TestCase):
         self.assertEqual(prod4.get_effective_default_purchase_currency(), "SYP")
 
     def test_backfill_migration_does_not_overwrite_existing(self):
+        if not hasattr(Product, "cost"):
+            self.skipTest("Legacy backfill migration targets removed Product.cost/price fields.")
         prod = self._product(name="Backfill", allow_syp_purch=True, allow_usd_purch=True)
         prod.default_cost_syp = Decimal("111")
         prod.default_cost_usd = Decimal("9")
@@ -293,3 +293,5 @@ class MultiCurrencyPurchaseBillTests(TestCase):
         self.assertEqual(prod.latest_price_usd, Decimal("6"))
         self.assertEqual(prod.default_purchase_currency, "USD")
         self.assertEqual(prod.default_sale_currency, "USD")
+
+

@@ -67,8 +67,6 @@ class ProductDeletionTestMixin:
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
             is_active=active,
             allow_syp_sales=True,
             allow_syp_purchasing=True,
@@ -563,3 +561,5 @@ class MigrationSafetyTests(ProductDeletionTestMixin, TestCase):
         self.assertNotIn("uq_barcode_active", barcode_constraints)
         self.assertIn("uq_unit_id_value_global", unit_id_constraints)
         self.assertNotIn("uq_unit_id_value_active", unit_id_constraints)
+
+
