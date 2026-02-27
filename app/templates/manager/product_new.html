@@ -134,7 +134,14 @@
 {% block content %}
 <div class="page">
   <div class="browser-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-    <div class="crumb crumb-path" id="productPath" data-mode="{% if editing %}edit{% else %}create{% endif %}" style="background:#f1f5f9;padding:6px 10px;border-radius:999px;">
+    <div class="crumb crumb-path"
+         id="productPath"
+         data-mode="{% if editing %}edit{% else %}create{% endif %}"
+         data-path-live="{% if not editing or not product_has_history %}1{% else %}0{% endif %}"
+         data-initial-col="{% if editing and product %}{{ product.set.collection.name }}{% endif %}"
+         data-initial-set="{% if editing and product %}{{ product.set.name }}{% endif %}"
+         data-initial-product="{% if editing and product %}{{ product.name }}{% endif %}"
+         style="background:#f1f5f9;padding:6px 10px;border-radius:999px;">
       {% if editing and product %}
         {{ product.set.collection.name }}/{{ product.set.name }}/{{ product.name }}
       {% else %}
@@ -748,26 +755,34 @@
       openDeleteBlockedModal();
     {% endif %}
   </script>
-  {% if not editing %}
   <script>
     (function(){
       const pathEl = document.getElementById("productPath");
       if (!pathEl) return;
+      if (pathEl.dataset.pathLive !== "1") return;
 
       function renderPath(detail){
         const col = (detail?.collectionName || "").trim();
         const set = (detail?.setName || "").trim();
+        const product = (pathEl.dataset.initialProduct || "").trim();
+        const mode = (pathEl.dataset.mode || "").trim();
         if (!col) { pathEl.textContent = "/"; return; }
+        if (mode === "edit" && product) {
+          pathEl.textContent = set ? `/${col}/${set}/${product}` : `/${col}/${product}`;
+          return;
+        }
         pathEl.textContent = set ? `/${col}/${set}` : `/${col}`;
       }
 
       document.addEventListener("product:path-commit", (e) => {
         renderPath(e.detail);
       });
-      renderPath({ collectionName: "", setName: "" });
+      renderPath({
+        collectionName: pathEl.dataset.initialCol || "",
+        setName: pathEl.dataset.initialSet || "",
+      });
     })();
   </script>
-  {% endif %}
 {% endblock %}
 
 

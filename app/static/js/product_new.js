@@ -15,7 +15,8 @@
   let committedSetName = "";
   let liveSetTyping = false;
   const pathEl = document.getElementById("productPath");
-  const pathPreviewEnabled = pathEl && pathEl.dataset.mode === "create";
+  const pathPreviewEnabled = !!(pathEl && pathEl.dataset.pathLive === "1");
+  const isEditMode = !!(pathEl && pathEl.dataset.mode === "edit");
   const createParentInput = document.querySelector('input[name="create_parent"]');
 
   function emitPathCommit() {
@@ -395,12 +396,25 @@
     const items = await fetchCollections(text);
     if (!items.length) return;
 
-    // prefer exact (case-insensitive) name match; fallback to first result
+    // Prefer exact match. On edit hydration, avoid fallback so invalid text is not auto-committed.
     const exact = items.find(it => (it.name || "").toLowerCase() === text.toLowerCase());
-    const pick = exact || items[0];
+    const pick = isEditMode ? exact : (exact || items[0]);
+    if (!pick) return;
     selectedCollection = { id: pick.id, code: pick.code || "", name: pick.name || "" };
     committedCollectionName = selectedCollection.name || "";
     setInput.disabled = false;
+
+    if (isEditMode && !isCreateParentChecked()) {
+      const setText = (setInput && setInput.value || "").trim();
+      if (setText) {
+        const setItems = await fetchSets(setText, selectedCollection.id);
+        const exactSet = setItems.find(it => (it.name || "").toLowerCase() === setText.toLowerCase());
+        committedSetName = exactSet ? (exactSet.name || "").trim() : "";
+      } else {
+        committedSetName = "";
+      }
+    }
+
     emitPathCommit();
   }
 
