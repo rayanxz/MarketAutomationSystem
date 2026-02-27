@@ -309,6 +309,43 @@ def _validate_unit_ids_and_barcodes(
 
     return ok
 
+
+def _validation_messages(exc: ValidationError) -> list[str]:
+    msgs: list[str] = []
+    error_dict = getattr(exc, "error_dict", None)
+    if error_dict:
+        for errs in error_dict.values():
+            for e in errs:
+                msg = getattr(e, "message", None) or str(e)
+                if msg:
+                    msgs.append(str(msg))
+    if not msgs:
+        for msg in getattr(exc, "messages", []) or []:
+            if msg:
+                msgs.append(str(msg))
+    if not msgs:
+        msgs = [str(exc)]
+    return msgs
+
+
+def _bind_validation_error_to_form(
+    form: ProductCreateForm,
+    exc: ValidationError,
+    *,
+    mapping: dict[str, str] | None = None,
+) -> None:
+    mapping = mapping or {}
+    error_dict = getattr(exc, "error_dict", None)
+    if error_dict:
+        for field, errs in error_dict.items():
+            target = mapping.get(field, field if field in form.fields else None)
+            for e in errs:
+                msg = getattr(e, "message", None) or str(e)
+                form.add_error(target, msg)
+        return
+    for msg in _validation_messages(exc):
+        form.add_error(None, msg)
+
 # ---------- role gate (manager; owner allowed by default) ----------
 def role_required(*roles: Iterable[str], allow_owner: bool = True):
     if not roles:
@@ -857,24 +894,7 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 .filter(n=s_name.lower(), collection=col)
                 .first()
             )
-        if not st and create_parent:
-            st = ProductSet.objects.create(collection=col, name=s_name or "مجموعة جديدة")
-            # AUDIT: create set via product page (only when actually created)
-            try:
-                log_create(
-                    actor=request.user,
-                    request=request,
-                    target=st,
-                    title="Create set",
-                    message=f"Set created: {st.name}",
-                    before=None,
-                    after=_snap_set(st),
-                    meta={"source": "catalog.manager_product_new", "via": "create_parent"},
-                )
-            except Exception:
-                pass
-
-        if not st:
+        if not st and not create_parent:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
             return _render_product_new_form(request, {
@@ -913,32 +933,39 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
         default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
-
-        p = Product(
-            name=form.cleaned_data["name"],
-            set=st,
-            unit_primary=form.cleaned_data["unit_primary"],
-            unit_secondary=form.cleaned_data["unit_secondary"] or "",
-            conversion_factor=form.cleaned_data["conversion_factor"],
-            cost_syp=default_cost_syp,
-            cost_usd=default_cost_usd,
-            price_syp=default_price_syp,
-            price_usd=default_price_usd,
-            allow_syp_sales=bool(form.cleaned_data.get("allow_syp_sales")),
-            allow_syp_purchasing=bool(form.cleaned_data.get("allow_syp_purchasing")),
-            allow_usd_sales=bool(form.cleaned_data.get("allow_usd_sales")),
-            allow_usd_purchasing=bool(form.cleaned_data.get("allow_usd_purchasing")),
-            default_purchase_currency=form.cleaned_data.get("default_purchase_currency") or None,
-            default_sale_currency=form.cleaned_data.get("default_sale_currency") or None,
-            default_cost_syp=default_cost_syp,
-            default_cost_usd=default_cost_usd,
-            default_price_syp=default_price_syp,
-            default_price_usd=default_price_usd,
-            notes=form.cleaned_data["notes"] or "",
-        )
+        created_set = None
+        p: Product | None = None
 
         try:
             with transaction.atomic():
+                if not st and create_parent:
+                    try:
+                        st = ProductSet.objects.create(collection=col, name=s_name or "مجموعة جديدة")
+                        created_set = st
+                    except ValidationError as ve:
+                        raise ValidationError({"set_name": _validation_messages(ve)})
+                p = Product(
+                    name=form.cleaned_data["name"],
+                    set=st,
+                    unit_primary=form.cleaned_data["unit_primary"],
+                    unit_secondary=form.cleaned_data["unit_secondary"] or "",
+                    conversion_factor=form.cleaned_data["conversion_factor"],
+                    cost_syp=default_cost_syp,
+                    cost_usd=default_cost_usd,
+                    price_syp=default_price_syp,
+                    price_usd=default_price_usd,
+                    allow_syp_sales=bool(form.cleaned_data.get("allow_syp_sales")),
+                    allow_syp_purchasing=bool(form.cleaned_data.get("allow_syp_purchasing")),
+                    allow_usd_sales=bool(form.cleaned_data.get("allow_usd_sales")),
+                    allow_usd_purchasing=bool(form.cleaned_data.get("allow_usd_purchasing")),
+                    default_purchase_currency=form.cleaned_data.get("default_purchase_currency") or None,
+                    default_sale_currency=form.cleaned_data.get("default_sale_currency") or None,
+                    default_cost_syp=default_cost_syp,
+                    default_cost_usd=default_cost_usd,
+                    default_price_syp=default_price_syp,
+                    default_price_usd=default_price_usd,
+                    notes=form.cleaned_data["notes"] or "",
+                )
                 p.full_clean()
                 p.save()
 
@@ -1003,6 +1030,22 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                             is_active=p.is_active,
                         )
 
+            if created_set is not None:
+                # AUDIT: create set via product page (only when actually created)
+                try:
+                    log_create(
+                        actor=request.user,
+                        request=request,
+                        target=created_set,
+                        title="Create set",
+                        message=f"Set created: {created_set.name}",
+                        before=None,
+                        after=_snap_set(created_set),
+                        meta={"source": "catalog.manager_product_new", "via": "create_parent"},
+                    )
+                except Exception:
+                    pass
+
             # AUDIT: create product (after everything is done)
             try:
                 # refresh relations counts if needed
@@ -1021,14 +1064,16 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
                 pass
 
         except ValidationError as ve:
-            mapping = {
-                "conversion_factor": "conversion_factor",
-                "unit_secondary": "unit_secondary",
-                "name": "name",
-            }
-            for field, msgs in ve.message_dict.items():
-                for msg in msgs:
-                    form.add_error(mapping.get(field, None), msg)
+            _bind_validation_error_to_form(
+                form,
+                ve,
+                mapping={
+                    "conversion_factor": "conversion_factor",
+                    "unit_secondary": "unit_secondary",
+                    "name": "name",
+                    "set": "set_name",
+                },
+            )
             messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
             return _render_product_new_form(request, {
                     "form": form,
@@ -1043,7 +1088,9 @@ def manager_product_new(request: HttpRequest) -> HttpResponse:
 
         except IntegrityError as e:
             emsg = str(e).lower()
-            if ("catalog_product.name" in emsg) or ("product.name" in emsg) or ("unique" in emsg and "name" in emsg):
+            if ("productset" in emsg) or ("uq_set_name_ci_per_collection" in emsg):
+                form.add_error("set_name", "اسم المجموعة الأب موجود مسبقاً ضمن نفس الزمرة.")
+            elif ("catalog_product.name" in emsg) or ("product.name" in emsg) or ("unique" in emsg and "name" in emsg):
                 form.add_error("name", "اسم المنتج موجود مسبقاً.")
             elif "productunitid" in emsg or "unit id" in emsg:
                 messages.error(request, "أحد معرّفات الوحدات مستخدم مسبقاً.")
@@ -1252,24 +1299,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 .filter(n=s_name.lower(), collection=col)
                 .first()
             )
-        if not st and create_parent:
-            st = ProductSet.objects.create(collection=col, name=s_name or "مجموعة جديدة")
-            # AUDIT: create set via edit page
-            try:
-                log_create(
-                    actor=request.user,
-                    request=request,
-                    target=st,
-                    title="Create set",
-                    message=f"Set created: {st.name}",
-                    before=None,
-                    after=_snap_set(st),
-                    meta={"source": "catalog.manager_product_edit", "via": "create_parent"},
-                )
-            except Exception:
-                pass
-
-        if not st:
+        if not st and not create_parent:
             form.add_error("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.")
             u1_ids, u2_ids, bar_u1, bar_u2 = _collect_ids_barcodes_from_post(request)
             return _render_product_new_form(request, {
@@ -1316,6 +1346,7 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
         default_cost_usd = form.cleaned_data.get("default_cost_usd") or Decimal("0")
         default_price_syp = form.cleaned_data.get("default_price_syp") or Decimal("0")
         default_price_usd = form.cleaned_data.get("default_price_usd") or Decimal("0")
+        created_set = None
 
         p.cost_syp = default_cost_syp
         p.cost_usd = default_cost_usd
@@ -1336,6 +1367,13 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
         try:
             with transaction.atomic():
+                if not st and create_parent:
+                    try:
+                        st = ProductSet.objects.create(collection=col, name=s_name or "مجموعة جديدة")
+                        created_set = st
+                    except ValidationError as ve:
+                        raise ValidationError({"set_name": _validation_messages(ve)})
+                p.set = st
                 p.full_clean()
                 p.save()
 
@@ -1405,6 +1443,22 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
                             is_active=p.is_active,
                         )
 
+            if created_set is not None:
+                # AUDIT: create set via edit page
+                try:
+                    log_create(
+                        actor=request.user,
+                        request=request,
+                        target=created_set,
+                        title="Create set",
+                        message=f"Set created: {created_set.name}",
+                        before=None,
+                        after=_snap_set(created_set),
+                        meta={"source": "catalog.manager_product_edit", "via": "create_parent"},
+                    )
+                except Exception:
+                    pass
+
             # AUDIT: update product
             try:
                 p2 = Product.objects.select_related("set__collection").prefetch_related("barcodes", "unit_ids").get(pk=p.pk)
@@ -1421,8 +1475,35 @@ def manager_product_edit(request: HttpRequest, pk: int) -> HttpResponse:
             except Exception:
                 pass
 
+        except ValidationError as ve:
+            _bind_validation_error_to_form(
+                form,
+                ve,
+                mapping={
+                    "conversion_factor": "conversion_factor",
+                    "unit_secondary": "unit_secondary",
+                    "name": "name",
+                    "set": "set_name",
+                },
+            )
+            messages.error(request, "يرجى تصحيح الأخطاء أدناه.")
+            return _render_product_new_form(request, {
+                    "form": form,
+                    "editing": True,
+                    "product": p,
+                    "product_has_history": p.has_history(),
+                    "u1_ids": u1_ids,
+                    "u2_ids": u2_ids,
+                    "bar_u1": bar_u1,
+                    "bar_u2": bar_u2,
+                },
+            )
+
         except IntegrityError as e:
-            if "product.name" in str(e).lower():
+            emsg = str(e).lower()
+            if ("productset" in emsg) or ("uq_set_name_ci_per_collection" in emsg):
+                form.add_error("set_name", "اسم المجموعة الأب موجود مسبقاً ضمن نفس الزمرة.")
+            elif "product.name" in emsg:
                 form.add_error("name", "اسم المنتج موجود مسبقاً.")
             else:
                 messages.error(request, "تعذّر حفظ التعديلات. تحقّق من المعرّفات/الباركودات المتكررة.")
