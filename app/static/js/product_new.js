@@ -228,12 +228,6 @@
       e.preventDefault();
       const prev = (cur - 1 + lis.length) % lis.length;
       colList._setActive(prev);
-    } else if (e.key === "Tab") {
-      // Tab = next, Shift+Tab = prev
-      e.preventDefault();
-      const idx = e.shiftKey ? (cur - 1 + lis.length) % lis.length
-                             : (cur + 1) % lis.length;
-      colList._setActive(idx);
     } else if (e.key === "Enter") {
       e.preventDefault();
       const el = colList._getActiveItem() || lis[0];
@@ -365,12 +359,6 @@
       e.preventDefault();
       const prev = (cur - 1 + lis.length) % lis.length;
       setList._setActive(prev);
-    } else if (e.key === "Tab") {
-      // Tab = next, Shift+Tab = prev
-      e.preventDefault();
-      const idx = e.shiftKey ? (cur - 1 + lis.length) % lis.length
-                             : (cur + 1) % lis.length;
-      setList._setActive(idx);
     } else if (e.key === "Enter") {
       e.preventDefault();
       const el = setList._getActiveItem() || lis[0];

@@ -616,8 +616,8 @@
         return Number.isFinite(n) ? n : null;
       }
 
-      function roundTo2(v){
-        return (Math.round((v + Number.EPSILON) * 100) / 100).toFixed(2);
+      function roundTo4(v){
+        return (Math.round((v + Number.EPSILON) * 10000) / 10000).toFixed(4);
       }
 
       function updateFxButtons(pSyp, pUsd, sSyp, sUsd){
@@ -658,7 +658,7 @@
           return;
         }
 
-        target.value = roundTo2(result);
+        target.value = roundTo4(result);
         target.dispatchEvent(new Event('input', { bubbles: true }));
         target.dispatchEvent(new Event('change', { bubbles: true }));
       }
@@ -673,14 +673,41 @@
         const pUsd = !!allowUsdPurch?.checked;
         const sSyp = !!allowSypSales?.checked;
         const sUsd = !!allowUsdSales?.checked;
+        const purchaseCurrencyRadios = Array.from(document.querySelectorAll('input[name="default_purchase_currency"]'));
+        const saleCurrencyRadios = Array.from(document.querySelectorAll('input[name="default_sale_currency"]'));
 
         if (dcSyp) dcSyp.disabled = !pSyp;
         if (dcUsd) dcUsd.disabled = !pUsd;
         if (dpSyp) dpSyp.disabled = !sSyp;
         if (dpUsd) dpUsd.disabled = !sUsd;
 
-        if (purchaseRadios) purchaseRadios.style.display = (pSyp && pUsd) ? "" : "none";
-        if (saleRadios) saleRadios.style.display = (sSyp && sUsd) ? "" : "none";
+        const showPurchaseRadios = (pSyp && pUsd);
+        const showSaleRadios = (sSyp && sUsd);
+        if (purchaseRadios) purchaseRadios.style.display = showPurchaseRadios ? "" : "none";
+        if (saleRadios) saleRadios.style.display = showSaleRadios ? "" : "none";
+
+        purchaseCurrencyRadios.forEach((radio) => { radio.disabled = !showPurchaseRadios; });
+        saleCurrencyRadios.forEach((radio) => { radio.disabled = !showSaleRadios; });
+
+        // Keep deterministic default selection when only one currency is enabled.
+        if (!showPurchaseRadios) {
+          if (pSyp && !pUsd) {
+            const r = purchaseCurrencyRadios.find((x) => x.value === 'SYP');
+            if (r) r.checked = true;
+          } else if (pUsd && !pSyp) {
+            const r = purchaseCurrencyRadios.find((x) => x.value === 'USD');
+            if (r) r.checked = true;
+          }
+        }
+        if (!showSaleRadios) {
+          if (sSyp && !sUsd) {
+            const r = saleCurrencyRadios.find((x) => x.value === 'SYP');
+            if (r) r.checked = true;
+          } else if (sUsd && !sSyp) {
+            const r = saleCurrencyRadios.find((x) => x.value === 'USD');
+            if (r) r.checked = true;
+          }
+        }
         updateFxButtons(pSyp, pUsd, sSyp, sUsd);
       }
 
