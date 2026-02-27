@@ -177,12 +177,6 @@
         {% endif %}
       </h3>
       {% if form.non_field_errors %}<div class="err">{{ form.non_field_errors.0 }}</div>{% endif %}
-      {% if editing and product and product_has_history %}
-        <div class="err" style="margin-top:8px;">
-          This product has history; core fields are locked. Archive + create a new product if you need different units/collection/set/name.
-        </div>
-      {% endif %}
-
       <div class="field">
         <label>اسم الزمرة</label>
         <input id="ac-col"
@@ -203,10 +197,12 @@
                value="{{ form.set_name.value|default:'' }}">
         <ul class="ac-list" id="ac-set-list" hidden></ul>
         {% if form.errors.set_name %}<div class="err">{{ form.errors.set_name.0 }}</div>{% endif %}
-        <label class="inline-check" style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-          <input type="checkbox" name="create_parent" {% if form.create_parent.value %}checked{% endif %}>
-          إنشاء مجموعة أب جديدة
-        </label>
+        {% if not editing or not product_has_history %}
+          <label class="inline-check" style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+            <input type="checkbox" name="create_parent" {% if form.create_parent.value %}checked{% endif %}>
+            إنشاء مجموعة أب جديدة
+          </label>
+        {% endif %}
       </div>
 
       <div class="field">

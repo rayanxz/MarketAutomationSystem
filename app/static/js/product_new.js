@@ -441,7 +441,35 @@
   const unitPrimary = document.querySelector('select[name="unit_primary"]');
   const unitSecondary = document.querySelector('select[name="unit_secondary"]');
   const convInput = document.querySelector('input[name="conversion_factor"]');
+
+  function syncUnitOptions() {
+    if (!unitPrimary || !unitSecondary) return;
+
+    const primaryVal = unitPrimary.value || "";
+    const secondaryVal = unitSecondary.value || "";
+
+    if (primaryVal && secondaryVal && primaryVal === secondaryVal) {
+      unitSecondary.value = "";
+    }
+
+    const nextPrimaryVal = unitPrimary.value || "";
+    const nextSecondaryVal = unitSecondary.value || "";
+
+    Array.from(unitPrimary.options).forEach((opt) => {
+      const disable = !!(opt.value && nextSecondaryVal && opt.value === nextSecondaryVal);
+      opt.disabled = disable;
+      opt.hidden = disable;
+    });
+
+    Array.from(unitSecondary.options).forEach((opt) => {
+      const disable = !!(opt.value && nextPrimaryVal && opt.value === nextPrimaryVal);
+      opt.disabled = disable;
+      opt.hidden = disable;
+    });
+  }
+
   function enforceSingleUnitUI() {
+    syncUnitOptions();
     const u2 = unitSecondary ? unitSecondary.value : "";
     const isSingle = !u2;
 
