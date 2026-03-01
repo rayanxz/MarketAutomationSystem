@@ -163,6 +163,9 @@
         class="pn-wrap"
         autocomplete="off"
         data-fx-rate="{{ fx_rate_syp_per_usd|default:'' }}"
+        data-mode="{% if editing %}edit{% else %}create{% endif %}"
+        data-product-id="{% if editing and product %}{{ product.id }}{% endif %}"
+        data-product-has-history="{% if editing and product_has_history %}1{% else %}0{% endif %}"
         action="{% if editing and product %}{% url 'manager_product_edit' product.id %}{% else %}{% url 'manager_product_new' %}{% endif %}">
     {% csrf_token %}
 
@@ -177,7 +180,7 @@
         {% endif %}
       </h3>
       {% if form.non_field_errors %}<div class="err">{{ form.non_field_errors.0 }}</div>{% endif %}
-      <div class="field">
+      <div class="field" data-live-field="collection_name">
         <label>اسم الزمرة</label>
         <input id="ac-col"
                name="collection_name"
@@ -185,10 +188,10 @@
                placeholder="اكتب اسم الزمرة"
                value="{{ form.collection_name.value|default:'' }}">
         <ul class="ac-list" id="ac-col-list" hidden></ul>
-        {% if form.errors.collection_name %}<div class="err">{{ form.errors.collection_name.0 }}</div>{% endif %}
+        {% if form.errors.collection_name %}<div class="err" data-live-error-for="collection_name">{{ form.errors.collection_name.0 }}</div>{% else %}<div class="err" data-live-error-for="collection_name" hidden></div>{% endif %}
       </div>
 
-      <div class="field">
+      <div class="field" data-live-field="set_name">
         <label>اسم المجموعة الأب</label>
         <input id="ac-set"
                name="set_name"
@@ -196,7 +199,7 @@
                placeholder="اكتب اسم المجموعة الأب"
                value="{{ form.set_name.value|default:'' }}">
         <ul class="ac-list" id="ac-set-list" hidden></ul>
-        {% if form.errors.set_name %}<div class="err">{{ form.errors.set_name.0 }}</div>{% endif %}
+        {% if form.errors.set_name %}<div class="err" data-live-error-for="set_name">{{ form.errors.set_name.0 }}</div>{% else %}<div class="err" data-live-error-for="set_name" hidden></div>{% endif %}
         {% if not editing or not product_has_history %}
           <label class="inline-check" style="display:flex; gap:8px; align-items:center; margin-top:6px;">
             <input type="checkbox" name="create_parent" {% if form.create_parent.value %}checked{% endif %}>
@@ -205,30 +208,30 @@
         {% endif %}
       </div>
 
-      <div class="field">
+      <div class="field" data-live-field="name">
         <label>اسم المنتج</label>
         {{ form.name }}
-        {% if form.errors.name %}<div class="err">{{ form.errors.name.0 }}</div>{% endif %}
+        {% if form.errors.name %}<div class="err" data-live-error-for="name">{{ form.errors.name.0 }}</div>{% else %}<div class="err" data-live-error-for="name" hidden></div>{% endif %}
       </div>
 
       <div class="row-2 unit-row">
-        <div class="field">
+        <div class="field" data-live-field="unit_primary">
           <label>الوحدة الأولى</label>
           {{ form.unit_primary }}
-          {% if form.errors.unit_primary %}<div class="err">{{ form.errors.unit_primary.0 }}</div>{% endif %}
+          {% if form.errors.unit_primary %}<div class="err" data-live-error-for="unit_primary">{{ form.errors.unit_primary.0 }}</div>{% else %}<div class="err" data-live-error-for="unit_primary" hidden></div>{% endif %}
         </div>
-        <div class="field">
+        <div class="field" data-live-field="unit_secondary">
           <label>الوحدة الثانية </label>
           {{ form.unit_secondary }}
-          {% if form.errors.unit_secondary %}<div class="err">{{ form.errors.unit_secondary.0 }}</div>{% endif %}
+          {% if form.errors.unit_secondary %}<div class="err" data-live-error-for="unit_secondary">{{ form.errors.unit_secondary.0 }}</div>{% else %}<div class="err" data-live-error-for="unit_secondary" hidden></div>{% endif %}
         </div>
       </div>
 
-      <div class="field">
+      <div class="field" data-live-field="conversion_factor">
         <label>عامل التحويل</label>
         {{ form.conversion_factor }}
         <div class="help">عدد الوحدات الأولى في واحدة ثانية (مثال: 1000 غرام في 1 ليتر). مطلوب عند تحديد وحدة ثانية.</div>
-        {% if form.errors.conversion_factor %}<div class="err">{{ form.errors.conversion_factor.0 }}</div>{% endif %}
+        {% if form.errors.conversion_factor %}<div class="err" data-live-error-for="conversion_factor">{{ form.errors.conversion_factor.0 }}</div>{% else %}<div class="err" data-live-error-for="conversion_factor" hidden></div>{% endif %}
       </div>
 
       <div class="field currency-main-title">
@@ -245,29 +248,31 @@
             </div>
           </div>
 
-          <div class="field">
+          <div class="field" data-live-field="default_purchase_currency">
             <label>العملة الافتراضية للشراء</label>
             <div id="purchaseCurRadios" class="stack">
               <label><input type="radio" name="default_purchase_currency" value="SYP" {% if form.default_purchase_currency.value != "USD" %}checked{% endif %}> SYP (تلقائي)</label>
               <label><input type="radio" name="default_purchase_currency" value="USD" {% if form.default_purchase_currency.value == "USD" %}checked{% endif %}> USD</label>
             </div>
-            {% if form.errors.default_purchase_currency %}<div class="err">{{ form.errors.default_purchase_currency.0 }}</div>{% endif %}
+            {% if form.errors.default_purchase_currency %}<div class="err" data-live-error-for="default_purchase_currency">{{ form.errors.default_purchase_currency.0 }}</div>{% else %}<div class="err" data-live-error-for="default_purchase_currency" hidden></div>{% endif %}
           </div>
 
-          <div class="field">
+          <div class="field" data-live-field="default_cost_syp">
             <label>التكلفة الافتراضية (ليرة)</label>
             <div class="fx-input-wrap">
               <button type="button" class="fx-btn" data-fx-group="purchase" data-fx-op="mul" data-fx-target="default_cost_syp" data-fx-source="default_cost_usd">FX</button>
               {{ form.default_cost_syp }}
             </div>
+            <div class="err" data-live-error-for="default_cost_syp" hidden></div>
           </div>
 
-          <div class="field">
+          <div class="field" data-live-field="default_cost_usd">
             <label>التكلفة الافتراضية (دولار)</label>
             <div class="fx-input-wrap">
               <button type="button" class="fx-btn" data-fx-group="purchase" data-fx-op="div" data-fx-target="default_cost_usd" data-fx-source="default_cost_syp">FX</button>
               {{ form.default_cost_usd }}
             </div>
+            <div class="err" data-live-error-for="default_cost_usd" hidden></div>
 
           <div class="err fx-msg" id="fx-msg-purchase" hidden></div>
           </div>
@@ -292,29 +297,31 @@
             </div>
           </div>
 
-          <div class="field">
+          <div class="field" data-live-field="default_sale_currency">
             <label>العملة الافتراضية للبيع</label>
             <div id="saleCurRadios" class="stack">
               <label><input type="radio" name="default_sale_currency" value="SYP" {% if form.default_sale_currency.value != "USD" %}checked{% endif %}> SYP (تلقائي)</label>
               <label><input type="radio" name="default_sale_currency" value="USD" {% if form.default_sale_currency.value == "USD" %}checked{% endif %}> USD</label>
             </div>
-            {% if form.errors.default_sale_currency %}<div class="err">{{ form.errors.default_sale_currency.0 }}</div>{% endif %}
+            {% if form.errors.default_sale_currency %}<div class="err" data-live-error-for="default_sale_currency">{{ form.errors.default_sale_currency.0 }}</div>{% else %}<div class="err" data-live-error-for="default_sale_currency" hidden></div>{% endif %}
           </div>
 
-          <div class="field">
+          <div class="field" data-live-field="default_price_syp">
             <label>سعر البيع الافتراضي (ليرة)</label>
             <div class="fx-input-wrap">
               <button type="button" class="fx-btn" data-fx-group="sales" data-fx-op="mul" data-fx-target="default_price_syp" data-fx-source="default_price_usd">FX</button>
               {{ form.default_price_syp }}
             </div>
+            <div class="err" data-live-error-for="default_price_syp" hidden></div>
           </div>
 
-          <div class="field">
+          <div class="field" data-live-field="default_price_usd">
             <label>سعر البيع الافتراضي (دولار)</label>
             <div class="fx-input-wrap">
               <button type="button" class="fx-btn" data-fx-group="sales" data-fx-op="div" data-fx-target="default_price_usd" data-fx-source="default_price_syp">FX</button>
               {{ form.default_price_usd }}
             </div>
+            <div class="err" data-live-error-for="default_price_usd" hidden></div>
 
           <div class="err fx-msg" id="fx-msg-sales" hidden></div>
           </div>
@@ -525,6 +532,10 @@
   </script>
   {% endif %}
   <script>
+    function emitRowsChanged(){
+      document.dispatchEvent(new CustomEvent('product:rows-changed'));
+    }
+
     function addFieldWithoutDelete(containerId, name, placeholder){
       const wrap = document.getElementById(containerId);
       const row = document.createElement('div');
@@ -538,6 +549,7 @@
 
       row.appendChild(input);
       wrap.appendChild(row);
+      emitRowsChanged();
     }
 
     // Add input row WITH a delete button — used for both Unit IDs and Barcodes (added rows only)
@@ -558,11 +570,13 @@
       del.textContent = 'حذف';
       del.addEventListener('click', function(){
         wrap.removeChild(row);
+        emitRowsChanged();
       });
 
       row.appendChild(input);
       row.appendChild(del);
       wrap.appendChild(row);
+      emitRowsChanged();
     }
 
     // Ensure each stack has at least one input row (covers empty DB lists)
@@ -575,6 +589,7 @@
           if (id && name) addFieldWithoutDelete(id, name, ph);
         }
       });
+      emitRowsChanged();
     })();
 
     // Currency permissions: toggle defaults + readonly fields

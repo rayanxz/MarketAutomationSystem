@@ -1648,6 +1648,50 @@ def api_collections_ac(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 @role_required(AccountProfile.Role.MANAGER)
+def api_product_name_validate(request: HttpRequest) -> JsonResponse:
+    name = " ".join((request.GET.get("name") or "").strip().split())
+    exclude_pk = request.GET.get("exclude_pk")
+
+    if not name:
+        return JsonResponse({"ok": True, "name": "", "exists": False})
+
+    qs = Product.objects.filter(name__iexact=name)
+    if exclude_pk:
+        try:
+            qs = qs.exclude(pk=int(exclude_pk))
+        except (TypeError, ValueError):
+            pass
+    return JsonResponse({"ok": True, "name": name, "exists": qs.exists()})
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_product_identifier_validate(request: HttpRequest) -> JsonResponse:
+    kind = (request.GET.get("kind") or "").strip().lower()
+    value = (request.GET.get("value") or "").strip()
+    exclude_pk = request.GET.get("exclude_pk")
+
+    if kind not in {"unit_id", "barcode"}:
+        return JsonResponse({"ok": False, "error": "bad kind"}, status=400)
+    if not value:
+        return JsonResponse({"ok": True, "kind": kind, "value": "", "exists": False})
+
+    if kind == "unit_id":
+        qs = ProductUnitId.objects.filter(value=value)
+    else:
+        qs = ProductBarcode.objects.filter(barcode=value)
+
+    if exclude_pk:
+        try:
+            qs = qs.exclude(product_id=int(exclude_pk))
+        except (TypeError, ValueError):
+            pass
+
+    return JsonResponse({"ok": True, "kind": kind, "value": value, "exists": qs.exists()})
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
 def api_sets_ac(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
     cid = request.GET.get("cid")

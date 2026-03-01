@@ -437,6 +437,570 @@
   setInput.disabled = true;
   bootstrapSelectedCollection();
 
+  // ---- Real-time validation controller ----
+  const formEl = document.querySelector("form.pn-wrap");
+  const productId = (formEl?.dataset.productId || "").trim();
+  const touched = new Set();
+  const asyncTokens = new Map();
+  const rowTokens = new WeakMap();
+  const rowCache = new WeakMap();
+
+  function normalizeText(v) {
+    return (v || "").trim();
+  }
+
+  function isLocked(el) {
+    return !!(el && (el.disabled || el.hasAttribute("readonly")));
+  }
+
+  function markTouched(name) {
+    if (name) touched.add(name);
+  }
+
+  function shouldShow(name, force = false) {
+    return !!(force || touched.has(name));
+  }
+
+  function errorNodeFor(name) {
+    let node = document.querySelector(`[data-live-error-for="${name}"]`);
+    if (node) return node;
+    const field = document.querySelector(`[data-live-field="${name}"]`);
+    if (!field) return null;
+    node = document.createElement("div");
+    node.className = "err";
+    node.dataset.liveErrorFor = name;
+    node.hidden = true;
+    field.appendChild(node);
+    return node;
+  }
+
+  function fieldElements(name) {
+    return Array.from(document.querySelectorAll(`[name="${name}"]`));
+  }
+
+  function setFieldError(name, msg, { force = false } = {}) {
+    const els = fieldElements(name);
+    els.forEach((el) => el.classList.toggle("invalid", !!msg && shouldShow(name, force)));
+    const node = errorNodeFor(name);
+    if (!node) return;
+    if (!msg || !shouldShow(name, force)) {
+      node.textContent = "";
+      node.hidden = true;
+      return;
+    }
+    node.textContent = msg;
+    node.hidden = false;
+  }
+
+  function clearFieldError(name) {
+    setFieldError(name, "");
+  }
+
+  async function exactCollectionByName(name) {
+    const q = normalizeText(name);
+    if (!q) return null;
+    const items = await fetchCollections(q);
+    return items.find((it) => normalizeText(it.name).toLowerCase() === q.toLowerCase()) || null;
+  }
+
+  async function exactSetByName(name, cid) {
+    const q = normalizeText(name);
+    if (!q || !cid) return null;
+    const items = await fetchSets(q, cid);
+    return items.find((it) => normalizeText(it.name).toLowerCase() === q.toLowerCase()) || null;
+  }
+
+  async function validateProductName({ force = false } = {}) {
+    const el = document.querySelector('[name="name"]');
+    if (!el || isLocked(el)) return clearFieldError("name");
+    const name = normalizeText(el.value);
+    if (!name) {
+      setFieldError("name", "يرجى إدخال اسم المنتج.", { force });
+      return false;
+    }
+    const token = Symbol("name");
+    asyncTokens.set("name", token);
+    try {
+      const url = `/manager/products/api/validate/name/?name=${encodeURIComponent(name)}${productId ? `&exclude_pk=${encodeURIComponent(productId)}` : ""}`;
+      const res = await fetch(url, { headers: { "X-Requested-With": "fetch", "Accept": "application/json" } });
+      if (!res.ok) return true;
+      const data = await res.json();
+      if (asyncTokens.get("name") !== token) return true;
+      if (data.exists) {
+        setFieldError("name", "اسم المنتج موجود مسبقاً.", { force });
+        return false;
+      }
+      clearFieldError("name");
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  async function validateCollection({ force = false } = {}) {
+    const el = document.querySelector('[name="collection_name"]');
+    if (!el || isLocked(el)) return clearFieldError("collection_name");
+    const value = normalizeText(el.value);
+    if (!value) {
+      setFieldError("collection_name", "يرجى إدخال اسم الزمرة.", { force });
+      return false;
+    }
+    const token = Symbol("collection");
+    asyncTokens.set("collection_name", token);
+    try {
+      const exact = await exactCollectionByName(value);
+      if (asyncTokens.get("collection_name") !== token) return true;
+      if (!exact) {
+        setFieldError("collection_name", "الزمرة غير موجودة.", { force });
+        return false;
+      }
+      clearFieldError("collection_name");
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  async function validateSet({ force = false } = {}) {
+    const el = document.querySelector('[name="set_name"]');
+    const colEl = document.querySelector('[name="collection_name"]');
+    if (!el || isLocked(el)) return clearFieldError("set_name");
+    const setName = normalizeText(el.value);
+    const colName = normalizeText(colEl?.value);
+    const wantsCreate = isCreateParentChecked();
+
+    if (!colName) {
+      clearFieldError("set_name");
+      return true;
+    }
+
+    const token = Symbol("set");
+    asyncTokens.set("set_name", token);
+    try {
+      const col = await exactCollectionByName(colName);
+      if (asyncTokens.get("set_name") !== token) return true;
+      if (!col) {
+        clearFieldError("set_name");
+        return true;
+      }
+      if (!setName) {
+        if (!wantsCreate) {
+          setFieldError("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.", { force });
+          return false;
+        }
+        const defaultNewSet = await exactSetByName("مجموعة جديدة", col.id);
+        if (asyncTokens.get("set_name") !== token) return true;
+        if (defaultNewSet) {
+          setFieldError("set_name", "اسم المجموعة الأب موجود مسبقاً ضمن نفس الزمرة.", { force });
+          return false;
+        }
+        clearFieldError("set_name");
+        return true;
+      }
+      const exactSet = await exactSetByName(setName, col.id);
+      if (asyncTokens.get("set_name") !== token) return true;
+      if (wantsCreate) {
+        if (exactSet) {
+          setFieldError("set_name", "اسم المجموعة الأب موجود مسبقاً ضمن نفس الزمرة.", { force });
+          return false;
+        }
+        clearFieldError("set_name");
+        return true;
+      }
+      if (!exactSet) {
+        setFieldError("set_name", "المجموعة الأب غير موجودة. حدِّد اسماً صحيحاً أو فعّل خيار الإنشاء.", { force });
+        return false;
+      }
+      clearFieldError("set_name");
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  function validateUnits({ force = false } = {}) {
+    const primary = unitPrimary;
+    const secondary = unitSecondary;
+    if (!primary || !secondary || isLocked(primary) || isLocked(secondary)) {
+      clearFieldError("unit_secondary");
+      return true;
+    }
+    const p = primary.value || "";
+    const s = secondary.value || "";
+    if (p && s && p === s) {
+      setFieldError("unit_secondary", "Second unit must differ from primary unit.", { force });
+      return false;
+    }
+    clearFieldError("unit_secondary");
+    return true;
+  }
+
+  function validateConversion({ force = false } = {}) {
+    const secondary = unitSecondary;
+    if (!secondary || !convInput || isLocked(secondary) || isLocked(convInput)) {
+      clearFieldError("conversion_factor");
+      return true;
+    }
+    const s = secondary.value || "";
+    const raw = normalizeText(convInput.value);
+    if (!s) {
+      clearFieldError("conversion_factor");
+      return true;
+    }
+    if (!raw) {
+      setFieldError("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.", { force });
+      return false;
+    }
+    const n = Number.parseFloat(raw.replace(/,/g, ""));
+    if (!Number.isFinite(n) || n <= 0) {
+      setFieldError("conversion_factor", "Required and must be > 0 when second unit is set.", { force });
+      return false;
+    }
+    clearFieldError("conversion_factor");
+    return true;
+  }
+
+  function hasNonZeroValue(name) {
+    const el = document.querySelector(`[name="${name}"]`);
+    if (!el) return false;
+    const raw = normalizeText(el.value);
+    if (!raw) return false;
+    const n = Number.parseFloat(raw.replace(/,/g, ""));
+    return Number.isFinite(n) && Math.abs(n) > 0;
+  }
+
+  function selectedRadioValue(name) {
+    return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
+  }
+
+  function validatePurchaseCurrency({ force = false } = {}) {
+    const allowSyp = !!document.getElementById("allowSypPurch")?.checked;
+    const allowUsd = !!document.getElementById("allowUsdPurch")?.checked;
+    let ok = true;
+
+    if (allowSyp && allowUsd && !selectedRadioValue("default_purchase_currency")) {
+      setFieldError("default_purchase_currency", "Default purchase currency must be enabled.", { force });
+      ok = false;
+    } else {
+      clearFieldError("default_purchase_currency");
+    }
+
+    if (!allowSyp && hasNonZeroValue("default_cost_syp")) {
+      setFieldError("default_cost_syp", "عطّل القيمة أو فعّل الشراء بالليرة.", { force });
+      ok = false;
+    } else {
+      clearFieldError("default_cost_syp");
+    }
+
+    if (!allowUsd && hasNonZeroValue("default_cost_usd")) {
+      setFieldError("default_cost_usd", "عطّل القيمة أو فعّل الشراء بالدولار.", { force });
+      ok = false;
+    } else {
+      clearFieldError("default_cost_usd");
+    }
+    return ok;
+  }
+
+  function validateSalesCurrency({ force = false } = {}) {
+    const allowSyp = !!document.getElementById("allowSypSales")?.checked;
+    const allowUsd = !!document.getElementById("allowUsdSales")?.checked;
+    let ok = true;
+
+    if (allowSyp && allowUsd && !selectedRadioValue("default_sale_currency")) {
+      setFieldError("default_sale_currency", "Default sale currency must be enabled.", { force });
+      ok = false;
+    } else {
+      clearFieldError("default_sale_currency");
+    }
+
+    if (!allowSyp && hasNonZeroValue("default_price_syp")) {
+      setFieldError("default_price_syp", "عطّل القيمة أو فعّل البيع بالليرة.", { force });
+      ok = false;
+    } else {
+      clearFieldError("default_price_syp");
+    }
+
+    if (!allowUsd && hasNonZeroValue("default_price_usd")) {
+      setFieldError("default_price_usd", "عطّل القيمة أو فعّل البيع بالدولار.", { force });
+      ok = false;
+    } else {
+      clearFieldError("default_price_usd");
+    }
+    return ok;
+  }
+
+  function rowErrorNode(input, { create = false } = {}) {
+    const row = input?.closest(".inline-input");
+    if (!row) return null;
+    let node = row.querySelector("[data-row-error]");
+    if (!node && create) {
+      node = document.createElement("div");
+      node.className = "err";
+      node.dataset.rowError = "1";
+      row.appendChild(node);
+    }
+    return node;
+  }
+
+  function setRowError(input, key, msg) {
+    if (!input) return;
+    if (msg) input.dataset[`rowErr${key}`] = msg;
+    else delete input.dataset[`rowErr${key}`];
+
+    const messages = [];
+    if (input.dataset.rowErrWhitespace) messages.push(input.dataset.rowErrWhitespace);
+    if (input.dataset.rowErrLocal) messages.push(input.dataset.rowErrLocal);
+    if (input.dataset.rowErrRemote) messages.push(input.dataset.rowErrRemote);
+
+    input.classList.toggle("invalid", messages.length > 0);
+    if (!messages.length) {
+      const node = rowErrorNode(input, { create: false });
+      if (!node) return;
+      node.remove();
+      return;
+    }
+    const node = rowErrorNode(input, { create: true });
+    if (!node) return;
+    node.textContent = messages[0];
+  }
+
+  function clearRowErrors() {
+    document.querySelectorAll(".inline-input input").forEach((input) => {
+      setRowError(input, "Whitespace", "");
+      setRowError(input, "Local", "");
+      setRowError(input, "Remote", "");
+    });
+  }
+
+  function flagRepeatedInputs(inputs, msg) {
+    inputs.forEach((input) => {
+      if (!input) return;
+      setRowError(input, "Local", msg);
+    });
+  }
+
+  function validateRepeatedEntries() {
+    document.querySelectorAll(".inline-input input").forEach((input) => {
+      setRowError(input, "Whitespace", "");
+      setRowError(input, "Local", "");
+    });
+
+    const groups = [
+      { name: 'unit_primary_ids[]', label: "هذا المعرّف مكرر داخل النموذج." },
+      { name: 'unit_secondary_ids[]', label: "هذا المعرّف مكرر داخل النموذج." },
+      { name: 'barcodes_u1[]', label: "هذا الباركود مكرر داخل النموذج." },
+      { name: 'barcodes_u2[]', label: "هذا الباركود مكرر داخل النموذج." },
+    ];
+
+    groups.forEach(({ name, label }) => {
+      const seen = new Map();
+      Array.from(document.querySelectorAll(`input[name="${name}"]`))
+        .filter((input) => !input.disabled)
+        .forEach((input) => {
+          const raw = input.value || "";
+          const key = normalizeText(raw);
+          if (!key) {
+            if (raw && !raw.trim()) setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
+            return;
+          }
+          if (!seen.has(key)) seen.set(key, []);
+          seen.get(key).push(input);
+        });
+      seen.forEach((inputs) => {
+        if (inputs.length > 1) flagRepeatedInputs(inputs, label);
+      });
+    });
+
+    const crossGroups = [
+      ['unit_primary_ids[]', 'unit_secondary_ids[]', "هذا المعرّف مكرر بين الوحدتين."],
+      ['barcodes_u1[]', 'barcodes_u2[]', "هذا الباركود مكرر بين الوحدتين."],
+    ];
+    crossGroups.forEach(([aName, bName, msg]) => {
+      const mapA = new Map();
+      Array.from(document.querySelectorAll(`input[name="${aName}"]`))
+        .filter((input) => !input.disabled)
+        .forEach((input) => {
+          const raw = input.value || "";
+          const key = normalizeText(raw);
+          if (!key) {
+            if (raw && !raw.trim()) setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
+            return;
+          }
+          if (!mapA.has(key)) mapA.set(key, []);
+          mapA.get(key).push(input);
+        });
+      Array.from(document.querySelectorAll(`input[name="${bName}"]`))
+        .filter((input) => !input.disabled)
+        .forEach((input) => {
+          const raw = input.value || "";
+          const key = normalizeText(raw);
+          if (!key) {
+            if (raw && !raw.trim()) setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
+            return;
+          }
+          if (!mapA.has(key)) return;
+          flagRepeatedInputs([...mapA.get(key), input], msg);
+        });
+    });
+  }
+
+  function identifierKindForName(name) {
+    if (name === "unit_primary_ids[]" || name === "unit_secondary_ids[]") return "unit_id";
+    if (name === "barcodes_u1[]" || name === "barcodes_u2[]") return "barcode";
+    return "";
+  }
+
+  function localRowHasError(input) {
+    return !!(input?.dataset.rowErrWhitespace || input?.dataset.rowErrLocal);
+  }
+
+  async function validateIdentifierRow(input) {
+    if (!(input instanceof HTMLInputElement) || input.disabled) return true;
+    const kind = identifierKindForName(input.name);
+    if (!kind) return true;
+
+    const raw = input.value || "";
+    const value = normalizeText(raw);
+    if (!value) {
+      if (raw && !raw.trim()) {
+        setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
+        return false;
+      }
+      setRowError(input, "Remote", "");
+      rowCache.delete(input);
+      return true;
+    }
+
+    if (localRowHasError(input)) {
+      setRowError(input, "Remote", "");
+      rowCache.delete(input);
+      return false;
+    }
+
+    const cached = rowCache.get(input);
+    if (cached && cached.kind === kind && cached.value === value && cached.excludePk === productId) {
+      setRowError(input, "Remote", cached.exists ? (kind === "unit_id" ? "هذا المعرّف مستخدم مسبقاً." : "هذا الباركود مستخدم مسبقاً.") : "");
+      return !cached.exists;
+    }
+
+    const token = Symbol(`${kind}:${value}`);
+    rowTokens.set(input, token);
+    try {
+      const url = `/manager/products/api/validate/identifier/?kind=${encodeURIComponent(kind)}&value=${encodeURIComponent(value)}${productId ? `&exclude_pk=${encodeURIComponent(productId)}` : ""}`;
+      const res = await fetch(url, { headers: { "X-Requested-With": "fetch", "Accept": "application/json" } });
+      if (!res.ok) return true;
+      const data = await res.json();
+      if (rowTokens.get(input) !== token) return true;
+      const exists = !!data.exists;
+      rowCache.set(input, { kind, value, excludePk: productId, exists });
+      setRowError(input, "Remote", exists ? (kind === "unit_id" ? "هذا المعرّف مستخدم مسبقاً." : "هذا الباركود مستخدم مسبقاً.") : "");
+      return !exists;
+    } catch {
+      return true;
+    }
+  }
+
+  async function validateAllIdentifierRows() {
+    const inputs = Array.from(document.querySelectorAll(
+      'input[name="unit_primary_ids[]"], input[name="unit_secondary_ids[]"], input[name="barcodes_u1[]"], input[name="barcodes_u2[]"]'
+    )).filter((input) => !input.disabled);
+    for (const input of inputs) {
+      await validateIdentifierRow(input);
+    }
+  }
+
+  function validateSyncFor(name, force = false) {
+    switch (name) {
+      case "unit_primary":
+      case "unit_secondary":
+        validateUnits({ force });
+        validateConversion({ force });
+        validateRepeatedEntries();
+        break;
+      case "conversion_factor":
+        validateConversion({ force });
+        break;
+      case "default_purchase_currency":
+      case "allow_syp_purchasing":
+      case "allow_usd_purchasing":
+      case "default_cost_syp":
+      case "default_cost_usd":
+        validatePurchaseCurrency({ force });
+        break;
+      case "default_sale_currency":
+      case "allow_syp_sales":
+      case "allow_usd_sales":
+      case "default_price_syp":
+      case "default_price_usd":
+        validateSalesCurrency({ force });
+        break;
+      case "unit_primary_ids[]":
+      case "unit_secondary_ids[]":
+      case "barcodes_u1[]":
+      case "barcodes_u2[]":
+        validateRepeatedEntries();
+        break;
+      default:
+        break;
+    }
+  }
+
+  async function validateAsyncFor(name, force = false) {
+    switch (name) {
+      case "name":
+        return validateProductName({ force });
+      case "collection_name":
+        await validateCollection({ force });
+        if (shouldShow("set_name")) await validateSet({ force });
+        return true;
+      case "set_name":
+      case "create_parent":
+        return validateSet({ force });
+      case "unit_primary_ids[]":
+      case "unit_secondary_ids[]":
+      case "barcodes_u1[]":
+      case "barcodes_u2[]":
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  function scheduleFieldValidation(name, { force = false, delay = 0, target = null } = {}) {
+    if (!name) return;
+    const run = async () => {
+      validateSyncFor(name, force);
+      await validateAsyncFor(name, force);
+      if (target && identifierKindForName(name)) {
+        await validateAllIdentifierRows();
+      }
+    };
+    if (delay > 0) {
+      window.setTimeout(run, delay);
+    } else {
+      run();
+    }
+  }
+
+  formEl?.addEventListener("focusout", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+    const name = target.name;
+    if (!name) return;
+    markTouched(name);
+    const delay = (name === "collection_name" || name === "set_name") ? 170 : 0;
+    scheduleFieldValidation(name, { force: true, delay, target });
+  });
+
+  formEl?.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+    const name = target.name;
+    if (!name) return;
+    markTouched(name);
+    scheduleFieldValidation(name, { force: true, target });
+  });
+
   // ---- Single-unit UI rules ----
   const unitPrimary = document.querySelector('select[name="unit_primary"]');
   const unitSecondary = document.querySelector('select[name="unit_secondary"]');
@@ -489,8 +1053,7 @@
   unitSecondary?.addEventListener("change", enforceSingleUnitUI);
   enforceSingleUnitUI();
 
-  const observer = new MutationObserver(() => {
-    enforceSingleUnitUI();
+  document.addEventListener("product:rows-changed", () => {
+    validateRepeatedEntries();
   });
-  observer.observe(document.body, { childList: true, subtree: true });
 })();

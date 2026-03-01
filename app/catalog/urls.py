@@ -20,6 +20,8 @@ from catalog.views import (
     # JSON APIs (two-pane + search + autocompletes)
     api_collection_products,
     api_product_search,
+    api_product_identifier_validate,
+    api_product_name_validate,
     api_collections_ac,
     api_sets_ac,
     api_sets_create,
@@ -63,6 +65,8 @@ urlpatterns = [
     # Two-pane JSON APIs
     path("manager/products/api/collections/<int:cid>/products/", api_collection_products, name="api_collection_products"),
     path("manager/products/api/search/", api_product_search, name="api_product_search"),
+    path("manager/products/api/validate/name/", api_product_name_validate, name="api_product_name_validate"),
+    path("manager/products/api/validate/identifier/", api_product_identifier_validate, name="api_product_identifier_validate"),
 
     # Autocomplete + parent set create
     path("manager/products/api/ac/collections/", api_collections_ac, name="api_collections_ac"),

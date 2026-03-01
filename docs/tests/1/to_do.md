@@ -75,19 +75,22 @@
 
 - add a method to both product addint form and editing form that makes the system auto fill either SYP or dollars cost/price according to current FX and user input to the other one *checked*
 
-- fix all the issues of product_add vs entering an existing product page in edit mode 
-
-- add a real time complier (fixer) to the product_new page while in edit mode , and in first addition mode as well , but some difference might happen between those 2 , in general we can start by making current valudations come to life (show errors as soon as they triggered , not until the save button is clicked) and then we might manual test and add new ones **essential**
+- fix all the issues of product_add vs entering an existing product page in edit mode *checked*
 
 - strict some options for product_new page in edit mode , like changing the product name , father set , collection , we will see what we need to strict *checked*
 
+- disallow choosing 2nd unit of measurement that is same as 1st (since we added the "no unit of measurement" option to 2nd dropbox) *checked*
+
+- add a real time complier (fixer) to the product_new page while in edit mode , and in first addition mode as well , but some difference might happen between those 2 , in general we can start by making current valudations come to life (show errors as soon as they triggered , not until the save button is clicked) and then we might manual test and add new ones **essential**
+
 - some options in product_new can be added , such as allow sales/purchases in first/second unit of measurement (kinda like the currencies way of handling)
+
 
 - highlight the barcode textbox that was searched by in the product edit mode page when entered **essential**
 
 - fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching **essential**
 
-- disallow choosing 2nd unit of measurement that is same as 1st (since we added the "no unit of measurement" option to 2nd dropbox) **essential**
+- disallow negative costs and prices in product_new page 
 
 =================================================================================
 
