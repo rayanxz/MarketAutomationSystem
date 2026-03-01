@@ -196,7 +196,7 @@
       set_id: it.set_id,
       name: it.name,
       col_name: it.col_name || it.col_code || "",
-      set_name: it.set_name || it.set_code || "",
+      set_name: it.type === "set" ? (it.name || "") : (it.set_name || it.set_code || ""),
       query: (q.value || "").trim(),
       highlight_type: matchMeta?.highlightType || "",
       highlight_value: matchMeta?.highlightValue || "",
