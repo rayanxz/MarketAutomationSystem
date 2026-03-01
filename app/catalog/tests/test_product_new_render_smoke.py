@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import AccountProfile
-from catalog.models import Product, ProductCollection, ProductSet, UnitType
+from catalog.models import Product, ProductBarcode, ProductCollection, ProductSet, ProductUnitId, UnitType
 from inventory.models import ProductMovement
 
 
@@ -56,5 +56,38 @@ class ProductNewRenderSmokeTests(TestCase):
             source_id=str(product.pk),
         )
         resp = self.client.get(reverse("manager_product_edit", args=[product.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'class="pn-wrap"', html=False)
+
+    def test_edit_mode_renders_with_identifier_highlight_query(self):
+        product = self._create_product("P-RENDER-HL")
+        ProductUnitId.objects.create(product=product, unit_index=1, value="ID-HL-1", is_active=True)
+        ProductBarcode.objects.create(product=product, unit_index=1, barcode="BC-HL-1", is_active=True)
+
+        resp = self.client.get(
+            reverse("manager_product_edit", args=[product.id]),
+            {"highlight_type": "barcode", "highlight_value": "BC-HL-1"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'class="pn-wrap"', html=False)
+
+    def test_edit_mode_with_history_renders_with_identifier_highlight_query(self):
+        product = self._create_product("P-RENDER-HIST-HL")
+        ProductBarcode.objects.create(product=product, unit_index=1, barcode="BC-HL-HIST", is_active=True)
+        ProductMovement.objects.create(
+            product=product,
+            qty_primary=Decimal("0"),
+            unit_index=1,
+            unit_cost=Decimal("0.0000"),
+            total_cost=Decimal("0.000"),
+            movement_type=ProductMovement.MovementType.ADJUSTMENT,
+            source_app="tests",
+            source_model="ProductNewRenderSmokeTests",
+            source_id=str(product.pk),
+        )
+        resp = self.client.get(
+            reverse("manager_product_edit", args=[product.id]),
+            {"highlight_type": "barcode", "highlight_value": "BC-HL-HIST"},
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'class="pn-wrap"', html=False)

@@ -449,6 +449,54 @@
     return (v || "").trim();
   }
 
+  const highlightParams = isEditMode ? new URLSearchParams(window.location.search) : null;
+  const highlightType = normalizeText(highlightParams?.get("highlight_type") || "");
+  const highlightValue = normalizeText(highlightParams?.get("highlight_value") || "");
+  let highlightedIdentifierInput = null;
+  let identifierHighlightDismissed = false;
+
+  function identifierSelectorForHighlight(type) {
+    if (type === "unit_id") {
+      return 'input[name="unit_primary_ids[]"], input[name="unit_secondary_ids[]"]';
+    }
+    if (type === "barcode") {
+      return 'input[name="barcodes_u1[]"], input[name="barcodes_u2[]"]';
+    }
+    return "";
+  }
+
+  function clearIdentifierHighlight(input) {
+    if (!input) return;
+    input.classList.remove("search-hit");
+    if (highlightedIdentifierInput === input) highlightedIdentifierInput = null;
+  }
+
+  function bindIdentifierHighlightDismiss(input) {
+    if (!input || input.dataset.highlightDismissBound === "1") return;
+    const dismiss = () => {
+      identifierHighlightDismissed = true;
+      clearIdentifierHighlight(input);
+    };
+    input.addEventListener("input", dismiss);
+    input.addEventListener("change", dismiss);
+    input.dataset.highlightDismissBound = "1";
+  }
+
+  function applyIdentifierHighlightIfNeeded() {
+    if (!isEditMode || identifierHighlightDismissed || highlightedIdentifierInput) return;
+    if (!highlightType || !highlightValue) return;
+    const selector = identifierSelectorForHighlight(highlightType);
+    if (!selector) return;
+    const match = Array.from(document.querySelectorAll(selector)).find((input) => {
+      if (!(input instanceof HTMLInputElement) || input.disabled) return false;
+      return normalizeText(input.value) === highlightValue;
+    });
+    if (!match) return;
+    highlightedIdentifierInput = match;
+    match.classList.add("search-hit");
+    bindIdentifierHighlightDismiss(match);
+  }
+
   function isLocked(el) {
     return !!(el && (el.disabled || el.hasAttribute("readonly")));
   }
@@ -1052,8 +1100,11 @@
   unitPrimary?.addEventListener("change", enforceSingleUnitUI);
   unitSecondary?.addEventListener("change", enforceSingleUnitUI);
   enforceSingleUnitUI();
+  applyIdentifierHighlightIfNeeded();
 
   document.addEventListener("product:rows-changed", () => {
+    enforceSingleUnitUI();
     validateRepeatedEntries();
+    applyIdentifierHighlightIfNeeded();
   });
 })();

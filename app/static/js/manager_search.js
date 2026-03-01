@@ -122,6 +122,21 @@
     u.searchParams.set("show_disabled", readShowDisabled() ? "1" : "0");
   };
 
+  const currentSearchMatchMeta = () => {
+    const value = (q.value || "").trim();
+    if (!value) return null;
+    if (mode === "barcode") return { highlightType: "barcode", highlightValue: value };
+    if (mode === "id") return { highlightType: "unit_id", highlightValue: value };
+    return null;
+  };
+
+  const applyProductHighlightParams = (u, meta) => {
+    if (!u) return;
+    if (!meta?.highlightType || !meta?.highlightValue) return;
+    u.searchParams.set("highlight_type", meta.highlightType);
+    u.searchParams.set("highlight_value", meta.highlightValue);
+  };
+
   // Build suggestion list via DOM (avoid innerHTML injection)
   const renderSuggestions = (arr, queryText = "") => {
     items = (arr || []).slice(0, 20);
@@ -173,6 +188,7 @@
 
   const storePendingOpen = (it) => {
     if (!it || !it.type || !it.id) return;
+    const matchMeta = it.type === "product" ? currentSearchMatchMeta() : null;
     const payload = {
       type: it.type,
       id: it.id,
@@ -182,6 +198,8 @@
       col_name: it.col_name || it.col_code || "",
       set_name: it.set_name || it.set_code || "",
       query: (q.value || "").trim(),
+      highlight_type: matchMeta?.highlightType || "",
+      highlight_value: matchMeta?.highlightValue || "",
       ts: Date.now(),
     };
     sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
@@ -282,7 +300,12 @@
 
   function openProduct(item) {
     if (!item?.id) return false;
-    window.location.href = `/manager/products/${item.id}/edit/`;
+    const u = new URL(`/manager/products/${item.id}/edit/`, window.location.origin);
+    applyProductHighlightParams(u, {
+      highlightType: item.highlight_type || "",
+      highlightValue: item.highlight_value || "",
+    });
+    window.location.href = u.toString();
     return true;
   }
 

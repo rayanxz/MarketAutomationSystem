@@ -9,6 +9,8 @@
   const back   = document.getElementById('btnBack');
   const showDisabledToggle = document.getElementById('showDisabledProducts');
   const SHOW_DISABLED_KEY = 'mgr.browser.show_disabled';
+  const PENDING_KEY = 'mgr.search.pending.open';
+
 
   if (!list) return;
 
@@ -50,6 +52,28 @@
     const u = new URL(window.location.href);
     u.searchParams.set('show_disabled', v ? '1' : '0');
     history.replaceState(null, '', u.toString());
+  }
+
+  function readPendingSearchOpen() {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      sessionStorage.removeItem(PENDING_KEY);
+      return null;
+    }
+  }
+
+  function productEditUrl(it) {
+    const u = new URL(`/manager/products/${it.id}/edit/`, window.location.origin);
+    const pending = readPendingSearchOpen();
+    if (pending?.type === 'product' && pending.id === it.id && pending.highlight_type && pending.highlight_value) {
+      u.searchParams.set('highlight_type', pending.highlight_type);
+      u.searchParams.set('highlight_value', pending.highlight_value);
+      sessionStorage.removeItem(PENDING_KEY);
+    }
+    return u.toString();
   }
 
   function publishContext(){
@@ -163,7 +187,7 @@
           set = { id: it.id, name: it.name, code: it.code, can_be_hard_deleted: !!it.can_be_hard_deleted };
           level = 'products'; page = 1; load();
         } else {
-          window.location.href = `/manager/products/${it.id}/edit/`;
+          window.location.href = productEditUrl(it);
         }
       });
 
