@@ -90,9 +90,9 @@
 
 - fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching *checked*
 
-- disallow negative costs and prices in product_new page 
+- disallow negative costs and prices in product_new page *checked*
 
-- fix the issues of BarCode scanner "enter" after inserting number 
+- fix the issues of BarCode scanner "enter" after inserting number *checked*
 
 - add a feature to allow users to locate the code/barcode in product_new page by a small search textbox that highlights which textbox has the value the user entered 
 

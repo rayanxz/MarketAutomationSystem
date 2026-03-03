@@ -204,16 +204,21 @@
     }, 120);
   });
 
-  colInput.addEventListener("keydown", (e) => {
+  colInput.addEventListener("keydown", async (e) => {
     if (!colList || colList.hidden) {
       if (e.key !== "Enter") return; // let Tab move focus normally
       e.preventDefault();
       const val = (colInput.value || "").trim();
       if (!val) return;
-      fetchCollections(val).then((items) => {
-        const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
-        if (exact) pickCollection(exact);
-      });
+      const items = await fetchCollections(val);
+      const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+      if (exact) {
+        pickCollection(exact);
+        return;
+      }
+      skipNextFocusoutValidation.add(colInput);
+      const ok = await validateFieldForKeyboard("collection_name", colInput);
+      if (!ok) colInput.focus();
       return;
     }
     const lis = $$("li", colList);
@@ -241,10 +246,15 @@
       } else {
         const val = (colInput.value || "").trim();
         if (!val) return;
-        fetchCollections(val).then((items) => {
-          const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
-          if (exact) pickCollection(exact);
-        });
+        const items = await fetchCollections(val);
+        const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+        if (exact) {
+          pickCollection(exact);
+          return;
+        }
+        skipNextFocusoutValidation.add(colInput);
+        const ok = await validateFieldForKeyboard("collection_name", colInput);
+        if (!ok) colInput.focus();
       }
     } else if (e.key === "Escape") {
       clearList(colList);
@@ -329,7 +339,7 @@
     }, 120);
   });
 
-  setInput.addEventListener("keydown", (e) => {
+  setInput.addEventListener("keydown", async (e) => {
     if (!setList || setList.hidden) {
       if (e.key !== "Enter") return; // allow normal Tab when list closed
       e.preventDefault();
@@ -338,13 +348,35 @@
       if (pathPreviewEnabled && isCreateParentChecked()) {
         liveSetTyping = true;
         emitPathLiveSet(val);
+        skipNextFocusoutValidation.add(setInput);
+        const ok = await validateFieldForKeyboard("set_name", setInput);
+        if (ok) {
+          const next = nextFocusableFrom(setInput);
+          focusElement(next);
+        } else {
+          setInput.focus();
+        }
         return;
       }
       if (!selectedCollection) return;
-      fetchSets(val, selectedCollection.id).then((items) => {
-        const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
-        if (exact) pickSet(exact);
-      });
+      const items = await fetchSets(val, selectedCollection.id);
+      const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+      if (exact) {
+        pickSet(exact);
+        focusProductNameField();
+        return;
+      }
+      skipNextFocusoutValidation.add(setInput);
+      const ok = await validateFieldForKeyboard("set_name", setInput);
+      if (!ok && createParentInput && !isCreateParentChecked() && isFocusable(createParentInput)) {
+        createParentInput.focus();
+        return;
+      }
+      if (ok) {
+        focusProductNameField();
+      } else {
+        setInput.focus();
+      }
       return;
     }
     const lis = $$("li", setList);
@@ -369,19 +401,42 @@
           name: (el.dataset.name || "").trim(),
           code: el.dataset.code || "",
         });
+        focusProductNameField();
       } else {
         const val = (setInput.value || "").trim();
         if (!val) return;
         if (pathPreviewEnabled && isCreateParentChecked()) {
           liveSetTyping = true;
           emitPathLiveSet(val);
+          skipNextFocusoutValidation.add(setInput);
+          const ok = await validateFieldForKeyboard("set_name", setInput);
+          if (ok) {
+            const next = nextFocusableFrom(setInput);
+            focusElement(next);
+          } else {
+            setInput.focus();
+          }
           return;
         }
         if (!selectedCollection) return;
-        fetchSets(val, selectedCollection.id).then((items) => {
-          const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
-          if (exact) pickSet(exact);
-        });
+        const items = await fetchSets(val, selectedCollection.id);
+        const exact = items.find(it => (it.name || "").toLowerCase() === val.toLowerCase());
+        if (exact) {
+          pickSet(exact);
+          focusProductNameField();
+          return;
+        }
+        skipNextFocusoutValidation.add(setInput);
+        const ok = await validateFieldForKeyboard("set_name", setInput);
+        if (!ok && createParentInput && !isCreateParentChecked() && isFocusable(createParentInput)) {
+          createParentInput.focus();
+          return;
+        }
+        if (ok) {
+          focusProductNameField();
+        } else {
+          setInput.focus();
+        }
       }
     } else if (e.key === "Escape") {
       clearList(setList);
@@ -444,7 +499,11 @@
   const asyncTokens = new Map();
   const rowTokens = new WeakMap();
   const rowCache = new WeakMap();
+  const skipNextFocusoutValidation = new WeakSet();
+  const unitSelectFocusValue = new WeakMap();
+  const unitSelectEnterCount = new WeakMap();
   let submittingValidatedForm = false;
+  const productNameInput = document.querySelector('[name="name"]');
 
   function normalizeText(v) {
     return (v || "").trim();
@@ -543,6 +602,74 @@
 
   function clearFieldError(name) {
     setFieldError(name, "");
+  }
+
+  function fieldHasError(name) {
+    const node = document.querySelector(`[data-live-error-for="${name}"]`);
+    if (node && !node.hidden && (node.textContent || "").trim()) return true;
+    return fieldElements(name).some((el) => el.classList.contains("invalid"));
+  }
+
+  function isFocusable(el) {
+    if (!(el instanceof HTMLElement)) return false;
+    if (el.hasAttribute("disabled")) return false;
+    if (el.getAttribute("type") === "hidden") return false;
+    if (el.hasAttribute("readonly")) return false;
+    if (el.closest("[hidden]")) return false;
+    return true;
+  }
+
+  function focusElement(el) {
+    if (!isFocusable(el)) return false;
+    el.focus();
+    return true;
+  }
+
+  function nextFocusableFrom(current) {
+    if (!formEl || !(current instanceof HTMLElement)) return null;
+    const candidates = Array.from(formEl.querySelectorAll("input, select, textarea, button, a[href]"))
+      .filter((el) => isFocusable(el));
+    const idx = candidates.indexOf(current);
+    if (idx < 0) return null;
+    for (let i = idx + 1; i < candidates.length; i += 1) {
+      if (isFocusable(candidates[i])) return candidates[i];
+    }
+    return null;
+  }
+
+  function focusProductNameField() {
+    return focusElement(productNameInput);
+  }
+
+  function focusNextForField(name, current) {
+    if (name === "unit_primary") {
+      return focusElement(unitSecondary);
+    }
+    if (name === "unit_secondary") {
+      if ((unitSecondary?.value || "") && isFocusable(convInput)) {
+        return focusElement(convInput);
+      }
+      return focusElement(nextFocusableFrom(current));
+    }
+    return focusElement(nextFocusableFrom(current));
+  }
+
+  async function commitUnitSelectNavigation(target) {
+    if (!(target instanceof HTMLSelectElement)) return;
+    const name = target.name;
+    if (!name) return;
+
+    skipNextFocusoutValidation.add(target);
+    enforceSingleUnitUI();
+    const ok = await validateFieldForKeyboard(name, target);
+    if (!ok) {
+      target.focus();
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      focusNextForField(name, target);
+    });
   }
 
   async function exactCollectionByName(name) {
@@ -961,6 +1088,59 @@
     return ok;
   }
 
+  async function validateFieldForKeyboard(name, target) {
+    if (!name) return true;
+    markTouched(name);
+
+    switch (name) {
+      case "collection_name":
+        await validateCollection({ force: true });
+        return !fieldHasError("collection_name");
+      case "set_name":
+        await validateSet({ force: true });
+        return !fieldHasError("set_name");
+      case "create_parent":
+        await validateSet({ force: true });
+        return !fieldHasError("set_name");
+      case "name":
+        await validateProductName({ force: true });
+        return !fieldHasError("name");
+      case "unit_primary":
+      case "unit_secondary":
+        validateUnits({ force: true });
+        validateConversion({ force: true });
+        return !fieldHasError("unit_secondary");
+      case "conversion_factor":
+        validateConversion({ force: true });
+        return !fieldHasError("conversion_factor");
+      case "default_cost_syp":
+      case "default_cost_usd":
+        validatePurchaseCurrency({ force: true });
+        return !fieldHasError(name);
+      case "default_price_syp":
+      case "default_price_usd":
+        validateSalesCurrency({ force: true });
+        return !fieldHasError(name);
+      case "cost_syp":
+      case "cost_usd":
+      case "price_syp":
+      case "price_usd":
+        validateNonNegativeNumberField(name, { force: true });
+        return !fieldHasError(name);
+      case "unit_primary_ids[]":
+      case "unit_secondary_ids[]":
+      case "barcodes_u1[]":
+      case "barcodes_u2[]":
+        validateRepeatedEntries();
+        await validateAllIdentifierRows();
+        return !(target instanceof HTMLElement && target.classList.contains("invalid"));
+      default:
+        validateSyncFor(name, true);
+        await validateAsyncFor(name, true);
+        return !fieldHasError(name);
+    }
+  }
+
   function validateSyncFor(name, force = false) {
     switch (name) {
       case "unit_primary":
@@ -1043,6 +1223,13 @@
   formEl?.addEventListener("focusout", (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+    if (target instanceof HTMLSelectElement && (target === unitPrimary || target === unitSecondary)) {
+      unitSelectEnterCount.delete(target);
+    }
+    if (skipNextFocusoutValidation.has(target)) {
+      skipNextFocusoutValidation.delete(target);
+      return;
+    }
     const name = target.name;
     if (!name) return;
     markTouched(name);
@@ -1050,13 +1237,96 @@
     scheduleFieldValidation(name, { force: true, delay, target });
   });
 
-  formEl?.addEventListener("change", (e) => {
+  formEl?.addEventListener("focusin", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    if (target !== unitPrimary && target !== unitSecondary) return;
+    unitSelectFocusValue.set(target, target.value || "");
+    unitSelectEnterCount.set(target, 0);
+  });
+
+  formEl?.addEventListener("change", async (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
     const name = target.name;
     if (!name) return;
     markTouched(name);
+    if (target instanceof HTMLSelectElement && (target === unitPrimary || target === unitSecondary)) {
+      unitSelectEnterCount.set(target, 0);
+      await commitUnitSelectNavigation(target);
+      return;
+    }
     scheduleFieldValidation(name, { force: true, target });
+  });
+
+  formEl?.addEventListener("keyup", async (e) => {
+    if (e.key !== "Enter" || e.ctrlKey || e.metaKey) return;
+    const target = e.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    if (target !== unitPrimary && target !== unitSecondary) return;
+    const enterCount = unitSelectEnterCount.get(target) || 0;
+    if (enterCount < 2) return;
+    unitSelectEnterCount.set(target, 0);
+    const focusedValue = unitSelectFocusValue.get(target);
+    const currentValue = target.value || "";
+    if (focusedValue !== currentValue) return;
+    await commitUnitSelectNavigation(target);
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || (!e.ctrlKey && !e.metaKey)) return;
+    if (!formEl || !document.body.contains(formEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    formEl.requestSubmit();
+  }, true);
+
+  formEl?.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter") return;
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    if (e.defaultPrevented) return;
+    if (target instanceof HTMLTextAreaElement) return;
+    if (target instanceof HTMLSelectElement) {
+      if (target === unitPrimary || target === unitSecondary) {
+        unitSelectEnterCount.set(target, (unitSelectEnterCount.get(target) || 0) + 1);
+      }
+      return;
+    }
+    if (!(target instanceof HTMLInputElement)) return;
+
+    const inputType = (target.type || "text").toLowerCase();
+    if (["submit", "button", "reset", "hidden"].includes(inputType)) return;
+
+    e.preventDefault();
+
+    if (inputType === "checkbox") {
+      target.checked = !target.checked;
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+      const next = nextFocusableFrom(target);
+      focusElement(next);
+      return;
+    }
+
+    const name = target.name;
+    if (!name) return;
+    skipNextFocusoutValidation.add(target);
+    const ok = await validateFieldForKeyboard(name, target);
+    if (!ok) {
+      target.focus();
+      return;
+    }
+    if (identifierKindForName(name)) {
+      target.blur();
+      return;
+    }
+    const next = nextFocusableFrom(target);
+    if (next) {
+      focusElement(next);
+      return;
+    }
+    target.blur();
   });
 
   function firstInvalidFocusable() {
