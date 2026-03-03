@@ -444,6 +444,7 @@
   const asyncTokens = new Map();
   const rowTokens = new WeakMap();
   const rowCache = new WeakMap();
+  let submittingValidatedForm = false;
 
   function normalizeText(v) {
     return (v || "").trim();
@@ -708,17 +709,40 @@
     return true;
   }
 
-  function hasNonZeroValue(name) {
-    const el = document.querySelector(`[name="${name}"]`);
-    if (!el) return false;
-    const raw = normalizeText(el.value);
-    if (!raw) return false;
-    const n = Number.parseFloat(raw.replace(/,/g, ""));
-    return Number.isFinite(n) && Math.abs(n) > 0;
-  }
-
   function selectedRadioValue(name) {
     return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
+  }
+
+  function validateNonNegativeNumberField(name, { force = false, active = true } = {}) {
+    const el = document.querySelector(`[name="${name}"]`);
+    if (!el || !active || isLocked(el)) {
+      clearFieldError(name);
+      return true;
+    }
+
+    const raw = normalizeText(el.value);
+    if (!raw) {
+      clearFieldError(name);
+      return true;
+    }
+
+    if (el.validity?.badInput) {
+      setFieldError(name, "يرجى إدخال رقم صالح.", { force });
+      return false;
+    }
+
+    const value = Number.parseFloat(raw.replace(/,/g, ""));
+    if (!Number.isFinite(value)) {
+      setFieldError(name, "يرجى إدخال رقم صالح.", { force });
+      return false;
+    }
+    if (value < 0) {
+      setFieldError(name, "يجب أن تكون القيمة أكبر من أو تساوي 0.", { force });
+      return false;
+    }
+
+    clearFieldError(name);
+    return true;
   }
 
   function validatePurchaseCurrency({ force = false } = {}) {
@@ -726,25 +750,14 @@
     const allowUsd = !!document.getElementById("allowUsdPurch")?.checked;
     let ok = true;
 
+    ok = validateNonNegativeNumberField("default_cost_syp", { force, active: allowSyp }) && ok;
+    ok = validateNonNegativeNumberField("default_cost_usd", { force, active: allowUsd }) && ok;
+
     if (allowSyp && allowUsd && !selectedRadioValue("default_purchase_currency")) {
       setFieldError("default_purchase_currency", "Default purchase currency must be enabled.", { force });
       ok = false;
     } else {
       clearFieldError("default_purchase_currency");
-    }
-
-    if (!allowSyp && hasNonZeroValue("default_cost_syp")) {
-      setFieldError("default_cost_syp", "عطّل القيمة أو فعّل الشراء بالليرة.", { force });
-      ok = false;
-    } else {
-      clearFieldError("default_cost_syp");
-    }
-
-    if (!allowUsd && hasNonZeroValue("default_cost_usd")) {
-      setFieldError("default_cost_usd", "عطّل القيمة أو فعّل الشراء بالدولار.", { force });
-      ok = false;
-    } else {
-      clearFieldError("default_cost_usd");
     }
     return ok;
   }
@@ -754,25 +767,14 @@
     const allowUsd = !!document.getElementById("allowUsdSales")?.checked;
     let ok = true;
 
+    ok = validateNonNegativeNumberField("default_price_syp", { force, active: allowSyp }) && ok;
+    ok = validateNonNegativeNumberField("default_price_usd", { force, active: allowUsd }) && ok;
+
     if (allowSyp && allowUsd && !selectedRadioValue("default_sale_currency")) {
       setFieldError("default_sale_currency", "Default sale currency must be enabled.", { force });
       ok = false;
     } else {
       clearFieldError("default_sale_currency");
-    }
-
-    if (!allowSyp && hasNonZeroValue("default_price_syp")) {
-      setFieldError("default_price_syp", "عطّل القيمة أو فعّل البيع بالليرة.", { force });
-      ok = false;
-    } else {
-      clearFieldError("default_price_syp");
-    }
-
-    if (!allowUsd && hasNonZeroValue("default_price_usd")) {
-      setFieldError("default_price_usd", "عطّل القيمة أو فعّل البيع بالدولار.", { force });
-      ok = false;
-    } else {
-      clearFieldError("default_price_usd");
     }
     return ok;
   }
@@ -952,9 +954,11 @@
     const inputs = Array.from(document.querySelectorAll(
       'input[name="unit_primary_ids[]"], input[name="unit_secondary_ids[]"], input[name="barcodes_u1[]"], input[name="barcodes_u2[]"]'
     )).filter((input) => !input.disabled);
+    let ok = true;
     for (const input of inputs) {
-      await validateIdentifierRow(input);
+      ok = (await validateIdentifierRow(input)) && ok;
     }
+    return ok;
   }
 
   function validateSyncFor(name, force = false) {
@@ -981,6 +985,12 @@
       case "default_price_syp":
       case "default_price_usd":
         validateSalesCurrency({ force });
+        break;
+      case "cost_syp":
+      case "cost_usd":
+      case "price_syp":
+      case "price_usd":
+        validateNonNegativeNumberField(name, { force });
         break;
       case "unit_primary_ids[]":
       case "unit_secondary_ids[]":
@@ -1047,6 +1057,84 @@
     if (!name) return;
     markTouched(name);
     scheduleFieldValidation(name, { force: true, target });
+  });
+
+  function firstInvalidFocusable() {
+    const invalid = document.querySelector(
+      ".pn-wrap .input.invalid, .pn-wrap input.invalid, .pn-wrap select.invalid, .pn-wrap textarea.invalid"
+    );
+    if (invalid instanceof HTMLElement && !invalid.disabled) return invalid;
+    return null;
+  }
+
+  async function runClientValidation({ force = false } = {}) {
+    const fieldNames = [
+      "name",
+      "collection_name",
+      "set_name",
+      "create_parent",
+      "unit_primary",
+      "unit_secondary",
+      "conversion_factor",
+      "allow_syp_purchasing",
+      "allow_usd_purchasing",
+      "default_purchase_currency",
+      "default_cost_syp",
+      "default_cost_usd",
+      "allow_syp_sales",
+      "allow_usd_sales",
+      "default_sale_currency",
+      "default_price_syp",
+      "default_price_usd",
+      "cost_syp",
+      "cost_usd",
+      "price_syp",
+      "price_usd",
+    ];
+
+    fieldNames.forEach((name) => {
+      markTouched(name);
+      validateSyncFor(name, force);
+    });
+
+    validateRepeatedEntries();
+
+    const asyncResults = [];
+    asyncResults.push(await validateProductName({ force }));
+    // Collection and set validation share collection lookups, so keep submit-time
+    // validation ordered to avoid abort-controller conflicts from autocomplete fetches.
+    asyncResults.push(await validateCollection({ force }));
+    asyncResults.push(await validateSet({ force }));
+    asyncResults.push(await validateAllIdentifierRows());
+
+    const syncOk =
+      validateUnits({ force }) &&
+      validateConversion({ force }) &&
+      validatePurchaseCurrency({ force }) &&
+      validateSalesCurrency({ force }) &&
+      validateNonNegativeNumberField("cost_syp", { force }) &&
+      validateNonNegativeNumberField("cost_usd", { force }) &&
+      validateNonNegativeNumberField("price_syp", { force }) &&
+      validateNonNegativeNumberField("price_usd", { force }) &&
+      !document.querySelector(".inline-input input.invalid");
+
+    return syncOk && asyncResults.every(Boolean);
+  }
+
+  formEl?.addEventListener("submit", async (e) => {
+    if (submittingValidatedForm) return;
+    e.preventDefault();
+    const ok = await runClientValidation({ force: true });
+    if (ok) {
+      submittingValidatedForm = true;
+      formEl.submit();
+      return;
+    }
+    const firstInvalid = firstInvalidFocusable();
+    if (firstInvalid) {
+      firstInvalid.focus({ preventScroll: false });
+      firstInvalid.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
   });
 
   // ---- Single-unit UI rules ----

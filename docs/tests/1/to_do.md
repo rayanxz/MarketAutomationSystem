@@ -88,11 +88,15 @@
 
 - highlight the barcode textbox that was searched by in the product edit mode page when entered *checked*
 
-- fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching **essential**
+- fix the path in collections/father sets/ products list WHEN the user hits the second enter while searching *checked*
 
 - disallow negative costs and prices in product_new page 
 
 - fix the issues of BarCode scanner "enter" after inserting number 
+
+- add a feature to allow users to locate the code/barcode in product_new page by a small search textbox that highlights which textbox has the value the user entered 
+
+- `delayed but comes in handy` : improve the way we display codes/barcodes in product_new page so it can display more elements , doesn't mess with page layout in case of 20+ elements 
 
 =================================================================================
 

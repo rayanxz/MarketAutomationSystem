@@ -109,6 +109,17 @@ class ProductCreateForm(forms.Form):
                     "default_price_usd",
                 ):
                     self.fields[n].widget.attrs.setdefault("step", "0.0001")
+                if n in (
+                    "cost_syp",
+                    "cost_usd",
+                    "price_syp",
+                    "price_usd",
+                    "default_cost_syp",
+                    "default_cost_usd",
+                    "default_price_syp",
+                    "default_price_usd",
+                ):
+                    self.fields[n].widget.attrs.pop("min", None)
 
     # ---------- Hierarchy ----------
     collection_name = forms.CharField(label="اسم الزمرة", max_length=64)

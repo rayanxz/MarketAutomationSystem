@@ -163,6 +163,7 @@
   <form method="post"
         class="pn-wrap"
         autocomplete="off"
+        novalidate
         data-fx-rate="{{ fx_rate_syp_per_usd|default:'' }}"
         data-mode="{% if editing %}edit{% else %}create{% endif %}"
         data-product-id="{% if editing and product %}{{ product.id }}{% endif %}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import re
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -35,6 +36,21 @@ class ProductNewRenderSmokeTests(TestCase):
         resp = self.client.get(reverse("manager_product_new"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'class="pn-wrap"', html=False)
+
+    def test_create_mode_cost_price_inputs_do_not_render_native_min_constraints(self):
+        resp = self.client.get(reverse("manager_product_new"))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        for name in (
+            "default_cost_syp",
+            "default_cost_usd",
+            "default_price_syp",
+            "default_price_usd",
+        ):
+            self.assertIsNone(
+                re.search(rf'<input[^>]*name="{re.escape(name)}"[^>]*\\bmin=', html),
+                msg=f"{name} should not render a native min attribute",
+            )
 
     def test_edit_mode_without_history_renders(self):
         product = self._create_product("P-RENDER-NO-HIST")

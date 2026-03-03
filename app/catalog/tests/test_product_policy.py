@@ -116,6 +116,34 @@ class ProductPolicyTests(TestCase):
         prod.refresh_from_db()
         self.assertFalse(prod.is_active)
 
+    def test_create_rejects_negative_default_cost(self):
+        ProductCollection.objects.create(name="C")
+        ProductSet.objects.create(collection=ProductCollection.objects.get(name="C"), name="S")
+        resp = self.client.post(
+            reverse("manager_product_new"),
+            data={
+                "collection_name": "C",
+                "set_name": "S",
+                "create_parent": "",
+                "name": "NEG-COST",
+                "unit_primary": UnitType.PIECE,
+                "unit_secondary": "",
+                "allow_syp_sales": "on",
+                "allow_syp_purchasing": "on",
+                "allow_usd_sales": "",
+                "allow_usd_purchasing": "",
+                "default_purchase_currency": "SYP",
+                "default_sale_currency": "SYP",
+                "default_cost_syp": "-1.0000",
+                "default_cost_usd": "0.0000",
+                "default_price_syp": "2.0000",
+                "default_price_usd": "0.0000",
+                "notes": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("default_cost_syp", resp.context["form"].errors)
+
     def test_hard_delete_allowed_when_no_history_and_zero_stock(self):
         prod = self._create_product(collection_name="C1X", set_name="S1X", product_name="P1X")
         url = reverse("manager_product_hard_delete", kwargs={"pk": prod.id})
