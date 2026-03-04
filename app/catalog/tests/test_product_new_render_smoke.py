@@ -36,6 +36,11 @@ class ProductNewRenderSmokeTests(TestCase):
         resp = self.client.get(reverse("manager_product_new"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'class="pn-wrap"', html=False)
+        self.assertContains(resp, 'id="localIdentifierSearchInput"', html=False)
+        self.assertContains(resp, 'id="localIdentifierSearchButton"', html=False)
+        html = resp.content.decode("utf-8")
+        self.assertRegex(html, r'id="localIdentifierSearchInput"[^>]*\bdisabled\b')
+        self.assertRegex(html, r'id="localIdentifierSearchButton"[^>]*\bdisabled\b')
 
     def test_create_mode_cost_price_inputs_do_not_render_native_min_constraints(self):
         resp = self.client.get(reverse("manager_product_new"))
@@ -57,6 +62,9 @@ class ProductNewRenderSmokeTests(TestCase):
         resp = self.client.get(reverse("manager_product_edit", args=[product.id]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'class="pn-wrap"', html=False)
+        html = resp.content.decode("utf-8")
+        self.assertNotRegex(html, r'id="localIdentifierSearchInput"[^>]*\bdisabled\b')
+        self.assertNotRegex(html, r'id="localIdentifierSearchButton"[^>]*\bdisabled\b')
 
     def test_edit_mode_with_history_renders(self):
         product = self._create_product("P-RENDER-HIST")

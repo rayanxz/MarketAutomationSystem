@@ -18,6 +18,10 @@
   const pathPreviewEnabled = !!(pathEl && pathEl.dataset.pathLive === "1");
   const isEditMode = !!(pathEl && pathEl.dataset.mode === "edit");
   const createParentInput = document.querySelector('input[name="create_parent"]');
+  const localIdentifierSearchInput = document.getElementById("localIdentifierSearchInput");
+  const localIdentifierSearchButton = document.getElementById("localIdentifierSearchButton");
+  const localIdentifierSearchError = document.getElementById("localIdentifierSearchError");
+  const IDENTIFIER_INPUT_SELECTOR = 'input[name="unit_primary_ids[]"], input[name="unit_secondary_ids[]"], input[name="barcodes_u1[]"], input[name="barcodes_u2[]"]';
 
   function emitPathCommit() {
     if (!pathPreviewEnabled) return;
@@ -585,6 +589,36 @@
     highlightedIdentifierInput = match;
     match.classList.add("search-hit");
     bindIdentifierHighlightDismiss(match);
+  }
+
+  function clearLocalIdentifierHighlights() {
+    document.querySelectorAll(".local-identifier-hit").forEach((el) => {
+      el.classList.remove("local-identifier-hit");
+    });
+    if (localIdentifierSearchError) {
+      localIdentifierSearchError.hidden = true;
+    }
+  }
+
+  function runLocalIdentifierSearch() {
+    if (!isEditMode) return;
+    if (!localIdentifierSearchInput || !localIdentifierSearchButton) return;
+    if (localIdentifierSearchInput.disabled || localIdentifierSearchButton.disabled) return;
+
+    clearLocalIdentifierHighlights();
+    const query = normalizeText(localIdentifierSearchInput.value);
+    if (!query) return;
+
+    const matches = Array.from(document.querySelectorAll(IDENTIFIER_INPUT_SELECTOR)).filter((input) => {
+      if (!(input instanceof HTMLInputElement)) return false;
+      return normalizeText(input.value) === query;
+    });
+
+    if (!matches.length) {
+      if (localIdentifierSearchError) localIdentifierSearchError.hidden = false;
+      return;
+    }
+    matches.forEach((input) => input.classList.add("local-identifier-hit"));
   }
 
   function isLocked(el) {
@@ -1438,6 +1472,17 @@
       firstInvalid.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   });
+
+  if (localIdentifierSearchButton) {
+    localIdentifierSearchButton.addEventListener("click", runLocalIdentifierSearch);
+  }
+  if (localIdentifierSearchInput) {
+    localIdentifierSearchInput.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      runLocalIdentifierSearch();
+    });
+  }
 
   // ---- Single-unit UI rules ----
   const unitPrimary = document.querySelector('select[name="unit_primary"]');

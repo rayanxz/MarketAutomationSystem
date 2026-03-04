@@ -101,6 +101,11 @@
   .w-full{ width:100%; }
   .input.invalid{ border-color:#b42318; box-shadow:0 0 0 2px rgba(180,35,24,.08); }
   .input.search-hit:not(.invalid){ background:#dcfce7; border-color:#86efac; box-shadow:0 0 0 2px rgba(34,197,94,.12); }
+  .input.local-identifier-hit:not(.invalid){ background:#ecfdf3; border-color:#16a34a; box-shadow:0 0 0 2px rgba(22,163,74,.12); }
+  .identifier-local-search{ display:flex; direction:rtl; align-items:center; gap:8px; margin-bottom:10px; }
+  .identifier-local-search .input{ flex:1 1 auto; }
+  .identifier-local-search .btn-secondary{ white-space:nowrap; }
+  .section-separator{ border:0; border-top:1px solid #e5e7eb; margin:10px 0; }
 
   /* Disabled / readonly visual state */
   input:disabled, select:disabled, textarea:disabled, button:disabled,
@@ -347,6 +352,21 @@
         المعرّفات والباركود
         {% if editing %}<span class="muted">يمكن تعديل الحقول أدناه</span>{% endif %}
       </h3>
+      <hr class="section-separator">
+      <div class="identifier-local-search">
+        <input id="localIdentifierSearchInput"
+               class="input"
+               type="text"
+               inputmode="numeric"
+               placeholder="ابحث عن كود أو باركود داخل هذا المنتج"
+               {% if not editing %}disabled{% endif %}>
+        <button id="localIdentifierSearchButton"
+                type="button"
+                class="btn-secondary"
+                {% if not editing %}disabled{% endif %}>بحث</button>
+      </div>
+      <div id="localIdentifierSearchError" class="err" hidden>هذا المنتج لا يحتوي على القيمة المدخلة</div>
+      <hr class="section-separator">
 
       <!-- Unit IDs -->
       <div class="row-2">

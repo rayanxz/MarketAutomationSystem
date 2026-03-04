@@ -98,6 +98,8 @@
 
 - `delayed but comes in handy` : improve the way we display codes/barcodes in product_new page so it can display more elements , doesn't mess with page layout in case of 20+ elements 
 
+- fix the messed up texts for success message in collections/ father sets/ products list page.
+
 =================================================================================
 
 `delayed until the whole system is tested and fixed completely for abvious reasons`
