@@ -143,6 +143,21 @@
     }
   }
 
+  async function fetchCollectionsValidation(q) {
+    if (!q) return [];
+    const url = `/manager/products/api/ac/collections/?q=${encodeURIComponent(q)}`;
+    try {
+      const r = await fetch(url, {
+        headers: { "X-Requested-With": "fetch", "Accept": "application/json" }
+      });
+      if (!r.ok) return [];
+      const data = await r.json();
+      return data.items || [];
+    } catch {
+      return [];
+    }
+  }
+
   function pickCollection(item) {
     colInput.value = (item.name || "").trim();
     selectedCollection = { id: item.id, code: item.code || "", name: item.name || "" };
@@ -280,6 +295,21 @@
       return [];
     } finally {
       setAbort = null;
+    }
+  }
+
+  async function fetchSetsValidation(q, cid) {
+    if (!cid || !q) return [];
+    const url = `/manager/products/api/ac/sets/?q=${encodeURIComponent(q)}&cid=${encodeURIComponent(cid)}`;
+    try {
+      const r = await fetch(url, {
+        headers: { "X-Requested-With": "fetch", "Accept": "application/json" }
+      });
+      if (!r.ok) return [];
+      const data = await r.json();
+      return data.items || [];
+    } catch {
+      return [];
     }
   }
 
@@ -675,14 +705,14 @@
   async function exactCollectionByName(name) {
     const q = normalizeText(name);
     if (!q) return null;
-    const items = await fetchCollections(q);
+    const items = await fetchCollectionsValidation(q);
     return items.find((it) => normalizeText(it.name).toLowerCase() === q.toLowerCase()) || null;
   }
 
   async function exactSetByName(name, cid) {
     const q = normalizeText(name);
     if (!q || !cid) return null;
-    const items = await fetchSets(q, cid);
+    const items = await fetchSetsValidation(q, cid);
     return items.find((it) => normalizeText(it.name).toLowerCase() === q.toLowerCase()) || null;
   }
 
@@ -1132,7 +1162,9 @@
       case "barcodes_u1[]":
       case "barcodes_u2[]":
         validateRepeatedEntries();
-        await validateAllIdentifierRows();
+        if (target instanceof HTMLInputElement) {
+          await validateIdentifierRow(target);
+        }
         return !(target instanceof HTMLElement && target.classList.contains("invalid"));
       default:
         validateSyncFor(name, true);
@@ -1210,7 +1242,7 @@
       validateSyncFor(name, force);
       await validateAsyncFor(name, force);
       if (target && identifierKindForName(name)) {
-        await validateAllIdentifierRows();
+        await validateIdentifierRow(target);
       }
     };
     if (delay > 0) {

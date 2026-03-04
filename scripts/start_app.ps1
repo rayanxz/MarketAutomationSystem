@@ -1,4 +1,4 @@
-$env:DJANGO_SETTINGS_MODULE="marketpos.settings_prod"
+$env:DJANGO_SETTINGS_MODULE="marketpos.settings"
 & ..\.venv\Scripts\Activate.ps1
 python ..\app\manage.py collectstatic --noinput
 Start-Process -NoNewWindow python -ArgumentList "scripts\run_waitress.py"
