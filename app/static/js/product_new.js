@@ -1459,11 +1459,32 @@
 
   formEl?.addEventListener("submit", async (e) => {
     if (submittingValidatedForm) return;
+
+    const submitter = e.submitter;
+    const skipValidation = !!(submitter && submitter.hasAttribute("formnovalidate"));
+
+    if (skipValidation) {
+      // Let the browser submit natively so submitter-specific attributes
+      // (formaction/formmethod/...) are respected.
+      submittingValidatedForm = true;
+      return;
+    }
+
     e.preventDefault();
     const ok = await runClientValidation({ force: true });
     if (ok) {
       submittingValidatedForm = true;
-      formEl.submit();
+      if (typeof formEl.requestSubmit === "function") {
+        if (submitter) formEl.requestSubmit(submitter);
+        else formEl.requestSubmit();
+      } else {
+        // Fallback for old browsers: apply submitter action/method before submit().
+        const submitterAction = submitter && submitter.getAttribute("formaction");
+        const submitterMethod = submitter && submitter.getAttribute("formmethod");
+        if (submitterAction) formEl.setAttribute("action", submitterAction);
+        if (submitterMethod) formEl.setAttribute("method", submitterMethod);
+        formEl.submit();
+      }
       return;
     }
     const firstInvalid = firstInvalidFocusable();
