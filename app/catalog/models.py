@@ -12,7 +12,7 @@ from django.db.models.functions import Lower
 from core.currency import CURRENCY_CHOICES, SYP, USD
 
 # =========================
-#   Collections (Ø²ÙÙ…ÙŽØ±)
+#   Collections (الزمر)
 # =========================
 class ProductCollection(models.Model):
     """
@@ -40,7 +40,7 @@ class ProductCollection(models.Model):
             models.UniqueConstraint(
                 Lower("name"),
                 name="uq_collection_name_ci",
-                violation_error_message="Ø§Ø³Ù… Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø­Ø³Ø§Ø³ÙŠØ© ØºÙŠØ± Ù…ÙØ¹Ù„Ø©).",
+                violation_error_message="اسم الزمرة موجود مسبقًا (بدون حساسية لحالة الأحرف).",
             ),
         ]
         indexes = [
@@ -49,7 +49,7 @@ class ProductCollection(models.Model):
         ordering = ["name"]
 
     def __str__(self) -> str:
-        return f"{self.code} â€” {self.name}"
+        return f"{self.code} — {self.name}"
 
     def save(self, *args, **kwargs):
         # validate first
@@ -62,7 +62,7 @@ class ProductCollection(models.Model):
 
 
 # =========================
-#   Sets (Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ø§Ù„Ø£Ø¨)
+#   Sets (المجموعة الأب)
 # =========================
 class ProductSet(models.Model):
     collection = models.ForeignKey(
@@ -91,7 +91,7 @@ class ProductSet(models.Model):
         ordering = ["collection__name", "name"]
 
     def __str__(self):
-        return f"{self.code} â€” {self.name} ({self.collection.code})"
+        return f"{self.code} — {self.name} ({self.collection.code})"
 
     def save(self, *args, **kwargs):
         # validate first
@@ -197,7 +197,7 @@ class Product(models.Model):
             models.UniqueConstraint(
                 Lower("name"),
                 name="uq_product_name_ci_global",
-                violation_error_message="Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø¨Ø¯ÙˆÙ† Ø­Ø³Ø§Ø³ÙŠØ© Ø­Ø§Ù„Ø© Ø§Ù„Ø£Ø­Ø±Ù).",
+                violation_error_message="اسم المنتج موجود مسبقًا (بدون حساسية لحالة الأحرف).",
             ),
         ]
         indexes = [
@@ -207,7 +207,7 @@ class Product(models.Model):
         ordering = ["name"]
 
     def __str__(self):
-        return f"{self.id} â€” {self.name}"
+        return f"{self.id} — {self.name}"
 
     @property
     def is_single_unit(self) -> bool:
@@ -399,8 +399,8 @@ class Product(models.Model):
 # =========================
 class ProductUnitId(models.Model):
     class UnitIndex(models.IntegerChoices):
-        PRIMARY = 1, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰"
-        SECONDARY = 2, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©"
+        PRIMARY = 1, "الوحدة الأولى"
+        SECONDARY = 2, "الوحدة الثانية"
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="unit_ids")
     unit_index = models.IntegerField(choices=UnitIndex.choices)  # 1 or 2
@@ -423,7 +423,7 @@ class ProductUnitId(models.Model):
 
     def __str__(self):
         u = "U1" if self.unit_index == self.UnitIndex.PRIMARY else "U2"
-        return f"{self.value} ({u} â€” {self.product_id})"
+        return f"{self.value} ({u} — {self.product_id})"
 
 
 # =========================
@@ -431,8 +431,8 @@ class ProductUnitId(models.Model):
 # =========================
 class ProductBarcode(models.Model):
     class UnitIndex(models.IntegerChoices):
-        PRIMARY = 1, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰"
-        SECONDARY = 2, "Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©"
+        PRIMARY = 1, "الوحدة الأولى"
+        SECONDARY = 2, "الوحدة الثانية"
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="barcodes")
     unit_index = models.IntegerField(choices=UnitIndex.choices)  # 1 or 2
@@ -455,7 +455,7 @@ class ProductBarcode(models.Model):
 
     def __str__(self):
         u = "U1" if self.unit_index == self.UnitIndex.PRIMARY else "U2"
-        return f"{self.barcode} ({u} â€” {self.product_id})"
+        return f"{self.barcode} ({u} — {self.product_id})"
     
 
 

@@ -68,7 +68,7 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 Lower("name"),
                 name="uq_product_name_ci_global",
-                violation_error_message="Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø¨Ø¯ÙˆÙ† Ø­Ø³Ø§Ø³ÙŠØ© Ø­Ø§Ù„Ø© Ø§Ù„Ø£Ø­Ø±Ù).",
+                violation_error_message="اسم المنتج موجود مسبقًا (بدون حساسية لحالة الأحرف).",
             ),
         ),
         migrations.RemoveConstraint(

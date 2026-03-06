@@ -28,15 +28,15 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='productbarcode',
             name='unit_index',
-            field=models.IntegerField(choices=[(1, 'Ø§Ù„ÙˆØ\xadØ¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰'), (2, 'Ø§Ù„ÙˆØ\xadØ¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©')]),
+            field=models.IntegerField(choices=[(1, 'الوحدة الأولى'), (2, 'الوحدة الثانية')]),
         ),
         migrations.AlterField(
             model_name='productunitid',
             name='unit_index',
-            field=models.IntegerField(choices=[(1, 'Ø§Ù„ÙˆØ\xadØ¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰'), (2, 'Ø§Ù„ÙˆØ\xadØ¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©')]),
+            field=models.IntegerField(choices=[(1, 'الوحدة الأولى'), (2, 'الوحدة الثانية')]),
         ),
         migrations.AddConstraint(
             model_name='productcollection',
-            constraint=models.UniqueConstraint(django.db.models.functions.text.Lower('name'), name='uq_collection_name_ci', violation_error_message='Ø§Ø³Ù… Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø© Ù…ÙˆØ¬ÙˆØ¯ Ù…Ø³Ø¨Ù‚Ø§Ù‹ (Ø\xadØ³Ø§Ø³ÙŠØ© ØºÙŠØ± Ù…Ù\x81Ø¹Ù„Ø©).'),
+            constraint=models.UniqueConstraint(django.db.models.functions.text.Lower('name'), name='uq_collection_name_ci', violation_error_message='اسم الزمرة موجود مسبقًا (بدون حساسية لحالة الأحرف).'),
         ),
     ]

@@ -1154,12 +1154,12 @@ def manager_product_delete(request: HttpRequest, pk: int) -> HttpResponse:
             )
         except Exception:
             pass
-        messages.info(request, f"?? ????? ?????? ?{p_after.name}?.")
+        messages.info(request, f"تم تعطيل المنتج «{p_after.name}».")
         return redirect("manager_collections")
     except ProductDisableBlockedError:
         return redirect(f"{reverse('manager_product_edit', args=[p.id])}?delete_blocked=1")
     except Exception:
-        messages.error(request, "????? ??? ??????.")
+        messages.error(request, "حدث خطأ أثناء تعطيل المنتج.")
         return redirect("manager_collections")
 
 
@@ -1186,13 +1186,13 @@ def manager_product_reactivate(request: HttpRequest, pk: int) -> HttpResponse:
             )
         except Exception:
             pass
-        messages.success(request, f"?? ????? ????? ?????? ?{p_after.name}?.")
+        messages.success(request, f"تمت إعادة تفعيل المنتج «{p_after.name}».")
         return redirect("manager_collections")
     except IntegrityError:
-        messages.error(request, "????? ????? ????? ?????? ???? ????? ?? ?????????/????????.")
+        messages.error(request, "فشل في إعادة تفعيل المنتج بسبب تعارض في المعرّفات.")
         return redirect(f"{reverse('manager_product_edit', args=[p.id])}")
     except Exception:
-        messages.error(request, "????? ????? ????? ??????.")
+        messages.error(request, "حدث خطأ أثناء إعادة تفعيل المنتج.")
         return redirect("manager_collections")
 
 
@@ -1223,16 +1223,16 @@ def manager_product_hard_delete(request: HttpRequest, pk: int) -> HttpResponse:
             )
         except Exception:
             pass
-        messages.success(request, f"?? ????? ??????? ?????? ?{pname}?.")
+        messages.success(request, f"تم حذف المنتج نهائيًا «{pname}».")
         return redirect("manager_collections")
     except ProductHardDeleteBlockedError:
         messages.error(
             request,
-            "????? ??????? ??? ?????: ???? ?? ??? ???? ?????/????? ??? ?????? ??? ?? ?? ???????.",
+            "لا يمكن حذف المنتج لأنه يحتوي على حركات أو قيود مرتبطة.",
         )
         return redirect(f"{reverse('manager_product_edit', args=[pk])}")
     except Exception:
-        messages.error(request, "????? ????? ??????? ??????.")
+        messages.error(request, "حدث خطأ أثناء حذف المنتج.")
         return redirect("manager_collections")
 
 
