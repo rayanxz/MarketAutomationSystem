@@ -5,7 +5,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from billing.models import Provider
-from audit_log.services import log_create, log_delete, snap_instance
+from audit_log.services import (
+    log_create_safe as log_create,
+    log_delete_safe as log_delete,
+    snap_instance,
+)
 
 
 @transaction.atomic

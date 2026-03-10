@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import secrets
+from django.core.exceptions import ImproperlyConfigured
 
 # ---- Paths
 BASE_DIR = Path(__file__).resolve().parent.parent        # C:\MarketAutomationSystem\app
@@ -10,8 +13,25 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)              # ensure folder exists
 DB_PATH = DATA_DIR / "pos.db"
 
 # ---- Core
-SECRET_KEY = "dev-only-change-before-shipping"
-DEBUG = True
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+DEBUG = _env_bool("DJANGO_DEBUG", default=True)
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG:
+        # Development fallback only; production must provide DJANGO_SECRET_KEY.
+        SECRET_KEY = f"dev-{secrets.token_urlsafe(48)}"
+    else:
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY is required when DEBUG is disabled."
+        )
+
 ALLOWED_HOSTS = ["127.0.0.1", "localhost" , "testserver"]
 
 # ---- Apps

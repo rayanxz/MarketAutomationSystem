@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_POST, require_GET
@@ -20,6 +19,9 @@ from financials.models import MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from inventory.models import q3, q4, DEC0
 from . import services as POSSV
+from accounts.decorators import role_required_api
+from accounts.models import AccountProfile
+from accounts.utils import has_role
 
 from audit_log import services as AuditSV
 from audit_log.models import AuditAction
@@ -29,6 +31,14 @@ def _parse_decimal(x):
         return Decimal(str(x or "0"))
     except Exception:
         return Decimal("0")
+
+
+def _q_money(currency_code: str, amount: Decimal) -> Decimal:
+    return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or SYP).upper())
+
+
+def _q_fx(value: Decimal) -> Decimal:
+    return FinSV.q_fx(Decimal(value))
 
 
 def _calc_row_total(*, product: Product, row: dict) -> Decimal:
@@ -69,12 +79,12 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
 
     cp = POSSV._ensure_customer_counterparty(customer=bill.customer)
 
-    fx_rate = bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd()
-    total_syp = q3(bill.total_syp or DEC0)
-    total_usd = q3(bill.total_usd or DEC0)
+    fx_rate = FinSV.q_fx(bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
+    total_syp = _q_money(SYP, bill.total_syp or DEC0)
+    total_usd = _q_money(USD, bill.total_usd or DEC0)
 
     mode = bill.settlement_mode or SalesBill.SETTLE_SPLIT
-    paid_amount = q3(bill.paid_amount or DEC0)
+    paid_amount = _q_money(SYP if mode != SalesBill.SETTLE_ALL_USD else USD, bill.paid_amount or DEC0)
 
     receipt = (
         Receipt.objects.filter(
@@ -88,8 +98,8 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
     )
 
     if mode == SalesBill.SETTLE_ALL_SYP:
-        total = q3(total_syp + (total_usd * fx_rate))
-        paid = paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0
+        total = _q_money(SYP, total_syp + (total_usd * fx_rate))
+        paid = _q_money(SYP, paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0)
         entry = DebtSV.create_debtor_entry(
             provider=None,
             total=total,
@@ -107,7 +117,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
                 actor=actor,
                 counterparty_id=cp.id,
                 currency_code=SYP,
-                amount_signed=+q3(total),
+                amount_signed=+entry.total,
                 fx_syp_per_usd=fx_rate,
                 note=f"POS customer debt #{bill.id} (SYP)",
                 source_app="pos",
@@ -118,7 +128,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
             if not DebtorPayment.objects.filter(entry=entry, receipt=receipt).exists():
                 DebtorPayment.objects.create(
                     entry=entry,
-                    amount=paid,
+                    amount=_q_money(SYP, paid),
                     currency_code=SYP,
                     receipt=receipt,
                     money_container=bill.money_container,
@@ -127,8 +137,8 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
         return
 
     if mode == SalesBill.SETTLE_ALL_USD:
-        total = q3(total_usd + (total_syp / fx_rate))
-        paid = paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0
+        total = _q_money(USD, total_usd + (total_syp / fx_rate))
+        paid = _q_money(USD, paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0)
         entry = DebtSV.create_debtor_entry(
             provider=None,
             total=total,
@@ -146,7 +156,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
                 actor=actor,
                 counterparty_id=cp.id,
                 currency_code=USD,
-                amount_signed=+q3(total),
+                amount_signed=+entry.total,
                 fx_syp_per_usd=fx_rate,
                 note=f"POS customer debt #{bill.id} (USD)",
                 source_app="pos",
@@ -157,7 +167,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
             if not DebtorPayment.objects.filter(entry=entry, receipt=receipt).exists():
                 DebtorPayment.objects.create(
                     entry=entry,
-                    amount=paid,
+                    amount=_q_money(USD, paid),
                     currency_code=USD,
                     receipt=receipt,
                     money_container=bill.money_container,
@@ -166,7 +176,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
         return
 
     # split (SYP + USD)
-    paid_syp = paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0
+    paid_syp = _q_money(SYP, paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0)
     paid_usd = DEC0
 
     entry_syp = None
@@ -188,7 +198,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
             actor=actor,
             counterparty_id=cp.id,
             currency_code=SYP,
-            amount_signed=+q3(total_syp),
+            amount_signed=+entry_syp.total,
             fx_syp_per_usd=fx_rate,
             note=f"POS customer debt #{bill.id} (SYP)",
             source_app="pos",
@@ -212,7 +222,7 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
             actor=actor,
             counterparty_id=cp.id,
             currency_code=USD,
-            amount_signed=+q3(total_usd),
+            amount_signed=+entry_usd.total,
             fx_syp_per_usd=fx_rate,
             note=f"POS customer debt #{bill.id} (USD)",
             source_app="pos",
@@ -224,14 +234,14 @@ def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
         if not DebtorPayment.objects.filter(entry=entry_syp, receipt=receipt).exists():
             DebtorPayment.objects.create(
                 entry=entry_syp,
-                amount=paid_syp,
+                amount=_q_money(SYP, paid_syp),
                 currency_code=SYP,
                 receipt=receipt,
                 money_container=bill.money_container,
                 fx_syp_per_usd_used=fx_rate,
             )
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_POST
 def api_bill_save(request: HttpRequest):
     """
@@ -262,8 +272,8 @@ def api_bill_save(request: HttpRequest):
         if shift_id:
             try:
                 shift_obj = PosShift.objects.get(pk=int(shift_id))
-                # small safety: only owner or superuser can bind to this shift
-                if shift_obj.user_id == request.user.id or request.user.is_superuser:
+                # user can bind own shift; manager/owner can bind any shift.
+                if shift_obj.user_id == request.user.id or has_role(request.user, AccountProfile.Role.MANAGER):
                     shift = shift_obj
             except (ValueError, PosShift.DoesNotExist):
                 shift = None
@@ -335,9 +345,9 @@ def api_bill_save(request: HttpRequest):
 
             row_total = _calc_row_total(product=product, row=r)
             if row_currency == USD:
-                total_usd = q3(total_usd + row_total)
+                total_usd = _q_money(USD, total_usd + row_total)
             else:
-                total_syp = q3(total_syp + row_total)
+                total_syp = _q_money(SYP, total_syp + row_total)
 
             row_copy = dict(r)
             row_copy["currency"] = row_currency
@@ -348,6 +358,7 @@ def api_bill_save(request: HttpRequest):
         fx_rate = None
         try:
             fx_rate = FinSV.get_current_fx_syp_per_usd()
+            fx_rate = _q_fx(fx_rate)
         except Exception:
             fx_rate = None
 
@@ -357,16 +368,21 @@ def api_bill_save(request: HttpRequest):
         if settlement_mode == SalesBill.SETTLE_ALL_SYP:
             if fx_rate is None:
                 return JsonResponse({"ok": False, "error": "FX_REQUIRED"}, status=400)
-            settlement_total = q3(total_syp + (total_usd * fx_rate))
+            settlement_total = _q_money(SYP, total_syp + (total_usd * fx_rate))
             settlement_currency = SYP
+            partial_validation_limit = settlement_total
         elif settlement_mode == SalesBill.SETTLE_ALL_USD:
             if fx_rate is None:
                 return JsonResponse({"ok": False, "error": "FX_REQUIRED"}, status=400)
-            settlement_total = q3(total_usd + (total_syp / fx_rate))
+            settlement_total = _q_money(USD, total_usd + (total_syp / fx_rate))
             settlement_currency = USD
+            partial_validation_limit = settlement_total
         else:
-            settlement_total = q3(total_syp + total_usd)
+            # Legacy compatibility for split mode: keep aggregate field in SYP scale.
+            settlement_total = _q_money(SYP, total_syp + total_usd)
             settlement_currency = None
+            # In split mode, the single partial `paid_amount` input is treated as SYP cash only.
+            partial_validation_limit = _q_money(SYP, total_syp)
 
         container = None
         if money_container_id:
@@ -378,7 +394,7 @@ def api_bill_save(request: HttpRequest):
             if not container.features.filter(code="pos_sales", is_active=True).exists():
                 return JsonResponse({"ok": False, "error": "CONTAINER_NOT_POS"}, status=400)
 
-            if not (request.user.is_superuser or request.user.is_staff):
+            if not has_role(request.user, AccountProfile.Role.MANAGER):
                 if container.allowed_users.exists() and not container.allowed_users.filter(pk=request.user.pk).exists():
                     return JsonResponse({"ok": False, "error": "CONTAINER_FORBIDDEN"}, status=403)
 
@@ -404,9 +420,13 @@ def api_bill_save(request: HttpRequest):
         elif pay_status == SalesBill.PAY_NONE:
             paid_amount = DEC0
         else:
+            pay_cur = USD if settlement_mode == SalesBill.SETTLE_ALL_USD else SYP
+            paid_amount = _q_money(pay_cur, paid_amount)
             if paid_amount <= 0:
                 return JsonResponse({"ok": False, "error": "PAID_AMOUNT_REQUIRED"}, status=400)
-            if paid_amount >= settlement_total:
+            if settlement_mode == SalesBill.SETTLE_SPLIT and partial_validation_limit <= 0:
+                return JsonResponse({"ok": False, "error": "SPLIT_PARTIAL_REQUIRES_SYP_AMOUNT"}, status=400)
+            if paid_amount >= partial_validation_limit:
                 return JsonResponse({"ok": False, "error": "PAID_AMOUNT_TOO_HIGH"}, status=400)
 
         total_amount = settlement_total
@@ -451,7 +471,7 @@ def api_bill_save(request: HttpRequest):
 
             # Ownership / permissions (POS-level only for now)
             # Cashier can only edit their own bills; superuser can edit any
-            if bill.cashier and bill.cashier != request.user and not request.user.is_superuser:
+            if bill.cashier and bill.cashier != request.user and not has_role(request.user, AccountProfile.Role.MANAGER):
                 return JsonResponse(
                     {"ok": False, "error": "PERMISSION_DENIED"},
                     status=403,
@@ -634,13 +654,14 @@ def api_bill_save(request: HttpRequest):
                 },
             }
 
-            transaction.on_commit(lambda: AuditSV.log_event(
+            transaction.on_commit(lambda: AuditSV.log_event_safe(
                 action=AuditAction.INFO,
                 actor=request.user,
                 request=request,
                 target=bill,
                 title=title,
                 message=title,
+                source="pos.api_bill_save",
                 meta=meta,
             ))
 
@@ -666,7 +687,7 @@ def api_bill_save(request: HttpRequest):
         })
 
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_bills_today(request: HttpRequest):
     """
@@ -684,7 +705,7 @@ def api_bills_today(request: HttpRequest):
     qs = SalesBill.objects.filter(created_at__date=today, is_deleted=False)
 
     # scope by cashier
-    if not request.user.is_superuser:
+    if not has_role(request.user, AccountProfile.Role.MANAGER):
         qs = qs.filter(cashier=request.user)
 
     q = request.GET.get("q", "").strip()
@@ -712,7 +733,7 @@ def api_bills_today(request: HttpRequest):
     return JsonResponse({"ok": True, "bills": bills})
 
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_bill_detail(request: HttpRequest, bill_id: int):
     """
@@ -731,11 +752,12 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
     # permissions:
     # - superuser OR staff can view any bill
     # - normal user can view only their own bills
-    if not (request.user.is_superuser or request.user.is_staff):
+    is_manager = has_role(request.user, AccountProfile.Role.MANAGER)
+    if not is_manager:
         if bill.cashier and bill.cashier != request.user:
             return JsonResponse({"ok": False, "error": "PERMISSION_DENIED"}, status=403)
 
-    if bill.is_deleted and not (request.user.is_superuser or request.user.is_staff):
+    if bill.is_deleted and not is_manager:
         return JsonResponse({"ok": False, "error": "NOT_FOUND"}, status=404)
 
     rows = []
@@ -776,7 +798,7 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
 
 
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_customers_search(request: HttpRequest):
     """
@@ -801,7 +823,7 @@ def api_customers_search(request: HttpRequest):
     return JsonResponse({"ok": True, "hits": hits})
 
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_POST
 def api_bill_delete(request, pk: int):
     """
@@ -825,7 +847,7 @@ def api_bill_delete(request, pk: int):
         )
 
     # ownership / permissions
-    if bill.cashier and bill.cashier != request.user and not request.user.is_superuser:
+    if bill.cashier and bill.cashier != request.user and not has_role(request.user, AccountProfile.Role.MANAGER):
         return JsonResponse(
             {"ok": False, "error": "PERMISSION_DENIED"},
             status=403,
@@ -852,13 +874,14 @@ def api_bill_delete(request, pk: int):
         }
 
 
-        transaction.on_commit(lambda: AuditSV.log_event(
+        transaction.on_commit(lambda: AuditSV.log_event_safe(
             action=AuditAction.INFO,
             actor=request.user,
             request=request,
             target=bill,
             title="POS bill deleted (parked)",
             message="POS bill deleted (parked)",
+            source="pos.api_bill_delete",
             meta=meta,
         ))
 

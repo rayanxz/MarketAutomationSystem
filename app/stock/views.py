@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.db.models import Q
 from django.views.decorators.http import require_GET
+from accounts.decorators import role_required
+from accounts.models import AccountProfile
 
 from catalog.models import Product
 from stock.models import ProductContainer, StockEntry, StockFifoLayer, DEC0
@@ -37,7 +38,7 @@ def _fmt_decimal(x: Decimal | None) -> str:
     return format(q.normalize(), "f")  # normalize() removes trailing zeros/dot
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def stock_list(request: HttpRequest) -> HttpResponse:
     """
     Stock list per container, grouped by:
@@ -289,7 +290,7 @@ def stock_list(request: HttpRequest) -> HttpResponse:
 
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def stock_move(request: HttpRequest) -> HttpResponse:
     """
     Move one or more *batches* of products between two containers.
@@ -448,7 +449,7 @@ def stock_move(request: HttpRequest) -> HttpResponse:
                         })
 
                     # ✅ One audit log for the whole transfer operation
-                    AuditSV.log_event(
+                    AuditSV.log_event_safe(
                         action=AuditAction.INFO,
                         actor=request.user,
                         request=request,
@@ -456,6 +457,7 @@ def stock_move(request: HttpRequest) -> HttpResponse:
                         message=(
                             f"Transfer {len(valid_rows)} rows from {from_container.code} to {to_container.code}"
                         ),
+                        source="stock.stock_move",
                         meta={
                             "kind": "stock.container_transfer",
                             "ref": ref,
@@ -497,7 +499,7 @@ def stock_move(request: HttpRequest) -> HttpResponse:
 
 # ========= AJAX APIs for move page =========
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 @require_GET
 def api_stock_product_search(request: HttpRequest) -> HttpResponse:
     """
@@ -555,7 +557,7 @@ def api_stock_product_search(request: HttpRequest) -> HttpResponse:
     return JsonResponse({"results": results})
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 @require_GET
 def api_product_stock(request: HttpRequest) -> HttpResponse:
     """
@@ -599,7 +601,7 @@ def api_product_stock(request: HttpRequest) -> HttpResponse:
     )
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 @require_GET
 def api_product_batches(request: HttpRequest) -> HttpResponse:
     """

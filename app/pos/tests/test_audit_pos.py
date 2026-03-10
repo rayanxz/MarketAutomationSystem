@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
 from django.urls import reverse
 
+from accounts.models import AccountProfile
 from audit_log.models import AuditLog
 from pos.models import SalesBill, PosShift
 from financials.models import MoneyContainer, MoneyContainerCurrency, ContainerFeature, Currency
@@ -22,6 +23,7 @@ class PosAuditTests(TransactionTestCase):
             username="cashier1",
             password="pw12345",
         )
+        AccountProfile.objects.create(user=self.user, role=AccountProfile.Role.CASHIER)
         self.client.login(username="cashier1", password="pw12345")
 
         self.url_bill_save   = reverse("pos:api_bill_save")

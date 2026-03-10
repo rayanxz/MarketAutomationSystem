@@ -8,6 +8,8 @@ from billing.models import Provider, Bill, ProviderReturn
 
 
 def provider_row(p: Provider) -> Dict[str, Any]:
+    total_syp = getattr(p, "total_debt_syp", Decimal("0")) or Decimal("0")
+    total_usd = getattr(p, "total_debt_usd", Decimal("0")) or Decimal("0")
     return {
         "id": p.id,
         "name": p.name,
@@ -15,7 +17,12 @@ def provider_row(p: Provider) -> Dict[str, Any]:
         "is_active": bool(getattr(p, "is_active", True)),
         "bills_count": int(getattr(p, "bills_count", 0) or 0),
         "unpaid_bills_count": int(getattr(p, "unpaid_bills_count", 0) or 0),
-        "total_debt": str(getattr(p, "total_debt", Decimal("0")) or 0),
+        "debt_totals": {
+            "SYP": str(total_syp),
+            "USD": str(total_usd),
+        },
+        # Kept for compatibility with older consumers. Do not treat as authoritative.
+        "total_debt": str(total_syp),
     }
 
 def bill_row(b: Bill) -> Dict[str, Any]:

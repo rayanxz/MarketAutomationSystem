@@ -187,7 +187,25 @@ class Counterparty(models.Model):
             models.Index(fields=["customer"]),
         ]
         ordering = ["type", "name"]
-        unique_together = [("type", "name")]
+        constraints = [
+            # Linked counterparties are identified by stable FK identity, not display name.
+            models.UniqueConstraint(
+                fields=["type", "provider"],
+                condition=Q(provider__isnull=False),
+                name="fin_cp_uq_type_provider",
+            ),
+            models.UniqueConstraint(
+                fields=["type", "customer"],
+                condition=Q(customer__isnull=False),
+                name="fin_cp_uq_type_customer",
+            ),
+            # Keep deterministic uniqueness for unlinked/manual counterparties.
+            models.UniqueConstraint(
+                fields=["type", "name"],
+                condition=Q(provider__isnull=True, customer__isnull=True),
+                name="fin_cp_uq_type_name_unlinked",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.type}:{self.name}"

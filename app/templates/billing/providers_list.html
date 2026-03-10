@@ -153,6 +153,12 @@
   let cursor = null, busy = false, done = false;
 
   function nf(x){ const n=Number(x); return Number.isFinite(n)? new Intl.NumberFormat().format(n): x; }
+  function debtLabel(p){
+    const totals = p.debt_totals || {};
+    const syp = nf(totals.SYP || "0");
+    const usd = nf(totals.USD || "0");
+    return `SYP: ${syp} | USD: ${usd}`;
+  }
   function qs(obj){ const p=new URLSearchParams(obj); return p.toString(); }
 
   function params(reset=false) {
@@ -164,7 +170,7 @@
   }
 
   function rowHtml(p){
-    const debt = nf(p.total_debt);
+    const debt = debtLabel(p);
     const billsUrl = "{% url 'billing_list' %}" + "?q=" + encodeURIComponent(p.name);
     return `
       <tr data-id="${p.id}" data-name="${p.name}">

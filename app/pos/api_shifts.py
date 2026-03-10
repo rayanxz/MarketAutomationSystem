@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 
-from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpRequest
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -11,12 +10,15 @@ from django.db import transaction
 
 from .models import PosShift
 from . import services as POSSV
+from accounts.decorators import role_required_api
+from accounts.models import AccountProfile
+from accounts.utils import has_role
 
 from audit_log import services as AuditSV
 from audit_log.models import AuditAction
 
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_POST
 def api_shift_start(request: HttpRequest):
     """
@@ -60,13 +62,14 @@ def api_shift_start(request: HttpRequest):
                     "started_at": shift.started_at.isoformat() if shift.started_at else "",
                 },
             }
-            transaction.on_commit(lambda: AuditSV.log_event(
+            transaction.on_commit(lambda: AuditSV.log_event_safe(
                 action=AuditAction.INFO,
                 actor=request.user,
                 request=request,
                 target=shift,
                 title="POS shift started",
                 message="POS shift started",
+                source="pos.api_shift_start",
                 meta=meta,
             ))
 
@@ -79,7 +82,7 @@ def api_shift_start(request: HttpRequest):
     })
 
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_POST
 def api_shift_end(request: HttpRequest):
     """
@@ -102,7 +105,7 @@ def api_shift_end(request: HttpRequest):
             return JsonResponse({"ok": False, "error": "NOT_FOUND"}, status=404)
 
         # Only the owner or superuser can end a shift
-        if shift.user_id and shift.user_id != request.user.id and not request.user.is_superuser:
+        if shift.user_id and shift.user_id != request.user.id and not has_role(request.user, AccountProfile.Role.MANAGER):
             return JsonResponse({"ok": False, "error": "PERMISSION_DENIED"}, status=403)
 
         ended_now = False
@@ -123,13 +126,14 @@ def api_shift_end(request: HttpRequest):
                     "ended_at": shift.ended_at.isoformat() if shift.ended_at else "",
                 },
             }
-            transaction.on_commit(lambda: AuditSV.log_event(
+            transaction.on_commit(lambda: AuditSV.log_event_safe(
                 action=AuditAction.INFO,
                 actor=request.user,
                 request=request,
                 target=shift,
                 title="POS shift ended",
                 message="POS shift ended",
+                source="pos.api_shift_end",
                 meta=meta,
             ))
 

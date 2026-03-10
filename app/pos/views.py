@@ -5,12 +5,10 @@ from datetime import date, timedelta, time as dt_time
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.decorators import login_required
 from django.db.models import Sum, Count, Q, Max, F
 from django.http import (
     HttpRequest,
     HttpResponse,
-    HttpResponseForbidden,
     JsonResponse,
 )
 from django.shortcuts import render , get_object_or_404
@@ -18,6 +16,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 from django.template.loader import render_to_string
 
+from accounts.decorators import role_required
+from accounts.models import AccountProfile
+from accounts.utils import has_role
 from .models import PosDay, PosShift, PosLoginSession, SalesBill, CustomerProfile, SalesReturn
 from debts.models import DebtorDebt, PartyType
 
@@ -194,7 +195,7 @@ def build_timeline_events_for_day(
 # ============================================================
 # Cashier POS screen
 # ============================================================
-@login_required
+@role_required(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 def pos_screen(request: HttpRequest) -> HttpResponse:
     user = request.user
 
@@ -205,7 +206,7 @@ def pos_screen(request: HttpRequest) -> HttpResponse:
         .order_by("name")
     )
 
-    if not (user.is_superuser or user.is_staff):
+    if not has_role(user, AccountProfile.Role.MANAGER):
         containers_qs = (
             containers_qs
             .filter(Q(allowed_users__isnull=True) | Q(allowed_users=user))
@@ -242,12 +243,8 @@ def pos_screen(request: HttpRequest) -> HttpResponse:
 # ============================================================
 # Manager POS overview (FULL PAGE)
 # ============================================================
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def pos_manager_overview(request: HttpRequest) -> HttpResponse:
-    user = request.user
-    if not (user.is_superuser or user.is_staff):
-        return HttpResponseForbidden("غير مسموح لك.")
-
     today = timezone.localdate()
 
     def parse_date(s, default):
@@ -332,12 +329,8 @@ def pos_manager_overview(request: HttpRequest) -> HttpResponse:
 # ============================================================
 # Manager: Customer profiles (POS)
 # ============================================================
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def pos_manager_customers(request: HttpRequest) -> HttpResponse:
-    user = request.user
-    if not (user.is_superuser or user.is_staff):
-        return HttpResponseForbidden("Forbidden.")
-
     q = (request.GET.get("q") or "").strip()
     only_active = (request.GET.get("active") or "").strip() == "1"
     only_debt = (request.GET.get("debt_only") or "").strip() == "1"
@@ -404,12 +397,8 @@ def pos_manager_customers(request: HttpRequest) -> HttpResponse:
 # ============================================================
 # Manager: Customer debts (POS)
 # ============================================================
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def pos_manager_customer_debts(request: HttpRequest) -> HttpResponse:
-    user = request.user
-    if not (user.is_superuser or user.is_staff):
-        return HttpResponseForbidden("Forbidden.")
-
     q = (request.GET.get("q") or "").strip()
     status = (request.GET.get("status") or "").strip().lower()
     currency = (request.GET.get("currency") or "").strip().upper()
@@ -484,13 +473,9 @@ def pos_manager_customer_debts(request: HttpRequest) -> HttpResponse:
 # ============================================================
 # AJAX: timeline chunk loader
 # ============================================================
+@role_required(AccountProfile.Role.MANAGER)
 @require_GET
-@login_required
 def pos_manager_overview_timeline(request: HttpRequest):
-    user = request.user
-    if not (user.is_superuser or user.is_staff):
-        return JsonResponse({"ok": False, "error": "FORBIDDEN"}, status=403)
-
     try:
         day = PosDay.objects.get(pk=int(request.GET.get("day")))
     except Exception:
@@ -526,12 +511,8 @@ def pos_manager_overview_timeline(request: HttpRequest):
     })
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
-    user = request.user
-    if not (user.is_superuser or user.is_staff):
-        return HttpResponseForbidden("Forbidden.")
-
     bill = get_object_or_404(
         SalesBill.objects
         .select_related("cashier", "shift", "login_session", "work_day", "customer")

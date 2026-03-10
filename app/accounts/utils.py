@@ -21,6 +21,41 @@ def role_for(user) -> Optional[str]:
     return profile.role
 
 
+def has_role(
+    user,
+    *roles: str,
+    allow_owner: bool = True,
+    allow_staff_fallback: bool = True,
+) -> bool:
+    """
+    Authoritative authorization helper:
+    - Primary: AccountProfile role.
+    - Compatibility fallback: Django superuser/staff when profile is missing.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+
+    effective_roles = tuple(roles) if roles else (
+        AccountProfile.Role.OWNER,
+        AccountProfile.Role.MANAGER,
+        AccountProfile.Role.CASHIER,
+    )
+
+    profile = profile_for(user)
+    if profile is not None:
+        return profile.has_any_role(effective_roles, allow_owner=allow_owner)
+
+    if getattr(user, "is_superuser", False):
+        return True
+
+    if allow_staff_fallback and getattr(user, "is_staff", False):
+        # Legacy compatibility path: staff is treated as managerial/operator access.
+        if AccountProfile.Role.MANAGER in effective_roles or AccountProfile.Role.CASHIER in effective_roles:
+            return True
+
+    return False
+
+
 def is_owner(user) -> bool:
     profile = profile_for(user)
     return bool(profile and profile.role == AccountProfile.Role.OWNER)

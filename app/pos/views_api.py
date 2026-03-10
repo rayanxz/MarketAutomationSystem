@@ -2,11 +2,12 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
-from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_GET
 
 from catalog.models import Product, ProductBarcode, ProductUnitId, UnitType
+from accounts.decorators import role_required_api
+from accounts.models import AccountProfile
 
 def unit_label(code: str) -> str:
     return dict(UnitType.choices).get(code, code)
@@ -38,7 +39,7 @@ def product_payload(p: Product) -> Dict[str, Any]:
         data["units"]["conversion_factor"] = str(p.conversion_factor or Decimal("0"))
     return data
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_barcode_lookup(request: HttpRequest, value: str):
     bc = (
@@ -54,7 +55,7 @@ def api_barcode_lookup(request: HttpRequest, value: str):
     payload["matched_unit_index"] = 1 if p.is_single_unit else int(bc.unit_index)  # 1 or 2
     return JsonResponse({"ok": True, "product": payload})
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_search_name(request: HttpRequest):
     q = (request.GET.get("q") or "").strip()
@@ -65,7 +66,7 @@ def api_search_name(request: HttpRequest):
     hits = [{"id": p.id, "name": p.name, "number": str(p.id)} for p in qs]
     return JsonResponse({"ok": True, "hits": hits})
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_lookup_code(request: HttpRequest, value: str):
     uid = (
@@ -81,7 +82,7 @@ def api_lookup_code(request: HttpRequest, value: str):
     payload["matched_unit_index"] = 1 if p.is_single_unit else int(uid.unit_index)  # 1 or 2
     return JsonResponse({"ok": True, "product": payload})
 
-@login_required
+@role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
 def api_lookup_id(request: HttpRequest, pk: int):
     try:

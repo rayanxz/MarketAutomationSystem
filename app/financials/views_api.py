@@ -12,7 +12,6 @@ from accounts.models import AccountProfile
 from financials.models import MoneyContainer
 from financials import services as FSV
 from financials import manual_events as ManualSV
-from inventory.models import q3, DEC0
 
 
 @require_GET
@@ -45,9 +44,9 @@ def manual_event(request: HttpRequest) -> JsonResponse:
 
     def _dec(val):
         try:
-            return q3(Decimal(str(val or "0")))
+            return Decimal(str(val or "0").replace(",", "."))
         except Exception:
-            return DEC0
+            return Decimal("0")
 
     amount = _dec(request.POST.get("amount"))
     if amount <= 0:
@@ -82,11 +81,14 @@ def manual_event(request: HttpRequest) -> JsonResponse:
             )
         elif action == "exchange":
             fx_val = None
-            if fx_raw not in (None, "", "0"):
+            fx_provided = fx_raw not in (None, "")
+            if fx_provided:
                 try:
-                    fx_val = q3(fx_raw)
+                    fx_val = FSV.q_fx(Decimal(str(fx_raw).replace(",", ".")))
                 except Exception:
-                    fx_val = None
+                    return JsonResponse({"ok": False, "error": "INVALID_FX_RATE"}, status=400)
+                if fx_val <= 0:
+                    return JsonResponse({"ok": False, "error": "INVALID_FX_RATE"}, status=400)
             receipt = ManualSV.post_manual_exchange(
                 actor=request.user,
                 from_container_id=int(from_id),

@@ -23,7 +23,7 @@ from stock import services as StockSV
 from stock.models import ProductContainer
 
 from catalog.io_records import CatalogDataJob
-from audit_log.services import log_create
+from audit_log.services import log_create_safe as log_create
 
 
 # ========= infra =========

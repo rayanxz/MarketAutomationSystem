@@ -10,9 +10,10 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import AccountProfile
+from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import DebtorDebt
+from debts.models import DebtorDebt, DebtorPayment
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from inventory.models import ProductMovement, DEC0, q3
@@ -223,11 +224,13 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
             source_app="billing",
             source_model="Bill",
             source_id=str(bill.id),
+            currency_code="SYP",
         )
         usd_entry = DebtorDebt.objects.get(
             source_app="billing",
             source_model="Bill",
-            source_id=f"{bill.id}:USD",
+            source_id=str(bill.id),
+            currency_code="USD",
         )
         self.assertEqual(q3(syp_entry.total), q3(bill.total_syp))
         self.assertEqual(q3(usd_entry.total), q3(bill.total_usd))
@@ -262,5 +265,99 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         usd_entry.refresh_from_db()
         self.assertEqual(q3(syp_entry.remaining), DEC0)
         self.assertEqual(q3(usd_entry.remaining), DEC0)
+
+    def test_syp_partial_payment_uses_currency_precision(self):
+        prod = self._create_product(
+            name="SYP precision",
+            allow_syp=True,
+            allow_usd=False,
+            default_currency=None,
+            cost="2.4",
+            price="3",
+        )
+
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("1.4"),
+            items=[
+                {
+                    "product_id": prod.id,
+                    "unit_index": 1,
+                    "qty_raw": "1",
+                    "cost": "2.4",
+                    "currency": "SYP",
+                }
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+        )
+
+        self.assertEqual(bill.total_syp, Decimal("2"))
+
+        entry = DebtorDebt.objects.get(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            currency_code="SYP",
+        )
+        self.assertEqual(entry.total, Decimal("2"))
+        self.assertEqual(entry.paid_amount, Decimal("1"))
+        self.assertEqual(entry.remaining, Decimal("1"))
+
+        payment = DebtorPayment.objects.get(entry=entry)
+        self.assertEqual(payment.amount, Decimal("1"))
+
+        bal = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(bal.get("SYP"), Decimal("-1"))
+
+    def test_usd_partial_payment_uses_currency_precision(self):
+        prod = self._create_product(
+            name="USD precision",
+            allow_syp=False,
+            allow_usd=True,
+            default_currency=None,
+            cost="1.005",
+            price="2",
+        )
+
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("0.335"),
+            items=[
+                {
+                    "product_id": prod.id,
+                    "unit_index": 1,
+                    "qty_raw": "3",
+                    "cost": "1.005",
+                    "currency": "USD",
+                }
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="USD",
+        )
+
+        self.assertEqual(bill.total_usd, Decimal("3.02"))
+
+        entry = DebtorDebt.objects.get(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            currency_code="USD",
+        )
+        self.assertEqual(entry.total, Decimal("3.02"))
+        self.assertEqual(entry.paid_amount, Decimal("0.34"))
+        self.assertEqual(entry.remaining, Decimal("2.68"))
+
+        payment = DebtorPayment.objects.get(entry=entry)
+        self.assertEqual(payment.amount, Decimal("0.34"))
+
+        bal = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(bal.get("USD"), Decimal("-0.34"))
 
 

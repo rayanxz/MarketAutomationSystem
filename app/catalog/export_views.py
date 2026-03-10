@@ -9,12 +9,12 @@ from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from accounts.models import AccountProfile
-from catalog.views import role_required
+from accounts.decorators import role_required
 from catalog.models import ProductCollection
 from catalog.export_engine import make_file, DEFAULT_COLUMNS, HEADER_LABELS, TMP_DIR
 
 from catalog.io_records import CatalogDataJob
-from audit_log.services import log_create
+from audit_log.services import log_create_safe as log_create
 
 @require_GET
 @ensure_csrf_cookie

@@ -8,8 +8,9 @@ from django.contrib.auth import get_user_model
 from billing import services as BillingSV
 from billing.models import Provider, Bill, ProviderReturn
 from debts.models import CreditorDebt, CreditorReceipt
+from audit_log.models import AuditLog
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from financials.models import MoneyContainer, Currency, MoneyContainerCurrency
+from financials.models import MoneyContainer, Currency, MoneyContainerCurrency, Receipt, ReceiptStatus
 from financials import services as FinSV
 from stock.models import ProductContainer, StockFifoLayer
 from inventory.models import ProductMovement, DEC0, q3
@@ -328,12 +329,168 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
             valuation_mode="HISTORICAL",
         )
 
-        syp_entry = CreditorDebt.objects.filter(source_model="ProviderReturn", source_id=str(pret.id)).first()
-        usd_entry = CreditorDebt.objects.filter(source_model="ProviderReturn", source_id=f"{pret.id}:USD").first()
+        syp_entry = CreditorDebt.objects.filter(
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="SYP",
+        ).first()
+        usd_entry = CreditorDebt.objects.filter(
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="USD",
+        ).first()
         self.assertIsNotNone(syp_entry)
         self.assertIsNotNone(usd_entry)
         self.assertEqual(q3(syp_entry.total), q3(pret.total_syp))
         self.assertEqual(q3(usd_entry.total), q3(pret.total_usd))
+
+    def test_delete_return_cleans_canonical_and_legacy_creditor_rows(self):
+        product = _create_min_product("Delete-Collision")
+        bill = self._create_bill(
+            product=product,
+            qty=Decimal("1"),
+            cost=Decimal("4"),
+            currency="USD",
+            fx=Decimal("15000"),
+        )
+        item = bill.items.first()
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            currency_code="USD",
+            valuation_mode="HISTORICAL",
+        )
+
+        CreditorDebt.objects.create(
+            provider=self.provider,
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=f"{pret.id}:USD",
+            legacy_source_id=f"{pret.id}:USD",
+            total=Decimal("1"),
+            collected=Decimal("0"),
+            status=CreditorDebt.Status.OPEN,
+            party_type="provider",
+            party_name=self.provider.name,
+            doc_serial=pret.serial,
+            currency_code="USD",
+        )
+
+        BillingSV.delete_return(actor=self.actor, return_id=pret.id)
+
+        self.assertFalse(
+            CreditorDebt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+            )
+            .filter(
+                source_id__in=[str(pret.id), f"{pret.id}:USD"]
+            )
+            .exists()
+        )
+
+    def test_create_return_rejects_inactive_split_container(self):
+        product = _create_min_product("Inactive-Split")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        wh1, _ = ProductContainer.objects.get_or_create(
+            code="wh1",
+            defaults={"name": "WH1", "is_store": False, "is_active": False},
+        )
+        if wh1.is_active:
+            wh1.is_active = False
+            wh1.save(update_fields=["is_active"])
+
+        with self.assertRaisesMessage(ValueError, "inactive container code in return splits"):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="unpaid",
+                paid_amount=Decimal("0"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "wh1", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                currency_code="SYP",
+                valuation_mode="HISTORICAL",
+            )
+
+    def test_delete_return_audit_contains_reversed_receipt_ids(self):
+        product = _create_min_product("Delete-Audit-Receipts")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="paid",
+            paid_amount=Decimal("1000"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="HISTORICAL",
+        )
+
+        expected_receipt_ids = list(
+            Receipt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=str(pret.id),
+                status=ReceiptStatus.POSTED,
+            )
+            .order_by("-id")
+            .values_list("id", flat=True)
+        )
+        self.assertGreater(len(expected_receipt_ids), 0)
+
+        BillingSV.delete_return(actor=self.actor, return_id=pret.id)
+
+        audit_row = (
+            AuditLog.objects.filter(
+                target_app="billing",
+                target_model="providerreturn",
+                target_id=str(pret.id),
+                action="delete",
+            )
+            .order_by("-id")
+            .first()
+        )
+        self.assertIsNotNone(audit_row)
+        meta = audit_row.meta or {}
+        reversed_ids = ((meta.get("financials") or {}).get("reversed_receipt_ids") or [])
+        self.assertEqual(sorted(reversed_ids), sorted(expected_receipt_ids))
+        self.assertEqual(
+            Receipt.objects.filter(id__in=expected_receipt_ids, status=ReceiptStatus.REVERSED).count(),
+            len(expected_receipt_ids),
+        )
 
     def test_return_updates_latest_cost_only(self):
         product = _create_min_product("Cost-Prod")

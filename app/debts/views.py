@@ -9,9 +9,11 @@ from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from accounts.models import AccountProfile
-from catalog.views import role_required
+from accounts.utils import has_role
+from accounts.decorators import role_required
 
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry, DebtReminder
+from debts.source_identity import source_identity_base
 from financials.models import MoneyContainer, Receipt, ReceiptKind
 from django.db.models import Q
 from . import selectors as S
@@ -78,7 +80,7 @@ def _int_or_none(s):
 
 def _allowed_containers(user):
     qs = MoneyContainer.objects.filter(is_active=True).order_by("name")
-    if not (getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)):
+    if not has_role(user, AccountProfile.Role.MANAGER):
         qs = qs.filter(Q(allowed_users__isnull=True) | Q(allowed_users=user)).distinct()
     return list(qs)
 
@@ -89,10 +91,7 @@ def _entry_details(direction: str, entry_id: int) -> dict:
     core fields, provider, payments/receipts, current reminder, reminders history.
     """
     def _receipt_source_id(src_id: str, legacy_id: str) -> str:
-        base = (legacy_id or src_id or "").strip()
-        if base.endswith(":USD"):
-            base = base[:-4]
-        return base
+        return source_identity_base(source_id=src_id, legacy_source_id=legacy_id)
 
     def _exposure_receipts(source_app: str, source_model: str, source_id: str):
         if not source_app or not source_model or not source_id:

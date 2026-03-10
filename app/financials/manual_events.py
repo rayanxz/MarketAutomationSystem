@@ -25,8 +25,7 @@ def _balance_for(container: MoneyContainer, currency_code: str) -> Decimal:
 
 
 def _quantize(currency_code: str, amount: Decimal) -> Decimal:
-    currency = Currency.objects.get(code=currency_code)
-    return FSV.q_currency(Decimal(amount), currency=currency)
+    return FSV.q_money(amount=Decimal(amount or 0), currency_code=currency_code)
 
 
 def _assert_sufficient(*, container: MoneyContainer, currency_code: str, amount: Decimal) -> None:
@@ -58,6 +57,7 @@ def post_manual_withdraw(*, actor, container_id: int, currency_code: str, amount
     if not _currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED")
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+    FSV._assert_container_usable(container)
     _assert_sufficient(container=container, currency_code=currency_code, amount=amount)
     src = f"WITHDRAW:{uuid4().hex}"
     return FSV.post_cash_withdraw(
@@ -86,8 +86,11 @@ def post_manual_transfer(
         raise ValueError("CURRENCY_DISABLED_FROM")
     if not _currency_enabled(container_id=to_container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED_TO")
-    container = MoneyContainer.objects.select_for_update().get(pk=from_container_id)
-    _assert_sufficient(container=container, currency_code=currency_code, amount=amount)
+    from_container = MoneyContainer.objects.select_for_update().get(pk=from_container_id)
+    to_container = MoneyContainer.objects.select_for_update().get(pk=to_container_id)
+    FSV._assert_container_usable(from_container)
+    FSV._assert_container_usable(to_container)
+    _assert_sufficient(container=from_container, currency_code=currency_code, amount=amount)
     src = f"TRANSFER:{uuid4().hex}"
     return FSV.post_transfer(
         actor=actor,
@@ -128,7 +131,7 @@ def post_manual_exchange(
     if not _currency_enabled(container_id=target_container_id, currency_code=cur_to):
         raise ValueError("CURRENCY_DISABLED_TO")
 
-    fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else FSV.get_current_fx_syp_per_usd()
+    fx = FSV.q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else FSV.get_current_fx_syp_per_usd()
     if fx <= 0:
         raise ValueError("FX_REQUIRED")
 
@@ -146,6 +149,8 @@ def post_manual_exchange(
         to_container = from_container
     else:
         to_container = MoneyContainer.objects.select_for_update().get(pk=target_container_id)
+    FSV._assert_container_usable(from_container)
+    FSV._assert_container_usable(to_container)
     _assert_sufficient(container=from_container, currency_code=cur_from, amount=amt_from)
 
     src = f"EXCH:{uuid4().hex}"

@@ -8,7 +8,7 @@ from django.core.paginator import Paginator
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 
-from catalog.views import role_required
+from accounts.decorators import role_required
 from accounts.models import AccountProfile
 from catalog.models import ProductCollection, ProductSet, Product
 from billing.models import Bill, ProviderReturn , BillItem

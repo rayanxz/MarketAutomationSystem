@@ -3,7 +3,8 @@ from __future__ import annotations
 from decimal import Decimal
 from datetime import date
 from typing import Optional
-from django.db import transaction, connection
+import logging
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -15,7 +16,7 @@ from debts.models import (
     DebtReminder,
     PartyType,
 )
-from audit_log.services import log_update
+from audit_log.services import log_update_safe as log_update
 from billing.models import Provider
 from financials import services as FinSV
 from financials.models import (
@@ -25,47 +26,254 @@ from financials.models import (
     MoneyContainerCurrency,
     Receipt,
 )
+from accounts.models import AccountProfile
+from accounts.utils import has_role
 
-from inventory.models import DEC0 , q3 , q4
+from inventory.models import DEC0
 
 from django.db.models import Q
+from debts.source_identity import (
+    canonical_source_identity as _canonical_identity,
+    source_identity_variants as _identity_variants,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _q_money(*, amount: Decimal, currency_code: str) -> Decimal:
+    return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or "SYP").upper())
+
+
+def _canonical_source_identity(*, source_id: str, currency_code: str) -> tuple[str, str, str]:
+    return _canonical_identity(source_id=source_id, currency_code=currency_code)
+
+
+def _source_identity_variants(*, source_id: str) -> tuple[str, str]:
+    return _identity_variants(source_id=source_id)
+
+
+def _entry_currency_bucket(entry, *, currency_code: Optional[str]) -> int:
+    if not currency_code:
+        return 0
+    desired = (currency_code or "").upper()
+    cur = ((getattr(entry, "currency_code", None) or "") or "").upper()
+    if cur == desired:
+        return 0
+    if not cur:
+        return 1
+    return 2
+
+
+def _entry_source_bucket(entry, *, canonical_source_id: str, legacy_usd_source_id: str) -> int:
+    sid = str(getattr(entry, "source_id", "") or "").strip()
+    legacy = str(getattr(entry, "legacy_source_id", "") or "").strip()
+    if sid == canonical_source_id:
+        return 0
+    if legacy == canonical_source_id:
+        return 1
+    if sid == legacy_usd_source_id:
+        return 2
+    if legacy == legacy_usd_source_id:
+        return 3
+    return 4
+
+
+def _warn_source_collision(
+    *,
+    entries: list,
+    source_app: str,
+    source_model: str,
+    canonical_source_id: str,
+    legacy_usd_source_id: str,
+    currency_code: Optional[str],
+) -> None:
+    desired = (currency_code or "").upper()
+    canonical_rows = []
+    legacy_rows = []
+    for e in entries:
+        sid = str(getattr(e, "source_id", "") or "").strip()
+        cur = ((getattr(e, "currency_code", None) or "") or "").upper()
+        if desired and cur not in {desired, ""}:
+            continue
+        if sid == canonical_source_id:
+            canonical_rows.append(e)
+        elif sid == legacy_usd_source_id:
+            legacy_rows.append(e)
+    if canonical_rows and legacy_rows:
+        logger.warning(
+            "Detected canonical/legacy source-id collision for %s.%s source_id=%s currency=%s "
+            "(canonical_ids=%s legacy_ids=%s). Canonical rows are preferred deterministically.",
+            source_app,
+            source_model,
+            canonical_source_id,
+            desired or "*",
+            [e.id for e in canonical_rows],
+            [e.id for e in legacy_rows],
+        )
+
+
+def _sorted_entries_for_source(
+    *,
+    Model,
+    source_app: str,
+    source_model: str,
+    source_id: str,
+    currency_code: Optional[str] = None,
+    for_update: bool = False,
+) -> list:
+    canonical_source_id, legacy_usd_source_id = _source_identity_variants(source_id=source_id)
+    qs = Model.objects.filter(
+        source_app=source_app,
+        source_model=source_model,
+    ).filter(
+        Q(source_id=canonical_source_id)
+        | Q(legacy_source_id=canonical_source_id)
+        | Q(source_id=legacy_usd_source_id)
+        | Q(legacy_source_id=legacy_usd_source_id)
+    )
+    if currency_code:
+        cur = (currency_code or "").upper()
+        qs = qs.filter(Q(currency_code=cur) | Q(currency_code__isnull=True) | Q(currency_code=""))
+    if for_update:
+        qs = qs.select_for_update()
+
+    rows = list(qs.order_by("id"))
+    if not rows:
+        return []
+
+    _warn_source_collision(
+        entries=rows,
+        source_app=source_app,
+        source_model=source_model,
+        canonical_source_id=canonical_source_id,
+        legacy_usd_source_id=legacy_usd_source_id,
+        currency_code=currency_code,
+    )
+
+    rows.sort(
+        key=lambda e: (
+            _entry_currency_bucket(e, currency_code=currency_code),
+            _entry_source_bucket(
+                e,
+                canonical_source_id=canonical_source_id,
+                legacy_usd_source_id=legacy_usd_source_id,
+            ),
+            int(getattr(e, "id", 0) or 0),
+        )
+    )
+    return rows
+
+
+def list_debtor_entries_for_source(
+    *,
+    source_app: str,
+    source_model: str,
+    source_id: str,
+    currency_code: Optional[str] = None,
+    for_update: bool = False,
+) -> list[DebtorDebt]:
+    return _sorted_entries_for_source(
+        Model=DebtorDebt,
+        source_app=source_app,
+        source_model=source_model,
+        source_id=source_id,
+        currency_code=currency_code,
+        for_update=for_update,
+    )
+
+
+def resolve_debtor_entry_for_source(
+    *,
+    source_app: str,
+    source_model: str,
+    source_id: str,
+    currency_code: Optional[str] = None,
+    for_update: bool = False,
+) -> Optional[DebtorDebt]:
+    rows = list_debtor_entries_for_source(
+        source_app=source_app,
+        source_model=source_model,
+        source_id=source_id,
+        currency_code=currency_code,
+        for_update=for_update,
+    )
+    return rows[0] if rows else None
+
+
+def list_creditor_entries_for_source(
+    *,
+    source_app: str,
+    source_model: str,
+    source_id: str,
+    currency_code: Optional[str] = None,
+    for_update: bool = False,
+) -> list[CreditorDebt]:
+    return _sorted_entries_for_source(
+        Model=CreditorDebt,
+        source_app=source_app,
+        source_model=source_model,
+        source_id=source_id,
+        currency_code=currency_code,
+        for_update=for_update,
+    )
+
+
+def resolve_creditor_entry_for_source(
+    *,
+    source_app: str,
+    source_model: str,
+    source_id: str,
+    currency_code: Optional[str] = None,
+    for_update: bool = False,
+) -> Optional[CreditorDebt]:
+    rows = list_creditor_entries_for_source(
+        source_app=source_app,
+        source_model=source_model,
+        source_id=source_id,
+        currency_code=currency_code,
+        for_update=for_update,
+    )
+    return rows[0] if rows else None
+
 
 def _assert_container_access(*, actor, container: MoneyContainer) -> None:
     if not container.is_active:
         raise ValueError("Container is inactive / disabled")
-    if not (getattr(actor, "is_superuser", False) or getattr(actor, "is_staff", False)):
+    if not has_role(actor, AccountProfile.Role.MANAGER):
         if container.allowed_users.exists() and not container.allowed_users.filter(pk=actor.pk).exists():
             raise ValueError("Container access denied for this user")
 
 
 def _ensure_provider_counterparty(*, provider: Provider) -> Counterparty:
-    cp = Counterparty.objects.filter(type=CounterpartyType.PROVIDER, provider_id=provider.id).first()
-    if cp:
-        if (cp.name or "").strip() != (provider.name or "").strip():
-            cp.name = (provider.name or "").strip()
-            cp.save(update_fields=["name"])
-        return cp
-    return Counterparty.objects.create(
+    name = (provider.name or "").strip()
+    cp, created = Counterparty.objects.get_or_create(
         type=CounterpartyType.PROVIDER,
-        name=(provider.name or "").strip(),
         provider_id=provider.id,
-        is_active=True,
+        defaults={
+            "name": name,
+            "is_active": True,
+        },
     )
+    if not created and (cp.name or "").strip() != name:
+        cp.name = name
+        cp.save(update_fields=["name"])
+    return cp
 
 
 def _ensure_customer_counterparty(*, customer) -> Counterparty:
-    cp = Counterparty.objects.filter(type=CounterpartyType.CUSTOMER, customer_id=customer.id).first()
-    if cp:
-        if (cp.name or "").strip() != (customer.name or "").strip():
-            cp.name = (customer.name or "").strip()
-            cp.save(update_fields=["name"])
-        return cp
-    return Counterparty.objects.create(
+    name = (customer.name or "").strip()
+    cp, created = Counterparty.objects.get_or_create(
         type=CounterpartyType.CUSTOMER,
-        name=(customer.name or "").strip(),
         customer_id=customer.id,
-        is_active=True,
+        defaults={
+            "name": name,
+            "is_active": True,
+        },
     )
+    if not created and (cp.name or "").strip() != name:
+        cp.name = name
+        cp.save(update_fields=["name"])
+    return cp
 
 # =======================================================================
 # CREATE / UPSERT ENTRIES MIRRORED FROM COMMERCIAL DOCS
@@ -100,14 +308,18 @@ def create_debtor_entry(
         if provider:
             raise ValueError("provider must be null for customer debts")
 
-    total = q3(total)
-    paid = q3(paid_amount or DEC0)
+    src_id, legacy_src, cur = _canonical_source_identity(
+        source_id=source_id,
+        currency_code=currency_code,
+    )
+    total = _q_money(amount=total, currency_code=cur)
+    paid = _q_money(amount=paid_amount or DEC0, currency_code=cur)
+    if paid > total:
+        paid = total
     remaining = total - paid
     status = DebtorDebt.Status.CLOSED if remaining <= DEC0 else DebtorDebt.Status.OPEN
 
     party_label = party_name or (provider.name if provider else "")
-    cur = (currency_code or "SYP").upper()
-    src_id = str(source_id)
     defaults = dict(
         total=total,
         paid_amount=paid,
@@ -118,11 +330,8 @@ def create_debtor_entry(
         customer_id=customer_id,
         due_date=due_date,
     )
-    if connection.vendor == "sqlite" and cur == "USD":
-        # SQLite keeps legacy unique constraint on source_id; avoid conflict.
-        if DebtorDebt.objects.filter(source_app=source_app, source_model=source_model, source_id=src_id).exists():
-            defaults["legacy_source_id"] = src_id
-            src_id = f"{src_id}:USD"
+    if legacy_src:
+        defaults["legacy_source_id"] = legacy_src
 
     entry, _ = DebtorDebt.objects.update_or_create(
         provider=provider,
@@ -152,14 +361,18 @@ def create_creditor_entry(
     due_date: Optional[date] = None,
 ) -> CreditorDebt:
     """Upsert a CreditorDebt snapshot driven by a commercial document."""
-    total = q3(total)
-    collected = q3(collected or DEC0)
+    src_id, legacy_src, cur = _canonical_source_identity(
+        source_id=source_id,
+        currency_code=currency_code,
+    )
+    total = _q_money(amount=total, currency_code=cur)
+    collected = _q_money(amount=collected or DEC0, currency_code=cur)
+    if collected > total:
+        collected = total
     remaining = total - collected
     status = CreditorDebt.Status.CLOSED if remaining <= DEC0 else CreditorDebt.Status.OPEN
 
     party_label = party_name or (provider.name if provider else "")
-    cur = (currency_code or "SYP").upper()
-    src_id = str(source_id)
     defaults = dict(
         total=total,
         collected=collected,
@@ -170,10 +383,8 @@ def create_creditor_entry(
         customer_id=customer_id,
         due_date=due_date,
     )
-    if connection.vendor == "sqlite" and cur == "USD":
-        if CreditorDebt.objects.filter(source_app=source_app, source_model=source_model, source_id=src_id).exists():
-            defaults["legacy_source_id"] = src_id
-            src_id = f"{src_id}:USD"
+    if legacy_src:
+        defaults["legacy_source_id"] = legacy_src
 
     entry, _ = CreditorDebt.objects.update_or_create(
         provider=provider,
@@ -229,13 +440,12 @@ def create_manual_debt(
     NOTE: No money movement unless initial_payment is provided.
     """
 
-    amt = q3(amount or DEC0)
-    if amt <= 0:
-        raise ValueError("amount must be positive")
-
     currency_code = (currency_code or "SYP").upper()
     if currency_code not in {"SYP", "USD"}:
         raise ValueError("invalid currency")
+    amt = _q_money(amount=amount or DEC0, currency_code=currency_code)
+    if amt <= 0:
+        raise ValueError("amount must be positive")
 
     ptype = (party_type or PartyType.PROVIDER).lower().strip()
     provider = None
@@ -271,7 +481,7 @@ def create_manual_debt(
                 actor=actor,
                 counterparty_id=cp.id,
                 currency_code=currency_code,
-                amount_signed=-q3(amt),
+                amount_signed=-amt,
                 fx_syp_per_usd=fx,
                 note=f"Manual debtor debt #{entry.id}",
                 source_app="debts",
@@ -313,7 +523,7 @@ def create_manual_debt(
             actor=actor,
             counterparty_id=cp.id,
             currency_code=currency_code,
-            amount_signed=+q3(amt),
+            amount_signed=+amt,
             fx_syp_per_usd=fx,
             note=f"Manual creditor debt #{entry.id}",
             source_app="debts",
@@ -352,11 +562,16 @@ def pay_debt(
     Posts a Financials settlement receipt (container line negative, counterparty line positive).
     """
     entry = DebtorDebt.objects.select_for_update().get(pk=entry_id)
-    rem = q3(entry.remaining)
+    cur = (currency_code or entry.currency_code or "SYP").upper()
+    if cur not in {"SYP", "USD"}:
+        raise ValueError("invalid currency")
+    if (entry.currency_code or "SYP").upper() != cur:
+        raise ValueError("currency mismatch for this debt")
+    rem = _q_money(amount=entry.remaining, currency_code=cur)
     if rem <= 0:
         return entry
 
-    amt = q3(rem if full else (amount or DEC0))
+    amt = rem if full else _q_money(amount=amount or DEC0, currency_code=cur)
     if amt <= 0:
         raise ValueError("amount must be positive")
     if amt > rem:
@@ -364,12 +579,6 @@ def pay_debt(
 
     if not money_container_id:
         raise ValueError("money_container_id is required")
-
-    cur = (currency_code or entry.currency_code or "SYP").upper()
-    if cur not in {"SYP", "USD"}:
-        raise ValueError("invalid currency")
-    if (entry.currency_code or "SYP").upper() != cur:
-        raise ValueError("currency mismatch for this debt")
 
     container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
     _assert_container_access(actor=actor, container=container)
@@ -394,7 +603,7 @@ def pay_debt(
         container_id=container.id,
         counterparty_id=cp.id,
         currency_code=cur,
-        cash_amount_signed=-q3(amt),
+        cash_amount_signed=-amt,
         fx_syp_per_usd=fx,
         note=f"Debt payment #{entry.id}",
         source_app="debts",
@@ -411,7 +620,7 @@ def pay_debt(
         fx_syp_per_usd_used=fx,
     )
 
-    entry.paid_amount = q3((entry.paid_amount or DEC0) + amt)
+    entry.paid_amount = _q_money(amount=(entry.paid_amount or DEC0) + amt, currency_code=cur)
     entry.status = DebtorDebt.Status.CLOSED if entry.remaining <= DEC0 else DebtorDebt.Status.OPEN
     entry.save(update_fields=["paid_amount", "status"])
 
@@ -445,11 +654,16 @@ def collect_debt(
     Posts a Financials settlement receipt (container line positive, counterparty line negative).
     """
     entry = CreditorDebt.objects.select_for_update().get(pk=entry_id)
-    rem = q3(entry.remaining)
+    cur = (currency_code or entry.currency_code or "SYP").upper()
+    if cur not in {"SYP", "USD"}:
+        raise ValueError("invalid currency")
+    if (entry.currency_code or "SYP").upper() != cur:
+        raise ValueError("currency mismatch for this debt")
+    rem = _q_money(amount=entry.remaining, currency_code=cur)
     if rem <= 0:
         return entry
 
-    amt = q3(rem if full else (amount or DEC0))
+    amt = rem if full else _q_money(amount=amount or DEC0, currency_code=cur)
     if amt <= 0:
         raise ValueError("amount must be positive")
     if amt > rem:
@@ -457,12 +671,6 @@ def collect_debt(
 
     if not money_container_id:
         raise ValueError("money_container_id is required")
-
-    cur = (currency_code or entry.currency_code or "SYP").upper()
-    if cur not in {"SYP", "USD"}:
-        raise ValueError("invalid currency")
-    if (entry.currency_code or "SYP").upper() != cur:
-        raise ValueError("currency mismatch for this debt")
 
     container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
     _assert_container_access(actor=actor, container=container)
@@ -487,7 +695,7 @@ def collect_debt(
         container_id=container.id,
         counterparty_id=cp.id,
         currency_code=cur,
-        cash_amount_signed=+q3(amt),
+        cash_amount_signed=+amt,
         fx_syp_per_usd=fx,
         note=f"Debt collection #{entry.id}",
         source_app="debts",
@@ -504,7 +712,7 @@ def collect_debt(
         fx_syp_per_usd_used=fx,
     )
 
-    entry.collected = q3((entry.collected or DEC0) + amt)
+    entry.collected = _q_money(amount=(entry.collected or DEC0) + amt, currency_code=cur)
     entry.status = CreditorDebt.Status.CLOSED if entry.remaining <= DEC0 else CreditorDebt.Status.OPEN
     entry.save(update_fields=["collected", "status"])
 

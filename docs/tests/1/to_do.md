@@ -94,11 +94,11 @@
 
 - fix the issues of BarCode scanner "enter" after inserting number *checked*
 
-- add a feature to allow users to locate the code/barcode in product_new page by a small search textbox that highlights which textbox has the value the user entered 
+- add a feature to allow users to locate the code/barcode in product_new page by a small search textbox that highlights which textbox has the value the user entered *checked*
 
 - `delayed but comes in handy` : improve the way we display codes/barcodes in product_new page so it can display more elements , doesn't mess with page layout in case of 20+ elements 
 
-- fix the messed up texts for success message in collections/ father sets/ products list page.
+- fix the messed up texts for success message in collections/ father sets/ products list page. *checked*
 
 =================================================================================
 

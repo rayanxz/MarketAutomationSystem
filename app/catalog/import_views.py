@@ -6,7 +6,7 @@ from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
 
 from accounts.models import AccountProfile
-from catalog.views import role_required
+from accounts.decorators import role_required
 from catalog.models import ProductCollection
 from catalog.import_engine import (
     save_temp_upload, analyze_file, stage_file_with_mapping,

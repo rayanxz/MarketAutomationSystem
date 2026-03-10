@@ -8,6 +8,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.db import connection
 
+from accounts.models import AccountProfile
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, ContainerFeature, Receipt, Counterparty, CounterpartyType, ReceiptKind
 from debts.models import DebtorDebt, DebtorPayment, PartyType
@@ -22,6 +23,7 @@ class PosMultiCurrencySalesTests(TestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.user = User.objects.create_user(username="cashier", password="pw12345")
+        AccountProfile.objects.create(user=cls.user, role=AccountProfile.Role.CASHIER)
 
         cls.syp, _ = Currency.objects.get_or_create(
             code="SYP",
@@ -433,6 +435,252 @@ class PosMultiCurrencySalesTests(TestCase):
             ).exists()
         )
 
+    def test_duplicate_name_customers_use_distinct_counterparties_in_pos_debt_flow(self):
+        p_syp = self._create_product(
+            name="POS Identity Product",
+            allow_syp=True,
+            allow_usd=False,
+            default_syp="1000",
+            default_usd="0",
+        )
+        self._seed_stock(p_syp, qty="3")
+
+        base_payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "none",
+            "paid_amount": "0",
+            "total_amount": "0",
+            "settlement_mode": "all_syp",
+            "customer_name": "Same POS Customer",
+            "create_new_customer": True,
+            "rows": [
+                {
+                    "product_id": p_syp.id,
+                    "name": p_syp.name,
+                    "number": str(p_syp.id),
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "1000",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+
+        resp1 = self._post_pos_bill(base_payload)
+        self.assertEqual(resp1.status_code, 200, resp1.content.decode())
+        bill1_id = resp1.json()["bill"]["id"]
+
+        resp2 = self._post_pos_bill(base_payload)
+        self.assertEqual(resp2.status_code, 200, resp2.content.decode())
+        bill2_id = resp2.json()["bill"]["id"]
+
+        entry1 = DebtorDebt.objects.get(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(bill1_id),
+            party_type=PartyType.CUSTOMER,
+            currency_code="SYP",
+        )
+        entry2 = DebtorDebt.objects.get(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(bill2_id),
+            party_type=PartyType.CUSTOMER,
+            currency_code="SYP",
+        )
+        self.assertNotEqual(entry1.customer_id, entry2.customer_id)
+
+        cp1 = Counterparty.objects.get(type=CounterpartyType.CUSTOMER, customer_id=entry1.customer_id)
+        cp2 = Counterparty.objects.get(type=CounterpartyType.CUSTOMER, customer_id=entry2.customer_id)
+        self.assertNotEqual(cp1.id, cp2.id)
+
+        bal1 = FinSV.counterparty_balance(counterparty_id=cp1.id)
+        bal2 = FinSV.counterparty_balance(counterparty_id=cp2.id)
+        self.assertEqual(bal1.get("SYP"), Decimal("1000"))
+        self.assertEqual(bal2.get("SYP"), Decimal("1000"))
+
+    def test_split_partial_uses_syp_leg_limit_for_mixed_currency(self):
+        p_syp = self._create_product(
+            name="SYP Split Limit",
+            allow_syp=True,
+            allow_usd=False,
+            default_syp="1000",
+            default_usd="0",
+        )
+        p_usd = self._create_product(
+            name="USD Split Limit",
+            allow_syp=False,
+            allow_usd=True,
+            default_syp="0",
+            default_usd="5",
+        )
+        self._seed_stock(p_syp)
+        self._seed_stock(p_usd)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "partial",
+            "paid_amount": "1000",
+            "total_amount": "0",
+            "settlement_mode": "split",
+            "money_container_id": self.cash.id,
+            "customer_name": "Split Customer",
+            "create_new_customer": True,
+            "rows": [
+                {
+                    "product_id": p_syp.id,
+                    "name": p_syp.name,
+                    "number": str(p_syp.id),
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "1000",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+                {
+                    "product_id": p_usd.id,
+                    "name": p_usd.name,
+                    "number": str(p_usd.id),
+                    "qty": "2",
+                    "uom_index": 1,
+                    "unit_price": "5",
+                    "currency": "USD",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 400, resp.content.decode())
+        self.assertIn("PAID_AMOUNT_TOO_HIGH", resp.content.decode())
+        self.assertFalse(SalesBill.objects.exists())
+
+    def test_split_partial_accepts_amount_below_syp_leg_limit(self):
+        p_syp = self._create_product(
+            name="SYP Split Partial OK",
+            allow_syp=True,
+            allow_usd=False,
+            default_syp="1000",
+            default_usd="0",
+        )
+        p_usd = self._create_product(
+            name="USD Split Partial OK",
+            allow_syp=False,
+            allow_usd=True,
+            default_syp="0",
+            default_usd="5",
+        )
+        self._seed_stock(p_syp)
+        self._seed_stock(p_usd)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "partial",
+            "paid_amount": "999",
+            "total_amount": "0",
+            "settlement_mode": "split",
+            "money_container_id": self.cash.id,
+            "customer_name": "Split Customer 2",
+            "create_new_customer": True,
+            "rows": [
+                {
+                    "product_id": p_syp.id,
+                    "name": p_syp.name,
+                    "number": str(p_syp.id),
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "1000",
+                    "currency": "SYP",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+                {
+                    "product_id": p_usd.id,
+                    "name": p_usd.name,
+                    "number": str(p_usd.id),
+                    "qty": "2",
+                    "uom_index": 1,
+                    "unit_price": "5",
+                    "currency": "USD",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 200, resp.content.decode())
+        bid = resp.json()["bill"]["id"]
+
+        syp_entry = DebtorDebt.objects.get(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(bid),
+            party_type=PartyType.CUSTOMER,
+            currency_code="SYP",
+        )
+        usd_entry = DebtorDebt.objects.get(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(bid),
+            party_type=PartyType.CUSTOMER,
+            currency_code="USD",
+        )
+        self.assertEqual(syp_entry.total, Decimal("1000"))
+        self.assertEqual(syp_entry.paid_amount, Decimal("999"))
+        self.assertEqual(syp_entry.remaining, Decimal("1"))
+        self.assertEqual(usd_entry.total, Decimal("10"))
+        self.assertEqual(usd_entry.paid_amount, Decimal("0"))
+        self.assertEqual(usd_entry.remaining, Decimal("10"))
+
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_syp, Decimal("999"))
+        self.assertEqual(self.cash.balance_usd, Decimal("0"))
+
+    def test_split_partial_rejects_when_bill_has_no_syp_leg(self):
+        p_usd = self._create_product(
+            name="USD Split Partial Only",
+            allow_syp=False,
+            allow_usd=True,
+            default_syp="0",
+            default_usd="5",
+        )
+        self._seed_stock(p_usd)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "partial",
+            "paid_amount": "1",
+            "total_amount": "0",
+            "settlement_mode": "split",
+            "money_container_id": self.cash.id,
+            "customer_name": "Split USD Only",
+            "create_new_customer": True,
+            "rows": [
+                {
+                    "product_id": p_usd.id,
+                    "name": p_usd.name,
+                    "number": str(p_usd.id),
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "5",
+                    "currency": "USD",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 400, resp.content.decode())
+        self.assertIn("SPLIT_PARTIAL_REQUIRES_SYP_AMOUNT", resp.content.decode())
+        self.assertFalse(SalesBill.objects.exists())
+
     def test_unpaid_pos_sale_creates_customer_debt(self):
         p_syp = self._create_product(
             name="SYP Only 2",
@@ -565,6 +813,46 @@ class PosMultiCurrencySalesTests(TestCase):
                 notnull = row[3]
                 break
         self.assertEqual(notnull, 0, "billing_debtorentry.provider_id must be nullable")
+
+    def test_usd_row_amounts_are_quantized_to_currency_precision(self):
+        p_usd = self._create_product(
+            name="USD Precision",
+            allow_syp=False,
+            allow_usd=True,
+            default_syp="0",
+            default_usd="1.005",
+        )
+        self._seed_stock(p_usd)
+
+        payload = {
+            "id": None,
+            "parked": False,
+            "pay_status": "full",
+            "paid_amount": "0",
+            "total_amount": "0",
+            "settlement_mode": "split",
+            "money_container_id": self.cash.id,
+            "rows": [
+                {
+                    "product_id": p_usd.id,
+                    "name": p_usd.name,
+                    "number": str(p_usd.id),
+                    "qty": "1",
+                    "uom_index": 1,
+                    "unit_price": "1.005",
+                    "currency": "USD",
+                    "disc_amount": "0",
+                    "disc_pct": "0",
+                },
+            ],
+        }
+        resp = self._post_pos_bill(payload)
+        self.assertEqual(resp.status_code, 200, resp.content.decode())
+        bill = SalesBill.objects.get(pk=resp.json()["bill"]["id"])
+
+        self.assertEqual(bill.total_usd, Decimal("1.01"))
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_usd, Decimal("1.01"))
 
 
 

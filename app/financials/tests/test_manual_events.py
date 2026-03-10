@@ -146,3 +146,24 @@ class ManualEventsTests(TestCase):
                 currency_code="USD",
                 amount=Decimal("1"),
             )
+
+    def test_exchange_rejects_inactive_target_container(self):
+        ManualSV.post_manual_add(
+            actor=self.actor,
+            container_id=self.a.id,
+            currency_code="USD",
+            amount=Decimal("2"),
+        )
+        self.b.is_active = False
+        self.b.save(update_fields=["is_active"])
+
+        with self.assertRaisesMessage(ValueError, "Container is inactive / disabled"):
+            ManualSV.post_manual_exchange(
+                actor=self.actor,
+                from_container_id=self.a.id,
+                to_container_id=self.b.id,
+                currency_from="USD",
+                currency_to="SYP",
+                amount_from=Decimal("1"),
+                fx_syp_per_usd=Decimal("15000"),
+            )

@@ -11,7 +11,7 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import DebtorDebt
+from debts.models import DebtorDebt, DebtorPayment, PartyType
 from financials import services as FinSV
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, Receipt, ReceiptStatus
 from inventory.models import ProductMovement, DEC0, q3
@@ -229,5 +229,105 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
 
         self.assertTrue(Bill.objects.filter(id=bill.id).exists())
         self.assertGreater(ProductMovement.objects.count(), 0)
+
+    def test_delete_bill_reverses_debt_payment_receipts_created_after_bill(self):
+        base_bal = FinSV.container_balance(container_id=self.cash.id)
+
+        bill = self._create_bill(status="unpaid", paid_amount=Decimal("0"), currency="SYP", qty="2", cost="1000")
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=Decimal("700"),
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+        )
+
+        mid_bal = FinSV.container_balance(container_id=self.cash.id)
+        self.assertNotEqual(q3(mid_bal.get("SYP", DEC0)), q3(base_bal.get("SYP", DEC0)))
+
+        entries = DebtorDebt.objects.filter(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+        )
+        debt_payment_receipt_ids = list(
+            DebtorPayment.objects
+            .filter(entry__in=entries, receipt__isnull=False)
+            .values_list("receipt_id", flat=True)
+        )
+        self.assertGreater(len(debt_payment_receipt_ids), 0)
+        self.assertGreater(
+            Receipt.objects.filter(id__in=debt_payment_receipt_ids, status=ReceiptStatus.POSTED).count(),
+            0,
+        )
+
+        BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)
+
+        after_bal = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after_bal.get("SYP", DEC0)), q3(base_bal.get("SYP", DEC0)))
+        self.assertEqual(
+            Receipt.objects.filter(id__in=debt_payment_receipt_ids, status=ReceiptStatus.POSTED).count(),
+            0,
+        )
+        self.assertEqual(
+            Receipt.objects.filter(id__in=debt_payment_receipt_ids, status=ReceiptStatus.REVERSED).count(),
+            len(debt_payment_receipt_ids),
+        )
+
+    def test_pay_partial_prefers_canonical_usd_entry_when_legacy_collision_exists(self):
+        self.cash.balance_usd = Decimal("100")
+        self.cash.save(update_fields=["balance_usd"])
+
+        bill = self._create_bill(status="unpaid", paid_amount=Decimal("0"), currency="USD", qty="2", cost="10")
+
+        canonical = DebtorDebt.objects.get(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            currency_code="USD",
+        )
+        legacy = DebtorDebt.objects.create(
+            provider=self.provider,
+            source_app="billing",
+            source_model="Bill",
+            source_id=f"{bill.id}:USD",
+            total=Decimal("999.000"),
+            paid_amount=Decimal("0.000"),
+            status=DebtorDebt.Status.OPEN,
+            party_type=PartyType.PROVIDER,
+            party_name=self.provider.name,
+            doc_serial=bill.serial,
+            currency_code="USD",
+            legacy_source_id=f"{bill.id}:USD",
+        )
+
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=Decimal("1"),
+            money_container_id=self.cash.id,
+            currency_code="USD",
+        )
+
+        canonical.refresh_from_db()
+        legacy.refresh_from_db()
+        self.assertEqual(q3(canonical.paid_amount), q3(Decimal("1.000")))
+        self.assertEqual(q3(legacy.paid_amount), q3(Decimal("0.000")))
+
+        BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)
+        self.assertFalse(
+            DebtorDebt.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+            ).exists()
+        )
+        self.assertFalse(
+            DebtorDebt.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=f"{bill.id}:USD",
+            ).exists()
+        )
 
 

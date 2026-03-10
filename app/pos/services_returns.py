@@ -1,12 +1,13 @@
 # app/pos/services_returns.py
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Iterable, Dict, Any
 
 from django.db import transaction
 from django.core.exceptions import ValidationError
-from django.db.models import Sum, Q
+from django.db.models import Sum
 from django.utils import timezone
 
 from catalog.models import Product
@@ -25,12 +26,18 @@ from audit_log import services as AuditSV
 from .models import SalesBill, SalesBillRow, SalesReturn, SalesReturnRow
 from .services import _ensure_customer_counterparty
 
+logger = logging.getLogger(__name__)
+
 
 def _dec(x) -> Decimal:
     try:
         return Decimal(str(x or "0"))
     except Exception:
         return Decimal("0")
+
+
+def _q_money(currency_code: str, amount: Decimal) -> Decimal:
+    return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or "SYP").upper())
 
 
 def _conv_for(product: Product, conv_override: Decimal | None = None) -> Decimal:
@@ -75,21 +82,13 @@ def returned_qty_by_sale_row(*, bill_id: int) -> dict[int, Decimal]:
 
 
 def _find_debtor_entry(*, bill_id: int, currency_code: str) -> DebtorDebt | None:
-    cur = (currency_code or "SYP").upper()
-    src = str(bill_id)
-    qs = (
-        DebtorDebt.objects
-        .select_for_update()
-        .filter(source_app="pos", source_model="SalesBill", currency_code=cur)
-        .filter(
-            Q(source_id=src)
-            | Q(legacy_source_id=src)
-            | Q(source_id=f"{src}:{cur}")
-            | Q(legacy_source_id=f"{src}:{cur}")
-        )
-        .order_by("id")
+    return DebtSV.resolve_debtor_entry_for_source(
+        source_app="pos",
+        source_model="SalesBill",
+        source_id=str(bill_id),
+        currency_code=(currency_code or "SYP").upper(),
+        for_update=True,
     )
-    return qs.first()
 
 
 def _avg_sale_cost_for_bill_product(*, bill_id: int, product_id: int) -> tuple[Decimal, str]:
@@ -228,7 +227,8 @@ def create_sales_return_draft(
             unit_price_primary=unit_price_primary,
         )
         disc_part = q3((disc_total * qty_primary) / sold_qty_primary) if sold_qty_primary > DEC0 else DEC0
-        line_total = q3((unit_price_primary * qty_primary) - disc_part)
+        row_currency = (sale_row.sale_currency or "SYP").upper()
+        line_total = _q_money(row_currency, (unit_price_primary * qty_primary) - disc_part)
         if line_total < DEC0:
             line_total = DEC0
 
@@ -252,24 +252,25 @@ def create_sales_return_draft(
             reason=reason,
         )
 
-        if (sale_row.sale_currency or "SYP").upper() == "USD":
-            total_usd = q3(total_usd + line_total)
+        if row_currency == "USD":
+            total_usd = _q_money("USD", total_usd + line_total)
         else:
-            total_syp = q3(total_syp + line_total)
+            total_syp = _q_money("SYP", total_syp + line_total)
 
     if not ret.rows.exists():
         ret.delete()
         raise ValueError("No return items were selected.")
 
-    ret.total_syp = q3(total_syp)
-    ret.total_usd = q3(total_usd)
+    ret.total_syp = _q_money("SYP", total_syp)
+    ret.total_usd = _q_money("USD", total_usd)
     ret.save(update_fields=["total_syp", "total_usd"])
 
-    AuditSV.log_create(
+    AuditSV.log_create_safe(
         actor=actor,
         target=ret,
         title="POS sales return draft",
         message=f"Draft sales return #{ret.serial or ret.id}",
+        source="pos.services_returns.create_sales_return_draft",
         meta={
             "kind": "pos.sale_return_draft",
             "sale_bill_id": bill.id,
@@ -323,15 +324,15 @@ def post_sales_return(
         total_usd = DEC0
         for r in rows:
             if (r.currency_code or "SYP").upper() == "USD":
-                total_usd = q3(total_usd + q3(_dec(r.line_total)))
+                total_usd = _q_money("USD", total_usd + _dec(r.line_total))
             else:
-                total_syp = q3(total_syp + q3(_dec(r.line_total)))
+                total_syp = _q_money("SYP", total_syp + _dec(r.line_total))
 
         if total_syp <= DEC0 and total_usd <= DEC0:
             raise ValueError("Return total must be > 0.")
 
-        ret.total_syp = q3(total_syp)
-        ret.total_usd = q3(total_usd)
+        ret.total_syp = _q_money("SYP", total_syp)
+        ret.total_usd = _q_money("USD", total_usd)
         ret.save(update_fields=["total_syp", "total_usd"])
 
         settle = (settle_mode or "cash").lower().strip()
@@ -420,16 +421,16 @@ def post_sales_return(
                 return DEC0, DEC0
 
             cur = (currency_code or "SYP").upper()
-            total_amount = q3(amount)
+            total_amount = _q_money(cur, amount)
             reduce_amount = DEC0
 
             entry = None
             if bill.customer_id:
                 entry = _find_debtor_entry(bill_id=bill.id, currency_code=cur)
                 if entry and entry.remaining > DEC0:
-                    reduce_amount = q3(min(total_amount, entry.remaining))
+                    reduce_amount = _q_money(cur, min(total_amount, entry.remaining))
 
-            remaining_amount = q3(total_amount - reduce_amount)
+            remaining_amount = _q_money(cur, total_amount - reduce_amount)
 
             if remaining_amount > DEC0 and settle == "cash":
                 if not money_container_id:
@@ -446,11 +447,11 @@ def post_sales_return(
 
                 container.refresh_from_db(fields=["balance_syp", "balance_usd"])
                 bal = container.balance_usd if cur == "USD" else container.balance_syp
-                if q3(_dec(bal)) < remaining_amount:
+                if _q_money(cur, _dec(bal)) < remaining_amount:
                     raise ValueError(f"Insufficient funds after debt reduction for {cur}")
 
             if reduce_amount > DEC0 and entry is not None:
-                entry.total = q3((entry.total or DEC0) - reduce_amount)
+                entry.total = _q_money(cur, (entry.total or DEC0) - reduce_amount)
                 entry.status = DebtorDebt.Status.CLOSED if entry.remaining <= DEC0 else DebtorDebt.Status.OPEN
                 entry.save(update_fields=["total", "status"])
 
@@ -459,7 +460,7 @@ def post_sales_return(
                     actor=actor,
                     counterparty_id=cp.id,
                     currency_code=cur,
-                    amount_signed=-q3(reduce_amount),
+                    amount_signed=-reduce_amount,
                     fx_syp_per_usd=fx_rate,
                     note=f"POS return debt reduce #{ret.serial or ret.id}",
                     source_app="pos",
@@ -504,7 +505,7 @@ def post_sales_return(
                     actor=actor,
                     counterparty_id=cp.id,
                     currency_code=cur,
-                    amount_signed=-q3(remaining_amount),
+                    amount_signed=-remaining_amount,
                     fx_syp_per_usd=fx_rate,
                     note=f"POS return credit #{ret.serial or ret.id}",
                     source_app="pos",
@@ -521,11 +522,12 @@ def post_sales_return(
             ret.posted_by = actor if getattr(actor, "is_authenticated", False) else None
             ret.save(update_fields=["status", "posted_at", "posted_by"])
 
-            AuditSV.log_update(
+            AuditSV.log_update_safe(
                 actor=actor,
                 target=ret,
                 title="POS sales return posted",
                 message=f"Posted sales return #{ret.serial or ret.id}",
+                source="pos.services_returns.post_sales_return",
                 meta={
                     "kind": "pos.sale_return_posted",
                     "sale_bill_id": bill.id,
@@ -545,18 +547,25 @@ def post_sales_return(
         dbg_rem_syp = rem_syp
         dbg_rem_usd = rem_usd
 
-        if q3(rem_syp + rem_usd) <= DEC0 and q3(red_syp + red_usd) > DEC0:
+        if rem_syp <= DEC0 and rem_usd <= DEC0 and (red_syp > DEC0 or red_usd > DEC0):
             return _mark_posted()
 
         return _mark_posted()
     except Exception as e:
-        cls = e.__class__.__name__
-        msg = str(e)
-        raise ValueError(
-            "post_sales_return error "
-            f"cls={cls} msg={msg} "
-            f"remaining_refund_syp={dbg_rem_syp} remaining_refund_usd={dbg_rem_usd} "
-            f"debt_reduced_syp={dbg_red_syp} debt_reduced_usd={dbg_red_usd} "
-            f"return_status={dbg_ret_status} sale_bill_id={dbg_bill_id} "
-            f"customer_id={dbg_customer_id} money_container_id={money_container_id}"
-        ) from e
+        if isinstance(e, (ValueError, ValidationError, MissingCostBasisError)):
+            raise
+        logger.exception(
+            "post_sales_return unexpected failure",
+            extra={
+                "return_id": return_id,
+                "money_container_id": money_container_id,
+                "remaining_refund_syp": str(dbg_rem_syp),
+                "remaining_refund_usd": str(dbg_rem_usd),
+                "debt_reduced_syp": str(dbg_red_syp),
+                "debt_reduced_usd": str(dbg_red_usd),
+                "return_status": dbg_ret_status,
+                "sale_bill_id": dbg_bill_id,
+                "customer_id": dbg_customer_id,
+            },
+        )
+        raise RuntimeError("Failed to post sales return.") from e

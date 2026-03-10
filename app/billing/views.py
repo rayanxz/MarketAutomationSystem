@@ -35,11 +35,12 @@ from django.db.models import Sum , Q
 from stock.models import StockFifoLayer
 
 from accounts.models import AccountProfile
-from catalog.views import role_required
+from accounts.decorators import role_required
 from catalog.models import Product
 
 from billing.models import Provider, Bill, ProviderReturn
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+from debts.source_identity import source_identity_lookup_q, source_identity_numeric_base
 
 from . import selectors as S
 from . import services as SV
@@ -220,6 +221,14 @@ def _dec(val, default: str = "0") -> Decimal:
         return Decimal(str((val if val is not None else default)).replace(",", "."))
     except (InvalidOperation, ValueError):
         return Decimal(default)
+
+
+def _q_money(currency_code: str, amount: Decimal) -> Decimal:
+    return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or "SYP").upper())
+
+
+def _q_fx(value: Decimal) -> Decimal:
+    return FinSV.q_fx(Decimal(value))
 
 
 def _date(val) -> "date | None":
@@ -557,30 +566,17 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     update_defaults = bool(payload.get("update_product_defaults") or False)
 
     try:
-        # Try with container kwarg (new signature)
-        try:
-            bill = SV.create_bill(
-                actor=request.user,
-                provider_id=int(pid),
-                status=status,
-                paid_amount=paid_amount,
-                items=items,
-                update_product_defaults=update_defaults,
-                container=container,
-                money_container_id=int(money_container_id),
-                settlement_currency=settlement_currency,
-            )
-        except TypeError:
-            # Fallback for old create_bill without container param
-            bill = SV.create_bill(
-                actor=request.user,
-                provider_id=int(pid),
-                status=status,
-                paid_amount=paid_amount,
-                items=items,
-                update_product_defaults=update_defaults,
-            )
-
+        bill = SV.create_bill(
+            actor=request.user,
+            provider_id=int(pid),
+            status=status,
+            paid_amount=paid_amount,
+            items=items,
+            update_product_defaults=update_defaults,
+            container=container,
+            money_container_id=int(money_container_id),
+            settlement_currency=settlement_currency,
+        )
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
     except ValidationError as e:
         msg = "; ".join(e.messages) if getattr(e, "messages", None) else str(e)
@@ -605,6 +601,7 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     date_to   = _date(raw_to)
     
     status = (request.GET.get("status") or "").lower()  # NOTE: evaluated at Python-level via properties
+    status_filter = status if status in {"paid", "unpaid", "partial"} else ""
     cursor = request.GET.get("cursor")
 
     try:
@@ -612,58 +609,72 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
     except ValueError:
         page_size = 30
 
-    qs = S.bills_list_filters(
-        S.bills_base(),
-        q,
-        serial,
-        status,
-        date_from,
-        date_to,
-        cursor,
-        page_size,
-    )
-    qs = qs.order_by("-id")[:page_size]
-    items = list(qs)
+    def _attach_debtor_entries(batch: list[Bill]) -> None:
+        if not batch:
+            return
+        bill_ids = [b.id for b in batch]
+        debts = DebtorEntry.objects.filter(
+            source_app="billing",
+            source_model="Bill",
+        ).filter(source_identity_lookup_q(source_ids=bill_ids))
 
-    bill_ids = [b.id for b in items]
+        debt_map: dict[int, list[DebtorEntry]] = {}
+        for d in debts:
+            base = source_identity_numeric_base(
+                source_id=d.source_id or "",
+                legacy_source_id=getattr(d, "legacy_source_id", "") or "",
+            )
+            if base is None:
+                continue
+            debt_map.setdefault(base, []).append(d)
 
-    id_strs = [str(i) for i in bill_ids]
-    id_usd = [f"{i}:USD" for i in bill_ids]
-    debts = DebtorEntry.objects.filter(
-        source_app="billing",
-        source_model="Bill",
-    ).filter(
-        Q(source_id__in=id_strs)
-        | Q(legacy_source_id__in=id_strs)
-        | Q(source_id__in=id_usd)
-        | Q(legacy_source_id__in=id_usd)
-    )
+        for b in batch:
+            b._debtor_entries_cached = debt_map.get(b.id, [])
 
-    debt_map: dict[int, list[DebtorEntry]] = {}
-    for d in debts:
-        sid = d.source_id or ""
-        legacy = getattr(d, "legacy_source_id", "") or ""
-        base = None
-        if sid.isdigit():
-            base = int(sid)
-        elif legacy.isdigit():
-            base = int(legacy)
-        elif sid.endswith(":USD") and sid[:-4].isdigit():
-            base = int(sid[:-4])
-        elif legacy.endswith(":USD") and legacy[:-4].isdigit():
-            base = int(legacy[:-4])
-        if base is None:
-            continue
-        debt_map.setdefault(base, []).append(d)
+    if status_filter:
+        try:
+            scan_cursor = int(cursor) if cursor not in (None, "") else None
+        except ValueError:
+            scan_cursor = None
 
-    # attach cached debtor entries to each bill to avoid per-row queries
-    for b in items:
-        b._debtor_entries_cached = debt_map.get(b.id, [])
-
-
-    # Optional status filter at Python-level (since status is now a property)
-    if status in {"paid", "unpaid", "partial"}:
-        items = [b for b in items if (b.status or "").lower() == status]
+        items: list[Bill] = []
+        chunk_size = page_size
+        while len(items) < page_size:
+            batch_qs = S.bills_list_filters(
+                S.bills_base(),
+                q,
+                serial,
+                status_filter,
+                date_from,
+                date_to,
+                scan_cursor,
+                page_size,
+            )
+            batch = list(batch_qs.order_by("-id")[:chunk_size])
+            if not batch:
+                break
+            _attach_debtor_entries(batch)
+            for b in batch:
+                if (b.status or "").lower() == status_filter:
+                    items.append(b)
+                    if len(items) >= page_size:
+                        break
+            scan_cursor = batch[-1].id
+            if len(batch) < chunk_size:
+                break
+    else:
+        qs = S.bills_list_filters(
+            S.bills_base(),
+            q,
+            serial,
+            status_filter,
+            date_from,
+            date_to,
+            cursor,
+            page_size,
+        )
+        items = list(qs.order_by("-id")[:page_size])
+        _attach_debtor_entries(items)
 
     nxt = items[-1].id if items else None
 
@@ -1232,11 +1243,16 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         total_return_settlement = DEC0
 
         try:
+            if settlement_currency_selected not in {"SYP", "USD"}:
+                raise ValueError("Invalid settlement currency.")
+            if valuation_mode_selected not in {"HISTORICAL", "CURRENT_FX"}:
+                raise ValueError("Invalid valuation mode.")
+
             fx_hist = None
             if fx_bill is not None:
-                fx_hist = _dec(str(fx_bill), "0")
+                fx_hist = _q_fx(_dec(str(fx_bill), "0"))
             elif fx_current is not None:
-                fx_hist = _dec(str(fx_current), "0")
+                fx_hist = _q_fx(_dec(str(fx_current), "0"))
 
             for r in rows:
                 iid = r["item_id"]
@@ -1276,24 +1292,36 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 item_currency = (getattr(it, "currency", None) or "SYP").upper()
                 cost = q4(Decimal(str(it.cost or "0")))
 
-                line_total = q3(cost * q3(qty_total))
+                line_total_raw = q3(cost * q3(qty_total))
+                line_total = _q_money(item_currency, line_total_raw)
                 if item_currency == "USD":
-                    total_return_usd = q3(total_return_usd + line_total)
+                    total_return_usd = _q_money("USD", total_return_usd + line_total)
                 else:
-                    total_return_syp = q3(total_return_syp + line_total)
+                    total_return_syp = _q_money("SYP", total_return_syp + line_total)
 
                 # settlement total (convert if needed)
                 if settlement_currency_selected == item_currency:
-                    total_return_settlement = q3(total_return_settlement + line_total)
+                    total_return_settlement = _q_money(
+                        settlement_currency_selected,
+                        total_return_settlement + line_total,
+                    )
                 else:
                     fx_use = fx_hist if valuation_mode_selected == "HISTORICAL" else fx_current
-                    if fx_use is None or Decimal(str(fx_use)) <= 0:
+                    if fx_use is None:
                         raise ValueError("FX rate is required to settle this return.")
-                    fx_use = Decimal(str(fx_use))
+                    fx_use = _q_fx(_dec(str(fx_use), "0"))
+                    if fx_use <= 0:
+                        raise ValueError("FX rate is required to settle this return.")
                     if settlement_currency_selected == "SYP" and item_currency == "USD":
-                        total_return_settlement = q3(total_return_settlement + (line_total * fx_use))
+                        total_return_settlement = _q_money(
+                            "SYP",
+                            total_return_settlement + (line_total * fx_use),
+                        )
                     elif settlement_currency_selected == "USD" and item_currency == "SYP":
-                        total_return_settlement = q3(total_return_settlement + (line_total / fx_use))
+                        total_return_settlement = _q_money(
+                            "USD",
+                            total_return_settlement + (line_total / fx_use),
+                        )
 
                 container_splits: list[dict[str, str]] = []
                 if q_store > DEC0:
@@ -1326,6 +1354,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
             paid_amount = _dec(return_paid_amount_raw or "0", "0")
             if paid_amount < DEC0:
                 paid_amount = -paid_amount
+            paid_amount = _q_money(settlement_currency_selected, paid_amount)
 
             status = raw_status
 
@@ -1467,29 +1496,83 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
     date_to   = _date(raw_to)
 
     status = (request.GET.get("status") or "").lower()  # property-based
+    status_filter = status if status in {"paid", "partial", "unpaid"} else ""
     cursor = request.GET.get("cursor")
     try:
         page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
     except ValueError:
         page_size = 30
 
-    qs = S.returns_list_filters(
-        q,
-        serial,
-        rid,
-        bill_serial,
-        status,
-        date_from,
-        date_to,
-        cursor,
-        page_size,
-    )
+    def _attach_creditor_entries(batch: list[ProviderReturn]) -> None:
+        if not batch:
+            return
+        ret_ids = [r.id for r in batch]
+        debts = CreditorEntry.objects.filter(
+            source_app="billing",
+            source_model="ProviderReturn",
+        ).filter(source_identity_lookup_q(source_ids=ret_ids))
 
-    items = list(qs)
+        debt_map: dict[int, list[CreditorEntry]] = {}
+        for d in debts:
+            base = source_identity_numeric_base(
+                source_id=d.source_id or "",
+                legacy_source_id=getattr(d, "legacy_source_id", "") or "",
+            )
+            if base is None:
+                continue
+            debt_map.setdefault(base, []).append(d)
 
-    # Python-level status filter (since status is property now)
-    if status in {"paid", "partial", "unpaid"}:
-        items = [r for r in items if (r.status or "").lower() == status]
+        for r in batch:
+            r._creditor_entries_cached = debt_map.get(r.id, [])
+
+    if status_filter:
+        try:
+            scan_cursor = int(cursor) if cursor not in (None, "") else None
+        except ValueError:
+            scan_cursor = None
+
+        items: list[ProviderReturn] = []
+        chunk_size = page_size
+        while len(items) < page_size:
+            batch = list(
+                S.returns_list_filters(
+                    q,
+                    serial,
+                    rid,
+                    bill_serial,
+                    status_filter,
+                    date_from,
+                    date_to,
+                    scan_cursor,
+                    chunk_size,
+                )
+            )
+            if not batch:
+                break
+            _attach_creditor_entries(batch)
+            for r in batch:
+                if (r.status or "").lower() == status_filter:
+                    items.append(r)
+                    if len(items) >= page_size:
+                        break
+            scan_cursor = batch[-1].id
+            if len(batch) < chunk_size:
+                break
+    else:
+        items = list(
+            S.returns_list_filters(
+                q,
+                serial,
+                rid,
+                bill_serial,
+                status_filter,
+                date_from,
+                date_to,
+                cursor,
+                page_size,
+            )
+        )
+        _attach_creditor_entries(items)
 
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [return_row(r) for r in items], "next_cursor": nxt})

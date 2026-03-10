@@ -1,14 +1,17 @@
 # app/pos/returns_views.py
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
 
-from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseBadRequest
+from django.core.exceptions import ValidationError
+from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from accounts.decorators import role_required
+from accounts.models import AccountProfile
 from catalog.models import Product, UnitType
 from inventory.models import DEC0, q3
 from stock.models import ProductContainer
@@ -16,19 +19,14 @@ from stock.models import ProductContainer
 from .models import SalesBill, SalesReturn
 from . import services_returns as SV
 
+logger = logging.getLogger(__name__)
+
 
 def _dec(x) -> Decimal:
     try:
         return Decimal(str(x or "0"))
     except Exception:
         return Decimal("0")
-
-
-def _ensure_staff(request: HttpRequest) -> HttpResponse | None:
-    user = request.user
-    if not (user.is_superuser or user.is_staff):
-        return HttpResponseForbidden("Forbidden.")
-    return None
 
 
 def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list[dict[str, Any]]:
@@ -86,12 +84,8 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
     return rows
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def pos_manager_sale_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
-    forbidden = _ensure_staff(request)
-    if forbidden:
-        return forbidden
-
     bill = get_object_or_404(
         SalesBill.objects.select_related("cashier", "customer").prefetch_related("rows"),
         pk=bill_id,
@@ -188,12 +182,8 @@ def _build_settle_context(ret: SalesReturn, *, error_msg: str = "") -> dict[str,
     }
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 def pos_manager_sale_return_settle(request: HttpRequest, return_id: int) -> HttpResponse:
-    forbidden = _ensure_staff(request)
-    if forbidden:
-        return forbidden
-
     ret = (
         SalesReturn.objects
         .select_related("sale_bill", "customer", "stock_container")
@@ -208,14 +198,10 @@ def pos_manager_sale_return_settle(request: HttpRequest, return_id: int) -> Http
     return render(request, "pos/manager_sale_return_settle.html", ctx)
 
 
-@login_required
+@role_required(AccountProfile.Role.MANAGER)
 @require_POST
 def pos_manager_sale_return_post(request: HttpRequest, return_id: int) -> HttpResponse:
     try:
-        forbidden = _ensure_staff(request)
-        if forbidden:
-            return forbidden
-
         ret = SalesReturn.objects.select_related("sale_bill").get(pk=return_id)
         if ret.status != SalesReturn.Status.DRAFT:
             return HttpResponseBadRequest("Return is not in draft state.")
@@ -232,5 +218,8 @@ def pos_manager_sale_return_post(request: HttpRequest, return_id: int) -> HttpRe
         )
         from .views import pos_manager_bill_detail
         return pos_manager_bill_detail(request, bill_id=ret.sale_bill_id)
-    except Exception as e:
+    except (ValueError, ValidationError) as e:
         return HttpResponseBadRequest(str(e))
+    except Exception:
+        logger.exception("pos_manager_sale_return_post failed")
+        return HttpResponseBadRequest("Failed to post sales return.")

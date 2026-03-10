@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 from django.db import transaction
 
 from .models import AuditLog, AuditAction, AuditSession
+
+
+logger = logging.getLogger(__name__)
 
 
 def _dumps(d):
@@ -89,6 +93,56 @@ def log_update(**kwargs): return log_event(action=AuditAction.UPDATE, **kwargs)
 def log_delete(**kwargs): return log_event(action=AuditAction.DELETE, **kwargs)
 def log_info(**kwargs):   return log_event(action=AuditAction.INFO, **kwargs)
 def log_error(**kwargs):  return log_event(action=AuditAction.ERROR, **kwargs)
+
+
+def log_event_safe(
+    *,
+    action: str,
+    actor=None,
+    target=None,
+    title: str = "",
+    source: str = "",
+    **kwargs,
+) -> Optional[AuditLog]:
+    """
+    Non-blocking audit helper.
+    Business flow should not fail when audit write fails, but failure must be visible.
+    """
+    try:
+        return log_event(action=action, actor=actor, target=target, title=title, **kwargs)
+    except Exception:
+        target_app, target_model, target_id = _model_identity(target)
+        logger.exception(
+            "Audit write failed action=%s source=%s target=%s.%s#%s title=%s actor_id=%s",
+            action,
+            source or "",
+            target_app,
+            target_model,
+            target_id,
+            title,
+            getattr(actor, "id", None),
+        )
+        return None
+
+
+def log_create_safe(*, source: str = "", **kwargs) -> Optional[AuditLog]:
+    return log_event_safe(action=AuditAction.CREATE, source=source, **kwargs)
+
+
+def log_update_safe(*, source: str = "", **kwargs) -> Optional[AuditLog]:
+    return log_event_safe(action=AuditAction.UPDATE, source=source, **kwargs)
+
+
+def log_delete_safe(*, source: str = "", **kwargs) -> Optional[AuditLog]:
+    return log_event_safe(action=AuditAction.DELETE, source=source, **kwargs)
+
+
+def log_info_safe(*, source: str = "", **kwargs) -> Optional[AuditLog]:
+    return log_event_safe(action=AuditAction.INFO, source=source, **kwargs)
+
+
+def log_error_safe(*, source: str = "", **kwargs) -> Optional[AuditLog]:
+    return log_event_safe(action=AuditAction.ERROR, source=source, **kwargs)
 
 
 def snap_instance(obj, fields: list[str] | None = None) -> dict:

@@ -166,3 +166,80 @@ class DebtsFinancialsPaymentsTests(TestCase):
 
         self.container.refresh_from_db()
         self.assertEqual(self.container.balance_usd, D("0"))
+
+    def test_usd_debt_payment_is_quantized_and_consistent(self):
+        entry = DebtorDebt.objects.create(
+            provider=self.provider,
+            source_app="debts",
+            source_model="ManualDebt",
+            source_id="manual:usd-precision",
+            total=D("2.50"),
+            paid_amount=D("0"),
+            status=DebtorDebt.Status.OPEN,
+            party_type=PartyType.PROVIDER,
+            party_name=self.provider.name,
+            currency_code="USD",
+        )
+
+        DebtSV.pay_debt(
+            actor=self.actor,
+            entry_id=entry.id,
+            amount=D("1.005"),
+            full=False,
+            money_container_id=self.container.id,
+            currency_code="USD",
+        )
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.paid_amount, D("1.01"))
+        self.assertEqual(entry.remaining, D("1.49"))
+
+        payment = DebtorPayment.objects.get(entry=entry)
+        self.assertEqual(payment.amount, D("1.01"))
+
+        self.container.refresh_from_db()
+        self.assertEqual(self.container.balance_usd, D("-1.01"))
+
+    def test_reversal_symmetry_preserves_quantized_balances(self):
+        cp, _ = Counterparty.objects.get_or_create(
+            type=CounterpartyType.PROVIDER,
+            provider=self.provider,
+            defaults={"name": self.provider.name, "is_active": True},
+        )
+
+        FinSV.post_cash_add(
+            actor=self.actor,
+            container_id=self.container.id,
+            currency_code="USD",
+            amount=D("5"),
+            source_app="tests",
+            source_model="Seed",
+            source_id="usd-seed",
+        )
+
+        before_container = FinSV.container_balance(container_id=self.container.id).get("USD", D("0"))
+        before_cp = FinSV.counterparty_balance(counterparty_id=cp.id).get("USD", D("0"))
+
+        receipt = FinSV.post_settlement_with_fx(
+            actor=self.actor,
+            container_id=self.container.id,
+            counterparty_id=cp.id,
+            currency_code="USD",
+            cash_amount_signed=D("-1.005"),
+            fx_syp_per_usd=D("15000"),
+            source_app="tests",
+            source_model="Settlement",
+            source_id="usd-precision",
+        )
+
+        mid_container = FinSV.container_balance(container_id=self.container.id).get("USD", D("0"))
+        mid_cp = FinSV.counterparty_balance(counterparty_id=cp.id).get("USD", D("0"))
+        self.assertEqual(mid_container, before_container - D("1.01"))
+        self.assertEqual(mid_cp, before_cp + D("1.01"))
+
+        FinSV.reverse_receipt(actor=self.actor, receipt_id=receipt.id, reason_note="precision reversal")
+
+        after_container = FinSV.container_balance(container_id=self.container.id).get("USD", D("0"))
+        after_cp = FinSV.counterparty_balance(counterparty_id=cp.id).get("USD", D("0"))
+        self.assertEqual(after_container, before_container)
+        self.assertEqual(after_cp, before_cp)

@@ -18,6 +18,23 @@ from django.conf import settings
 DEC0 = Decimal("0.000")
 
 
+def _debt_entry_identity_priority(entry, *, base_source_id: str) -> tuple[int, int]:
+    sid = str(getattr(entry, "source_id", "") or "").strip()
+    legacy = str(getattr(entry, "legacy_source_id", "") or "").strip()
+    legacy_usd = f"{base_source_id}:USD"
+    if sid == base_source_id:
+        bucket = 0
+    elif legacy == base_source_id:
+        bucket = 1
+    elif sid == legacy_usd:
+        bucket = 2
+    elif legacy == legacy_usd:
+        bucket = 3
+    else:
+        bucket = 4
+    return (bucket, int(getattr(entry, "id", 0) or 0))
+
+
 
 
 # =========================
@@ -176,15 +193,24 @@ class Bill(models.Model):
 
     def _debtor_entry_by_currency(self, code: str):
         code = (code or "").upper()
+        base_source_id = str(self.id)
+        rows = []
         for e in self.debtor_entries:
             cur = (getattr(e, "currency_code", None) or "SYP").upper()
             if cur == code:
-                return e
+                rows.append(e)
+        if rows:
+            rows.sort(key=lambda e: _debt_entry_identity_priority(e, base_source_id=base_source_id))
+            return rows[0]
         # legacy suffix fallback
         if code == CURRENCY_USD:
+            legacy_rows = []
             for e in self.debtor_entries:
                 if (e.source_id or "").endswith(":USD") or (getattr(e, "legacy_source_id", "") or "").endswith(":USD"):
-                    return e
+                    legacy_rows.append(e)
+            if legacy_rows:
+                legacy_rows.sort(key=lambda e: _debt_entry_identity_priority(e, base_source_id=base_source_id))
+                return legacy_rows[0]
         return None
 
     @property
@@ -435,14 +461,23 @@ class ProviderReturn(models.Model):
 
     def _creditor_entry_by_currency(self, code: str):
         code = (code or "").upper()
+        base_source_id = str(self.id)
+        rows = []
         for e in self.creditor_entries:
             cur = (getattr(e, "currency_code", None) or "SYP").upper()
             if cur == code:
-                return e
+                rows.append(e)
+        if rows:
+            rows.sort(key=lambda e: _debt_entry_identity_priority(e, base_source_id=base_source_id))
+            return rows[0]
         if code == CURRENCY_USD:
+            legacy_rows = []
             for e in self.creditor_entries:
                 if (e.source_id or "").endswith(":USD") or (getattr(e, "legacy_source_id", "") or "").endswith(":USD"):
-                    return e
+                    legacy_rows.append(e)
+            if legacy_rows:
+                legacy_rows.sort(key=lambda e: _debt_entry_identity_priority(e, base_source_id=base_source_id))
+                return legacy_rows[0]
         return None
 
     @property

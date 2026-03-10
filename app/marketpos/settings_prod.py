@@ -1,8 +1,16 @@
 import os
 from .settings import *  # base
+from django.core.exceptions import ImproperlyConfigured
 
 DEBUG = False
 ALLOWED_HOSTS = ["127.0.0.1", "localhost" , "testserver"]
+
+if str(os.environ.get("DJANGO_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+    raise ImproperlyConfigured("DJANGO_DEBUG cannot be enabled in production settings.")
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY environment variable is required in production settings.")
 
 # Runtime locations under ProgramData (Windows-friendly and survives updates)
 PROGRAM_DATA = os.environ.get("PROGRAMDATA", r"C:\ProgramData")

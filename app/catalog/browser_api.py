@@ -6,7 +6,7 @@ from django.db.models.functions import Lower
 
 from accounts.models import AccountProfile
 from catalog.models import ProductCollection, ProductSet, Product, ProductBarcode  # noqa: F401
-from catalog.views import role_required  # reuse the same decorator
+from accounts.decorators import role_required
 
 PAGE_SIZE = 15
 

@@ -31,7 +31,7 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
     # Stats based on subledger:
     # - bills_count: total bills
     # - unpaid_bills_count: open debtor entries (one per bill)
-    # - total_debt: sum remaining of open debtor entries
+    # - debt totals are currency-separated to avoid mixed-currency aggregation
     qs = (
         base
         .annotate(
@@ -40,10 +40,20 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
                 Count("debtor_entries", filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN), distinct=True),
                 Value(0),
             ),
-            total_debt=Coalesce(
+            total_debt_syp=Coalesce(
                 Sum(
                     F("debtor_entries__total") - F("debtor_entries__paid_amount"),
-                    filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN),
+                    filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN)
+                    & (Q(debtor_entries__currency_code="SYP") | Q(debtor_entries__currency_code__isnull=True) | Q(debtor_entries__currency_code="")),
+                    output_field=DecimalField(max_digits=14, decimal_places=3),
+                ),
+                Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
+                output_field=DecimalField(max_digits=14, decimal_places=3),
+            ),
+            total_debt_usd=Coalesce(
+                Sum(
+                    F("debtor_entries__total") - F("debtor_entries__paid_amount"),
+                    filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN) & Q(debtor_entries__currency_code="USD"),
                     output_field=DecimalField(max_digits=14, decimal_places=3),
                 ),
                 Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),

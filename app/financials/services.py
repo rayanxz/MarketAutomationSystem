@@ -1,7 +1,7 @@
 # financials/services.py
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Optional, Dict, Any
 
 from django.db import transaction
@@ -27,6 +27,7 @@ from .models import (
 import json
 
 DEC0 = Decimal("0")
+FX_DECIMALS = 6
 
 REF_WIDTH = 2
 
@@ -72,7 +73,7 @@ def set_current_fx(*, actor, rate_syp_per_usd: Decimal) -> FxSettings:
     """
     Set global FX used by the system until changed.
     """
-    r = Decimal(rate_syp_per_usd)
+    r = q_fx(rate_syp_per_usd)
     if r <= 0:
         raise ValueError("FX rate must be > 0")
 
@@ -134,11 +135,32 @@ def q_currency(amount: Decimal, *, currency: Currency) -> Decimal:
     return amount.quantize(exp, rounding=ROUND_HALF_UP)
 
 
+def q_money(*, amount: Decimal, currency_code: str) -> Decimal:
+    code = (currency_code or "").upper().strip()
+    if not code:
+        raise ValueError("currency_code is required")
+    currency = Currency.objects.get(code=code)
+    return q_currency(Decimal(amount or DEC0), currency=currency)
+
+
+def q_fx(value: Decimal) -> Decimal:
+    try:
+        d = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("Invalid FX rate")
+    exp = Decimal("1").scaleb(-FX_DECIMALS)
+    return d.quantize(exp, rounding=ROUND_HALF_UP)
+
+
 def _apply_container_balance_delta(*, container: MoneyContainer, currency_code: str, amount: Decimal) -> None:
-    if currency_code == "SYP":
-        container.balance_syp = q_currency(container.balance_syp + amount, currency=Currency.objects.get(code="SYP"))
-    elif currency_code == "USD":
-        container.balance_usd = q_currency(container.balance_usd + amount, currency=Currency.objects.get(code="USD"))
+    code = (currency_code or "").upper()
+    delta = Decimal(amount or DEC0)
+    if code == "SYP":
+        container.balance_syp = q_money(amount=(container.balance_syp or DEC0) + delta, currency_code="SYP")
+    elif code == "USD":
+        container.balance_usd = q_money(amount=(container.balance_usd or DEC0) + delta, currency_code="USD")
+    else:
+        raise ValueError("Unsupported currency for container balance update")
     container.save(update_fields=["balance_syp", "balance_usd"])
 
 
@@ -155,7 +177,7 @@ def _mk_receipt(
     fx_syp_per_usd: Optional[Decimal] = None,  # ✅ new
 ) -> Receipt:
     # ✅ hard block: any created receipt must carry FX
-    fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else None
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else None
     if kind != ReceiptKind.OPENING_BALANCE:
         if fx is None or fx <= 0:
             raise ValueError("FX is required for receipts.")
@@ -296,7 +318,7 @@ def post_pos_sale_receipt(
     POS cash-in: post a receipt with container lines for SYP/USD amounts,
     and update container balances in the same transaction.
     """
-    fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
     _assert_container_usable(container)
 
@@ -332,9 +354,9 @@ def post_pos_sale_receipt(
     delta_syp = cleaned.get("SYP", DEC0)
     delta_usd = cleaned.get("USD", DEC0)
     if delta_syp:
-        container.balance_syp = q_currency(container.balance_syp + delta_syp, currency=Currency.objects.get(code="SYP"))
+        container.balance_syp = q_money(amount=(container.balance_syp or DEC0) + delta_syp, currency_code="SYP")
     if delta_usd:
-        container.balance_usd = q_currency(container.balance_usd + delta_usd, currency=Currency.objects.get(code="USD"))
+        container.balance_usd = q_money(amount=(container.balance_usd or DEC0) + delta_usd, currency_code="USD")
     container.save(update_fields=["balance_syp", "balance_usd"])
 
     return r
@@ -419,7 +441,7 @@ def post_counterparty_adjust_with_fx(
     note: str = "",
     **source,
 ) -> Receipt:
-    fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
     if fx <= 0:
         raise ValueError("FX is required for receipts.")
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
@@ -469,7 +491,7 @@ def post_settlement_with_fx(
     note: str = "",
     **source,
 ) -> Receipt:
-    fx = Decimal(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
     if fx <= 0:
         raise ValueError("FX is required for receipts.")
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
@@ -514,7 +536,7 @@ def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt
         kind=ReceiptKind.REVERSAL,
         note=reason_note,
         reverses=orig,
-        fx_syp_per_usd=Decimal(orig.fx_syp_per_usd),
+        fx_syp_per_usd=q_fx(orig.fx_syp_per_usd),
     )
 
     for ln in orig.lines.all():

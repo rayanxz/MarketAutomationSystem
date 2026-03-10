@@ -1,11 +1,8 @@
 # catalog/views.py
 from __future__ import annotations
 
-from functools import wraps
 from math import ceil
 from decimal import Decimal
-from typing import Iterable
-
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
@@ -14,7 +11,6 @@ from django.db.models.functions import Lower
 from django.http import (
     HttpRequest,
     HttpResponse,
-    HttpResponseForbidden,
     HttpResponseRedirect,
     JsonResponse,
 )
@@ -22,8 +18,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
+from accounts.decorators import role_required
 from accounts.models import AccountProfile
-from accounts.utils import profile_for
 from catalog.forms import CollectionCreateForm, ProductCreateForm
 from catalog.models import (
     ProductCollection,
@@ -33,7 +29,12 @@ from catalog.models import (
     ProductUnitId,
 )
 
-from audit_log.services import log_create, log_update, log_delete, snap_instance
+from audit_log.services import (
+    log_create_safe as log_create,
+    log_update_safe as log_update,
+    log_delete_safe as log_delete,
+    snap_instance,
+)
 from inventory.models import q3
 from financials import services as FinancialsSV
 from catalog.services.deletion_policy import (
@@ -345,31 +346,6 @@ def _bind_validation_error_to_form(
         return
     for msg in _validation_messages(exc):
         form.add_error(None, msg)
-
-# ---------- role gate (manager; owner allowed by default) ----------
-def role_required(*roles: Iterable[str], allow_owner: bool = True):
-    if not roles:
-        roles = (
-            AccountProfile.Role.OWNER,
-            AccountProfile.Role.MANAGER,
-            AccountProfile.Role.CASHIER,
-        )
-    else:
-        roles = tuple(roles)
-
-    def decorator(view_func):
-        @wraps(view_func)
-        def wrapped(request: HttpRequest, *args, **kwargs):
-            if not request.user.is_authenticated:
-                return redirect("login")
-            profile = profile_for(request.user)
-            if profile is None:
-                return redirect("login")
-            if profile.has_any_role(roles, allow_owner=allow_owner):
-                return view_func(request, *args, **kwargs)
-            return HttpResponseForbidden("ليست لديك صلاحية للوصول إلى هذه الصفحة.")
-        return wrapped
-    return decorator
 
 
 # ---------- Collections (زمر) ----------
@@ -1783,4 +1759,5 @@ def api_sets_create(request: HttpRequest) -> JsonResponse:
         pass
 
     return JsonResponse({"ok": True, "item": {"id": st.id, "name": st.name, "code": st.code}})
+
 

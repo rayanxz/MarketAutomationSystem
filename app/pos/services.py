@@ -37,19 +37,28 @@ class InsufficientStockError(Exception):
         super().__init__("INSUFFICIENT_STOCK")
 
 
+def _q_money(currency_code: str, amount: Decimal) -> Decimal:
+    return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or SYP).upper())
+
+
+def _q_fx(value: Decimal) -> Decimal:
+    return FinSV.q_fx(Decimal(value))
+
+
 def _ensure_customer_counterparty(*, customer) -> Counterparty:
-    cp = Counterparty.objects.filter(type=CounterpartyType.CUSTOMER, customer_id=customer.id).first()
-    if cp:
-        if (cp.name or "").strip() != (customer.name or "").strip():
-            cp.name = (customer.name or "").strip()
-            cp.save(update_fields=["name"])
-        return cp
-    return Counterparty.objects.create(
+    name = (customer.name or "").strip()
+    cp, created = Counterparty.objects.get_or_create(
         type=CounterpartyType.CUSTOMER,
-        name=(customer.name or "").strip(),
         customer_id=customer.id,
-        is_active=True,
+        defaults={
+            "name": name,
+            "is_active": True,
+        },
     )
+    if not created and (cp.name or "").strip() != name:
+        cp.name = name
+        cp.save(update_fields=["name"])
+    return cp
 
 
 def get_or_create_work_day(now=None) -> PosDay:
@@ -358,8 +367,8 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
     if not bill.money_container_id:
         raise RuntimeError("POS_MISSING_MONEY_CONTAINER")
 
-    total_syp = q3(bill.total_syp or DEC0)
-    total_usd = q3(bill.total_usd or DEC0)
+    total_syp = _q_money(SYP, bill.total_syp or DEC0)
+    total_usd = _q_money(USD, bill.total_usd or DEC0)
 
     # fallback for legacy bills
     if total_syp == 0 and total_usd == 0:
@@ -371,11 +380,11 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             row_total = _calc_row_total(product=product, row=row)
             row_currency = (row.sale_currency or SYP).upper()
             if row_currency == USD:
-                total_usd = q3(total_usd + row_total)
+                total_usd = _q_money(USD, total_usd + row_total)
             else:
-                total_syp = q3(total_syp + row_total)
+                total_syp = _q_money(SYP, total_syp + row_total)
 
-    fx_rate = bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd()
+    fx_rate = _q_fx(bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
 
     paid_syp = DEC0
     paid_usd = DEC0
@@ -383,19 +392,19 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
 
     if bill.pay_status == SalesBill.PAY_FULL:
         if mode == SalesBill.SETTLE_ALL_SYP:
-            paid_syp = q3(total_syp + (total_usd * fx_rate))
+            paid_syp = _q_money(SYP, total_syp + (total_usd * fx_rate))
         elif mode == SalesBill.SETTLE_ALL_USD:
-            paid_usd = q3(total_usd + (total_syp / fx_rate))
+            paid_usd = _q_money(USD, total_usd + (total_syp / fx_rate))
         else:
             paid_syp = total_syp
             paid_usd = total_usd
     else:
         if mode == SalesBill.SETTLE_ALL_SYP:
-            paid_syp = q3(bill.paid_amount or DEC0)
+            paid_syp = _q_money(SYP, bill.paid_amount or DEC0)
         elif mode == SalesBill.SETTLE_ALL_USD:
-            paid_usd = q3(bill.paid_amount or DEC0)
+            paid_usd = _q_money(USD, bill.paid_amount or DEC0)
         else:
-            paid_syp = q3(bill.paid_amount or DEC0)
+            paid_syp = _q_money(SYP, bill.paid_amount or DEC0)
 
     amounts = {}
     if paid_syp > 0:
@@ -425,7 +434,7 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
                     container_id=bill.money_container_id,
                     counterparty_id=cp.id,
                     currency_code=SYP,
-                    cash_amount_signed=+q3(paid_syp),
+                    cash_amount_signed=+paid_syp,
                     fx_syp_per_usd=fx_rate,
                     note="POS sale settlement (SYP)",
                     source_app="pos",
@@ -438,7 +447,7 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
                     container_id=bill.money_container_id,
                     counterparty_id=cp.id,
                     currency_code=USD,
-                    cash_amount_signed=+q3(paid_usd),
+                    cash_amount_signed=+paid_usd,
                     fx_syp_per_usd=fx_rate,
                     note="POS sale settlement (USD)",
                     source_app="pos",

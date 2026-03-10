@@ -14,7 +14,7 @@ from catalog.models import (
     ProductCollection,
     ProductSet,
 )
-from catalog.views import role_required
+from accounts.decorators import role_required
 from catalog.services.deletion_policy import (
     CollectionHardDeleteBlockedError,
     FatherSetHardDeleteBlockedError,
@@ -22,7 +22,11 @@ from catalog.services.deletion_policy import (
     hard_delete_father_set,
 )
 
-from audit_log.services import log_update, log_delete, snap_instance
+from audit_log.services import (
+    log_update_safe as log_update,
+    log_delete_safe as log_delete,
+    snap_instance,
+)
 
 ALLOWED_TYPES = {"collection", "set"}
 
