@@ -96,7 +96,12 @@ class ProductCreateForm(forms.Form):
             "stock_qty",
         ):
             if n in self.fields:
-                self.fields[n].widget.attrs.setdefault("class", "input")
+                cls = self.fields[n].widget.attrs.get("class", "").split()
+                if "input" not in cls:
+                    cls.append("input")
+                if "numeric-math" not in cls:
+                    cls.append("numeric-math")
+                self.fields[n].widget.attrs["class"] = " ".join(cls)
                 if n in (
                     "conversion_factor",
                     "cost_syp",

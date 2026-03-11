@@ -48,7 +48,7 @@
         <div>
           <label for="qty">الكمية</label>
           <div class="row">
-            <input class="input" id="qty" type="number" min="0" step="0.001" placeholder="0" style="max-width:120px;" />
+            <input class="input numeric-math" id="qty" type="number" min="0" step="0.001" placeholder="0" style="max-width:120px;" />
             <div class="units-switch">
               <select class="input" id="uom" style="width:auto; min-width: 120px;">
                 <option value="1">الوحدة الأساسية</option>
@@ -72,12 +72,12 @@
 
             <div>
               <div class="muted" style="font-size:11px; margin-top:2px;">نسبة مئوية</div>
-              <input class="input" id="discPct" type="number" min="0" step="0.01" placeholder="% نسبة" />
+              <input class="input numeric-math" id="discPct" type="number" min="0" step="0.01" placeholder="% نسبة" />
             </div>
 
             <div>
               <div class="muted" style="font-size:11px; margin-top:2px;">مبلغ</div>
-              <input class="input" id="discAmt" type="number" min="0" step="0.001" placeholder="قيمة" />
+              <input class="input numeric-math" id="discAmt" type="number" min="0" step="0.001" placeholder="قيمة" />
             </div>
 
           </div>
@@ -170,7 +170,7 @@
       <!-- Paid / left -->
       <div class="pay-part">
         <label for="partAmt" class="muted">المبلغ المدفوع</label>
-        <input id="partAmt" class="input" type="number" min="0" step="0.001" placeholder="0" style="width:140px" />
+        <input id="partAmt" class="input numeric-math" type="number" min="0" step="0.001" placeholder="0" style="width:140px" />
         <span class="muted">المتبقي:</span>
         <span class="left-amount" id="leftAmount">0.000</span>
       </div>

@@ -61,6 +61,7 @@
                 <td>{{ r.remaining_qty|human_number }}</td>
                 <td>
                   <input
+                    class="numeric-math"
                     type="number"
                     name="ret_qty_{{ r.row_id }}"
                     value="{{ r.ret_qty_raw }}"

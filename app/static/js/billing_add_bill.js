@@ -447,22 +447,22 @@ refreshAutoSerial();
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
       </td>
-      <td><input name="cost[]" class="input" type="number" step="0.0001" value="${costVal}"></td>
-      <td><input name="price_syp[]" class="input price-syp" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
+      <td><input name="cost[]" class="input numeric-math" type="number" step="0.0001" value="${costVal}"></td>
+      <td><input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
       <td>
-        <input name="price_usd[]" class="input price-usd" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
+        <input name="price_usd[]" class="input price-usd numeric-math" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
         <button type="button" class="btn btn-fx" style="margin-top:4px; padding:6px 8px;">FX</button>
       </td>
       <td>
         <div style="display:flex; gap:6px; align-items:center;">
-          <input name="qty[]" class="input" type="number" step="0.001" min="0" placeholder="0">
+          <input name="qty[]" class="input numeric-math" type="number" step="0.001" min="0" placeholder="0">
           <select name="qty_unit[]" class="input" style="max-width:160px;" ${lockSelect ? "disabled" : ""}>
             ${showU1 ? `<option value="u1">${u1Label}</option>` : ``}
             ${showU2 ? `<option value="u2">${u2Label}</option>` : ``}
           </select>
         </div>
       </td>
-      <td><input name="total_cost[]" class="input" type="number" step="0.01" placeholder="0.00"></td>
+      <td><input name="total_cost[]" class="input numeric-math" type="number" step="0.01" placeholder="0.00"></td>
       <td style="text-align:center;"><button type="button" class="btn-danger btn-del">✕</button></td>
       <input type="hidden" name="product_id[]" value="${prod.id}">
     `;

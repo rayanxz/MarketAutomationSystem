@@ -222,7 +222,7 @@
               <td class="col-store">
                 <input
                     type="number"
-                    class="input ret-qty input-store {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
+                    class="input ret-qty input-store numeric-math {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
                     name="ret_store_{{ r.item_id }}"
                     min="0"
                     step="0.001"
@@ -238,7 +238,7 @@
               <td class="col-wh1">
                 <input
                     type="number"
-                    class="input ret-qty input-wh1 {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
+                    class="input ret-qty input-wh1 numeric-math {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
                     name="ret_wh1_{{ r.item_id }}"
                     min="0"
                     step="0.001"
@@ -254,7 +254,7 @@
               <td class="col-wh2">
                 <input
                     type="number"
-                    class="input ret-qty input-wh2 {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
+                    class="input ret-qty input-wh2 numeric-math {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
                     name="ret_wh2_{{ r.item_id }}"
                     min="0"
                     step="0.001"
@@ -359,7 +359,7 @@
             type="number"
             id="returnPaidAmount"
             name="return_paid_amount"
-            class="input"
+            class="input numeric-math"
             style="width:200px;"
             min="0"
             step="0.001"

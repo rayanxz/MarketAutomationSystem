@@ -61,7 +61,7 @@ class FxSettingsForm(forms.ModelForm):
         fields = ["rate_syp_per_usd"]
         widgets = {
             "rate_syp_per_usd": forms.NumberInput(attrs={
-                "class": "input",
+                "class": "input numeric-math",
                 "step": "any",
                 "placeholder": "مثال: 20000"
             }),
@@ -84,7 +84,7 @@ class OpeningBalanceRowForm(forms.Form):
         required=False,
         max_digits=18,
         decimal_places=6,
-        widget=forms.NumberInput(attrs={"class": "input", "step": "any", "placeholder": "0"}),
+        widget=forms.NumberInput(attrs={"class": "input numeric-math", "step": "any", "placeholder": "0"}),
     )
 
     def clean_amount(self):

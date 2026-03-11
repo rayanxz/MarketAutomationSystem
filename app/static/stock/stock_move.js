@@ -377,7 +377,7 @@
     inputQty.name = "qty";
     inputQty.step = "0.001";
     inputQty.min = "0.001";
-    inputQty.className = "mv-qty-input";
+    inputQty.className = "mv-qty-input numeric-math";
     inputQty.style.width = "90px";
     inputQty.placeholder = "0.000";
     inputQty.value = qty > 0 ? qty.toFixed(3) : "";
