@@ -6,6 +6,7 @@ from typing import List
 from django import forms
 from django.contrib.auth import get_user_model
 
+from accounts.models import AccountProfile
 from financials.models import MoneyContainer, Currency, ContainerFeature, FxSettings
 
 
@@ -29,7 +30,9 @@ class MoneyContainerForm(forms.ModelForm):
     )
 
     allowed_users = forms.ModelMultipleChoiceField(
-        queryset=User.objects.all().order_by("username"),
+        queryset=User.objects.exclude(
+            account_profile__role=AccountProfile.Role.OWNER
+        ).order_by("username"),
         required=False,
         widget=forms.CheckboxSelectMultiple,
         label="الحسابات المسموحة",

@@ -70,6 +70,32 @@
   margin:8px 0;
 }
 
+.allowed-users-scroll{
+  max-height:220px;
+  overflow:auto;
+  border:1px solid rgba(0,0,0,.08);
+  border-radius:10px;
+  padding:10px;
+}
+
+.allowed-users-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+
+.allowed-users-list label{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:6px 0;
+  justify-content:flex-start;
+}
+
+@media (max-width: 860px){
+  .allowed-users-grid{ grid-template-columns:1fr; }
+}
+
 .fin-actions{
   display:flex;
   gap:10px;
@@ -222,9 +248,44 @@
 
     <div class="card fin-card" style="background:rgba(0,0,0,.02)">
       <h3 class="fin-section-title">الحسابات المسموحة (اختياري)</h3>
-      <div class="fin-compact-list" style="max-height:160px;overflow:auto;padding-right:6px">
-        {{ form.allowed_users }}
+      <div class="allowed-users-scroll">
+        <div class="allowed-users-grid">
+          <div>
+            <div class="fin-muted" style="margin-bottom:6px">Allowed Cashiers Accounts</div>
+            {% if allowed_cashier_users %}
+              <div class="allowed-users-list">
+                {% for user in allowed_cashier_users %}
+                  <label>
+                    <input type="checkbox" name="allowed_users" value="{{ user.id }}" {% if user.checked %}checked{% endif %}>
+                    <span>{{ user.label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="fin-muted">لا يوجد حسابات كاشير بعد</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <div class="fin-muted" style="margin-bottom:6px">Allowed Managers Accounts</div>
+            {% if allowed_manager_users %}
+              <div class="allowed-users-list">
+                {% for user in allowed_manager_users %}
+                  <label>
+                    <input type="checkbox" name="allowed_users" value="{{ user.id }}" {% if user.checked %}checked{% endif %}>
+                    <span>{{ user.label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="fin-muted">لا يوجد حسابات مدراء بعد</div>
+            {% endif %}
+          </div>
+        </div>
       </div>
+      {% if form.allowed_users.errors %}
+        <div class="message error" style="margin-top:8px">{{ form.allowed_users.errors }}</div>
+      {% endif %}
       <div class="fin-muted" style="margin-top:8px">
         إذا تركتها فارغة: الحاوية ستكون متاحة للجميع (حتى نبني نظام الصلاحيات).
       </div>

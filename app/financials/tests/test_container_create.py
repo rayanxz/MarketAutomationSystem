@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from accounts.models import AccountProfile
 from financials.models import (
+    ContainerFeature,
     Currency,
     MoneyContainer,
     MoneyContainerCurrency,
@@ -28,11 +29,17 @@ class FinancialsContainerCreateTests(TestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.actor = User.objects.create_user(username="mgr", password="123")
+        cls.owner = User.objects.create_user(username="owner_fin", password="123")
+        cls.manager_user = User.objects.create_user(username="manager_fin", password="123")
+        cls.cashier_user = User.objects.create_user(username="cashier_fin", password="123")
 
         # Ensure profile exists + set role to MANAGER (so role_required passes)
         prof, _ = AccountProfile.objects.get_or_create(user=cls.actor)
         prof.role = AccountProfile.Role.MANAGER
         prof.save(update_fields=["role"])
+        AccountProfile.objects.get_or_create(user=cls.owner, role=AccountProfile.Role.OWNER)
+        AccountProfile.objects.get_or_create(user=cls.manager_user, role=AccountProfile.Role.MANAGER)
+        AccountProfile.objects.get_or_create(user=cls.cashier_user, role=AccountProfile.Role.CASHIER)
 
         # Currencies: use get_or_create so multiple test modules don't collide
         cls.syp, _ = Currency.objects.get_or_create(
@@ -212,3 +219,70 @@ class FinancialsContainerCreateTests(TestCase):
         # Must contain name error
         form = resp.context["form"]
         self.assertTrue(form.errors.get("name"))
+
+    def test_05_create_get_defaults_all_active_features_checked(self):
+        if not ContainerFeature.objects.filter(is_active=True).exists():
+            ContainerFeature.objects.create(
+                code=f"f-{uuid4().hex[:8]}",
+                name="feature a",
+                is_active=True,
+                sort_order=1,
+            )
+
+        resp = self.client.get(reverse("financials:container_create"))
+        self.assertEqual(resp.status_code, 200)
+
+        form = resp.context["form"]
+        selected = {int(v) for v in (form["features"].value() or [])}
+        expected = set(form.fields["features"].queryset.values_list("id", flat=True))
+        self.assertEqual(selected, expected)
+
+    def test_06_owner_is_excluded_and_accounts_split_by_role(self):
+        resp = self.client.get(reverse("financials:container_create"))
+        self.assertEqual(resp.status_code, 200)
+
+        cashiers = {u["id"] for u in resp.context["allowed_cashier_users"]}
+        managers = {u["id"] for u in resp.context["allowed_manager_users"]}
+        merged = cashiers | managers
+
+        self.assertTrue(resp.context["owner_account"]["exists"])
+        self.assertEqual(resp.context["owner_account"]["name"], self.owner.username)
+        self.assertIn(self.cashier_user.id, cashiers)
+        self.assertIn(self.manager_user.id, managers)
+        self.assertNotIn(self.owner.id, merged)
+
+        body = resp.content.decode("utf-8")
+        self.assertIn("قائمة حسابات الكاشير", body)
+        self.assertIn("قائمة حسابات المديرين", body)
+        self.assertIn(self.owner.username, body)
+        self.assertIn("(مالك)", body)
+        self.assertIn('id="owner-always-allowed"', body)
+        self.assertIn("checked disabled", body)
+
+    def test_07_edit_keeps_saved_features_and_does_not_force_all_checked(self):
+        f1 = ContainerFeature.objects.create(
+            code=f"edit-f-{uuid4().hex[:8]}",
+            name="feature 1",
+            is_active=True,
+            sort_order=1,
+        )
+        f2 = ContainerFeature.objects.create(
+            code=f"edit-f-{uuid4().hex[:8]}",
+            name="feature 2",
+            is_active=True,
+            sort_order=2,
+        )
+        self.assertNotEqual(f1.id, f2.id)
+
+        container = MoneyContainer.objects.create(
+            name=self._unique_name("container-edit"),
+            created_by=self.actor,
+        )
+        container.features.set([f1])
+
+        resp = self.client.get(reverse("financials:container_edit", args=[container.id]))
+        self.assertEqual(resp.status_code, 200)
+
+        form = resp.context["form"]
+        selected = {int(v) for v in (form["features"].value() or [])}
+        self.assertEqual(selected, {f1.id})

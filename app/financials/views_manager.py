@@ -15,7 +15,17 @@ from django.urls import reverse
 from accounts.decorators import role_required
 from accounts.models import AccountProfile
 
-from financials.models import MoneyContainer, Currency, PostingLine, PostingTargetType, Receipt, ReceiptStatus, ReceiptKind , FxSettings
+from financials.models import (
+    MoneyContainer,
+    Currency,
+    PostingLine,
+    PostingTargetType,
+    Receipt,
+    ReceiptStatus,
+    ReceiptKind,
+    FxSettings,
+    ContainerFeature,
+)
 from financials import services as FSV
 from financials.forms import MoneyContainerForm, build_opening_formset, FxSettingsForm
 
@@ -29,6 +39,55 @@ logger = logging.getLogger(__name__)
 
 def _secondary_menu_ctx(active: str) -> Dict[str, Any]:
     return {"fin_active": active}
+
+
+def _allowed_users_columns(form: MoneyContainerForm) -> Dict[str, Any]:
+    selected_raw = form["allowed_users"].value() or []
+    if not isinstance(selected_raw, (list, tuple)):
+        selected_raw = [selected_raw]
+
+    selected_ids: set[int] = set()
+    for value in selected_raw:
+        try:
+            selected_ids.add(int(value))
+        except (TypeError, ValueError):
+            continue
+
+    users = list(form.fields["allowed_users"].queryset.select_related("account_profile"))
+    cashiers: list[dict[str, Any]] = []
+    managers: list[dict[str, Any]] = []
+    owner_profile = (
+        AccountProfile.objects.select_related("user")
+        .filter(role=AccountProfile.Role.OWNER)
+        .order_by("id")
+        .first()
+    )
+    owner_name = ""
+    if owner_profile and owner_profile.user_id:
+        owner_name = owner_profile.user.get_full_name() or owner_profile.user.username
+
+    for user in users:
+        profile = getattr(user, "account_profile", None)
+        role = getattr(profile, "role", "")
+        row = {
+            "id": user.id,
+            "label": (user.get_full_name() or user.username),
+            "checked": user.id in selected_ids,
+        }
+        if role == AccountProfile.Role.CASHIER:
+            cashiers.append(row)
+        else:
+            # Non-cashier selectable users are shown with managers.
+            managers.append(row)
+
+    return {
+        "allowed_cashier_users": cashiers,
+        "allowed_manager_users": managers,
+        "owner_account": {
+            "name": owner_name,
+            "exists": bool(owner_profile),
+        },
+    }
 
 
 @login_required
@@ -97,6 +156,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
 
         if not ok:
             messages.error(request, "في أخطاء بالنموذج. راجع القيم وحاول مرة ثانية.")
+            account_columns = _allowed_users_columns(form)
             return render(
                 request,
                 "financials/manager/container_form.html",
@@ -105,6 +165,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
                     "form": form,
                     "currencies": all_currencies,
                     "opening_forms": opening_forms,
+                    **account_columns,
                 },
             )
 
@@ -193,12 +254,16 @@ def container_create(request: HttpRequest) -> HttpResponse:
     initial_currency_ids = [c.id for c in all_currencies if c.code in preferred_codes]
     if not initial_currency_ids:
         initial_currency_ids = [c.id for c in all_currencies]
+    initial_feature_ids = list(
+        ContainerFeature.objects.filter(is_active=True).values_list("id", flat=True)
+    )
 
     form = MoneyContainerForm(
         initial={
             "is_active": True,
             "currencies": initial_currency_ids,
             "container_type": MoneyContainer.ContainerType.DRAWER,
+            "features": initial_feature_ids,
         }
     )
 
@@ -211,6 +276,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
         "form": form,
         "currencies": all_currencies,
         "opening_forms": opening_forms,
+        **_allowed_users_columns(form),
     }
     return render(request, "financials/manager/container_form.html", ctx)
 
@@ -274,6 +340,7 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
         **_secondary_menu_ctx("list"),
         "form": form,
         "container": container,
+        **_allowed_users_columns(form),
     }
     return render(request, "financials/manager/container_edit.html", ctx)
 

@@ -27,6 +27,51 @@
   .fin-field label{ display:block; margin:0 0 6px; font-size:13px; opacity:.85; }
   .fin-muted{ opacity:.75; font-size:12px; }
   .fin-compact-list label{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .allowed-users-scroll{
+    max-height:220px;
+    overflow:auto;
+    border:1px solid rgba(0,0,0,.08);
+    border-radius:10px;
+    padding:10px;
+  }
+  .owner-indicator{
+    margin-bottom:10px;
+    padding-bottom:10px;
+    border-bottom:1px solid rgba(0,0,0,.08);
+  }
+  .owner-indicator label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:13px;
+  }
+  .allowed-users-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    position:relative;
+  }
+  .allowed-users-grid::before{
+    content:"";
+    position:absolute;
+    top:0;
+    bottom:0;
+    left:50%;
+    width:1px;
+    background:rgba(0,0,0,.12);
+    transform:translateX(-0.5px);
+    pointer-events:none;
+  }
+  .allowed-users-list label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:6px 0;
+  }
+  @media (max-width: 860px){
+    .allowed-users-grid{ grid-template-columns:1fr; }
+    .allowed-users-grid::before{ display:none; }
+  }
   .fin-actions{ display:flex; gap:10px; margin-top:12px; justify-content:flex-start; }
   .fin-divider{ height:1px; background:rgba(0,0,0,.08); margin:12px 0; }
 
@@ -160,9 +205,52 @@
 
     <div class="card fin-card" style="background:rgba(0,0,0,.02)">
       <h3 class="fin-section-title">الحسابات المسموحة (اختياري)</h3>
-      <div class="fin-compact-list" style="max-height:160px;overflow:auto;padding-right:6px">
-        {{ form.allowed_users }}
+      <div class="allowed-users-scroll">
+        {% if owner_account.exists %}
+          <div class="owner-indicator">
+            <label>
+              <input id="owner-always-allowed" type="checkbox" checked disabled>
+              <span>{{ owner_account.name }} (مالك)</span>
+            </label>
+          </div>
+        {% endif %}
+        <div class="allowed-users-grid">
+          <div>
+            <div class="fin-muted" style="margin-bottom:6px">قائمة حسابات الكاشير</div>
+            {% if allowed_cashier_users %}
+              <div class="allowed-users-list">
+                {% for user in allowed_cashier_users %}
+                  <label>
+                    <input type="checkbox" name="allowed_users" value="{{ user.id }}" {% if user.checked %}checked{% endif %}>
+                    <span>{{ user.label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="fin-muted">لا يوجد حسابات كاشير بعد</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <div class="fin-muted" style="margin-bottom:6px">قائمة حسابات المديرين  </div>
+            {% if allowed_manager_users %}
+              <div class="allowed-users-list">
+                {% for user in allowed_manager_users %}
+                  <label>
+                    <input type="checkbox" name="allowed_users" value="{{ user.id }}" {% if user.checked %}checked{% endif %}>
+                    <span>{{ user.label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="fin-muted">لا يوجد حسابات مدراء بعد</div>
+            {% endif %}
+          </div>
+        </div>
       </div>
+      {% if form.allowed_users.errors %}
+        <div class="message error" style="margin-top:8px">{{ form.allowed_users.errors }}</div>
+      {% endif %}
       <div class="fin-muted" style="margin-top:8px">
         إذا تركتها فارغة: الحاوية ستكون متاحة للجميع (حتى نبني نظام الصلاحيات).
       </div>
