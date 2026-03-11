@@ -214,6 +214,84 @@
     }
   }
 
+  function shiftDecimalRight(rawValue, places) {
+    const raw = String(rawValue ?? "");
+    if (!raw || raw === "-") return "";
+
+    let sign = "";
+    let numeric = raw;
+    if (numeric.startsWith("-")) {
+      sign = "-";
+      numeric = numeric.slice(1);
+    }
+
+    const dotIndex = numeric.indexOf(".");
+    if (dotIndex < 0) {
+      return `${sign}${numeric}${"0".repeat(places)}`;
+    }
+
+    const intPart = numeric.slice(0, dotIndex);
+    const fracPart = numeric.slice(dotIndex + 1);
+    const digits = `${intPart}${fracPart}`;
+    const splitAt = intPart.length + places;
+
+    if (splitAt >= digits.length) {
+      const shifted = `${digits}${"0".repeat(splitAt - digits.length)}`;
+      const normalized = shifted.replace(/^0+(?=\d)/, "");
+      return `${sign}${normalized || "0"}`;
+    }
+
+    const nextInt = digits.slice(0, splitAt).replace(/^0+(?=\d)/, "") || "0";
+    const nextFrac = digits.slice(splitAt);
+    return `${sign}${nextInt}.${nextFrac}`;
+  }
+
+  function applyZeroShortcut(input, zerosToAppend) {
+    const options = getOptions(input);
+    const raw = sanitizeRaw(currentRaw(input), options);
+    if (!raw || raw === "-") return;
+
+    const shifted = shiftDecimalRight(raw, zerosToAppend);
+    const nextRaw = sanitizeRaw(shifted, options);
+    if (!nextRaw || nextRaw === "-") return;
+
+    setCurrentRaw(input, nextRaw);
+    writeNativeValue(input, formatDisplay(nextRaw));
+    try {
+      const len = readNativeValue(input).length;
+      input.setSelectionRange(len, len);
+    } catch (_) {
+      // no-op
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function isShortcutInputTarget(target) {
+    return target instanceof HTMLInputElement && target.matches(TARGET_SELECTOR);
+  }
+
+  function handleShortcutKeydown(event) {
+    const input = event.target;
+    if (!isShortcutInputTarget(input)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.isComposing) return;
+
+    const key = String(event.key || "").toLowerCase();
+    let zeros = 0;
+    if (key === "k" || key === "ن") zeros = 3;
+    if (key === "h" || key === "ا") zeros = 2;
+    if (!zeros) return;
+
+    const raw = sanitizeRaw(currentRaw(input), getOptions(input));
+    if (!raw || raw === "-") {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    applyZeroShortcut(input, zeros);
+  }
+
   function attachToInput(input) {
     if (!(input instanceof HTMLInputElement)) return;
     if (input.dataset.mathAttached === "1") return;
@@ -303,6 +381,7 @@
 
   document.addEventListener("submit", handleSubmitCapture, true);
   document.addEventListener("formdata", handleFormData);
+  document.addEventListener("keydown", handleShortcutKeydown, true);
 
   attachWithin(document);
 
