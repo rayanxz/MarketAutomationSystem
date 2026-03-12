@@ -266,6 +266,90 @@
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  function stepRawByUnits(rawValue, direction, units) {
+    const raw = String(rawValue ?? "");
+    if (!raw || raw === "-") return "";
+    if (direction !== 1 && direction !== -1) return raw;
+    const magnitude = Number.isFinite(units) ? Math.trunc(units) : 1;
+    if (magnitude <= 0) return raw;
+
+    let sign = 1;
+    let numeric = raw;
+    if (numeric.startsWith("-")) {
+      sign = -1;
+      numeric = numeric.slice(1);
+    }
+
+    let intPart = numeric;
+    let fracPart = "";
+    const dot = numeric.indexOf(".");
+    if (dot >= 0) {
+      intPart = numeric.slice(0, dot);
+      fracPart = numeric.slice(dot + 1);
+    }
+
+    const scaleLen = fracPart.length;
+    const intDigits = (intPart || "0").replace(/^0+(?=\d)/, "") || "0";
+    const allDigits = `${intDigits}${fracPart}`.replace(/^0+(?=\d)/, "") || "0";
+
+    try {
+      const base = BigInt(allDigits) * BigInt(sign);
+      const scale = BigInt(10) ** BigInt(scaleLen);
+      const next = base + BigInt(direction) * scale * BigInt(magnitude);
+      const isNeg = next < 0n;
+      let abs = isNeg ? (-next).toString() : next.toString();
+
+      if (scaleLen === 0) {
+        if (abs === "0") return "0";
+        return isNeg ? `-${abs}` : abs;
+      }
+
+      if (abs.length <= scaleLen) abs = abs.padStart(scaleLen + 1, "0");
+      let nextInt = abs.slice(0, -scaleLen) || "0";
+      const nextFrac = abs.slice(-scaleLen);
+      nextInt = nextInt.replace(/^0+(?=\d)/, "") || "0";
+
+      const composed = `${nextInt}.${nextFrac}`;
+      if (nextInt === "0" && /^0+$/.test(nextFrac)) return "0." + nextFrac;
+      return isNeg ? `-${composed}` : composed;
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  function zeroWithScale(rawValue) {
+    const raw = String(rawValue ?? "");
+    const dot = raw.indexOf(".");
+    if (dot < 0) return "0";
+
+    const scaleLen = raw.length - dot - 1;
+    if (scaleLen <= 0) return "0";
+    return `0.${"0".repeat(scaleLen)}`;
+  }
+
+  function applyArrowStep(input, direction, units) {
+    const options = getOptions(input);
+    const current = sanitizeRaw(currentRaw(input), options);
+    const raw = !current || current === "-" ? "0" : current;
+
+    let stepped = stepRawByUnits(raw, direction, units);
+    if (!options.allowNegative && String(stepped).startsWith("-")) {
+      stepped = zeroWithScale(raw);
+    }
+    const nextRaw = sanitizeRaw(stepped, options);
+    if (!nextRaw || nextRaw === "-") return;
+
+    setCurrentRaw(input, nextRaw);
+    writeNativeValue(input, formatDisplay(nextRaw));
+    try {
+      const len = readNativeValue(input).length;
+      input.setSelectionRange(len, len);
+    } catch (_) {
+      // no-op
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
   function isShortcutInputTarget(target) {
     return target instanceof HTMLInputElement && target.matches(TARGET_SELECTOR);
   }
@@ -277,6 +361,13 @@
     if (event.isComposing) return;
 
     const key = String(event.key || "").toLowerCase();
+    if (key === "arrowup" || key === "arrowdown") {
+      const units = event.shiftKey ? 1000 : 1;
+      event.preventDefault();
+      applyArrowStep(input, key === "arrowup" ? 1 : -1, units);
+      return;
+    }
+
     let zeros = 0;
     if (key === "k" || key === "ن") zeros = 3;
     if (key === "h" || key === "ا") zeros = 2;
