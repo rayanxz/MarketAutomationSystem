@@ -1,4 +1,5 @@
 {% extends "financials/manager/base_financials.html" %}
+{% load static %}
 
 {% block title %}إنشاء حاوية مالية{% endblock %}
 
@@ -74,6 +75,12 @@
   }
   .fin-actions{ display:flex; gap:10px; margin-top:12px; justify-content:flex-start; }
   .fin-divider{ height:1px; background:rgba(0,0,0,.08); margin:12px 0; }
+  .fin-bulk-actions{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
 
   /* make opening grid compact */
   .opening-grid{
@@ -195,7 +202,11 @@
   <div class="fin-row" style="margin-top:12px">
     <div class="card fin-card" style="background:rgba(0,0,0,.02)">
       <h3 class="fin-section-title">المهام (اختياري)</h3>
-      <div class="fin-compact-list">
+      <div class="fin-bulk-actions js-bulk-actions" data-bulk-target="#featuresBox input[type='checkbox']">
+        <button type="button" class="btn-soft js-bulk-allow">السماح بجميع انواع الحركات</button>
+        <button type="button" class="btn-soft js-bulk-forbid">منع جميع انواع الحركات</button>
+      </div>
+      <div id="featuresBox" class="fin-compact-list">
         {{ form.features }}
       </div>
       <div class="fin-muted" style="margin-top:8px">
@@ -205,7 +216,11 @@
 
     <div class="card fin-card" style="background:rgba(0,0,0,.02)">
       <h3 class="fin-section-title">الحسابات المسموحة (اختياري)</h3>
-      <div class="allowed-users-scroll">
+      <div class="fin-bulk-actions js-bulk-actions" data-bulk-target="#allowedUsersBox input[type='checkbox'][name='allowed_users']">
+        <button type="button" class="btn-soft js-bulk-allow">السماح لجميع الحسابات</button>
+        <button type="button" class="btn-soft js-bulk-forbid">منع جميع الحسابات</button>
+      </div>
+      <div id="allowedUsersBox" class="allowed-users-scroll">
         {% if owner_account.exists %}
           <div class="owner-indicator">
             <label>
@@ -263,6 +278,7 @@
   </div>
 </form>
 
+<script defer src="{% static 'js/financials_container_bulk_toggles.js' %}"></script>
 <script>
 (function(){
   // --- Currency checkbox guard: prevent unchecking all ---
