@@ -22,6 +22,12 @@
   const localIdentifierSearchButton = document.getElementById("localIdentifierSearchButton");
   const localIdentifierSearchError = document.getElementById("localIdentifierSearchError");
   const IDENTIFIER_INPUT_SELECTOR = 'input[name="unit_primary_ids[]"], input[name="unit_secondary_ids[]"], input[name="barcodes_u1[]"], input[name="barcodes_u2[]"]';
+  const CODE_ALLOWED_CHARS_RE = /[A-Za-z0-9-]/g;
+  const BARCODE_ALLOWED_CHARS_RE = /[0-9]/g;
+  const CODE_FULL_RE = /^[A-Za-z0-9-]+$/;
+  const BARCODE_FULL_RE = /^[0-9]+$/;
+  const CODE_FORMAT_MSG = "يسمح فقط بالأحرف الإنجليزية والأرقام والشرطة (-).";
+  const BARCODE_FORMAT_MSG = "يسمح فقط بالأرقام الإنجليزية (0-9).";
 
   function emitPathCommit() {
     if (!pathPreviewEnabled) return;
@@ -543,6 +549,70 @@
     return (v || "").trim();
   }
 
+  function identifierRuleForName(name) {
+    if (name === "unit_primary_ids[]" || name === "unit_secondary_ids[]") {
+      return {
+        kind: "unit_id",
+        inputMode: "text",
+        pattern: "[A-Za-z0-9-]*",
+        fullRe: CODE_FULL_RE,
+        allowedCharsRe: CODE_ALLOWED_CHARS_RE,
+        formatMsg: CODE_FORMAT_MSG,
+      };
+    }
+    if (name === "barcodes_u1[]" || name === "barcodes_u2[]") {
+      return {
+        kind: "barcode",
+        inputMode: "numeric",
+        pattern: "[0-9]*",
+        fullRe: BARCODE_FULL_RE,
+        allowedCharsRe: BARCODE_ALLOWED_CHARS_RE,
+        formatMsg: BARCODE_FORMAT_MSG,
+      };
+    }
+    return null;
+  }
+
+  function identifierRuleForKind(kind) {
+    if (kind === "unit_id") return identifierRuleForName("unit_primary_ids[]");
+    if (kind === "barcode") return identifierRuleForName("barcodes_u1[]");
+    return null;
+  }
+
+  function sanitizeIdentifierInsert(name, raw) {
+    const rule = identifierRuleForName(name);
+    if (!rule) return raw || "";
+    const value = raw || "";
+    return (value.match(rule.allowedCharsRe) || []).join("");
+  }
+
+  function isValidIdentifierValue(name, value) {
+    const rule = identifierRuleForName(name);
+    if (!rule) return true;
+    return rule.fullRe.test(value || "");
+  }
+
+  function formatMessageForInput(input) {
+    return identifierRuleForName(input?.name || "")?.formatMsg || "";
+  }
+
+  function applyIdentifierInputConfig(input) {
+    if (!(input instanceof HTMLInputElement)) return;
+    const rule = identifierRuleForName(input.name);
+    if (!rule) return;
+    input.setAttribute("inputmode", rule.inputMode);
+    input.setAttribute("pattern", rule.pattern);
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("autocapitalize", "off");
+    input.spellcheck = false;
+  }
+
+  function applyIdentifierInputConfigs() {
+    document.querySelectorAll(IDENTIFIER_INPUT_SELECTOR).forEach((input) => {
+      applyIdentifierInputConfig(input);
+    });
+  }
+
   const highlightParams = isEditMode ? new URLSearchParams(window.location.search) : null;
   const highlightType = normalizeText(highlightParams?.get("highlight_type") || "");
   const highlightValue = normalizeText(highlightParams?.get("highlight_value") || "");
@@ -990,6 +1060,7 @@
 
     const messages = [];
     if (input.dataset.rowErrWhitespace) messages.push(input.dataset.rowErrWhitespace);
+    if (input.dataset.rowErrFormat) messages.push(input.dataset.rowErrFormat);
     if (input.dataset.rowErrLocal) messages.push(input.dataset.rowErrLocal);
     if (input.dataset.rowErrRemote) messages.push(input.dataset.rowErrRemote);
 
@@ -1008,6 +1079,7 @@
   function clearRowErrors() {
     document.querySelectorAll(".inline-input input").forEach((input) => {
       setRowError(input, "Whitespace", "");
+      setRowError(input, "Format", "");
       setRowError(input, "Local", "");
       setRowError(input, "Remote", "");
     });
@@ -1023,6 +1095,7 @@
   function validateRepeatedEntries() {
     document.querySelectorAll(".inline-input input").forEach((input) => {
       setRowError(input, "Whitespace", "");
+      setRowError(input, "Format", "");
       setRowError(input, "Local", "");
     });
 
@@ -1042,6 +1115,10 @@
           const key = normalizeText(raw);
           if (!key) {
             if (raw && !raw.trim()) setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
+            return;
+          }
+          if (!isValidIdentifierValue(name, key)) {
+            setRowError(input, "Format", formatMessageForInput(input));
             return;
           }
           if (!seen.has(key)) seen.set(key, []);
@@ -1067,6 +1144,10 @@
             if (raw && !raw.trim()) setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
             return;
           }
+          if (!isValidIdentifierValue(aName, key)) {
+            setRowError(input, "Format", formatMessageForInput(input));
+            return;
+          }
           if (!mapA.has(key)) mapA.set(key, []);
           mapA.get(key).push(input);
         });
@@ -1079,6 +1160,10 @@
             if (raw && !raw.trim()) setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
             return;
           }
+          if (!isValidIdentifierValue(bName, key)) {
+            setRowError(input, "Format", formatMessageForInput(input));
+            return;
+          }
           if (!mapA.has(key)) return;
           flagRepeatedInputs([...mapA.get(key), input], msg);
         });
@@ -1086,18 +1171,17 @@
   }
 
   function identifierKindForName(name) {
-    if (name === "unit_primary_ids[]" || name === "unit_secondary_ids[]") return "unit_id";
-    if (name === "barcodes_u1[]" || name === "barcodes_u2[]") return "barcode";
-    return "";
+    return identifierRuleForName(name)?.kind || "";
   }
 
   function localRowHasError(input) {
-    return !!(input?.dataset.rowErrWhitespace || input?.dataset.rowErrLocal);
+    return !!(input?.dataset.rowErrWhitespace || input?.dataset.rowErrFormat || input?.dataset.rowErrLocal);
   }
 
   async function validateIdentifierRow(input) {
     if (!(input instanceof HTMLInputElement) || input.disabled) return true;
     const kind = identifierKindForName(input.name);
+    const rule = identifierRuleForKind(kind);
     if (!kind) return true;
 
     const raw = input.value || "";
@@ -1107,10 +1191,19 @@
         setRowError(input, "Whitespace", "يرجى إزالة المسافات أو إدخال قيمة صالحة.");
         return false;
       }
+      setRowError(input, "Format", "");
       setRowError(input, "Remote", "");
       rowCache.delete(input);
       return true;
     }
+
+    if (rule && !rule.fullRe.test(value)) {
+      setRowError(input, "Format", rule.formatMsg);
+      setRowError(input, "Remote", "");
+      rowCache.delete(input);
+      return false;
+    }
+    setRowError(input, "Format", "");
 
     if (localRowHasError(input)) {
       setRowError(input, "Remote", "");
@@ -1132,6 +1225,12 @@
       if (!res.ok) return true;
       const data = await res.json();
       if (rowTokens.get(input) !== token) return true;
+      if (data && data.valid === false) {
+        setRowError(input, "Format", data.error || rule?.formatMsg || "");
+        setRowError(input, "Remote", "");
+        rowCache.delete(input);
+        return false;
+      }
       const exists = !!data.exists;
       rowCache.set(input, { kind, value, excludePk: productId, exists });
       setRowError(input, "Remote", exists ? (kind === "unit_id" ? "هذا المعرّف مستخدم مسبقاً." : "هذا الباركود مستخدم مسبقاً.") : "");
@@ -1285,6 +1384,62 @@
       run();
     }
   }
+
+  formEl?.addEventListener("beforeinput", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || target.disabled || target.readOnly) return;
+    const rule = identifierRuleForName(target.name);
+    if (!rule) return;
+
+    const inputType = e.inputType || "";
+    if (!inputType.startsWith("insert")) return;
+
+    const raw = typeof e.data === "string" ? e.data : "";
+    if (!raw) return;
+    const sanitized = sanitizeIdentifierInsert(target.name, raw);
+    if (sanitized === raw) return;
+
+    e.preventDefault();
+    if (!sanitized) return;
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? target.value.length;
+    target.setRangeText(sanitized, start, end, "end");
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  formEl?.addEventListener("paste", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || target.disabled || target.readOnly) return;
+    const rule = identifierRuleForName(target.name);
+    if (!rule) return;
+    const text = e.clipboardData?.getData("text") || "";
+    if (!text) return;
+    const sanitized = sanitizeIdentifierInsert(target.name, text);
+    if (sanitized === text) return;
+
+    e.preventDefault();
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? target.value.length;
+    target.setRangeText(sanitized, start, end, "end");
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  formEl?.addEventListener("drop", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || target.disabled || target.readOnly) return;
+    const rule = identifierRuleForName(target.name);
+    if (!rule) return;
+    const text = e.dataTransfer?.getData("text") || "";
+    if (!text) return;
+    const sanitized = sanitizeIdentifierInsert(target.name, text);
+    if (sanitized === text) return;
+
+    e.preventDefault();
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? target.value.length;
+    target.setRangeText(sanitized, start, end, "end");
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 
   formEl?.addEventListener("focusout", (e) => {
     const target = e.target;
@@ -1555,10 +1710,12 @@
 
   unitPrimary?.addEventListener("change", enforceSingleUnitUI);
   unitSecondary?.addEventListener("change", enforceSingleUnitUI);
+  applyIdentifierInputConfigs();
   enforceSingleUnitUI();
   applyIdentifierHighlightIfNeeded();
 
   document.addEventListener("product:rows-changed", () => {
+    applyIdentifierInputConfigs();
     enforceSingleUnitUI();
     validateRepeatedEntries();
     applyIdentifierHighlightIfNeeded();

@@ -8,6 +8,12 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.db.models.functions import Lower
 
+from catalog.identifier_rules import (
+    BARCODE_ERROR,
+    PRODUCT_CODE_ERROR,
+    is_valid_barcode,
+    is_valid_product_code,
+)
 from catalog.models import (
     ProductCollection,
     UnitType,
@@ -233,9 +239,39 @@ class ProductCreateForm(forms.Form):
         if u2 and not cf:
             self.add_error("conversion_factor", "مطلوب عند تحديد الوحدة الثانية.")
 
-        # --- Friendly duplicate barcode check (bulk + ignore self when editing) ---
+        # --- Fallback format checks (textarea/legacy payloads) ---
+        field_u1_ids = self.parse_identifier_values(cleaned.get("unit_primary_ids"))
+        field_u2_ids = self.parse_identifier_values(cleaned.get("unit_secondary_ids"))
         field_barcodes_u1 = self.parse_barcodes(cleaned.get("barcodes_u1"))
         field_barcodes_u2 = self.parse_barcodes(cleaned.get("barcodes_u2"))
+
+        invalid_u1_ids = [v for v in field_u1_ids if not is_valid_product_code(v)]
+        invalid_u2_ids = [v for v in field_u2_ids if not is_valid_product_code(v)]
+        invalid_barcodes_u1 = [bc for bc in field_barcodes_u1 if not is_valid_barcode(bc)]
+        invalid_barcodes_u2 = [bc for bc in field_barcodes_u2 if not is_valid_barcode(bc)]
+
+        if invalid_u1_ids:
+            self.add_error(
+                "unit_primary_ids",
+                f"{PRODUCT_CODE_ERROR} القيم غير الصالحة: {', '.join(dict.fromkeys(invalid_u1_ids))}",
+            )
+        if invalid_u2_ids:
+            self.add_error(
+                "unit_secondary_ids",
+                f"{PRODUCT_CODE_ERROR} القيم غير الصالحة: {', '.join(dict.fromkeys(invalid_u2_ids))}",
+            )
+        if invalid_barcodes_u1:
+            self.add_error(
+                "barcodes_u1",
+                f"{BARCODE_ERROR} القيم غير الصالحة: {', '.join(dict.fromkeys(invalid_barcodes_u1))}",
+            )
+        if invalid_barcodes_u2:
+            self.add_error(
+                "barcodes_u2",
+                f"{BARCODE_ERROR} القيم غير الصالحة: {', '.join(dict.fromkeys(invalid_barcodes_u2))}",
+            )
+
+        # --- Friendly duplicate barcode check (bulk + ignore self when editing) ---
         all_barcodes: List[str] = list(dict.fromkeys(field_barcodes_u1 + field_barcodes_u2))
 
         if all_barcodes:
@@ -318,7 +354,7 @@ class ProductCreateForm(forms.Form):
 
     # ---------------- Utilities ----------------
     @staticmethod
-    def parse_barcodes(s: Optional[str]) -> List[str]:
+    def parse_identifier_values(s: Optional[str]) -> List[str]:
         """Split on commas/spaces/newlines; strip; drop empties/dups; preserve order."""
         if not s:
             return []
@@ -333,5 +369,9 @@ class ProductCreateForm(forms.Form):
             seen.add(token)
             out.append(token)
         return out
+
+    @staticmethod
+    def parse_barcodes(s: Optional[str]) -> List[str]:
+        return ProductCreateForm.parse_identifier_values(s)
 
 

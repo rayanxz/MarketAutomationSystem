@@ -61,11 +61,11 @@ class ProductLiveValidationApiTests(TestCase):
 
     def test_identifier_validate_detects_existing_barcode(self):
         product = self._create_product("Live-Bc-1")
-        ProductBarcode.objects.create(product=product, unit_index=1, barcode="BC-LIVE-1", is_active=True)
+        ProductBarcode.objects.create(product=product, unit_index=1, barcode="123456789", is_active=True)
 
         resp = self.client.get(
             reverse("api_product_identifier_validate"),
-            {"kind": "barcode", "value": "BC-LIVE-1"},
+            {"kind": "barcode", "value": "123456789"},
         )
 
         self.assertEqual(resp.status_code, 200)
@@ -74,7 +74,7 @@ class ProductLiveValidationApiTests(TestCase):
     def test_identifier_validate_excludes_current_product_in_edit_mode(self):
         product = self._create_product("Live-Self-Id")
         ProductUnitId.objects.create(product=product, unit_index=1, value="UID-LIVE-SELF", is_active=True)
-        ProductBarcode.objects.create(product=product, unit_index=1, barcode="BC-LIVE-SELF", is_active=True)
+        ProductBarcode.objects.create(product=product, unit_index=1, barcode="00998877", is_active=True)
 
         id_resp = self.client.get(
             reverse("api_product_identifier_validate"),
@@ -82,10 +82,32 @@ class ProductLiveValidationApiTests(TestCase):
         )
         bc_resp = self.client.get(
             reverse("api_product_identifier_validate"),
-            {"kind": "barcode", "value": "BC-LIVE-SELF", "exclude_pk": product.id},
+            {"kind": "barcode", "value": "00998877", "exclude_pk": product.id},
         )
 
         self.assertEqual(id_resp.status_code, 200)
         self.assertFalse(id_resp.json()["exists"])
         self.assertEqual(bc_resp.status_code, 200)
         self.assertFalse(bc_resp.json()["exists"])
+
+    def test_identifier_validate_rejects_invalid_barcode_format(self):
+        resp = self.client.get(
+            reverse("api_product_identifier_validate"),
+            {"kind": "barcode", "value": "١٢٣ABC"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertFalse(body["valid"])
+        self.assertFalse(body["exists"])
+
+    def test_identifier_validate_rejects_invalid_unit_id_format(self):
+        resp = self.client.get(
+            reverse("api_product_identifier_validate"),
+            {"kind": "unit_id", "value": "ABC_123"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertFalse(body["valid"])
+        self.assertFalse(body["exists"])

@@ -21,6 +21,12 @@ from django.views.decorators.http import require_GET, require_POST
 from accounts.decorators import role_required
 from accounts.models import AccountProfile
 from catalog.forms import CollectionCreateForm, ProductCreateForm
+from catalog.identifier_rules import (
+    BARCODE_ERROR,
+    PRODUCT_CODE_ERROR,
+    is_valid_barcode,
+    is_valid_product_code,
+)
 from catalog.models import (
     ProductCollection,
     ProductSet,
@@ -221,6 +227,19 @@ def _collect_ids_barcodes_from_post(request: HttpRequest) -> tuple[list[str], li
     return u1_ids, u2_ids, bar_u1, bar_u2
 
 
+def _unique_invalid(values: list[str], validator) -> list[str]:
+    seen: set[str] = set()
+    invalid: list[str] = []
+    for value in values:
+        if validator(value):
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        invalid.append(value)
+    return invalid
+
+
 def _collect_ids_barcodes_from_product(p: Product) -> tuple[list[str], list[str], list[str], list[str]]:
     u1_ids = list(
         ProductUnitId.objects
@@ -259,6 +278,36 @@ def _validate_unit_ids_and_barcodes(
     bar_u2: list[str],
 ) -> bool:
     ok = True
+
+    invalid_u1_codes = _unique_invalid(u1_ids, is_valid_product_code)
+    invalid_u2_codes = _unique_invalid(u2_ids, is_valid_product_code)
+    invalid_u1_barcodes = _unique_invalid(bar_u1, is_valid_barcode)
+    invalid_u2_barcodes = _unique_invalid(bar_u2, is_valid_barcode)
+
+    if invalid_u1_codes:
+        form.add_error(
+            "unit_primary_ids",
+            f"{PRODUCT_CODE_ERROR} القيم غير الصالحة: {', '.join(invalid_u1_codes)}",
+        )
+        ok = False
+    if invalid_u2_codes:
+        form.add_error(
+            "unit_secondary_ids",
+            f"{PRODUCT_CODE_ERROR} القيم غير الصالحة: {', '.join(invalid_u2_codes)}",
+        )
+        ok = False
+    if invalid_u1_barcodes:
+        form.add_error(
+            "barcodes_u1",
+            f"{BARCODE_ERROR} القيم غير الصالحة: {', '.join(invalid_u1_barcodes)}",
+        )
+        ok = False
+    if invalid_u2_barcodes:
+        form.add_error(
+            "barcodes_u2",
+            f"{BARCODE_ERROR} القيم غير الصالحة: {', '.join(invalid_u2_barcodes)}",
+        )
+        ok = False
 
     # Intra-product uniqueness (U1 vs U2)
     dup_ids = sorted(set(u1_ids) & set(u2_ids))
@@ -1650,7 +1699,32 @@ def api_product_identifier_validate(request: HttpRequest) -> JsonResponse:
     if kind not in {"unit_id", "barcode"}:
         return JsonResponse({"ok": False, "error": "bad kind"}, status=400)
     if not value:
-        return JsonResponse({"ok": True, "kind": kind, "value": "", "exists": False})
+        return JsonResponse({"ok": True, "kind": kind, "value": "", "exists": False, "valid": True})
+
+    if kind == "unit_id":
+        if not is_valid_product_code(value):
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "kind": kind,
+                    "value": value,
+                    "exists": False,
+                    "valid": False,
+                    "error": PRODUCT_CODE_ERROR,
+                }
+            )
+    else:
+        if not is_valid_barcode(value):
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "kind": kind,
+                    "value": value,
+                    "exists": False,
+                    "valid": False,
+                    "error": BARCODE_ERROR,
+                }
+            )
 
     if kind == "unit_id":
         qs = ProductUnitId.objects.filter(value=value)
@@ -1663,7 +1737,7 @@ def api_product_identifier_validate(request: HttpRequest) -> JsonResponse:
         except (TypeError, ValueError):
             pass
 
-    return JsonResponse({"ok": True, "kind": kind, "value": value, "exists": qs.exists()})
+    return JsonResponse({"ok": True, "kind": kind, "value": value, "exists": qs.exists(), "valid": True})
 
 
 @require_GET
