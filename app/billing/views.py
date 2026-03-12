@@ -36,6 +36,7 @@ from stock.models import StockFifoLayer
 
 from accounts.models import AccountProfile
 from accounts.decorators import role_required
+from accounts.utils import has_role
 from catalog.models import Product
 
 from billing.models import Provider, Bill, ProviderReturn
@@ -57,6 +58,33 @@ from django.conf import settings
 
 # ---------- Page views ----------
 
+PURCHASE_BILLS_FEATURE_CODE = "purchase_bills"
+
+
+def _purchase_money_containers_qs_for_user(user):
+    qs = (
+        MoneyContainer.objects
+        .filter(
+            is_active=True,
+            features__code=PURCHASE_BILLS_FEATURE_CODE,
+            features__is_active=True,
+        )
+        .distinct()
+        .order_by("id")
+    )
+    # Keep parity with POS: manager/owner can use any qualifying container.
+    if not has_role(user, AccountProfile.Role.MANAGER):
+        qs = (
+            qs
+            .filter(Q(allowed_users__isnull=True) | Q(allowed_users=user))
+            .distinct()
+        )
+    return qs
+
+
+def _resolve_purchase_money_container_for_user(*, user, container_id: int):
+    return _purchase_money_containers_qs_for_user(user).filter(pk=container_id).first()
+
 @role_required(AccountProfile.Role.MANAGER)
 def billing_home(request: HttpRequest) -> HttpResponse:
     return redirect("billing_list")
@@ -69,11 +97,7 @@ def bills_list(request: HttpRequest) -> HttpResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 def add_bill(request: HttpRequest) -> HttpResponse:
-    money_containers = (
-        MoneyContainer.objects
-        .filter(is_active=True, container_type=MoneyContainer.ContainerType.DRAWER)
-        .order_by("id")
-    )
+    money_containers = _purchase_money_containers_qs_for_user(request.user)
 
     currencies = Currency.objects.filter(is_active=True).order_by("code")
 
@@ -542,26 +566,31 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
 
     settlement_currency = (payload.get("currency_code") or "SYP").strip().upper()
 
-    from financials.models import MoneyContainer
-
-    if not money_container_id:
-        return _bad("money container is required", 400)
-
-    mc = MoneyContainer.objects.filter(pk=money_container_id).first()
-    if not mc:
-        return _bad("invalid money container", 400)
-
-    if not mc.is_active:
-        return _bad("money container is not active", 409)
-
-
-
     # ---- Pay section ----
     pay = payload.get("pay") or {}
     status = (pay.get("status") or "unpaid").lower()
     if status not in {"paid", "unpaid", "partial"}:
         status = "unpaid"
     paid_amount = _dec(pay.get("paid_amount"), "0")
+
+    from financials.models import MoneyContainerCurrency
+
+    if not money_container_id:
+        return _bad("money container is required", 400)
+
+    mc = _resolve_purchase_money_container_for_user(
+        user=request.user,
+        container_id=money_container_id,
+    )
+    if not mc:
+        return _bad("money container is not allowed for purchase bills", 400)
+
+    if status in {"paid", "partial"} and not MoneyContainerCurrency.objects.filter(
+        container=mc,
+        currency__code=settlement_currency,
+        is_enabled=True,
+    ).exists():
+        return _bad(f"Currency {settlement_currency} is disabled for this money container", 400)
 
     update_defaults = bool(payload.get("update_product_defaults") or False)
 

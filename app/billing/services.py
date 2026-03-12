@@ -181,6 +181,23 @@ def _default_money_container() -> MoneyContainer:
     return c
 
 
+def _default_purchase_money_container() -> MoneyContainer:
+    c = (
+        MoneyContainer.objects
+        .filter(
+            is_active=True,
+            features__code="purchase_bills",
+            features__is_active=True,
+        )
+        .distinct()
+        .order_by("id")
+        .first()
+    )
+    if not c:
+        raise ValueError("No active money container with purchase_bills feature found in financials")
+    return c
+
+
 # =======================================================================
 # BILLS (Purchases) — MULTI CURRENCY, FX SNAPSHOT SAFE
 # =======================================================================
@@ -476,7 +493,7 @@ def create_bill(
     cash_container = (
         MoneyContainer.objects.select_for_update().get(pk=money_container_id)
         if money_container_id
-        else _default_money_container()
+        else _default_purchase_money_container()
     )
     if cash_container and bill.money_container_id != cash_container.id:
         bill.money_container = cash_container
