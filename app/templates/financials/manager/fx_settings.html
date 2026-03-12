@@ -1,5 +1,6 @@
 {# app/templates/financials/manager/fx_settings.html #}
 {% extends "financials/manager/base_financials.html" %}
+{% load formatting %}
 
 {% block title %}سعر الصرف{% endblock %}
 
@@ -13,7 +14,7 @@
 
     <div style="margin-top:10px;padding:10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:rgba(0,0,0,.02)">
       {% if current %}
-        <div><b>السعر الحالي:</b> 1 USD = {{ current.rate_syp_per_usd }} SYP</div>
+        <div><b>السعر الحالي:</b> 1 USD = {{ current.rate_syp_per_usd|human_number }} SYP</div>
         <div style="opacity:.75;margin-top:6px">
           آخر تعديل: {{ current.updated_at|date:"Y-m-d H:i" }}
           {% if current.updated_by %} بواسطة: {{ current.updated_by.username }}{% endif %}

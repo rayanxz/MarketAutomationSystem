@@ -1,5 +1,5 @@
 {% extends "financials/manager/base_financials.html" %}
-{% load financials_extras %}
+{% load financials_extras formatting %}
 
 {% block title %}إدارة الحاويات المالية{% endblock %}
 
@@ -121,9 +121,9 @@
               <td class="col-balance">
                 {% with b=balances|get_item:c.id %}
                   {% if b and b|get_item:cur.code %}
-                    {{ b|get_item:cur.code }}
+                    {{ b|get_item:cur.code|human_number }}
                   {% else %}
-                    0
+                    {{ 0|human_number }}
                   {% endif %}
                 {% endwith %}
               </td>

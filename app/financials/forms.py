@@ -1,6 +1,6 @@
 # financials/forms.py
 from __future__ import annotations
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import List
 
 from django import forms
@@ -56,6 +56,24 @@ class MoneyContainerForm(forms.ModelForm):
     
 
 class FxSettingsForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.is_bound:
+            return
+
+        raw = self.initial.get("rate_syp_per_usd")
+        if raw in (None, "") and getattr(self.instance, "pk", None):
+            raw = getattr(self.instance, "rate_syp_per_usd", None)
+        if raw in (None, ""):
+            return
+
+        # Display-only normalization: keep stored Decimal unchanged.
+        try:
+            s = format(Decimal(str(raw)), "f").rstrip("0").rstrip(".")
+        except (InvalidOperation, ValueError, TypeError):
+            return
+        self.initial["rate_syp_per_usd"] = s if s not in {"", "-0"} else "0"
+
     class Meta:
         model = FxSettings
         fields = ["rate_syp_per_usd"]

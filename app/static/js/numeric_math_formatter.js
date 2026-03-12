@@ -79,12 +79,36 @@
     return value;
   }
 
-  function formatDisplay(rawValue) {
+  function trimFractionZeros(rawValue) {
     const raw = String(rawValue ?? "");
     if (!raw) return "";
+    if (raw === "-") return raw;
 
     let sign = "";
     let numeric = raw;
+    if (numeric.startsWith("-")) {
+      sign = "-";
+      numeric = numeric.slice(1);
+    }
+
+    if (!numeric.includes(".")) return raw;
+
+    const split = numeric.split(".");
+    const integerPart = split[0];
+    const fractionPart = split.slice(1).join("").replace(/0+$/, "");
+
+    if (!fractionPart) return `${sign}${integerPart}`;
+    return `${sign}${integerPart}.${fractionPart}`;
+  }
+
+  function formatDisplay(rawValue, { trimTrailingZeros = false } = {}) {
+    const raw = String(rawValue ?? "");
+    if (!raw) return "";
+
+    const normalizedRaw = trimTrailingZeros ? trimFractionZeros(raw) : raw;
+
+    let sign = "";
+    let numeric = normalizedRaw;
     if (numeric.startsWith("-")) {
       sign = "-";
       numeric = numeric.slice(1);
@@ -169,7 +193,7 @@
         const opts = getOptions(this);
         const raw = sanitizeRaw(nextValue, opts);
         setCurrentRaw(this, raw);
-        writeNativeValue(this, formatDisplay(raw));
+        writeNativeValue(this, formatDisplay(raw, { trimTrailingZeros: true }));
       },
     });
 
@@ -193,7 +217,8 @@
     const beforeDisplay = readNativeValue(input);
     const raw = sanitizeRaw(beforeDisplay, options);
     setCurrentRaw(input, raw);
-    const afterDisplay = formatDisplay(raw);
+    const trimTrailingZeros = !(preserveSelection && document.activeElement === input);
+    const afterDisplay = formatDisplay(raw, { trimTrailingZeros });
     writeNativeValue(input, afterDisplay);
 
     if (!preserveSelection || document.activeElement !== input) return;
@@ -256,7 +281,7 @@
     if (!nextRaw || nextRaw === "-") return;
 
     setCurrentRaw(input, nextRaw);
-    writeNativeValue(input, formatDisplay(nextRaw));
+    writeNativeValue(input, formatDisplay(nextRaw, { trimTrailingZeros: true }));
     try {
       const len = readNativeValue(input).length;
       input.setSelectionRange(len, len);
@@ -340,7 +365,7 @@
     if (!nextRaw || nextRaw === "-") return;
 
     setCurrentRaw(input, nextRaw);
-    writeNativeValue(input, formatDisplay(nextRaw));
+    writeNativeValue(input, formatDisplay(nextRaw, { trimTrailingZeros: true }));
     try {
       const len = readNativeValue(input).length;
       input.setSelectionRange(len, len);

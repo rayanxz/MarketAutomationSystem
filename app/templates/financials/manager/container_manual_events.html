@@ -1,5 +1,5 @@
 {% extends "financials/manager/base_financials.html" %}
-{% load static %}
+{% load static formatting %}
 
 {% block title %}حركات يدوية للحاويات{% endblock %}
 
@@ -120,9 +120,9 @@
               {% if row.to_line %}{{ row.to_line.currency.code }}{% elif row.from_line %}{{ row.from_line.currency.code }}{% endif %}
             </td>
             <td style="padding:10px;white-space:nowrap">
-              {% if row.to_line %}{{ row.to_line.amount }}{% elif row.from_line %}{{ row.from_line.amount }}{% endif %}
+              {% if row.to_line %}{{ row.to_line.amount|human_number }}{% elif row.from_line %}{{ row.from_line.amount|human_number }}{% endif %}
             </td>
-            <td style="padding:10px;white-space:nowrap">{{ row.receipt.fx_syp_per_usd }}</td>
+            <td style="padding:10px;white-space:nowrap">{{ row.receipt.fx_syp_per_usd|human_number }}</td>
             <td style="padding:10px;white-space:nowrap">{{ row.receipt.actor.username }}</td>
           </tr>
         {% empty %}
