@@ -45,6 +45,14 @@
     };
   }
 
+  function displayMaxDecimals(input) {
+    const raw = String(input?.dataset?.mathDisplayMaxDecimals ?? "").trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(0, Math.trunc(n));
+  }
+
   function sanitizeRaw(rawValue, options) {
     let value = String(rawValue ?? "");
     if (!value) return "";
@@ -101,11 +109,33 @@
     return `${sign}${integerPart}.${fractionPart}`;
   }
 
-  function formatDisplay(rawValue, { trimTrailingZeros = false } = {}) {
+  function clampDisplayDecimals(rawValue, maxDecimals) {
+    if (maxDecimals == null) return String(rawValue ?? "");
+    const raw = String(rawValue ?? "");
+    if (!raw || raw === "-") return raw;
+
+    let sign = "";
+    let numeric = raw;
+    if (numeric.startsWith("-")) {
+      sign = "-";
+      numeric = numeric.slice(1);
+    }
+
+    if (!numeric.includes(".")) return raw;
+
+    const split = numeric.split(".");
+    const integerPart = split[0];
+    const fractionPart = split.slice(1).join("").slice(0, maxDecimals);
+    if (!fractionPart) return `${sign}${integerPart}`;
+    return `${sign}${integerPart}.${fractionPart}`;
+  }
+
+  function formatDisplay(rawValue, { trimTrailingZeros = false, maxDisplayDecimals = null } = {}) {
     const raw = String(rawValue ?? "");
     if (!raw) return "";
 
-    const normalizedRaw = trimTrailingZeros ? trimFractionZeros(raw) : raw;
+    let normalizedRaw = clampDisplayDecimals(raw, maxDisplayDecimals);
+    if (trimTrailingZeros) normalizedRaw = trimFractionZeros(normalizedRaw);
 
     let sign = "";
     let numeric = normalizedRaw;
@@ -193,7 +223,8 @@
         const opts = getOptions(this);
         const raw = sanitizeRaw(nextValue, opts);
         setCurrentRaw(this, raw);
-        writeNativeValue(this, formatDisplay(raw, { trimTrailingZeros: true }));
+        const maxDisplayDecimals = (document.activeElement === this) ? null : displayMaxDecimals(this);
+        writeNativeValue(this, formatDisplay(raw, { trimTrailingZeros: true, maxDisplayDecimals }));
       },
     });
 
@@ -215,10 +246,14 @@
   function applyFormatting(input, preserveSelection) {
     const options = getOptions(input);
     const beforeDisplay = readNativeValue(input);
-    const raw = sanitizeRaw(beforeDisplay, options);
+    const existingRaw = currentRaw(input);
+    const isFocused = document.activeElement === input;
+    const maxDisplayDecimals = isFocused ? null : displayMaxDecimals(input);
+    const trimTrailingZeros = !(preserveSelection && isFocused);
+    const expectedDisplay = formatDisplay(existingRaw, { trimTrailingZeros, maxDisplayDecimals });
+    const raw = (beforeDisplay === expectedDisplay) ? existingRaw : sanitizeRaw(beforeDisplay, options);
     setCurrentRaw(input, raw);
-    const trimTrailingZeros = !(preserveSelection && document.activeElement === input);
-    const afterDisplay = formatDisplay(raw, { trimTrailingZeros });
+    const afterDisplay = formatDisplay(raw, { trimTrailingZeros, maxDisplayDecimals });
     writeNativeValue(input, afterDisplay);
 
     if (!preserveSelection || document.activeElement !== input) return;
@@ -281,7 +316,8 @@
     if (!nextRaw || nextRaw === "-") return;
 
     setCurrentRaw(input, nextRaw);
-    writeNativeValue(input, formatDisplay(nextRaw, { trimTrailingZeros: true }));
+    const maxDisplayDecimals = (document.activeElement === input) ? null : displayMaxDecimals(input);
+    writeNativeValue(input, formatDisplay(nextRaw, { trimTrailingZeros: true, maxDisplayDecimals }));
     try {
       const len = readNativeValue(input).length;
       input.setSelectionRange(len, len);
@@ -365,7 +401,8 @@
     if (!nextRaw || nextRaw === "-") return;
 
     setCurrentRaw(input, nextRaw);
-    writeNativeValue(input, formatDisplay(nextRaw, { trimTrailingZeros: true }));
+    const maxDisplayDecimals = (document.activeElement === input) ? null : displayMaxDecimals(input);
+    writeNativeValue(input, formatDisplay(nextRaw, { trimTrailingZeros: true, maxDisplayDecimals }));
     try {
       const len = readNativeValue(input).length;
       input.setSelectionRange(len, len);

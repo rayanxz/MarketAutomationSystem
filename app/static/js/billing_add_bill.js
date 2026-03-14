@@ -406,6 +406,38 @@ refreshAutoSerial();
     if (items.length) pick(items[0]); else clearSug();
   });
 
+  function qtyMultiplierForRow(tr){
+    const isU2 = tr.querySelector('select[name="qty_unit[]"]')?.value === "u2";
+    const cf = num(tr.dataset.cf || "0");
+    return isU2 ? (cf > 0 ? cf : 1) : 1;
+  }
+
+  function syncRowCostAndTotal(tr, source){
+    if (!tr) return;
+    const qtyInput = tr.querySelector('input[name="qty[]"]');
+    const costInput = tr.querySelector('input[name="cost[]"]');
+    const totalInput = tr.querySelector('input[name="total_cost[]"]');
+    if (!qtyInput || !costInput || !totalInput) return;
+
+    const qty = num(qtyInput.value);
+    const multiplier = qtyMultiplierForRow(tr);
+    const denom = qty * multiplier;
+
+    if (source === "total") {
+      totalInput.dataset.auto = "0";
+      if (!(denom > 0)) return; // avoid divide-by-zero when qty is 0
+      const lineTotal = num(totalInput.value);
+      costInput.value = fmt4(lineTotal / denom);
+      costInput.dataset.auto = "0";
+      return;
+    }
+
+    const unitCost = num(costInput.value);
+    const lineTotal = (denom > 0) ? (unitCost * denom) : 0;
+    totalInput.value = fmt2(lineTotal);
+    totalInput.dataset.auto = "1";
+  }
+
   function pick(prod){
     clearSug(); if (q) q.value="";
     const exists = tbody?.querySelector(`tr[data-pid="${prod.id}"]`);
@@ -447,7 +479,7 @@ refreshAutoSerial();
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
       </td>
-      <td><input name="cost[]" class="input numeric-math" type="number" step="0.0001" value="${costVal}"></td>
+      <td><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
       <td><input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
       <td>
         <input name="price_usd[]" class="input price-usd numeric-math" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
@@ -472,11 +504,13 @@ refreshAutoSerial();
     const costInput = tr.querySelector('input[name="cost[]"]');
     const priceSypInput = tr.querySelector('input[name="price_syp[]"]');
     const priceUsdInput = tr.querySelector('input[name="price_usd[]"]');
+    const totalCostInput = tr.querySelector('input[name="total_cost[]"]');
     const curSelect = tr.querySelector('select.cur-ui');
     const curHidden = tr.querySelector('input.cur-hidden');
     if (costInput) costInput.dataset.auto = "1";
     if (priceSypInput) priceSypInput.dataset.auto = "1";
     if (priceUsdInput) priceUsdInput.dataset.auto = "1";
+    if (totalCostInput) totalCostInput.dataset.auto = "1";
 
     costInput?.addEventListener("input", () => { costInput.dataset.auto = "0"; });
     priceSypInput?.addEventListener("input", () => { priceSypInput.dataset.auto = "0"; });
@@ -488,6 +522,7 @@ refreshAutoSerial();
         const v = (sel === "USD" ? (tr.dataset.costUsd || "") : (tr.dataset.costSyp || ""));
         costInput.value = v;
       }
+      syncRowCostAndTotal(tr, "cost");
       recalcBillTotal();
     });
 
@@ -514,6 +549,11 @@ refreshAutoSerial();
 
   function handleRowChange(e){
     const nm = e.target.name || "";
+    const tr = e.target.closest("tr");
+    if (!tr) return;
+    if (nm === "cost[]") syncRowCostAndTotal(tr, "cost");
+    else if (nm === "total_cost[]") syncRowCostAndTotal(tr, "total");
+    else if (nm === "qty[]" || nm === "qty_unit[]") syncRowCostAndTotal(tr, "qty");
     if (nm === "qty[]" || nm === "cost[]" || nm === "total_cost[]" || nm === "qty_unit[]" || nm === "currency[]"){ recalcBillTotal(); }
   }
 
@@ -598,12 +638,14 @@ refreshAutoSerial();
     const cost = String(tr.querySelector('input[name="cost[]"]').value || "0");
     const price_syp = String(tr.querySelector('input[name="price_syp[]"]')?.value || "");
     const price_usd = String(tr.querySelector('input[name="price_usd[]"]')?.value || "");
-    const total_cost_el = tr.querySelector('input[name="total_cost[]"]').value;
+    const totalCostInput = tr.querySelector('input[name="total_cost[]"]');
+    const total_cost_el = String(totalCostInput?.value || "");
+    const totalCostIsAuto = totalCostInput?.dataset?.auto === "1";
     const unit_index = tr.querySelector('select[name="qty_unit[]"]').value === "u2" ? 2 : 1;
     const currency = (tr.querySelector('input.cur-hidden')?.value || tr.querySelector('select.cur-ui')?.value || "SYP").toUpperCase();
     const price = currency === "USD" ? (price_usd || "0") : (price_syp || "0");
     const row = { product_id, unit_index, qty_raw, cost, price, currency, price_syp, price_usd };
-    if (total_cost_el && total_cost_el.trim().length) row.total_cost = String(total_cost_el);
+    if (total_cost_el.trim().length && !totalCostIsAuto) row.total_cost = total_cost_el;
     return row;
   });
 
