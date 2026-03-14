@@ -118,10 +118,23 @@
     overflow-y:auto;       /* scroll rows only */
     overflow-x:hidden;
   }
-  table.bill{ width:100%; border-collapse:collapse; }
+  table.bill{
+    width:100%;
+    border-collapse:collapse;
+    border:1px solid #e5e7eb;
+    --col-sep:#e5e7eb;
+    --grp-blue:#eff6ff;
+    --grp-green:#f0fdf4;
+    --grp-orange:#fff7ed;
+    --grp-yellow:#fefce8;
+  }
   table.bill th, table.bill td{
     border-bottom:1px solid #eef2f7;
     padding:8px;
+  }
+  table.bill th + th,
+  table.bill td + td{
+    border-inline-start:1px solid var(--col-sep);
   }
   table.bill thead th{
     background:#f8fafc;
@@ -129,6 +142,51 @@
     top:0;
     z-index:1;
   }
+  .usd-price-wrap{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    direction:ltr; /* keep FX button on the left and input on the right */
+  }
+  .usd-price-wrap .price-usd{
+    flex:1 1 auto;
+    min-width:0;
+  }
+  .usd-price-wrap .btn-fx{
+    flex:0 0 auto;
+    margin-top:0 !important;
+    white-space:nowrap;
+  }
+  .total-cost-wrap{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    direction:ltr; /* keep indicator on the left and textbox on the right */
+  }
+  .total-cost-wrap input[name="total_cost[]"]{
+    flex:1 1 auto;
+    min-width:0;
+  }
+  .total-cost-cur{
+    flex:0 0 auto;
+    font-size:11px;
+    line-height:1;
+    color:#15803d;
+    background:#f8fafc;
+    border:1px solid #e5e7eb;
+    border-radius:8px;
+    padding:2px 6px;
+    white-space:nowrap;
+  }
+  table.bill :is(thead th, tbody td):nth-child(1){ background:var(--grp-blue); }      /* product */
+  table.bill :is(thead th, tbody td):nth-child(2),
+  table.bill :is(thead th, tbody td):nth-child(3),
+  table.bill :is(thead th, tbody td):nth-child(7){ background:var(--grp-green); }      /* purchase */
+  table.bill :is(thead th, tbody td):nth-child(5),
+  table.bill :is(thead th, tbody td):nth-child(6){ background:var(--grp-orange); }     /* selling */
+  table.bill :is(thead th, tbody td):nth-child(4){ background:var(--grp-yellow); }     /* qty/unit */
+  table.bill thead th:nth-child(8){ background:#f8fafc; }                                /* actions */
+  table.bill tbody td:nth-child(8){ background:#fff; }
   .pname{
     white-space:nowrap;
     overflow:hidden;
@@ -296,12 +354,12 @@
     <table id="billTable" class="bill">
       <thead>
         <tr>
-          <th style="width:26%;">اسم المنتج</th>
-          <th style="width:10%;">العملة</th>
+          <th style="width:22%;">اسم المنتج</th>
           <th>سعر الشراء</th>
+          <th style="width:10%;">عملة الشراء</th>
+          <th style="width:18%;">الكمية</th>
           <th>سعر المبيع (SYP)</th>
           <th>سعر المبيع (USD)</th>
-          <th style="width:18%;">الكمية</th>
           <th>سعر الشراء النهائي</th>
           <th></th>
         </tr>

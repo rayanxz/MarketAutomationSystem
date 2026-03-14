@@ -438,6 +438,16 @@ refreshAutoSerial();
     totalInput.dataset.auto = "1";
   }
 
+  function indicatorForPurchaseCurrency(cur){
+    return (String(cur || "SYP").toUpperCase() === "USD") ? "$" : "SYP";
+  }
+
+  function updateRowTotalCostIndicator(tr, cur){
+    const el = tr?.querySelector(".total-cost-cur");
+    if (!el) return;
+    el.textContent = indicatorForPurchaseCurrency(cur);
+  }
+
   function pick(prod){
     clearSug(); if (q) q.value="";
     const exists = tbody?.querySelector(`tr[data-pid="${prod.id}"]`);
@@ -475,15 +485,10 @@ refreshAutoSerial();
 
     tr.innerHTML = `
       <td class="pname">${prod.name}</td>
+      <td><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
       <td>
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
-      </td>
-      <td><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
-      <td><input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
-      <td>
-        <input name="price_usd[]" class="input price-usd numeric-math" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
-        <button type="button" class="btn btn-fx" style="margin-top:4px; padding:6px 8px;">FX</button>
       </td>
       <td>
         <div style="display:flex; gap:6px; align-items:center;">
@@ -494,7 +499,19 @@ refreshAutoSerial();
           </select>
         </div>
       </td>
-      <td><input name="total_cost[]" class="input numeric-math" type="number" step="0.01" placeholder="0.00"></td>
+      <td><input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
+      <td class="usd-price-cell">
+        <div class="usd-price-wrap">
+          <button type="button" class="btn btn-fx" style="padding:6px 8px;">FX</button>
+          <input name="price_usd[]" class="input price-usd numeric-math" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
+        </div>
+      </td>
+      <td>
+        <div class="total-cost-wrap">
+          <span class="total-cost-cur" aria-hidden="true">${indicatorForPurchaseCurrency(cur)}</span>
+          <input name="total_cost[]" class="input numeric-math" type="number" step="0.01" placeholder="0.00">
+        </div>
+      </td>
       <td style="text-align:center;"><button type="button" class="btn-danger btn-del">✕</button></td>
       <input type="hidden" name="product_id[]" value="${prod.id}">
     `;
@@ -518,6 +535,7 @@ refreshAutoSerial();
     curSelect?.addEventListener("change", () => {
       const sel = (curSelect.value || "SYP").toUpperCase();
       if (curHidden) curHidden.value = sel;
+      updateRowTotalCostIndicator(tr, sel);
       if (costInput && costInput.dataset.auto === "1") {
         const v = (sel === "USD" ? (tr.dataset.costUsd || "") : (tr.dataset.costSyp || ""));
         costInput.value = v;
