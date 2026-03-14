@@ -19,14 +19,37 @@
 
 {% block extra_head %}
 <style>
+  /* Expand this page's content shell beyond the default 1200px cap */
+  .viewport-center > .center-box{
+    max-width: 1560px;
+  }
+
   #prodSug { background:#fff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); }
   #prodSug li { display:flex; gap:8px; align-items:center; padding:8px 10px; cursor:pointer; }
   #prodSug li.active { background:#f3f4f6; }
 
   .bill-wrap{
     display:grid;
-    grid-template-rows:auto auto minmax(260px,1fr) auto;
+    grid-template-columns:minmax(0,82%) minmax(240px,18%);
     gap:12px;
+    align-items:stretch;
+    max-width:1560px;
+    margin-inline:auto;
+    width:100%;
+  }
+  .bill-main{
+    display:grid;
+    grid-template-rows:auto auto minmax(260px,1fr);
+    gap:12px;
+    min-width:0;
+  }
+  .bill-side{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    min-width:0;
+    min-height:100%;
+    align-self:stretch;
   }
   .card{
     background:#fff;
@@ -91,7 +114,7 @@
     flex-direction:column;
   }
   .items-scroll{
-    height:46vh;           /* fixed height area */
+    height:clamp(52vh, calc(46vh + 6.5rem), 62vh); /* slightly taller table viewport (~3cm on typical desktop) */
     overflow-y:auto;       /* scroll rows only */
     overflow-x:hidden;
   }
@@ -112,19 +135,29 @@
     text-overflow:ellipsis;
   }
 
-  /* Footer */
-  .bill-foot{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap:12px;
-    align-items:start;
+  /* Payment panel */
+  .foot-right{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
   }
-  .foot-right{ display:flex; gap:10px; flex-wrap:wrap; }
   .foot-left{
     background:#fff;
     border-radius:12px;
     padding:12px;
     box-shadow:var(--card-shadow);
+    height:100%;
+    min-height:100%;
+    box-sizing:border-box;
+    display:flex;
+    flex-direction:column;
+    position:sticky;
+    top:12px;
+  }
+  .foot-left > .foot-right{
+    margin-top:auto !important;
+    padding-top:12px;
   }
   .total-box{
     display:flex;
@@ -178,11 +211,29 @@
     margin-top:6px;
     flex-wrap:wrap;
   }
+
+  @media (max-width:1100px){
+    .bill-wrap{ grid-template-columns:1fr; }
+    .bill-main{ grid-template-rows:auto auto minmax(260px,auto); }
+    .bill-side{
+      min-height:0;
+    }
+    .foot-left{
+      min-height:0;
+      position:static;
+      top:auto;
+    }
+    .foot-left > .foot-right{
+      margin-top:12px !important;
+      padding-top:0;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="bill-wrap" dir="rtl">
+  <div class="bill-main">
 
   <!-- 0) Bill number + Provider + Container -->
   <section class="card">
@@ -245,29 +296,24 @@
     <table id="billTable" class="bill">
       <thead>
         <tr>
-          <th style="width:26%;">Product</th>
-          <th style="width:10%;">Purchase Currency</th>
-          <th>Purchase Cost</th>
-          <th>Sale Price (SYP)</th>
-          <th>Sale Price (USD)</th>
-          <th style="width:18%;">Qty</th>
-          <th>Total Cost</th>
+          <th style="width:26%;">اسم المنتج</th>
+          <th style="width:10%;">العملة</th>
+          <th>سعر الشراء</th>
+          <th>سعر المبيع (SYP)</th>
+          <th>سعر المبيع (USD)</th>
+          <th style="width:18%;">الكمية</th>
+          <th>سعر الشراء النهائي</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="billBody"><!-- rows injected by JS --></tbody>
     </table>
   </section>
+  </div>
 
-  <!-- 3) Footer -->
-  <section class="bill-foot">
-    <div class="foot-right">
-      <button id="btnSave" class="btn btn-primary">حفظ</button>
-      <a id="btnCancel" class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">إلغاء</a>
-      <div id="saveErr" class="err" style="align-self:center;" hidden></div>
-    </div>
-
-    <div class="foot-left">
+  <!-- 3) Payment / Totals panel -->
+  <aside class="bill-side">
+    <section class="foot-left">
       <div class="total-box">
         <div class="muted">الإجمالي (SYP)</div>
         <div id="billTotalSyp" class="total-amt">0.00</div>
@@ -293,21 +339,27 @@
         </div>
 
         <div class="field" style="max-width:220px;">
-          <label class="muted">Current FX (SYP per 1 USD)</label>
+          <label class="muted">سعر الصرف الحالي</label>
           <div id="fxBadge" class="badge-static">
             {% if fx_syp_per_usd %}{{ fx_syp_per_usd }}{% else %}NOT SET{% endif %}
           </div>
         </div>
 
-        <label><input type="radio" name="pay" value="paid" id="payPaid" checked> Paid (ONLY)</label>
-        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="unpaid" id="payUnpaid"> Unpaid</label>
-        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="partial" id="payPartial"> Partial</label>
+        <label><input type="radio" name="pay" value="paid" id="payPaid" checked> دفع كامل</label>
+        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="unpaid" id="payUnpaid"> غير مدفوع</label>
+        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="partial" id="payPartial"> دقع جزئي</label>
 
         <input id="paidAmount" class="input numeric-math" style="width:160px;" placeholder="disabled" disabled>
       </div>
       <div class="muted" style="margin-top:8px;">(لاحقاً: سيتم ترحيل المتبقي إلى قائمة الديون)</div>
-    </div>
-  </section>
+
+      <div class="foot-right" style="margin-top:12px;">
+        <button id="btnSave" class="btn btn-primary">حفظ</button>
+        <a id="btnCancel" class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">إلغاء</a>
+        <div id="saveErr" class="err" style="align-self:center;" hidden></div>
+      </div>
+    </section>
+  </aside>
 </div>
 {% endblock %}
 
