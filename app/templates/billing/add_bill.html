@@ -1,5 +1,5 @@
 {% extends "manager/base_manager.html" %}
-{% load static %}
+{% load static l10n %}
 
 {% block title %}إضافة فاتورة{% endblock %}
 
@@ -404,15 +404,15 @@
     <section class="foot-left">
       <div class="total-box">
         <div class="muted">الإجمالي (SYP)</div>
-        <div id="billTotalSyp" class="total-amt">0.00</div>
+        <div id="billTotalSyp" class="total-amt">0</div>
       </div>
       <div class="total-box">
         <div class="muted">الإجمالي (USD)</div>
-        <div id="billTotalUsd" class="total-amt">0.00</div>
+        <div id="billTotalUsd" class="total-amt">0</div>
       </div>
       <div class="total-box">
         <div class="muted">إجمالي التسوية (<span id="settleCurLabel">SYP</span>)</div>
-        <div id="billTotalBox" class="total-amt">0.00</div>
+        <div id="billTotalBox" class="total-amt">0</div>
       </div>
       <div class="muted" id="grandTotals" style="margin-top:6px;"></div>
 
@@ -428,7 +428,7 @@
 
         <div class="field" style="max-width:220px;">
           <label class="muted">سعر الصرف الحالي</label>
-          <div id="fxBadge" class="badge-static">
+          <div id="fxBadge" class="badge-static" data-fx-raw="{% if fx_syp_per_usd %}{{ fx_syp_per_usd|unlocalize }}{% endif %}">
             {% if fx_syp_per_usd %}{{ fx_syp_per_usd }}{% else %}NOT SET{% endif %}
           </div>
         </div>
@@ -437,7 +437,7 @@
         <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="unpaid" id="payUnpaid"> غير مدفوع</label>
         <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="partial" id="payPartial"> دقع جزئي</label>
 
-        <input id="paidAmount" class="input numeric-math" style="width:160px;" placeholder="disabled" disabled>
+        <input id="paidAmount" class="input numeric-math" data-math-display-max-decimals="2" style="width:160px;" placeholder="disabled" disabled>
       </div>
       <div class="muted" style="margin-top:8px;">(لاحقاً: سيتم ترحيل المتبقي إلى قائمة الديون)</div>
 

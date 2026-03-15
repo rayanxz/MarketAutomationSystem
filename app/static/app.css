@@ -164,8 +164,26 @@ body:has(.auth-wrap) .topbar{ display:none !important; }
 /* Buttons */
 .btn{ padding:8px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
 .btn.primary{ background:#111; color:#fff; border-color:#111; }
-.logout-btn{ background:transparent; color:#fff; border-color:#fff; padding:6px 12px; }
-.logout-btn:hover{ background:#fff; color:#111; }
+.topbar .session .logout-btn{
+  background:transparent;
+  color:#fff;
+  border-color:#fff;
+  padding:6px 12px;
+  box-shadow:none;
+}
+.topbar .session .logout-btn:hover,
+.topbar .session .logout-btn:focus-visible{
+  background:rgba(255,255,255,.14);
+  color:#fff;
+  border-color:#fff;
+  box-shadow:none;
+}
+.topbar .session .logout-btn.active{
+  background:transparent;
+  color:#fff;
+  border-color:#fff;
+  box-shadow:none;
+}
 
 .btn-primary{
   display:inline-flex; align-items:center; justify-content:center;

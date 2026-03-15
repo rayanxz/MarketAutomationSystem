@@ -45,6 +45,25 @@
   const num  = v => { const n = parseFloat(String(v ?? "").trim().replace(",", ".")); return Number.isFinite(n) ? n : 0; };
   const fmt2 = v => (Number(v || 0)).toFixed(2);
   const fmt4 = v => (Number(v || 0)).toFixed(4);
+  const formatDisplay2 = (v) => {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n)) return "0";
+    const clipped = Math.trunc(n * 100) / 100;
+    if (clipped === 0 || Object.is(clipped, -0)) return "0";
+    const [intPartRaw, fracRaw = ""] = clipped.toFixed(2).split(".");
+    const intPart = intPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const frac = fracRaw.replace(/0+$/, "");
+    return frac ? `${intPart}.${frac}` : intPart;
+  };
+  const readFxRate = () => {
+    const fxVal = num(fxBadge?.dataset?.fxRaw || "");
+    return (Number.isFinite(fxVal) && fxVal > 0) ? fxVal : null;
+  };
+  const refreshFxBadgeDisplay = () => {
+    if (!fxBadge) return;
+    const fxVal = readFxRate();
+    fxBadge.textContent = fxVal ? formatDisplay2(fxVal) : "NOT SET";
+  };
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
 
@@ -513,20 +532,20 @@ refreshAutoSerial();
       </td>
       <td>
         <div class="price-wrap">
-          <button type="button" class="btn btn-fx">FX</button>
-          <input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}>
+          <button type="button" class="btn btn-fx btn-fx-syp">FX</button>
+          <input name="price_syp[]" class="input price-syp numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}>
         </div>
       </td>
       <td class="usd-price-cell">
         <div class="price-wrap">
-          <button type="button" class="btn btn-fx">FX</button>
-          <input name="price_usd[]" class="input price-usd numeric-math" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
+          <button type="button" class="btn btn-fx btn-fx-usd">FX</button>
+          <input name="price_usd[]" class="input price-usd numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
         </div>
       </td>
       <td>
         <div class="total-cost-wrap">
           <span class="total-cost-cur" aria-hidden="true">${indicatorForPurchaseCurrency(cur)}</span>
-          <input name="total_cost[]" class="input numeric-math" type="number" step="0.01" placeholder="0.00">
+          <input name="total_cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.01" placeholder="0.00">
         </div>
       </td>
       <td style="text-align:center;"><button type="button" class="btn-danger btn-del">✕</button></td>
@@ -562,18 +581,29 @@ refreshAutoSerial();
       recalcBillTotal();
     });
 
-    tr.querySelectorAll(".btn-fx").forEach((fxBtn) => {
-      fxBtn.addEventListener("click", () => {
-        const fxVal = parseFloat(String(fxBadge?.textContent || "").replace(/[^0-9.]/g, ""));
-        if (!Number.isFinite(fxVal) || fxVal <= 0) return;
-        const sypVal = num(priceSypInput?.value);
-        const usdVal = num(priceUsdInput?.value);
-        if (sypVal > 0 && (!usdVal || usdVal <= 0)) {
-          if (priceUsdInput && !priceUsdInput.disabled) priceUsdInput.value = fmt4(sypVal / fxVal);
-        } else if (usdVal > 0 && (!sypVal || sypVal <= 0)) {
-          if (priceSypInput && !priceSypInput.disabled) priceSypInput.value = fmt4(usdVal * fxVal);
-        }
-      });
+    const hasNonZeroValue = (v) => {
+      const raw = String(v ?? "").trim();
+      if (!raw.length) return false;
+      const n = num(raw);
+      return Number.isFinite(n) && n !== 0;
+    };
+
+    tr.querySelector(".btn-fx-syp")?.addEventListener("click", () => {
+      const fxVal = readFxRate();
+      if (!fxVal) return;
+      if (!priceSypInput || priceSypInput.disabled) return;
+      if (!hasNonZeroValue(priceUsdInput?.value)) return;
+      priceSypInput.value = fmt4(num(priceUsdInput.value) * fxVal);
+      priceSypInput.dataset.auto = "0";
+    });
+
+    tr.querySelector(".btn-fx-usd")?.addEventListener("click", () => {
+      const fxVal = readFxRate();
+      if (!fxVal) return;
+      if (!priceUsdInput || priceUsdInput.disabled) return;
+      if (!hasNonZeroValue(priceSypInput?.value)) return;
+      priceUsdInput.value = fmt4(num(priceSypInput.value) / fxVal);
+      priceUsdInput.dataset.auto = "0";
     });
 
     tr.addEventListener("input", handleRowChange);
@@ -612,20 +642,20 @@ refreshAutoSerial();
       }
     });
 
-    if (totalSypBox) totalSypBox.textContent = fmt2(totalSyp);
-    if (totalUsdBox) totalUsdBox.textContent = fmt2(totalUsd);
+    if (totalSypBox) totalSypBox.textContent = formatDisplay2(totalSyp);
+    if (totalUsdBox) totalUsdBox.textContent = formatDisplay2(totalUsd);
 
     const settleCur = (payCurrency?.value || "SYP").toUpperCase();
     if (settleCurLabel) settleCurLabel.textContent = settleCur;
     const settlementTotal = settleCur === "USD" ? totalUsd : totalSyp;
-    if (totalBox) totalBox.textContent = fmt2(settlementTotal);
+    if (totalBox) totalBox.textContent = formatDisplay2(settlementTotal);
 
-    const fxVal = parseFloat(String(fxBadge?.textContent || "").replace(/[^0-9.]/g, ""));
+    const fxVal = readFxRate();
     if (grandTotals){
       if (Number.isFinite(fxVal) && fxVal > 0){
         const gSyp = totalSyp + (totalUsd * fxVal);
         const gUsd = totalUsd + (totalSyp / fxVal);
-        grandTotals.textContent = `إجمالي بالتحويل: ${fmt2(gSyp)} SYP | ${fmt2(gUsd)} USD`;
+        grandTotals.textContent = `إجمالي بالتحويل: ${formatDisplay2(gSyp)} SYP | ${formatDisplay2(gUsd)} USD`;
       } else {
         grandTotals.textContent = "";
       }
@@ -644,6 +674,7 @@ refreshAutoSerial();
   payRadios.forEach(r=> r.addEventListener("change", syncPayUI));
   syncPayUI();
   payCurrency?.addEventListener("change", recalcBillTotal);
+  refreshFxBadgeDisplay();
 
   // ======================================================================
   // SAVE handler
