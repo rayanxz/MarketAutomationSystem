@@ -222,6 +222,13 @@
     overflow:hidden;
     text-overflow:ellipsis;
   }
+  @keyframes pname-hit-fade{
+    0%, 83%{ background:#dbeafe; }   /* hold highlight ~3s */
+    100%{ background:var(--grp-blue); }
+  }
+  table.bill tbody td.pname.pname-hit{
+    animation:pname-hit-fade 3.6s ease-out;
+  }
 
   /* Payment panel */
   .foot-right{

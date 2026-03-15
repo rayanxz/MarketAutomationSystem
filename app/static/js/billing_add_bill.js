@@ -479,10 +479,42 @@ refreshAutoSerial();
     el.textContent = indicatorForPurchaseCurrency(cur);
   }
 
+  function revealExistingRow(tr){
+    if (!tr) return;
+
+    const scrollBox = tr.closest(".items-scroll");
+    if (scrollBox) {
+      const boxRect = scrollBox.getBoundingClientRect();
+      const rowRect = tr.getBoundingClientRect();
+      const targetTop =
+        scrollBox.scrollTop +
+        (rowRect.top - boxRect.top) -
+        ((scrollBox.clientHeight - rowRect.height) / 2);
+      scrollBox.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+    } else {
+      tr.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }
+
+    const pnameCell = tr.querySelector("td.pname");
+    if (!pnameCell) return;
+    pnameCell.classList.remove("pname-hit");
+    void pnameCell.offsetWidth; // restart flash animation on repeated searches
+    pnameCell.classList.add("pname-hit");
+    if (pnameCell.__pnameHitTimer) clearTimeout(pnameCell.__pnameHitTimer);
+    pnameCell.__pnameHitTimer = setTimeout(() => {
+      pnameCell.classList.remove("pname-hit");
+      pnameCell.__pnameHitTimer = null;
+    }, 3600);
+  }
+
   function pick(prod){
     clearSug(); if (q) q.value="";
     const exists = tbody?.querySelector(`tr[data-pid="${prod.id}"]`);
-    if (exists){ exists.querySelector('input[name="qty[]"]')?.focus(); return; }
+    if (exists){
+      revealExistingRow(exists);
+      exists.querySelector('input[name="qty[]"]')?.focus();
+      return;
+    }
 
     const hasU2 = !!(prod.unit_secondary && String(prod.unit_secondary).trim().length);
     const cf    = prod.conversion_factor ? String(prod.conversion_factor) : "";
@@ -556,6 +588,7 @@ refreshAutoSerial();
     tr.querySelector(".btn-del")?.addEventListener("click", ()=>{ tr.remove(); recalcBillTotal(); });
 
     const costInput = tr.querySelector('input[name="cost[]"]');
+    const qtyInput = tr.querySelector('input[name="qty[]"]');
     const priceSypInput = tr.querySelector('input[name="price_syp[]"]');
     const priceUsdInput = tr.querySelector('input[name="price_usd[]"]');
     const totalCostInput = tr.querySelector('input[name="total_cost[]"]');
@@ -569,6 +602,11 @@ refreshAutoSerial();
     costInput?.addEventListener("input", () => { costInput.dataset.auto = "0"; });
     priceSypInput?.addEventListener("input", () => { priceSypInput.dataset.auto = "0"; });
     priceUsdInput?.addEventListener("input", () => { priceUsdInput.dataset.auto = "0"; });
+    qtyInput?.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault(); // keep Enter from submitting form while editing qty
+      q?.focus();
+    });
     curSelect?.addEventListener("change", () => {
       const sel = (curSelect.value || "SYP").toUpperCase();
       if (curHidden) curHidden.value = sel;
@@ -610,7 +648,7 @@ refreshAutoSerial();
     tr.addEventListener("change", handleRowChange);
 
     tbody?.appendChild(tr);
-    tr.querySelector('input[name="qty[]"]')?.focus();
+    qtyInput?.focus();
     recalcBillTotal();
   }
 
