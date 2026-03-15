@@ -76,6 +76,18 @@
     return (p.default_price_syp ?? p.price_syp ?? "");
   }
 
+  function setProductNameCell(cell, fullName){
+    if (!cell) return;
+    const name = String(fullName ?? "");
+    const textEl = cell.querySelector(".pname-text") || cell;
+    textEl.textContent = name;
+    cell.title = name;
+  }
+
+  tbody?.querySelectorAll("td.pname").forEach((cell) => {
+    setProductNameCell(cell, cell.textContent || "");
+  });
+
 
   function normalize(items){
     return (items || []).filter(looksLikeProduct).map(p => ({
@@ -484,7 +496,7 @@ refreshAutoSerial();
     const priceUsdVal = prod.allow_usd_sales ? defaultPriceFor(prod, "USD") : "";
 
     tr.innerHTML = `
-      <td class="pname">${prod.name}</td>
+      <td class="pname"><span class="pname-text"></span></td>
       <td><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
       <td>
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
@@ -499,10 +511,15 @@ refreshAutoSerial();
           </select>
         </div>
       </td>
-      <td><input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}></td>
+      <td>
+        <div class="price-wrap">
+          <button type="button" class="btn btn-fx">FX</button>
+          <input name="price_syp[]" class="input price-syp numeric-math" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}>
+        </div>
+      </td>
       <td class="usd-price-cell">
-        <div class="usd-price-wrap">
-          <button type="button" class="btn btn-fx" style="padding:6px 8px;">FX</button>
+        <div class="price-wrap">
+          <button type="button" class="btn btn-fx">FX</button>
           <input name="price_usd[]" class="input price-usd numeric-math" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
         </div>
       </td>
@@ -515,6 +532,7 @@ refreshAutoSerial();
       <td style="text-align:center;"><button type="button" class="btn-danger btn-del">✕</button></td>
       <input type="hidden" name="product_id[]" value="${prod.id}">
     `;
+    setProductNameCell(tr.querySelector(".pname"), prod.name);
 
     tr.querySelector(".btn-del")?.addEventListener("click", ()=>{ tr.remove(); recalcBillTotal(); });
 
@@ -544,17 +562,18 @@ refreshAutoSerial();
       recalcBillTotal();
     });
 
-    const fxBtn = tr.querySelector(".btn-fx");
-    fxBtn?.addEventListener("click", () => {
-      const fxVal = parseFloat(String(fxBadge?.textContent || "").replace(/[^0-9.]/g, ""));
-      if (!Number.isFinite(fxVal) || fxVal <= 0) return;
-      const sypVal = num(priceSypInput?.value);
-      const usdVal = num(priceUsdInput?.value);
-      if (sypVal > 0 && (!usdVal || usdVal <= 0)) {
-        if (priceUsdInput && !priceUsdInput.disabled) priceUsdInput.value = fmt4(sypVal / fxVal);
-      } else if (usdVal > 0 && (!sypVal || sypVal <= 0)) {
-        if (priceSypInput && !priceSypInput.disabled) priceSypInput.value = fmt4(usdVal * fxVal);
-      }
+    tr.querySelectorAll(".btn-fx").forEach((fxBtn) => {
+      fxBtn.addEventListener("click", () => {
+        const fxVal = parseFloat(String(fxBadge?.textContent || "").replace(/[^0-9.]/g, ""));
+        if (!Number.isFinite(fxVal) || fxVal <= 0) return;
+        const sypVal = num(priceSypInput?.value);
+        const usdVal = num(priceUsdInput?.value);
+        if (sypVal > 0 && (!usdVal || usdVal <= 0)) {
+          if (priceUsdInput && !priceUsdInput.disabled) priceUsdInput.value = fmt4(sypVal / fxVal);
+        } else if (usdVal > 0 && (!sypVal || sypVal <= 0)) {
+          if (priceSypInput && !priceSypInput.disabled) priceSypInput.value = fmt4(usdVal * fxVal);
+        }
+      });
     });
 
     tr.addEventListener("input", handleRowChange);

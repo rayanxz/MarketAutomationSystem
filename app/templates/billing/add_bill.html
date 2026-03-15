@@ -120,6 +120,7 @@
   }
   table.bill{
     width:100%;
+    table-layout:fixed;
     border-collapse:collapse;
     border:1px solid #e5e7eb;
     --col-sep:#e5e7eb;
@@ -142,52 +143,81 @@
     top:0;
     z-index:1;
   }
-  .usd-price-wrap{
+  .price-wrap{
     display:flex;
     align-items:center;
-    gap:6px;
+    gap:2px;
     direction:ltr; /* keep FX button on the left and input on the right */
+    width:100%;
   }
-  .usd-price-wrap .price-usd{
-    flex:1 1 auto;
+  .price-wrap .price-syp,
+  .price-wrap .price-usd{
+    flex:1 1 0;
     min-width:0;
+    width:100%;
   }
-  .usd-price-wrap .btn-fx{
+  .price-wrap .btn-fx{
     flex:0 0 auto;
     margin-top:0 !important;
     white-space:nowrap;
+    padding:4px 6px;
+    border-radius:8px;
+    font-size:12px;
+    line-height:1.1;
   }
   .total-cost-wrap{
     display:flex;
     align-items:center;
-    gap:5px;
+    gap:2px;
     direction:ltr; /* keep indicator on the left and textbox on the right */
+    width:100%;
   }
   .total-cost-wrap input[name="total_cost[]"]{
-    flex:1 1 auto;
+    flex:1 1 0;
     min-width:0;
+    width:100%;
   }
   .total-cost-cur{
     flex:0 0 auto;
-    font-size:11px;
+    font-size:10px;
     line-height:1;
     color:#15803d;
     background:#f8fafc;
     border:1px solid #e5e7eb;
     border-radius:8px;
-    padding:2px 6px;
+    padding:1px 4px;
     white-space:nowrap;
   }
   table.bill :is(thead th, tbody td):nth-child(1){ background:var(--grp-blue); }      /* product */
+  table.bill thead th:nth-child(2){ width:10%; }                                        /* cost */
   table.bill :is(thead th, tbody td):nth-child(2),
   table.bill :is(thead th, tbody td):nth-child(3),
   table.bill :is(thead th, tbody td):nth-child(7){ background:var(--grp-green); }      /* purchase */
   table.bill :is(thead th, tbody td):nth-child(5),
   table.bill :is(thead th, tbody td):nth-child(6){ background:var(--grp-orange); }     /* selling */
   table.bill :is(thead th, tbody td):nth-child(4){ background:var(--grp-yellow); }     /* qty/unit */
-  table.bill thead th:nth-child(8){ background:#f8fafc; }                                /* actions */
-  table.bill tbody td:nth-child(8){ background:#fff; }
+  table.bill thead th:nth-child(8){
+    background:#f8fafc;                                                                  /* actions */
+    width:56px;
+  }
+  table.bill tbody td:nth-child(8){
+    background:#fff;
+    width:56px;
+    white-space:nowrap;
+    padding-inline:4px;
+  }
+  table.bill tbody td:nth-child(8) .btn-del{
+    margin:0 auto;
+    padding:6px 8px;
+    line-height:1;
+  }
   .pname{
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .pname .pname-text{
+    display:block;
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
@@ -339,8 +369,8 @@
         <input id="prodQ" class="input" type="text" placeholder="اكتب هنا..." autocomplete="off" />
         <div class="modes-inline">
           <label><input type="radio" name="prodMode" value="name" checked> بالاسم</label>
-          <label><input type="radio" name="prodMode" value="code"> بالكود</label>
-          <label><input type="radio" name="prodMode" value="id"> بالمعرف</label>
+          <label><input type="radio" name="prodMode" value="id"> بالكود</label>
+          <label><input type="radio" name="prodMode" value="code"> بالرمز</label>
           <label><input type="radio" name="prodMode" value="barcode"> بالباركود</label>
         </div>
         <ul id="prodSug" class="ac-list" hidden></ul>
