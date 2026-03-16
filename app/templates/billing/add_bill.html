@@ -262,6 +262,89 @@
     margin-top:auto !important;
     padding-top:12px;
   }
+  .pay-head{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    align-items:end;
+  }
+  .pay-layout{
+    display:grid;
+    gap:10px;
+    margin-top:8px;
+  }
+  .pay-status-card,
+  .pay-methods{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    padding:10px;
+  }
+  .pay-status-list,
+  .pay-method-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-top:8px;
+  }
+  .pay-status-list label,
+  .pay-method-list label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:14px;
+  }
+  .pay-methods legend{
+    padding:0 6px;
+    font-size:12px;
+    color:#6b7280;
+  }
+  .pay-methods.is-disabled{
+    opacity:.55;
+    filter:saturate(.75);
+  }
+  .pay-method-panel{
+    display:none;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px dashed #d1d5db;
+  }
+  .pay-method-panel.active{
+    display:block;
+  }
+  .pay-grid{
+    display:grid;
+    gap:8px;
+  }
+  .money-inline{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    direction:ltr;
+    width:100%;
+  }
+  .money-inline .input{
+    flex:1 1 auto;
+    min-width:0;
+  }
+  .money-chip{
+    flex:0 0 auto;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    background:#fff;
+    color:#334155;
+    font-size:11px;
+    font-weight:700;
+    line-height:1;
+    padding:4px 6px;
+    min-width:38px;
+    text-align:center;
+  }
+  .pay-note{
+    color:#6b7280;
+    font-size:12px;
+    margin-top:6px;
+  }
   .total-box{
     display:flex;
     align-items:center;
@@ -365,6 +448,9 @@
       margin-top:12px !important;
       padding-top:0;
     }
+    .pay-head{
+      grid-template-columns:1fr;
+    }
   }
 </style>
 {% endblock %}
@@ -466,8 +552,8 @@
       </div>
       <div class="muted" id="grandTotals" style="margin-top:6px;"></div>
 
-      <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
-        <div class="field" style="max-width:220px;">
+      <div class="pay-head">
+        <div class="field">
           <label class="muted">عملة التسوية</label>
           <select id="payCurrency" class="input">
             {% for cur in currencies %}
@@ -476,18 +562,83 @@
           </select>
         </div>
 
-        <div class="field" style="max-width:220px;">
+        <div class="field">
           <label class="muted">سعر الصرف الحالي</label>
           <div id="fxBadge" class="badge-static" data-fx-raw="{% if fx_syp_per_usd %}{{ fx_syp_per_usd|unlocalize }}{% endif %}">
             {% if fx_syp_per_usd %}{{ fx_syp_per_usd }}{% else %}NOT SET{% endif %}
           </div>
         </div>
+      </div>
 
-        <label><input type="radio" name="pay" value="paid" id="payPaid" checked> دفع كامل</label>
-        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="unpaid" id="payUnpaid"> غير مدفوع</label>
-        <label style="opacity:.5; pointer-events:none;"><input type="radio" name="pay" value="partial" id="payPartial"> دقع جزئي</label>
+      <div class="pay-layout">
+        <div class="pay-status-card">
+          <div class="muted">حالة الدفع</div>
+          <div class="pay-status-list">
+            <label><input type="radio" name="pay" value="unpaid" id="payUnpaid"> غير مدفوع</label>
+            <label><input type="radio" name="pay" value="partial" id="payPartial"> دفع جزئي</label>
+            <label><input type="radio" name="pay" value="paid" id="payPaid" checked> دفع كامل</label>
+          </div>
+        </div>
 
-        <input id="paidAmount" class="input numeric-math" data-math-display-max-decimals="2" style="width:160px;" placeholder="disabled" disabled>
+        <fieldset id="payMethodsFieldset" class="pay-methods">
+          <legend>خيارات التسديد</legend>
+          <div class="pay-method-list">
+            <label><input type="radio" name="payMethod" value="syp_only" id="payMethodSyp"> دفع بالليرة فقط</label>
+            <label><input type="radio" name="payMethod" value="usd_only" id="payMethodUsd"> دفع بالدولار فقط</label>
+            <label><input type="radio" name="payMethod" value="separate" id="payMethodSeparate" checked> دفع منفصل (SYP + USD)</label>
+            <label><input type="radio" name="payMethod" value="mixed" id="payMethodMixed"> دفع مختلط</label>
+          </div>
+
+          <div class="pay-method-panel" data-method-panel="syp_only">
+            <div class="pay-grid">
+              <div class="muted">مبلغ الدفع بالليرة</div>
+              <div class="money-inline">
+                <span class="money-chip">SYP</span>
+                <input id="paySypOnly" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+              </div>
+            </div>
+          </div>
+
+          <div class="pay-method-panel" data-method-panel="usd_only">
+            <div class="pay-grid">
+              <div class="muted">مبلغ الدفع بالدولار</div>
+              <div class="money-inline">
+                <span class="money-chip">USD</span>
+                <input id="payUsdOnly" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+              </div>
+            </div>
+          </div>
+
+          <div class="pay-method-panel" data-method-panel="separate">
+            <div class="pay-grid">
+              <div class="muted">دفع إجمالي الفاتورة كل عملة على حدة</div>
+              <div class="money-inline">
+                <span class="money-chip">SYP</span>
+                <input id="paySeparateSyp" class="input numeric-math" data-math-display-max-decimals="2" type="number" readonly>
+              </div>
+              <div class="money-inline">
+                <span class="money-chip">USD</span>
+                <input id="paySeparateUsd" class="input numeric-math" data-math-display-max-decimals="2" type="number" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="pay-method-panel" data-method-panel="mixed">
+            <div class="pay-grid">
+              <div class="muted">دفع مختلط (SYP + USD)</div>
+              <div class="money-inline">
+                <span class="money-chip">SYP</span>
+                <input id="payMixedSyp" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+              </div>
+              <div class="money-inline">
+                <span class="money-chip">USD</span>
+                <input id="payMixedUsd" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+              </div>
+            </div>
+          </div>
+
+          <div id="payMethodHint" class="pay-note"></div>
+        </fieldset>
       </div>
       <div class="muted" style="margin-top:8px;">(لاحقاً: سيتم ترحيل المتبقي إلى قائمة الديون)</div>
 

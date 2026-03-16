@@ -28,8 +28,17 @@
   const settleCurLabel = document.getElementById("settleCurLabel");
 
   // Pay widgets
-  const paidInput = document.getElementById("paidAmount");
   const payRadios = document.querySelectorAll('input[name="pay"]');
+  const payMethodRadios = document.querySelectorAll('input[name="payMethod"]');
+  const payMethodsFieldset = document.getElementById("payMethodsFieldset");
+  const payMethodSeparate = document.getElementById("payMethodSeparate");
+  const payMethodHint = document.getElementById("payMethodHint");
+  const paySypOnlyInput = document.getElementById("paySypOnly");
+  const payUsdOnlyInput = document.getElementById("payUsdOnly");
+  const paySeparateSypInput = document.getElementById("paySeparateSyp");
+  const paySeparateUsdInput = document.getElementById("paySeparateUsd");
+  const payMixedSypInput = document.getElementById("payMixedSyp");
+  const payMixedUsdInput = document.getElementById("payMixedUsd");
   const costWarnModal = document.getElementById("costWarnModal");
   const costWarnRows = document.getElementById("costWarnRows");
   const costWarnConfirm = document.getElementById("costWarnConfirm");
@@ -67,6 +76,30 @@
     if (!fxBadge) return;
     const fxVal = readFxRate();
     fxBadge.textContent = fxVal ? formatDisplay2(fxVal) : "NOT SET";
+  };
+  const EPS = 0.0000001;
+  const payState = {
+    mixedLastEdited: "syp",
+    syncingMixed: false,
+    totals: {
+      totalSyp: 0,
+      totalUsd: 0,
+      settlementSyp: 0,
+      settlementUsd: 0,
+      settlementSelected: 0,
+      settlementCurrency: "SYP",
+      fx: null,
+    },
+  };
+  const toAmount = (v) => {
+    const n = num(v);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n;
+  };
+  const setNumericInputValue = (input, value) => {
+    if (!input) return;
+    const n = Number(value);
+    input.value = Number.isFinite(n) ? fmt4(n) : "0";
   };
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
@@ -784,19 +817,33 @@ refreshAutoSerial();
     if (totalSypBox) totalSypBox.textContent = formatDisplay2(totalSyp);
     if (totalUsdBox) totalUsdBox.textContent = formatDisplay2(totalUsd);
 
+    const fxVal = readFxRate();
+    const hasFx = Number.isFinite(fxVal) && fxVal > 0;
+    const canConvert = hasFx || totalSyp <= EPS || totalUsd <= EPS;
+    const settlementSyp = canConvert ? (totalSyp + (hasFx ? (totalUsd * fxVal) : 0)) : Number.NaN;
+    const settlementUsd = canConvert ? (totalUsd + (hasFx ? (totalSyp / fxVal) : 0)) : Number.NaN;
+
     const settleCur = (payCurrency?.value || "SYP").toUpperCase();
     if (settleCurLabel) settleCurLabel.textContent = settleCur;
-    const settlementTotal = settleCur === "USD" ? totalUsd : totalSyp;
-    if (totalBox) totalBox.textContent = formatDisplay2(settlementTotal);
+    const settlementSelected = settleCur === "USD" ? settlementUsd : settlementSyp;
+    if (totalBox) totalBox.textContent = Number.isFinite(settlementSelected) ? formatDisplay2(settlementSelected) : "—";
 
-    const fxVal = readFxRate();
+    payState.totals = {
+      totalSyp,
+      totalUsd,
+      settlementSyp,
+      settlementUsd,
+      settlementSelected: Number.isFinite(settlementSelected) ? settlementSelected : 0,
+      settlementCurrency: settleCur,
+      fx: hasFx ? fxVal : null,
+    };
+    syncPayUI();
+
     if (grandTotals){
-      if (Number.isFinite(fxVal) && fxVal > 0){
-        const gSyp = totalSyp + (totalUsd * fxVal);
-        const gUsd = totalUsd + (totalSyp / fxVal);
-        grandTotals.textContent = `إجمالي بالتحويل: ${formatDisplay2(gSyp)} SYP | ${formatDisplay2(gUsd)} USD`;
+      if (Number.isFinite(settlementSyp) && Number.isFinite(settlementUsd)){
+        grandTotals.textContent = `إجمالي بالتحويل: ${formatDisplay2(settlementSyp)} SYP | ${formatDisplay2(settlementUsd)} USD`;
       } else {
-        grandTotals.textContent = "";
+        grandTotals.textContent = "إجمالي بالتحويل: يتطلب سعر صرف صحيح";
       }
     }
   }
@@ -804,20 +851,225 @@ refreshAutoSerial();
   // ======================================================================
   // PAY controls
   // ======================================================================
-  function syncPayUI(){
-    const sel = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
-    if (!paidInput) return;
-    if (sel === "partial") paidInput.disabled = false;
-    else { paidInput.value=""; paidInput.disabled = true; }
+  const selectedPayStatus = () => document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
+  const selectedPayMethod = () => document.querySelector('input[name="payMethod"]:checked')?.value || "syp_only";
+
+  function showActivePayMethodPanel(method){
+    document.querySelectorAll("[data-method-panel]").forEach((panel) => {
+      panel.classList.toggle("active", panel.dataset.methodPanel === method);
+    });
   }
-  payRadios.forEach(r=> r.addEventListener("change", syncPayUI));
-  syncPayUI();
+
+  function toSettlementAmount(amountSyp, amountUsd){
+    const settleCur = (payState.totals.settlementCurrency || "SYP").toUpperCase();
+    const fxVal = payState.totals.fx;
+    if (settleCur === "USD") {
+      if (amountSyp > EPS) {
+        if (!(fxVal > 0)) return null;
+        return amountUsd + (amountSyp / fxVal);
+      }
+      return amountUsd;
+    }
+    if (amountUsd > EPS) {
+      if (!(fxVal > 0)) return null;
+      return amountSyp + (amountUsd * fxVal);
+    }
+    return amountSyp;
+  }
+
+  function syncMixedFullFrom(source){
+    if (payState.syncingMixed) return;
+    const fxVal = payState.totals.fx;
+    const targetSyp = payState.totals.settlementSyp;
+    const targetUsd = payState.totals.settlementUsd;
+    if (!(fxVal > 0) || !Number.isFinite(targetSyp) || !Number.isFinite(targetUsd)) return;
+    payState.syncingMixed = true;
+    if (source === "usd") {
+      let usd = toAmount(payMixedUsdInput?.value);
+      usd = Math.min(usd, targetUsd);
+      const syp = Math.max(0, targetSyp - (usd * fxVal));
+      setNumericInputValue(payMixedUsdInput, usd);
+      setNumericInputValue(payMixedSypInput, syp);
+    } else {
+      let syp = toAmount(payMixedSypInput?.value);
+      syp = Math.min(syp, targetSyp);
+      const usd = Math.max(0, (targetSyp - syp) / fxVal);
+      setNumericInputValue(payMixedSypInput, syp);
+      setNumericInputValue(payMixedUsdInput, usd);
+    }
+    payState.syncingMixed = false;
+  }
+
+  function syncPayUI(){
+    const status = selectedPayStatus();
+    let method = selectedPayMethod();
+    const isUnpaid = status === "unpaid";
+    const isPartial = status === "partial";
+    const isPaid = status === "paid";
+    const needsFx = (payState.totals.totalSyp > EPS) && (payState.totals.totalUsd > EPS);
+    const hasFx = payState.totals.fx > 0;
+
+    if (payMethodsFieldset) {
+      payMethodsFieldset.disabled = isUnpaid;
+      payMethodsFieldset.classList.toggle("is-disabled", isUnpaid);
+    }
+
+    if (payMethodSeparate) {
+      payMethodSeparate.disabled = isPartial;
+      payMethodSeparate.closest("label")?.classList.toggle("muted", isPartial);
+      if (isPartial && method === "separate") {
+        const fallback = document.getElementById("payMethodMixed") || document.getElementById("payMethodSyp");
+        if (fallback) fallback.checked = true;
+        method = selectedPayMethod();
+      }
+    }
+
+    showActivePayMethodPanel(method);
+
+    setNumericInputValue(paySeparateSypInput, payState.totals.totalSyp);
+    setNumericInputValue(paySeparateUsdInput, payState.totals.totalUsd);
+
+    if (isPaid) {
+      setNumericInputValue(paySypOnlyInput, payState.totals.settlementSyp);
+      setNumericInputValue(payUsdOnlyInput, payState.totals.settlementUsd);
+      if (!toAmount(payMixedSypInput?.value) && !toAmount(payMixedUsdInput?.value)) {
+        setNumericInputValue(payMixedSypInput, payState.totals.settlementSyp);
+        setNumericInputValue(payMixedUsdInput, 0);
+        payState.mixedLastEdited = "syp";
+      }
+      if (method === "mixed") syncMixedFullFrom(payState.mixedLastEdited === "usd" ? "usd" : "syp");
+      if (payMethodHint) payMethodHint.textContent = "في وضع الدفع الكامل: يجب أن تغطي المدفوعات كامل إجمالي التسوية.";
+    } else if (isPartial) {
+      if (payMethodHint) payMethodHint.textContent = "في الدفع الجزئي يمكنك إدخال جزء من القيمة، والمتبقي يصبح ديناً على المورد.";
+    } else if (payMethodHint) {
+      payMethodHint.textContent = "حالة غير مدفوع: خيارات التسديد معطلة حتى اختيار دفع كامل أو جزئي.";
+    }
+
+    const methodInputs = [paySypOnlyInput, payUsdOnlyInput, payMixedSypInput, payMixedUsdInput];
+    methodInputs.forEach((el) => {
+      if (!el) return;
+      el.readOnly = isPaid && selectedPayMethod() !== "mixed";
+      el.disabled = isUnpaid;
+    });
+    if (payMixedSypInput) payMixedSypInput.readOnly = isUnpaid;
+    if (payMixedUsdInput) payMixedUsdInput.readOnly = isUnpaid;
+
+    if (payMethodHint && needsFx && !hasFx && !isUnpaid) {
+      payMethodHint.textContent = "لا يمكن حساب التسوية متعددة العملات بدون سعر صرف صحيح.";
+    }
+  }
+
+  function buildPaymentPayload(){
+    const status = selectedPayStatus();
+    const method = selectedPayMethod();
+    const totals = payState.totals;
+    const needsFx = (totals.totalSyp > EPS) && (totals.totalUsd > EPS);
+    if (status !== "unpaid" && needsFx && !(totals.fx > 0)) {
+      return { ok: false, error: "لا يمكن إتمام الدفع قبل ضبط سعر الصرف بشكل صحيح." };
+    }
+
+    if (status === "unpaid") {
+      return {
+        ok: true,
+        pay: {
+          status,
+          method: "none",
+          amount_syp: "0",
+          amount_usd: "0",
+          paid_amount: "0",
+          settlement_total: fmt4(totals.settlementSelected),
+        },
+      };
+    }
+
+    if (status === "partial" && method === "separate") {
+      return { ok: false, error: "خيار الدفع المنفصل متاح للدفع الكامل فقط." };
+    }
+
+    let amountSyp = 0;
+    let amountUsd = 0;
+    if (method === "syp_only") {
+      amountSyp = status === "paid" ? totals.settlementSyp : toAmount(paySypOnlyInput?.value);
+      amountUsd = 0;
+    } else if (method === "usd_only") {
+      amountUsd = status === "paid" ? totals.settlementUsd : toAmount(payUsdOnlyInput?.value);
+      amountSyp = 0;
+    } else if (method === "separate") {
+      if (status !== "paid") return { ok: false, error: "خيار الدفع المنفصل مخصص للدفع الكامل." };
+      amountSyp = totals.totalSyp;
+      amountUsd = totals.totalUsd;
+    } else {
+      amountSyp = toAmount(payMixedSypInput?.value);
+      amountUsd = toAmount(payMixedUsdInput?.value);
+      if (status === "paid") {
+        syncMixedFullFrom(payState.mixedLastEdited === "usd" ? "usd" : "syp");
+        amountSyp = toAmount(payMixedSypInput?.value);
+        amountUsd = toAmount(payMixedUsdInput?.value);
+      }
+    }
+
+    if (amountSyp < 0 || amountUsd < 0) {
+      return { ok: false, error: "قيمة الدفع لا يمكن أن تكون سالبة." };
+    }
+
+    const paidSettlement = toSettlementAmount(amountSyp, amountUsd);
+    if (paidSettlement == null || !Number.isFinite(paidSettlement)) {
+      return { ok: false, error: "تعذر احتساب قيمة التسديد. تحقق من سعر الصرف." };
+    }
+
+    const settlementTotal = totals.settlementSelected;
+    if (status === "partial") {
+      if (!(paidSettlement > EPS)) {
+        return { ok: false, error: "عند اختيار دفع جزئي يجب إدخال مبلغ أكبر من الصفر." };
+      }
+      if ((paidSettlement - settlementTotal) > 0.0001) {
+        return { ok: false, error: "مبلغ الدفع الجزئي لا يمكن أن يتجاوز إجمالي التسوية." };
+      }
+    }
+    if (status === "paid") {
+      if (Math.abs(paidSettlement - settlementTotal) > 0.01) {
+        return { ok: false, error: "الدفع الكامل يتطلب تغطية كامل إجمالي التسوية." };
+      }
+    }
+
+    return {
+      ok: true,
+      pay: {
+        status,
+        method,
+        amount_syp: fmt4(amountSyp),
+        amount_usd: fmt4(amountUsd),
+        paid_amount: fmt4(paidSettlement),
+        settlement_total: fmt4(settlementTotal),
+      },
+    };
+  }
+
+  payRadios.forEach((r) => r.addEventListener("change", syncPayUI));
+  payMethodRadios.forEach((r) => r.addEventListener("change", syncPayUI));
+  payMixedSypInput?.addEventListener("input", () => {
+    payState.mixedLastEdited = "syp";
+    if (selectedPayStatus() === "paid" && selectedPayMethod() === "mixed") syncMixedFullFrom("syp");
+  });
+  payMixedUsdInput?.addEventListener("input", () => {
+    payState.mixedLastEdited = "usd";
+    if (selectedPayStatus() === "paid" && selectedPayMethod() === "mixed") syncMixedFullFrom("usd");
+  });
   payCurrency?.addEventListener("change", recalcBillTotal);
   refreshFxBadgeDisplay();
+  if (fxBadge && typeof MutationObserver !== "undefined"){
+    const fxObserver = new MutationObserver(() => {
+      refreshFxBadgeDisplay();
+      recalcBillTotal();
+    });
+    fxObserver.observe(fxBadge, { attributes: true, attributeFilter: ["data-fx-raw"] });
+  }
   tbody?.querySelectorAll("tr").forEach((tr) => {
     updateRowQtyWarning(tr);
     updateRowCostWarning(tr);
   });
+  syncPayUI();
+  recalcBillTotal();
 
   // ======================================================================
   // SAVE handler
@@ -894,8 +1146,15 @@ refreshAutoSerial();
   });
 
   // Pay
-  const status = document.querySelector('input[name="pay"]:checked')?.value || "unpaid";
-  const paid_amount = (paidInput?.value || "0");
+  const payResult = buildPaymentPayload();
+  if (!payResult.ok){
+    saveErr.textContent = payResult.error || "بيانات الدفع غير صحيحة.";
+    saveErr.hidden = false;
+    saveInFlight = false;
+    if (saveBtn) saveBtn.disabled = false;
+    return;
+  }
+  const payPayload = payResult.pay;
 
   const container_code = document.getElementById("containerSelect")?.value || "store";
 
@@ -917,7 +1176,7 @@ refreshAutoSerial();
     money_container_id,
     currency_code: (document.getElementById("payCurrency")?.value || "SYP").trim().toUpperCase(),
     items,
-    pay: { status, paid_amount }
+    pay: payPayload
   };
 
   try{

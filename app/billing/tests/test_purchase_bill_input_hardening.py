@@ -189,3 +189,70 @@ class PurchaseBillInputHardeningTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
         self.assertTrue(resp.json().get("ok"))
         self.assertEqual(Bill.objects.count(), 1)
+
+    def test_unpaid_rejects_structured_nonzero_payment(self):
+        payload = self._payload()
+        payload["pay"] = {
+            "status": "unpaid",
+            "method": "syp_only",
+            "amount_syp": "100",
+            "amount_usd": "0",
+            "paid_amount": "100",
+        }
+
+        resp = self._save(payload)
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json().get("ok"))
+        self.assertIn("status is unpaid", resp.json().get("error", ""))
+        self.assertEqual(Bill.objects.count(), 0)
+
+    def test_partial_rejects_separate_payment_mode(self):
+        payload = self._payload()
+        payload["pay"] = {
+            "status": "partial",
+            "method": "separate",
+            "amount_syp": "5",
+            "amount_usd": "0",
+            "paid_amount": "5",
+        }
+
+        resp = self._save(payload)
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json().get("ok"))
+        self.assertIn("separate payment mode", resp.json().get("error", ""))
+        self.assertEqual(Bill.objects.count(), 0)
+
+    def test_partial_rejects_nonzero_usd_when_syp_only_mode(self):
+        payload = self._payload()
+        payload["pay"] = {
+            "status": "partial",
+            "method": "syp_only",
+            "amount_syp": "5",
+            "amount_usd": "1",
+            "paid_amount": "5",
+        }
+
+        resp = self._save(payload)
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json().get("ok"))
+        self.assertIn("USD amount must be 0", resp.json().get("error", ""))
+        self.assertEqual(Bill.objects.count(), 0)
+
+    def test_structured_partial_payment_shape_succeeds(self):
+        payload = self._payload()
+        payload["pay"] = {
+            "status": "partial",
+            "method": "mixed",
+            "amount_syp": "5",
+            "amount_usd": "0",
+            "paid_amount": "0",  # server recalculates from structured amounts
+        }
+
+        resp = self._save(payload)
+
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        self.assertTrue(resp.json().get("ok"))
+        self.assertEqual(Bill.objects.count(), 1)

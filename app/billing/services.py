@@ -574,18 +574,28 @@ def create_bill(
     # Debts (per currency)
     # -------------------------------
     status_norm = (status or "").lower().strip()
+    if status_norm not in {"paid", "unpaid", "partial"}:
+        raise ValidationError("Invalid payment status")
+    settlement_total = bill.total_usd if bill.settlement_currency == "USD" else bill.total_syp
+    if status_norm == "unpaid" and intended_paid != DEC0:
+        raise ValidationError("paid_amount must be 0 when status is unpaid")
+    if status_norm == "partial":
+        if intended_paid <= DEC0:
+            raise ValidationError("paid_amount must be > 0 when status is partial")
+        if intended_paid > settlement_total:
+            raise ValidationError("paid_amount cannot exceed settlement total")
+
     if bill.settlement_currency == "USD":
         paid_syp = DEC0
-        paid_usd = _resolve_paid_amount(status, intended_paid, bill.total_usd, currency_code="USD")
+        paid_usd = _resolve_paid_amount(status_norm, intended_paid, bill.total_usd, currency_code="USD")
     else:
-        paid_syp = _resolve_paid_amount(status, intended_paid, bill.total_syp, currency_code="SYP")
+        paid_syp = _resolve_paid_amount(status_norm, intended_paid, bill.total_syp, currency_code="SYP")
         paid_usd = DEC0
 
     if status_norm == "paid":
         paid_syp = _q_money("SYP", bill.total_syp)
         paid_usd = _q_money("USD", bill.total_usd)
 
-    settlement_total = bill.total_usd if bill.settlement_currency == "USD" else bill.total_syp
     final_paid = paid_usd if bill.settlement_currency == "USD" else paid_syp
 
     entry_syp = DebtSV.create_debtor_entry(

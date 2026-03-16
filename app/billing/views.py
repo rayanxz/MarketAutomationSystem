@@ -572,13 +572,68 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
         return _bad("invalid money container", 400)
 
     settlement_currency = (payload.get("currency_code") or "SYP").strip().upper()
+    if settlement_currency not in {"SYP", "USD"}:
+        return _bad("invalid settlement currency", 400)
 
     # ---- Pay section ----
     pay = payload.get("pay") or {}
-    status = (pay.get("status") or "unpaid").lower()
+    status = (pay.get("status") or "unpaid").lower().strip()
     if status not in {"paid", "unpaid", "partial"}:
-        status = "unpaid"
+        return _bad("invalid payment status", 400)
+    method = (pay.get("method") or "").lower().strip()
+    legacy_pay_shape = (
+        ("method" not in pay)
+        and ("amount_syp" not in pay)
+        and ("amount_usd" not in pay)
+    )
+    amount_syp = _dec(pay.get("amount_syp"), "0")
+    amount_usd = _dec(pay.get("amount_usd"), "0")
     paid_amount = _dec(pay.get("paid_amount"), "0")
+
+    if paid_amount < DEC0:
+        return _bad("paid amount must be >= 0", 400)
+
+    if legacy_pay_shape:
+        # Keep backward compatibility for older clients while enforcing unpaid safety.
+        if status == "unpaid" and paid_amount != DEC0:
+            return _bad("paid amount must be 0 when status is unpaid", 400)
+    else:
+        if amount_syp < DEC0 or amount_usd < DEC0:
+            return _bad("payment amounts must be >= 0", 400)
+
+        if status == "unpaid":
+            if method not in {"", "none"}:
+                return _bad("payment method is disabled when status is unpaid", 400)
+            if amount_syp != DEC0 or amount_usd != DEC0 or paid_amount != DEC0:
+                return _bad("payment amounts must be 0 when status is unpaid", 400)
+            method = "none"
+            paid_amount = DEC0
+        else:
+            allowed_methods = {"syp_only", "usd_only", "separate", "mixed"}
+            if method not in allowed_methods:
+                return _bad("invalid payment method", 400)
+            if status == "partial" and method == "separate":
+                return _bad("separate payment mode is only allowed for full payment", 400)
+            if method == "syp_only" and amount_usd != DEC0:
+                return _bad("USD amount must be 0 for SYP-only payment mode", 400)
+            if method == "usd_only" and amount_syp != DEC0:
+                return _bad("SYP amount must be 0 for USD-only payment mode", 400)
+            if status == "paid":
+                if method in {"syp_only", "usd_only"} and (amount_syp == DEC0 and amount_usd == DEC0):
+                    return _bad("full payment requires a valid amount", 400)
+                if method == "mixed" and amount_syp == DEC0 and amount_usd == DEC0:
+                    return _bad("mixed full payment requires at least one amount", 400)
+
+            try:
+                fx_now = FinSV.get_current_fx_syp_per_usd()
+            except Exception:
+                return _bad("FX rate is required for payment conversion", 400)
+            fx_now = _q_fx(fx_now)
+            if fx_now <= DEC0:
+                return _bad("FX rate is required for payment conversion", 400)
+
+            paid_amount_dec = amount_usd + (amount_syp / fx_now) if settlement_currency == "USD" else amount_syp + (amount_usd * fx_now)
+            paid_amount = _q_money(settlement_currency, paid_amount_dec)
 
     from financials.models import MoneyContainerCurrency
 
@@ -592,12 +647,24 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     if not mc:
         return _bad("money container is not allowed for purchase bills", 400)
 
-    if status in {"paid", "partial"} and not MoneyContainerCurrency.objects.filter(
-        container=mc,
-        currency__code=settlement_currency,
-        is_enabled=True,
-    ).exists():
-        return _bad(f"Currency {settlement_currency} is disabled for this money container", 400)
+    if status in {"paid", "partial"}:
+        required_payment_currencies = set()
+        if legacy_pay_shape:
+            required_payment_currencies.add(settlement_currency)
+        else:
+            if amount_syp > DEC0:
+                required_payment_currencies.add("SYP")
+            if amount_usd > DEC0:
+                required_payment_currencies.add("USD")
+            if not required_payment_currencies:
+                required_payment_currencies.add(settlement_currency)
+        for cur_code in sorted(required_payment_currencies):
+            if not MoneyContainerCurrency.objects.filter(
+                container=mc,
+                currency__code=cur_code,
+                is_enabled=True,
+            ).exists():
+                return _bad(f"Currency {cur_code} is disabled for this money container", 400)
 
     update_defaults = bool(payload.get("update_product_defaults") or False)
 
