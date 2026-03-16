@@ -443,6 +443,19 @@ refreshAutoSerial();
     return isU2 ? (cf > 0 ? cf : 1) : 1;
   }
 
+  function isRowQtyValid(tr){
+    if (!tr) return true;
+    const qtyInput = tr.querySelector('input[name="qty[]"]');
+    if (!qtyInput) return true;
+    return num(qtyInput.value) > 0;
+  }
+
+  function updateRowQtyWarning(tr){
+    const qtyCell = tr?.querySelector("td.qty-cell") || tr?.querySelector("td:nth-child(4)");
+    if (!qtyCell) return;
+    qtyCell.classList.toggle("qty-warn", !isRowQtyValid(tr));
+  }
+
   function syncRowCostAndTotal(tr, source){
     if (!tr) return;
     const qtyInput = tr.querySelector('input[name="qty[]"]');
@@ -553,7 +566,7 @@ refreshAutoSerial();
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
       </td>
-      <td>
+      <td class="qty-cell">
         <div style="display:flex; gap:6px; align-items:center;">
           <input name="qty[]" class="input numeric-math" type="number" step="0.001" min="0" placeholder="0">
           <select name="qty_unit[]" class="input" style="max-width:160px;" ${lockSelect ? "disabled" : ""}>
@@ -648,6 +661,7 @@ refreshAutoSerial();
     tr.addEventListener("change", handleRowChange);
 
     tbody?.appendChild(tr);
+    updateRowQtyWarning(tr);
     qtyInput?.focus();
     recalcBillTotal();
   }
@@ -656,6 +670,7 @@ refreshAutoSerial();
     const nm = e.target.name || "";
     const tr = e.target.closest("tr");
     if (!tr) return;
+    updateRowQtyWarning(tr);
     if (nm === "cost[]") syncRowCostAndTotal(tr, "cost");
     else if (nm === "total_cost[]") syncRowCostAndTotal(tr, "total");
     else if (nm === "qty[]" || nm === "qty_unit[]") syncRowCostAndTotal(tr, "qty");
@@ -713,6 +728,7 @@ refreshAutoSerial();
   syncPayUI();
   payCurrency?.addEventListener("change", recalcBillTotal);
   refreshFxBadgeDisplay();
+  tbody?.querySelectorAll("tr").forEach(updateRowQtyWarning);
 
   // ======================================================================
   // SAVE handler
@@ -735,6 +751,15 @@ refreshAutoSerial();
   if (!rows.length){
     saveErr.textContent = "أضف منتجاً واحداً على الأقل.";
     saveErr.hidden = false;
+    return;
+  }
+
+  rows.forEach(updateRowQtyWarning);
+  const firstInvalidQtyRow = rows.find(tr => !isRowQtyValid(tr));
+  if (firstInvalidQtyRow){
+    saveErr.textContent = "تعذر حفظ الفاتورة , بعض المنتجات لا تملك كميات";
+    saveErr.hidden = false;
+    firstInvalidQtyRow.querySelector('input[name="qty[]"]')?.focus();
     return;
   }
 
@@ -788,7 +813,10 @@ refreshAutoSerial();
     });
     const data = await res.json();
     if (!data.ok){
-      const msg = data.error || "فشل الحفظ";
+      let msg = data.error || "فشل الحفظ";
+      if (/qty\s*must\s*be\s*>\s*0/i.test(String(msg))){
+        msg = "تعذر حفظ الفاتورة , بعض المنتجات لا تملك كميات";
+      }
       saveErr.hidden = false;
       saveErr.textContent = msg;
       return;
