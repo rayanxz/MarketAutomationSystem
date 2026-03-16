@@ -230,6 +230,7 @@
     animation:pname-hit-fade 3.6s ease-out;
   }
   table.bill tbody td.qty-cell,
+  table.bill tbody td.cost-cell,
   table.bill tbody td.qty-warn{
     transition:background-color .18s ease;
   }
@@ -304,6 +305,41 @@
     font-weight:600;
     text-align:center;
     color:#4b5563;
+  }
+  body.modal-open{
+    overflow:hidden;
+  }
+  .modal-backdrop{
+    position:fixed;
+    inset:0;
+    background:rgba(15, 23, 42, .35);
+    display:grid;
+    place-items:center;
+    padding:16px;
+    z-index:5000;
+  }
+  .modal-backdrop[hidden]{
+    display:none;
+  }
+  .modal-card{
+    width:min(92vw, 460px);
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    box-shadow:0 18px 40px rgba(0,0,0,.2);
+    padding:16px;
+  }
+  .modal-card h4{
+    margin:0 0 8px;
+  }
+  .modal-card p{
+    margin:0 0 8px;
+  }
+  .modal-actions{
+    display:flex;
+    gap:8px;
+    justify-content:flex-start;
+    margin-top:12px;
   }
 
   /* Product search modes inline */
@@ -462,6 +498,17 @@
       </div>
     </section>
   </aside>
+</div>
+<div id="costWarnModal" class="modal-backdrop" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="costWarnTitle">
+    <h4 id="costWarnTitle">تنبيه قبل الحفظ</h4>
+    <p>بعض المنتجات لا تملك تكلفة شراء (فارغة أو صفر).</p>
+    <p class="muted">الصفوف المتأثرة: <strong id="costWarnRows"></strong></p>
+    <div class="modal-actions">
+      <button type="button" id="costWarnConfirm" class="btn btn-primary">متابعة الحفظ</button>
+      <button type="button" id="costWarnCancel" class="btn">رجوع للتعديل</button>
+    </div>
+  </div>
 </div>
 {% endblock %}
 

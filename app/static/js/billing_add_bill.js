@@ -30,6 +30,10 @@
   // Pay widgets
   const paidInput = document.getElementById("paidAmount");
   const payRadios = document.querySelectorAll('input[name="pay"]');
+  const costWarnModal = document.getElementById("costWarnModal");
+  const costWarnRows = document.getElementById("costWarnRows");
+  const costWarnConfirm = document.getElementById("costWarnConfirm");
+  const costWarnCancel = document.getElementById("costWarnCancel");
 
   // ====== URLs / Config ======
   const BILLING   = window.__BILLING__ || {};
@@ -456,6 +460,74 @@ refreshAutoSerial();
     qtyCell.classList.toggle("qty-warn", !isRowQtyValid(tr));
   }
 
+  function isRowCostValid(tr){
+    if (!tr) return true;
+    const costInput = tr.querySelector('input[name="cost[]"]');
+    if (!costInput) return true;
+    return num(costInput.value) > 0;
+  }
+
+  function updateRowCostWarning(tr){
+    const costCell = tr?.querySelector("td.cost-cell") || tr?.querySelector("td:nth-child(2)");
+    if (!costCell) return;
+    costCell.classList.toggle("qty-warn", !isRowCostValid(tr));
+  }
+
+  function invalidCostRowNumbers(rows){
+    return rows.reduce((out, tr, idx) => {
+      if (!isRowCostValid(tr)) out.push(idx + 1);
+      return out;
+    }, []);
+  }
+
+  function confirmSaveWithInvalidCosts(rowNumbers){
+    if (!rowNumbers.length) return true;
+    if (!costWarnModal || !costWarnConfirm || !costWarnCancel){
+      saveErr.textContent = "تعذر إظهار نافذة تأكيد التكلفة.";
+      saveErr.hidden = false;
+      return Promise.resolve(false);
+    }
+
+    const rowsText = rowNumbers.join("، ");
+    if (costWarnRows) costWarnRows.textContent = rowsText;
+
+    costWarnModal.hidden = false;
+    document.body.classList.add("modal-open");
+
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const close = (result) => {
+        if (settled) return;
+        settled = true;
+        costWarnModal.hidden = true;
+        document.body.classList.remove("modal-open");
+        costWarnConfirm.removeEventListener("click", onConfirm);
+        costWarnCancel.removeEventListener("click", onCancel);
+        costWarnModal.removeEventListener("click", onBackdrop);
+        document.removeEventListener("keydown", onKeyDown);
+        resolve(result);
+      };
+
+      const onConfirm = () => close(true);
+      const onCancel = () => close(false);
+      const onBackdrop = (e) => {
+        if (e.target === costWarnModal) close(false);
+      };
+      const onKeyDown = (e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        close(false);
+      };
+
+      costWarnConfirm.addEventListener("click", onConfirm);
+      costWarnCancel.addEventListener("click", onCancel);
+      costWarnModal.addEventListener("click", onBackdrop);
+      document.addEventListener("keydown", onKeyDown);
+      costWarnCancel.focus();
+    });
+  }
+
   function syncRowCostAndTotal(tr, source){
     if (!tr) return;
     const qtyInput = tr.querySelector('input[name="qty[]"]');
@@ -561,7 +633,7 @@ refreshAutoSerial();
 
     tr.innerHTML = `
       <td class="pname"><span class="pname-text"></span></td>
-      <td><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
+      <td class="cost-cell"><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
       <td>
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
@@ -662,6 +734,7 @@ refreshAutoSerial();
 
     tbody?.appendChild(tr);
     updateRowQtyWarning(tr);
+    updateRowCostWarning(tr);
     qtyInput?.focus();
     recalcBillTotal();
   }
@@ -674,6 +747,7 @@ refreshAutoSerial();
     if (nm === "cost[]") syncRowCostAndTotal(tr, "cost");
     else if (nm === "total_cost[]") syncRowCostAndTotal(tr, "total");
     else if (nm === "qty[]" || nm === "qty_unit[]") syncRowCostAndTotal(tr, "qty");
+    updateRowCostWarning(tr);
     if (nm === "qty[]" || nm === "cost[]" || nm === "total_cost[]" || nm === "qty_unit[]" || nm === "currency[]"){ recalcBillTotal(); }
   }
 
@@ -728,7 +802,10 @@ refreshAutoSerial();
   syncPayUI();
   payCurrency?.addEventListener("change", recalcBillTotal);
   refreshFxBadgeDisplay();
-  tbody?.querySelectorAll("tr").forEach(updateRowQtyWarning);
+  tbody?.querySelectorAll("tr").forEach((tr) => {
+    updateRowQtyWarning(tr);
+    updateRowCostWarning(tr);
+  });
 
   // ======================================================================
   // SAVE handler
@@ -761,6 +838,16 @@ refreshAutoSerial();
     saveErr.hidden = false;
     firstInvalidQtyRow.querySelector('input[name="qty[]"]')?.focus();
     return;
+  }
+
+  rows.forEach(updateRowCostWarning);
+  const invalidCostRows = invalidCostRowNumbers(rows);
+  if (invalidCostRows.length){
+    const confirmed = await confirmSaveWithInvalidCosts(invalidCostRows);
+    if (!confirmed){
+      rows[invalidCostRows[0] - 1]?.querySelector('input[name="cost[]"]')?.focus();
+      return;
+    }
   }
 
   const items = rows.map(tr=>{
