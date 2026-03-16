@@ -812,7 +812,13 @@ refreshAutoSerial();
   // ======================================================================
 
   
-  document.getElementById("btnSave")?.addEventListener("click", async ()=>{
+  const saveBtn = document.getElementById("btnSave");
+  let saveInFlight = false;
+
+  saveBtn?.addEventListener("click", async ()=>{
+  if (saveInFlight) return;
+  saveInFlight = true; // lock immediately before any async work
+  let keepLockedAfterReturn = false;
   saveErr.hidden = true; provErr.hidden = true;
 
   const pid = (provIdEl.value || "").trim();
@@ -820,6 +826,8 @@ refreshAutoSerial();
     provErr.textContent = "الرجاء اختيار مورد من القائمة.";
     provErr.hidden = false;
     provInput?.focus();
+    saveInFlight = false;
+    if (saveBtn) saveBtn.disabled = false;
     return;
   }
 
@@ -828,6 +836,8 @@ refreshAutoSerial();
   if (!rows.length){
     saveErr.textContent = "أضف منتجاً واحداً على الأقل.";
     saveErr.hidden = false;
+    saveInFlight = false;
+    if (saveBtn) saveBtn.disabled = false;
     return;
   }
 
@@ -837,6 +847,8 @@ refreshAutoSerial();
     saveErr.textContent = "تعذر حفظ الفاتورة , بعض المنتجات لا تملك كميات";
     saveErr.hidden = false;
     firstInvalidQtyRow.querySelector('input[name="qty[]"]')?.focus();
+    saveInFlight = false;
+    if (saveBtn) saveBtn.disabled = false;
     return;
   }
 
@@ -846,6 +858,8 @@ refreshAutoSerial();
     const confirmed = await confirmSaveWithInvalidCosts(invalidCostRows);
     if (!confirmed){
       rows[invalidCostRows[0] - 1]?.querySelector('input[name="cost[]"]')?.focus();
+      saveInFlight = false;
+      if (saveBtn) saveBtn.disabled = false;
       return;
     }
   }
@@ -880,6 +894,8 @@ refreshAutoSerial();
   if (!money_container_id){
     saveErr.textContent = "اختر صندوق الدفع أولاً.";
     saveErr.hidden = false;
+    saveInFlight = false;
+    if (saveBtn) saveBtn.disabled = false;
     return;
   }
 
@@ -893,6 +909,7 @@ refreshAutoSerial();
   };
 
   try{
+    if (saveBtn) saveBtn.disabled = true; // disable only while request is running
     const res = await fetch(SAVE_URL, {
       method: "POST",
       headers: { "Content-Type":"application/json", "X-CSRFToken": getCsrf() },
@@ -908,10 +925,16 @@ refreshAutoSerial();
       saveErr.textContent = msg;
       return;
     }
+    keepLockedAfterReturn = true; // avoid a second send window during navigation
     window.location.href = LIST_URL; // success
   }catch{
     saveErr.hidden = false;
     saveErr.textContent = "فشل الاتصال بالخادم.";
+  }finally{
+    if (!keepLockedAfterReturn){
+      saveInFlight = false;
+      if (saveBtn) saveBtn.disabled = false;
+    }
   }
 });
 

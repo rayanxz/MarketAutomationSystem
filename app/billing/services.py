@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Iterable, Dict, Any, Optional
 from datetime import date
 
@@ -54,6 +54,66 @@ def q3(x: Decimal) -> Decimal:
 
 def q4(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC4)
+
+
+def _row_suffix(row_idx: int | None) -> str:
+    return f" at row {row_idx}" if row_idx is not None else ""
+
+
+def _parse_decimal_value(
+    *,
+    raw: Any,
+    field_name: str,
+    row_idx: int | None = None,
+    allow_empty: bool = False,
+) -> Decimal | None:
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        if allow_empty:
+            return None
+        raise ValidationError(f"{field_name} is required{_row_suffix(row_idx)}")
+    try:
+        val = Decimal(text)
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
+    if not val.is_finite():
+        raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
+    return val
+
+
+def _quantize_value(
+    *,
+    raw: Decimal,
+    exp: Decimal,
+    field_name: str,
+    row_idx: int | None = None,
+) -> Decimal:
+    try:
+        out = raw.quantize(exp)
+    except (InvalidOperation, ValueError):
+        raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
+    if not out.is_finite():
+        raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
+    return out
+
+
+def _parse_int_value(
+    *,
+    raw: Any,
+    field_name: str,
+    row_idx: int | None = None,
+    allow_empty: bool = False,
+    default: int | None = None,
+) -> int | None:
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        if allow_empty:
+            return default
+        raise ValidationError(f"{field_name} is required{_row_suffix(row_idx)}")
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
 
 def _q_money(currency_code: str, amount: Decimal) -> Decimal:
     return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or "SYP").upper())
@@ -237,18 +297,39 @@ def create_bill(
     if settlement_currency not in ("SYP", "USD"):
         raise ValueError("Invalid settlement currency")
 
-    intended_paid = _q_money(settlement_currency, paid_amount)
+    paid_amount_dec = _parse_decimal_value(raw=paid_amount, field_name="paid_amount") or DEC0
+    if paid_amount_dec < 0:
+        raise ValidationError("paid_amount must be >= 0")
+    intended_paid = _q_money(settlement_currency, paid_amount_dec)
     items = list(items)
-    prod_ids = [int(it["product_id"]) for it in items]
+    if not items:
+        raise ValidationError("no items")
+
+    normalized_rows: list[dict[str, Any]] = []
+    prod_ids: list[int] = []
+    for idx, row in enumerate(items, start=1):
+        if not isinstance(row, dict):
+            raise ValidationError(f"Invalid item payload at row {idx}")
+        pid = _parse_int_value(raw=row.get("product_id"), field_name="product_id", row_idx=idx)
+        if pid is None or pid <= 0:
+            raise ValidationError(f"Invalid product_id at row {idx}")
+        normalized_rows.append(row)
+        prod_ids.append(pid)
     inactive_ids = list(
         Product.objects.filter(id__in=prod_ids, is_active=False).values_list("id", flat=True)
     )
     if inactive_ids:
         raise ValidationError("Product is archived and cannot be used in new operations.")
 
-    fx_snapshot = Decimal(str(fx_usd_syp)) if fx_usd_syp is not None else None
+    fx_snapshot = _parse_decimal_value(
+        raw=fx_usd_syp,
+        field_name="fx_usd_syp",
+        allow_empty=True,
+    )
     if fx_snapshot is None:
         fx_snapshot = FinSV.get_current_fx_syp_per_usd()
+    if not fx_snapshot.is_finite() or fx_snapshot <= 0:
+        raise ValidationError("FX rate is required for multi-currency bills")
     fx_snapshot = _q_fx(fx_snapshot)
 
     # -------------------------------
@@ -278,8 +359,10 @@ def create_bill(
     # -------------------------------
     # Process items
     # -------------------------------
-    for idx, row in enumerate(items, start=1):
-        pid = int(row["product_id"])
+    for idx, row in enumerate(normalized_rows, start=1):
+        pid = _parse_int_value(raw=row.get("product_id"), field_name="product_id", row_idx=idx)
+        if pid is None:
+            raise ValidationError(f"Invalid product_id at row {idx}")
         product = products.get(pid)
         if product is None:
             raise ValidationError(f"Product {pid} is archived and cannot be used in new operations.")
@@ -289,7 +372,7 @@ def create_bill(
         allow_syp_sales = getattr(product, "allow_syp_sales", product.enable_syp)
         allow_usd_sales = getattr(product, "allow_usd_sales", product.enable_usd)
 
-        item_currency = (row.get("currency") or "").upper()
+        item_currency = str(row.get("currency") or "").upper()
         if not item_currency:
             if hasattr(product, "get_effective_default_purchase_currency"):
                 item_currency = product.get_effective_default_purchase_currency()
@@ -303,36 +386,78 @@ def create_bill(
             raise ValueError(f"USD purchasing not enabled for product at row {idx}")
 
         single_unit = bool(getattr(product, "is_single_unit", False))
-        unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
+        unit_idx_raw = _parse_int_value(
+            raw=row.get("unit_index"),
+            field_name="unit_index",
+            row_idx=idx,
+            allow_empty=True,
+            default=1,
+        )
+        unit_idx = 1 if single_unit else (2 if int(unit_idx_raw or 1) == 2 else 1)
 
-        qty_raw = Decimal(str(row.get("qty_raw") or "0"))
+        qty_raw = _parse_decimal_value(raw=row.get("qty_raw"), field_name="qty_raw", row_idx=idx) or DEC0
         if qty_raw <= 0:
             raise ValueError(f"qty must be > 0 at row {idx}")
 
-        cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
+        cost_raw = _parse_decimal_value(raw=row.get("cost"), field_name="cost", row_idx=idx) or DEC0
+        if cost_raw < 0:
+            raise ValidationError(f"cost must be >= 0 at row {idx}")
+        cost_u1 = _quantize_value(raw=cost_raw, exp=DEC4, field_name="cost", row_idx=idx)
 
-        def _price_or_none(raw):
-            if raw in (None, ""):
-                return None
-            return q4(Decimal(str(raw)))
+        price_syp_raw = _parse_decimal_value(
+            raw=row.get("price_syp"),
+            field_name="price_syp",
+            row_idx=idx,
+            allow_empty=True,
+        )
+        if price_syp_raw is not None and price_syp_raw < 0:
+            raise ValidationError(f"price_syp must be >= 0 at row {idx}")
+        price_syp_val = (
+            _quantize_value(raw=price_syp_raw, exp=DEC4, field_name="price_syp", row_idx=idx)
+            if price_syp_raw is not None
+            else None
+        )
 
-        price_syp_val = _price_or_none(row.get("price_syp"))
-        price_usd_val = _price_or_none(row.get("price_usd"))
+        price_usd_raw = _parse_decimal_value(
+            raw=row.get("price_usd"),
+            field_name="price_usd",
+            row_idx=idx,
+            allow_empty=True,
+        )
+        if price_usd_raw is not None and price_usd_raw < 0:
+            raise ValidationError(f"price_usd must be >= 0 at row {idx}")
+        price_usd_val = (
+            _quantize_value(raw=price_usd_raw, exp=DEC4, field_name="price_usd", row_idx=idx)
+            if price_usd_raw is not None
+            else None
+        )
 
         if price_syp_val is not None and not allow_syp_sales:
-            raise ValueError(f"SYP sales not enabled for product at row {idx}")
+            raise ValidationError(f"SYP sales not enabled for product at row {idx}")
         if price_usd_val is not None and not allow_usd_sales:
-            raise ValueError(f"USD sales not enabled for product at row {idx}")
+            raise ValidationError(f"USD sales not enabled for product at row {idx}")
 
         price_fallback = price_usd_val if item_currency == "USD" else price_syp_val
-        price_u1 = q4(Decimal(str(row.get("price") or price_fallback or "0")))
+        price_raw = _parse_decimal_value(
+            raw=row.get("price"),
+            field_name="price",
+            row_idx=idx,
+            allow_empty=True,
+        )
+        if price_raw is None:
+            price_raw = price_fallback if price_fallback is not None else DEC0
+        if price_raw < 0:
+            raise ValidationError(f"price must be >= 0 at row {idx}")
+        price_u1 = _quantize_value(raw=price_raw, exp=DEC4, field_name="price", row_idx=idx)
 
         total_override_raw = row.get("total_cost")
         total_override = (
-            Decimal(str(total_override_raw))
+            _parse_decimal_value(raw=total_override_raw, field_name="total_cost", row_idx=idx)
             if total_override_raw not in (None, "")
             else None
         )
+        if total_override is not None and total_override < 0:
+            raise ValidationError(f"total_cost must be >= 0 at row {idx}")
 
         # ---- convert to primary unit
         qty_primary = qty_raw
@@ -341,22 +466,24 @@ def create_bill(
             cf_val = Decimal(str(cf)) if cf else Decimal("1")
         except Exception:
             cf_val = Decimal("1")
-        if cf_val <= 0:
+        if not cf_val.is_finite() or cf_val <= 0:
             cf_val = Decimal("1")
         if single_unit:
             cf_val = Decimal("1")
         if unit_idx == 2:
             qty_primary *= cf_val
-        qty_primary = q3(qty_primary)
+        qty_primary = _quantize_value(raw=qty_primary, exp=DEC3, field_name="qty_raw", row_idx=idx)
+        if qty_primary <= 0:
+            raise ValidationError(f"qty is too small after unit conversion at row {idx}")
 
         unit1_label = product.get_unit_primary_display() if getattr(product, "unit_primary", None) else ""
         unit2_label = "" if single_unit else (product.get_unit_secondary_display() if getattr(product, "unit_secondary", None) else "")
 
         # ---- line total (in ITEM currency)
         line_total_raw = (
-            q3(total_override)
+            _quantize_value(raw=total_override, exp=DEC3, field_name="total_cost", row_idx=idx)
             if total_override and total_override > 0
-            else q3(cost_u1 * qty_primary)
+            else _quantize_value(raw=(cost_u1 * qty_primary), exp=DEC3, field_name="line_total", row_idx=idx)
         )
         line_total = _q_money(item_currency, line_total_raw)
 

@@ -242,7 +242,10 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
 
 def _dec(val, default: str = "0") -> Decimal:
     try:
-        return Decimal(str((val if val is not None else default)).replace(",", "."))
+        d = Decimal(str((val if val is not None else default)).replace(",", "."))
+        if not d.is_finite():
+            raise InvalidOperation
+        return d
     except (InvalidOperation, ValueError):
         return Decimal(default)
 
@@ -532,6 +535,10 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     pid = provider.get("id")
     if not pid:
         return _bad("provider must be selected from list")
+    try:
+        provider_id = int(pid)
+    except (TypeError, ValueError):
+        return _bad("invalid provider", 400)
 
     # ---- Container handling ----
     # Accept several shapes:
@@ -597,7 +604,7 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     try:
         bill = SV.create_bill(
             actor=request.user,
-            provider_id=int(pid),
+            provider_id=provider_id,
             status=status,
             paid_amount=paid_amount,
             items=items,
@@ -607,7 +614,7 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             settlement_currency=settlement_currency,
         )
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
-    except ValidationError as e:
+    except (ValidationError, ValueError, InvalidOperation) as e:
         msg = "; ".join(e.messages) if getattr(e, "messages", None) else str(e)
         logger.warning("api_bill_save validation failed: %s", msg)
         return _bad(msg or "validation failed", 400)
