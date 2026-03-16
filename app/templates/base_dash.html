@@ -19,7 +19,12 @@
   <header class="topbar">
     <!-- Row 1: brand + primary menu + session -->
     <div class="topbar-row">
-      <div class="brand">MarketPOS</div>
+      <div class="brand-zone">
+        <div class="brand">MarketPOS</div>
+        {% if request.user.is_authenticated %}
+          {% block session_fx %}{% endblock %}
+        {% endif %}
+      </div>
 
       {% with name=request.resolver_match.url_name %}
       <nav class="menu menu-primary" aria-label="القائمة العامة">
@@ -31,6 +36,9 @@
 
       <div class="session">
         {% if request.user.is_authenticated %}
+          {# Role-specific session widgets (e.g., notifications) #}
+          {% block session_extras %}{% endblock %}
+
           <div class="user-chip">
             <strong>{{ request.user.username }}</strong>
             <small>
@@ -45,11 +53,8 @@
               {% endif %}
             </small>
           </div>
-          
-          {# ⬇️ NEW: role-specific session widgets (e.g., notifications) #}
-          {% block session_extras %}{% endblock %}
 
-          <form action="{% url 'logout' %}" method="post" style="margin:0">
+          <form action="{% url 'logout' %}" method="post" style="margin:0" class="logout-form">
             {% csrf_token %}
             <button type="submit" class="btn logout-btn">تسجيل الخروج</button>
           </form>
@@ -101,7 +106,7 @@
   .ctx-menu button:hover{background:#1f2937}
 
   .topbar .session { position: relative; z-index: 5; }
-  .notif-root{ position:relative; margin-inline-end:8px; }
+  .notif-root{ position:relative; margin:0; }
   .notif-btn{
     display:inline-flex; align-items:center; gap:6px;
     padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px;

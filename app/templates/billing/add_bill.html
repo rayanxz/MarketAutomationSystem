@@ -264,7 +264,7 @@
   }
   .pay-head{
     display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-columns:1fr;
     gap:10px;
     align-items:end;
   }
@@ -448,9 +448,6 @@
       margin-top:12px !important;
       padding-top:0;
     }
-    .pay-head{
-      grid-template-columns:1fr;
-    }
   }
 </style>
 {% endblock %}
@@ -561,13 +558,6 @@
             {% endfor %}
           </select>
         </div>
-
-        <div class="field">
-          <label class="muted">سعر الصرف الحالي</label>
-          <div id="fxBadge" class="badge-static" data-fx-raw="{% if fx_syp_per_usd %}{{ fx_syp_per_usd|unlocalize }}{% endif %}">
-            {% if fx_syp_per_usd %}{{ fx_syp_per_usd }}{% else %}NOT SET{% endif %}
-          </div>
-        </div>
       </div>
 
       <div class="pay-layout">
@@ -671,8 +661,10 @@
       saveBillUrl: "{% url 'billing_api_bill_save' %}",
       nextSerialUrl: "{% url 'billing_api_bill_next_serial' %}",
       listUrl: "{% url 'billing_list' %}",
+      fxSypPerUsdRaw: "{% if fx_syp_per_usd %}{{ fx_syp_per_usd|unlocalize }}{% endif %}",
     };
     document.body.dataset.urlApiSearch = "{% url 'billing_api_products_search' %}";
   </script>
   <script src="{% static 'js/billing_add_bill.js' %}" defer></script>
 {% endblock %}
+

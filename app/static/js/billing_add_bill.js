@@ -24,7 +24,6 @@
   const totalUsdBox = document.getElementById("billTotalUsd");
   const grandTotals = document.getElementById("grandTotals");
   const payCurrency = document.getElementById("payCurrency");
-  const fxBadge = document.getElementById("fxBadge");
   const settleCurLabel = document.getElementById("settleCurLabel");
 
   // Pay widgets
@@ -69,13 +68,8 @@
     return frac ? `${intPart}.${frac}` : intPart;
   };
   const readFxRate = () => {
-    const fxVal = num(fxBadge?.dataset?.fxRaw || "");
+    const fxVal = num(BILLING.fxSypPerUsdRaw || "");
     return (Number.isFinite(fxVal) && fxVal > 0) ? fxVal : null;
-  };
-  const refreshFxBadgeDisplay = () => {
-    if (!fxBadge) return;
-    const fxVal = readFxRate();
-    fxBadge.textContent = fxVal ? formatDisplay2(fxVal) : "NOT SET";
   };
   const EPS = 0.0000001;
   const payState = {
@@ -1056,14 +1050,6 @@ refreshAutoSerial();
     if (selectedPayStatus() === "paid" && selectedPayMethod() === "mixed") syncMixedFullFrom("usd");
   });
   payCurrency?.addEventListener("change", recalcBillTotal);
-  refreshFxBadgeDisplay();
-  if (fxBadge && typeof MutationObserver !== "undefined"){
-    const fxObserver = new MutationObserver(() => {
-      refreshFxBadgeDisplay();
-      recalcBillTotal();
-    });
-    fxObserver.observe(fxBadge, { attributes: true, attributeFilter: ["data-fx-raw"] });
-  }
   tbody?.querySelectorAll("tr").forEach((tr) => {
     updateRowQtyWarning(tr);
     updateRowCostWarning(tr);

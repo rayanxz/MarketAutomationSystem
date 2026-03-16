@@ -1,9 +1,26 @@
 {% extends "base_dash.html" %}
-{% load static %}
+{% load static formatting %}
 {% block title %}لوحة المدير{% endblock %}
 
 {% block menu_primary %}
   {% include "manager/_menu_items.html" %}
+{% endblock %}
+
+{% block session_fx %}
+  <a class="fx-chip" href="{% url 'financials:fx_settings' %}" title="إعدادات سعر الصرف">
+    <span class="fx-chip__equation" dir="ltr">
+      <span class="fx-chip__lhs">1 $</span>
+      <span class="fx-chip__eq">=</span>
+      <span class="fx-chip__value">
+        {% if global_fx_syp_per_usd %}
+          {{ global_fx_syp_per_usd|human_number }}
+        {% else %}
+          —
+        {% endif %}
+      </span>
+      <span class="fx-chip__rhs">SYP</span>
+    </span>
+  </a>
 {% endblock %}
 
 {# Renders next to username #}
