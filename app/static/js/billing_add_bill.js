@@ -99,6 +99,17 @@
     return (p.default_price_syp ?? p.price_syp ?? "");
   }
 
+  function rowDefaultCostForCurrency(tr, cur){
+    const raw = (String(cur || "SYP").toUpperCase() === "USD")
+      ? (tr?.dataset?.costUsd ?? "")
+      : (tr?.dataset?.costSyp ?? "");
+    const clean = String(raw ?? "").trim();
+    if (!clean.length) return "0";
+    const parsed = num(clean);
+    if (!Number.isFinite(parsed) || parsed === 0) return "0";
+    return clean;
+  }
+
   function setProductNameCell(cell, fullName){
     if (!cell) return;
     const name = String(fullName ?? "");
@@ -696,11 +707,12 @@ refreshAutoSerial();
       const sel = (curSelect.value || "SYP").toUpperCase();
       if (curHidden) curHidden.value = sel;
       updateRowTotalCostIndicator(tr, sel);
-      if (costInput && costInput.dataset.auto === "1") {
-        const v = (sel === "USD" ? (tr.dataset.costUsd || "") : (tr.dataset.costSyp || ""));
-        costInput.value = v;
+      if (costInput) {
+        costInput.value = rowDefaultCostForCurrency(tr, sel);
+        costInput.dataset.auto = "1";
       }
       syncRowCostAndTotal(tr, "cost");
+      updateRowCostWarning(tr);
       recalcBillTotal();
     });
 
