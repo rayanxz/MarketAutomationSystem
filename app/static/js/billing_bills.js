@@ -52,7 +52,8 @@
       <td>${b.serial ?? ""}</td>
       <td>${b.provider?.name ?? ""}</td>
       <td>${creator}</td>
-      <td>${nfmt(b.total)}</td>
+      <td>${nfmt(b.total_syp)}</td>
+      <td>${nfmt(b.total_usd)}</td>
       <td>${pill(b.status)}</td>
       <td>${dt}</td>
       <td class="left">

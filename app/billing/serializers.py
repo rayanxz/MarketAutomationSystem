@@ -42,6 +42,8 @@ def bill_row(b: Bill) -> Dict[str, Any]:
         "serial": b.serial,
         "provider": {"id": b.provider_id, "name": b.provider.name if b.provider_id else ""},
         "total": str(b.total),
+        "total_syp": str(getattr(b, "total_syp", None) or 0),
+        "total_usd": str(getattr(b, "total_usd", None) or 0),
         "status": b.status,
         "paid_amount": str(b.paid_amount),
         "remaining": str(remaining_val),

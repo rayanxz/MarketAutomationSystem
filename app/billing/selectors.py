@@ -87,7 +87,7 @@ def bills_base():
         Bill.objects
         .select_related("provider", "created_by")
         .only(
-            "id", "serial", "total", "created_at",
+            "id", "serial", "total", "total_syp", "total_usd", "created_at",
             "provider__id", "provider__name",
             "created_by__id",
             "created_by__username",
