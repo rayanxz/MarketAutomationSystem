@@ -19,17 +19,31 @@
 
 {% block extra_head %}
 <style>
+  .viewport-center > .center-box{
+    max-width:1560px;
+  }
   .bill-wrap{
     display:grid;
-    grid-template-rows:auto auto auto 1fr auto;
+    grid-template-columns:minmax(0,82%) minmax(240px,18%);
     gap:12px;
     width:100%;
-    max-width:1400px;
-    margin:0 auto;
-    padding-left:12px;
-    padding-right:12px;
-    box-sizing:border-box;
-    overflow-x:hidden;
+    max-width:1560px;
+    margin-inline:auto;
+    align-items:stretch;
+  }
+  .bill-main{
+    display:grid;
+    grid-template-rows:auto auto minmax(260px,1fr);
+    gap:12px;
+    min-width:0;
+  }
+  .bill-side{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    min-width:0;
+    min-height:100%;
+    align-self:stretch;
   }
   .card{
     background:#fff;
@@ -37,6 +51,7 @@
     padding:12px;
     box-shadow:var(--card-shadow);
   }
+  .card h4{ margin:0 0 8px; }
   .row{
     display:flex;
     gap:10px;
@@ -107,10 +122,11 @@
     border-radius:12px;
     padding:12px;
     box-shadow:var(--card-shadow);
+    display:flex;
+    flex-direction:column;
   }
   .bill-table-wrap{
-    height:420px;          /* fixed height */
-    max-height:420px;
+    height:clamp(52vh, calc(46vh + 6.5rem), 62vh);
     overflow-y:auto;       /* vertical scroll */
     overflow-x:auto;
   }
@@ -140,6 +156,7 @@
 
   .total-box{
     display:flex;
+    align-items:center;
     justify-content:space-between;
     padding:10px 12px;
     border:1px solid #e5e7eb;
@@ -150,6 +167,29 @@
   .total-amt{
     font-size:24px;
     font-weight:800;
+  }
+  .foot-right{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .foot-left{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+    height:100%;
+    min-height:100%;
+    box-sizing:border-box;
+    display:flex;
+    flex-direction:column;
+    position:sticky;
+    top:12px;
+  }
+  .foot-left > .foot-right{
+    margin-top:auto;
+    padding-top:12px;
   }
   .btn{
     padding:10px 14px;
@@ -275,6 +315,22 @@
     background:#e5e7ff;
     font-weight:600;
   }
+  @media (max-width:1100px){
+    .bill-wrap{ grid-template-columns:1fr; }
+    .bill-main{ grid-template-rows:auto auto minmax(260px,auto); }
+    .bill-side{
+      min-height:0;
+    }
+    .foot-left{
+      min-height:0;
+      position:static;
+      top:auto;
+    }
+    .foot-left > .foot-right{
+      margin-top:12px;
+      padding-top:0;
+    }
+  }
   @media (max-width:760px){
     .bill-search-row{
       grid-template-columns:1fr;
@@ -331,6 +387,7 @@
 <div id="billView"
      class="bill-wrap bill-view{% if selected_items %} bill-select-active{% endif %}"
      dir="rtl">
+  <div class="bill-main">
 
   {% if error_msg %}
   <section class="card" style="border:1px solid #fecaca; background:#fef2f2; color:#991b1b;">
@@ -340,7 +397,7 @@
 
 <!-- HEADER -->
 <section class="card">
-  <h4 style="margin:0 0 8px;">بيانات الفاتورة</h4>
+  <h4>بيانات الفاتورة</h4>
 
   <div class="audit-strip">
     <div class="audit-grid">
@@ -527,11 +584,11 @@
       </table>
     </div>
   </section>
+  </div>
 
-  <!-- FOOTER / STATS -->
-  <section class="card">
-
-    <div id="billStats">
+  <aside class="bill-side">
+    <section class="foot-left">
+      <div id="billStats">
       <div class="total-box">
         <div class="muted">الإجمالي</div>
         <div class="total-amt">{{ bill.total|human_number }}</div>
@@ -583,7 +640,7 @@
       </div>
     </div>
 
-    <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <div class="foot-right">
       <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">رجوع</a>
 
       {% if has_debt_now %}
@@ -600,8 +657,10 @@
         <span class="muted">الفاتورة مغلقة</span>
       {% endif %}
     </div>
-
-  </section>
+    </section>
+  </aside>
 
 </div>
 {% endblock %}
+
+
