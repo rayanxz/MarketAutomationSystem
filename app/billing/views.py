@@ -1058,25 +1058,31 @@ def bill_view(request, bill_id: int):
 
         # product identifiers for search
         prod_code = str(getattr(prod, "id", "") or "")
-        barcode_val = ""
+        barcode_vals: list[str] = []
         try:
+            seen_barcodes: set[str] = set()
             for b in getattr(prod, "barcodes", []).all():
                 val = getattr(b, "barcode", None) or getattr(b, "code", None)
                 if val:
-                    barcode_val = str(val)
-                    break
+                    sval = str(val).strip()
+                    if sval and sval not in seen_barcodes:
+                        seen_barcodes.add(sval)
+                        barcode_vals.append(sval)
         except Exception:
-            barcode_val = ""
+            barcode_vals = []
 
-        unit_id_val = ""
+        unit_code_vals: list[str] = []
         try:
+            seen_unit_codes: set[str] = set()
             for uid in getattr(prod, "unit_ids", []).all():
                 val = getattr(uid, "value", "") or ""
                 if val:
-                    unit_id_val = str(val)
-                    break
+                    sval = str(val).strip()
+                    if sval and sval not in seen_unit_codes:
+                        seen_unit_codes.add(sval)
+                        unit_code_vals.append(sval)
         except Exception:
-            unit_id_val = ""
+            unit_code_vals = []
 
         items_rows.append(
             {
@@ -1107,9 +1113,14 @@ def bill_view(request, bill_id: int):
                 "sold_qty": sold_qty,
                 "sold_qty_str": f"{_fmt2(sold_qty)} {unit1_label}",
                 # for search
+                "product_id": prod_code,
                 "code": prod_code,
-                "barcode": barcode_val,
-                "unit_id": unit_id_val,
+                "barcode": (barcode_vals[0] if barcode_vals else ""),
+                "unit_id": (unit_code_vals[0] if unit_code_vals else ""),
+                "barcodes": barcode_vals,
+                "unit_codes": unit_code_vals,
+                "barcodes_join": "||".join(barcode_vals),
+                "unit_codes_join": "||".join(unit_code_vals),
             }
         )
 

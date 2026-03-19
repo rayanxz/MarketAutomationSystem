@@ -214,14 +214,14 @@
 
   /* ========== SEARCH BAR ========== */
   .bill-search-row{
-    display:flex;
-    flex-wrap:wrap;
-    gap:14px;
-    align-items:flex-end;
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:8px;
+    align-items:start;
   }
   .bill-search-main{
-    flex:1 1 260px;
     position:relative;
+    min-width:0;
   }
   .bill-search-main label{
     display:block;
@@ -230,18 +230,23 @@
   .bill-search-input{
     width:100%;
   }
-  .bill-search-modes{
+  .modes-inline{
     display:flex;
-    gap:10px;
+    gap:18px;
+    margin-top:6px;
     flex-wrap:wrap;
+  }
+  .modes-inline label{
     font-size:13px;
     color:#374151;
-  }
-  .bill-search-modes label{
     display:flex;
     align-items:center;
     gap:4px;
     cursor:pointer;
+  }
+  #btnBillSearch{
+    min-width:90px;
+    margin-top:22px;
   }
 
   .search-suggest-list{
@@ -269,6 +274,15 @@
   .search-suggest-item.is-active{
     background:#e5e7ff;
     font-weight:600;
+  }
+  @media (max-width:760px){
+    .bill-search-row{
+      grid-template-columns:1fr;
+    }
+    #btnBillSearch{
+      margin-top:0;
+      width:fit-content;
+    }
   }
 
 
@@ -368,7 +382,7 @@
   <!-- SEARCH IN BILL -->
   <section class="card">
     <div class="bill-search-row">
-      <div class="bill-search-main">
+      <div class="search-box bill-search-main" id="billSearchBox">
         <label class="muted" for="billSearchInput">البحث داخل الفاتورة</label>
         <input
           id="billSearchInput"
@@ -376,27 +390,27 @@
           class="input bill-search-input"
           placeholder="اكتب للبحث عن منتج..."
         >
+        <div class="modes-inline">
+          <label>
+            <input type="radio" name="billSearchMode" value="name" checked>
+            بالاسم
+          </label>
+          <label>
+            <input type="radio" name="billSearchMode" value="id">
+            بالمعرّف (ID)
+          </label>
+          <label>
+            <input type="radio" name="billSearchMode" value="code">
+            بالكود
+          </label>
+          <label>
+            <input type="radio" name="billSearchMode" value="barcode">
+            بالباركود
+          </label>
+        </div>
         <div id="billSearchSuggest" class="search-suggest-list" style="display:none;"></div>
       </div>
-
-      <div class="bill-search-modes">
-        <label>
-          <input type="radio" name="billSearchMode" value="name" checked>
-          بالاسم
-        </label>
-        <label>
-          <input type="radio" name="billSearchMode" value="id">
-          بالمعرّف (ID)
-        </label>
-        <label>
-          <input type="radio" name="billSearchMode" value="code">
-          بالكود
-        </label>
-        <label>
-          <input type="radio" name="billSearchMode" value="barcode">
-          بالباركود
-        </label>
-      </div>
+      <button id="btnBillSearch" class="btn" type="button">بحث</button>
     </div>
   </section>
 
@@ -430,6 +444,9 @@
           <tr
             data-item-id="{{ row.item_id }}"
             data-left="{{ row.left_qty|unlocalize }}"
+            data-product-id="{{ row.product_id }}"
+            data-unitcodes="{{ row.unit_codes_join }}"
+            data-barcodes="{{ row.barcodes_join }}"
             data-code="{{ row.code }}"
             data-unitid="{{ row.unit_id }}"
             data-barcode="{{ row.barcode }}"

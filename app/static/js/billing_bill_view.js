@@ -132,34 +132,20 @@
   /* ================== SEARCH INSIDE BILL ================== */
 
   const searchInput = document.getElementById("billSearchInput");
+  const searchBtn = document.getElementById("btnBillSearch");
   const suggestBox = document.getElementById("billSearchSuggest");
   const modeRadios = Array.prototype.slice.call(
     document.querySelectorAll("input[name='billSearchMode']")
   );
 
-  const ATTR_MAP = {
-    name: null,
-    id: "unitid",
-    code: "code",
-    barcode: "barcode",
+  const debounce = function (fn, ms) {
+    let t;
+    return function () {
+      const args = arguments;
+      clearTimeout(t);
+      t = setTimeout(function () { fn.apply(null, args); }, ms);
+    };
   };
-
-  let currentMode = "name";
-
-  function updateMode() {
-    modeRadios.forEach(function (r) {
-      if (r.checked) currentMode = r.value;
-    });
-    if (currentMode !== "name" && suggestBox) {
-      suggestBox.style.display = "none";
-      suggestBox.innerHTML = "";
-    }
-  }
-
-  modeRadios.forEach(function (r) {
-    r.addEventListener("change", updateMode);
-  });
-  updateMode();
 
   function clearHighlight() {
     Array.prototype.slice.call(
@@ -175,6 +161,71 @@
     );
   }
 
+  function rowName(row) {
+    const cell = row.querySelector("td.pname");
+    const fallback = row.cells && row.cells[0] ? row.cells[0].textContent : "";
+    return (cell ? cell.textContent : fallback || "").trim();
+  }
+
+  function splitTokens(raw) {
+    return String(raw || "")
+      .split("||")
+      .map(function (x) { return String(x || "").trim(); })
+      .filter(function (x) { return !!x; });
+  }
+
+  function rowProductId(row) {
+    return String(row.dataset.productId || "").trim();
+  }
+
+  function rowUnitCodes(row) {
+    return splitTokens(row.dataset.unitcodes);
+  }
+
+  function rowBarcodes(row) {
+    return splitTokens(row.dataset.barcodes);
+  }
+
+  function rowMatchesMode(row, mode, lowerTerm) {
+    if (mode === "name") {
+      return rowName(row).toLowerCase().indexOf(lowerTerm) !== -1;
+    }
+    if (mode === "id") {
+      const pid = rowProductId(row).toLowerCase();
+      return !!pid && pid === lowerTerm;
+    }
+    if (mode === "code") {
+      return rowUnitCodes(row).some(function (v) {
+        return v.toLowerCase() === lowerTerm;
+      });
+    }
+    if (mode === "barcode") {
+      return rowBarcodes(row).some(function (v) {
+        return v.toLowerCase() === lowerTerm;
+      });
+    }
+    return false;
+  }
+
+  function rowDisplayValue(row, mode, lowerTerm) {
+    if (mode === "id") return rowProductId(row);
+    if (mode === "code") {
+      const codes = rowUnitCodes(row);
+      const matched = codes.find(function (v) {
+        return v.toLowerCase() === lowerTerm;
+      });
+      return matched || codes[0] || "";
+    }
+    if (mode === "barcode") {
+      const codes = rowBarcodes(row);
+      const matched = codes.find(function (v) {
+        return v.toLowerCase() === lowerTerm;
+      });
+      return matched || codes[0] || "";
+    }
+    return rowName(row);
+  }
+
   function focusRow(row) {
     if (!row) return false;
     clearHighlight();
@@ -186,163 +237,206 @@
     return true;
   }
 
-  function focusRowByPredicate(pred) {
-    const rows = allRows();
-    for (let i = 0; i < rows.length; i++) {
-      if (pred(rows[i])) {
-        return focusRow(rows[i]);
-      }
-    }
-    return false;
-  }
-
-  // --- suggestions with keyboard navigation ---
-  let suggestItems = [];   // [{el, row, name}]
-  let suggestIndex = -1;
-
-  function resetSuggestState() {
-    suggestItems = [];
-    suggestIndex = -1;
-  }
-
-  function applyActive(idx) {
-    suggestItems.forEach(function (item, i) {
-      if (i === idx) {
-        item.el.classList.add("is-active");
-      } else {
-        item.el.classList.remove("is-active");
-      }
+  let mode = "name";
+  modeRadios.forEach(function (r) {
+    if (r.checked) mode = r.value;
+    r.addEventListener("change", function () {
+      mode = r.value;
+      clearSug();
+      if (searchInput) searchInput.focus();
     });
-    suggestIndex = idx;
-  }
+  });
 
-  function hideSuggestions() {
+  let lastItems = [];
+  let activeIndex = -1;
+
+  function clearSug() {
     if (!suggestBox) return;
     suggestBox.style.display = "none";
     suggestBox.innerHTML = "";
-    resetSuggestState();
+    lastItems = [];
+    activeIndex = -1;
   }
 
-  function selectSuggestion(idx) {
-    if (idx < 0 || idx >= suggestItems.length) return;
-    const item = suggestItems[idx];
+  function setActive(i) {
+    const nodes = Array.prototype.slice.call(
+      suggestBox ? suggestBox.querySelectorAll(".search-suggest-item") : []
+    );
+    if (!nodes.length) {
+      activeIndex = -1;
+      return;
+    }
+    activeIndex = ((i % nodes.length) + nodes.length) % nodes.length;
+    nodes.forEach(function (node, idx) {
+      node.classList.toggle("is-active", idx === activeIndex);
+    });
+  }
+
+  function pick(item) {
     if (!item) return;
-    if (searchInput) searchInput.value = item.name;
-    hideSuggestions();
+    if (searchInput) {
+      if (mode === "name") {
+        searchInput.value = item.name;
+      } else if (item.display) {
+        searchInput.value = item.display;
+      }
+    }
+    clearSug();
     focusRow(item.row);
   }
 
-  function buildSuggestions(q) {
-    if (!suggestBox) return;
-    const term = (q || "").trim();
-    suggestBox.innerHTML = "";
-    resetSuggestState();
-
-    if (!term) {
-      suggestBox.style.display = "none";
-      return;
-    }
-
+  async function searchInBill(q, modeValue) {
+    const term = String(q || "").trim();
+    if (!term) return [];
     const lower = term.toLowerCase();
-    const rows = allRows();
+    const seen = new Set();
+    const out = [];
 
-    rows.forEach(function (row) {
-      const cell = row.querySelector("td.pname");
-      if (!cell) return;
-      const name = (cell.textContent || "").trim();
+    allRows().forEach(function (row) {
+      if (!rowMatchesMode(row, modeValue, lower)) return;
+      const pid = rowProductId(row);
+      const dedupeKey = pid || ("item:" + (row.dataset.itemId || ""));
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+
+      const name = rowName(row);
       if (!name) return;
-      if (name.toLowerCase().indexOf(lower) !== -1) {
-        const div = document.createElement("div");
-        div.className = "search-suggest-item";
-        div.textContent = name;
-        const idx = suggestItems.length;
-        div.addEventListener("click", function () {
-          selectSuggestion(idx);
-        });
-        suggestBox.appendChild(div);
-        suggestItems.push({ el: div, row: row, name: name });
-      }
+      out.push({
+        row: row,
+        name: name,
+        display: rowDisplayValue(row, modeValue, lower),
+      });
     });
 
-    if (!suggestItems.length) {
-      suggestBox.style.display = "none";
+    return out;
+  }
+
+  function renderSug(items) {
+    if (!suggestBox) return;
+    if (!items.length) {
+      clearSug();
       return;
     }
+
+    suggestBox.innerHTML = "";
+    items.slice(0, 8).forEach(function (it, i) {
+      const node = document.createElement("div");
+      node.className = "search-suggest-item";
+      node.textContent = it.name;
+      node.addEventListener("mouseenter", function () { setActive(i); });
+      node.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        const picked = lastItems[i];
+        if (picked) pick(picked);
+      });
+      suggestBox.appendChild(node);
+    });
 
     suggestBox.style.display = "block";
-    applyActive(-1); // nothing focused yet
+    setActive(0);
   }
 
-  function runSearch() {
-    if (!searchInput) return;
-    const term = (searchInput.value || "").trim();
-    if (!term) return;
-
-    if (currentMode === "name") {
-      const lower = term.toLowerCase();
-      const rows = allRows();
-      let exactRow = null;
-      rows.forEach(function (row) {
-        if (exactRow) return;
-        const cell = row.querySelector("td.pname");
-        if (!cell) return;
-        const name = (cell.textContent || "").trim();
-        if (name.toLowerCase() === lower) {
-          exactRow = row;
-        }
-      });
-      if (exactRow) {
-        hideSuggestions();
-        focusRow(exactRow);
-      } else {
-        buildSuggestions(term);
-      }
-    } else {
-      const attr = ATTR_MAP[currentMode];
-      if (!attr) return;
-      const lower = term.toLowerCase();
-      focusRowByPredicate(function (row) {
-        const v = (row.dataset[attr] || "").toString().toLowerCase();
-        return v && v.indexOf(lower) !== -1;
-      });
+  const doSearch = async function () {
+    const val = (searchInput ? searchInput.value : "").trim();
+    if (!val) {
+      clearSug();
+      return;
     }
-  }
+    try {
+      const items = await searchInBill(val, mode);
+      lastItems = items;
+      renderSug(lastItems);
+    } catch (_e) {
+      clearSug();
+    }
+  };
+  const onType = debounce(doSearch, 180);
 
   if (searchInput) {
-    searchInput.addEventListener("input", function () {
-      if (currentMode === "name") {
-        buildSuggestions(searchInput.value || "");
-      } else {
-        hideSuggestions();
-      }
+    searchInput.addEventListener("input", onType);
+    searchInput.addEventListener("focus", function () {
+      const val = (searchInput.value || "").trim();
+      if (val) onType();
+      else clearSug();
     });
-
-    searchInput.addEventListener("keydown", function (e) {
-      if (!suggestBox || suggestBox.style.display === "none" || !suggestItems.length) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          runSearch();
-        }
+    searchInput.addEventListener("blur", function () {
+      setTimeout(clearSug, 120);
+    });
+    searchInput.addEventListener("keydown", async function (e) {
+      if (e.key === "Escape") {
+        clearSug();
         return;
       }
 
-      if (e.key === "ArrowDown") {
+      const hasList = !!(
+        suggestBox &&
+        suggestBox.style.display !== "none" &&
+        suggestBox.querySelectorAll(".search-suggest-item").length
+      );
+
+      if (hasList && (e.key === "Tab" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
         e.preventDefault();
-        const next = (suggestIndex + 1) % suggestItems.length;
-        applyActive(next);
-      } else if (e.key === "ArrowUp") {
+        const delta = (e.key === "ArrowDown" || (!e.shiftKey && e.key === "Tab")) ? 1 : -1;
+        setActive(activeIndex + delta);
+        return;
+      }
+
+      if (e.key === "Enter") {
         e.preventDefault();
-        const next =
-          suggestIndex <= 0 ? suggestItems.length - 1 : suggestIndex - 1;
-        applyActive(next);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (suggestIndex >= 0) {
-          selectSuggestion(suggestIndex);
-        } else {
-          runSearch();
+        const val = (searchInput.value || "").trim();
+        if (!val) {
+          clearSug();
+          return;
         }
+        if (hasList && activeIndex >= 0) {
+          const it = lastItems[activeIndex];
+          if (it) {
+            pick(it);
+            return;
+          }
+        }
+        const items = await searchInBill(val, mode);
+        if (items.length) pick(items[0]);
+        else clearSug();
       }
     });
+  }
+
+  if (searchBtn) {
+    searchBtn.addEventListener("click", async function () {
+      const hasList = !!(
+        suggestBox &&
+        suggestBox.style.display !== "none" &&
+        suggestBox.querySelectorAll(".search-suggest-item").length
+      );
+      if (hasList) {
+        const idx = activeIndex >= 0 ? activeIndex : 0;
+        const it = lastItems[idx];
+        if (it) {
+          pick(it);
+          if (searchInput) searchInput.focus();
+          return;
+        }
+      }
+
+      const val = (searchInput ? searchInput.value : "").trim();
+      if (!val) {
+        clearSug();
+        if (searchInput) searchInput.focus();
+        return;
+      }
+
+      const items = await searchInBill(val, mode);
+      if (items.length) pick(items[0]);
+      else clearSug();
+      if (searchInput) searchInput.focus();
+    });
+  }
+
+  if (modeRadios.length) {
+    const checked = modeRadios.find(function (r) { return r.checked; });
+    if (checked) {
+      mode = checked.value;
+    }
   }
 })();
