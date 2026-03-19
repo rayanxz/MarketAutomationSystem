@@ -51,6 +51,55 @@
     background:#f8fafc;
   }
   .muted{ color:#6b7280; font-size:12px; }
+  .audit-strip{
+    width:100%;
+    overflow-x:auto;
+    overflow-y:hidden;
+  }
+  .audit-grid{
+    display:grid;
+    grid-template-columns:repeat(5, minmax(0, 1fr));
+    gap:10px;
+    min-width:980px;
+  }
+  .audit-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-height:42px;
+    padding:8px 10px;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    text-align:right;
+    min-width:0;
+  }
+  .audit-label{
+    color:#4b5563;
+    font-size:13px;
+    font-weight:600;
+    white-space:nowrap;
+    flex:0 0 auto;
+  }
+  .audit-value{
+    color:#111827;
+    font-weight:700;
+    min-width:0;
+    flex:1 1 auto;
+  }
+  /* Reused from add_bill product-name cells:
+     native title tooltip + pname/pname-text ellipsis pattern. */
+  .pname{
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .pname .pname-text{
+    display:block;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
 
   /* ========== TABLE ========== */
   .items{
@@ -279,29 +328,36 @@
 <section class="card">
   <h4 style="margin:0 0 8px;">بيانات الفاتورة</h4>
 
-  <div class="row">
-    <div class="field">
-      <label class="muted">السيريال</label>
-      <div class="badge">{{ bill.serial|human_number }}</div>
-    </div>
+  <div class="audit-strip">
+    <div class="audit-grid">
+      <div class="audit-item">
+        <span class="audit-label">رمز الفاتورة (آلي):</span>
+        <span class="audit-value pname" title="{{ bill.serial|human_number }}"><span class="pname-text">{{ bill.serial|human_number }}</span></span>
+      </div>
 
-    <div class="field">
-      <label class="muted">المورد</label>
-      <div class="badge">{{ bill.provider.name }}</div>
-    </div>
+      <div class="audit-item">
+        <span class="audit-label">اسم المورد:</span>
+        <span class="audit-value pname" title="{{ bill.provider.name }}"><span class="pname-text">{{ bill.provider.name }}</span></span>
+      </div>
 
-    <div class="field">
-      <label class="muted">تاريخ الإنشاء</label>
-      <div class="badge">{{ bill.created_at|date:"Y-m-d H:i" }}</div>
-    </div>
+      <div class="audit-item">
+        <span class="audit-label">مكان التخزين:</span>
+        <span class="audit-value pname" title="{{ storage_location_label }}"><span class="pname-text">{{ storage_location_label }}</span></span>
+      </div>
 
-    <div class="field">
-      <label class="muted">أُنشئت بواسطة</label>
-      <div class="badge">
+      <div class="audit-item">
+        <span class="audit-label">تاريخ الإنشاء:</span>
+        <span class="audit-value pname" title="{{ bill.created_at|date:'Y-m-d H:i' }}"><span class="pname-text">{{ bill.created_at|date:"Y-m-d H:i" }}</span></span>
+      </div>
+
+      <div class="audit-item">
+        <span class="audit-label">أُنشئت بواسطة:</span>
         {% if bill.created_by %}
-          {{ bill.created_by.get_full_name|default:bill.created_by.username }}
+          {% with creator_name=bill.created_by.get_full_name|default:bill.created_by.username %}
+            <span class="audit-value pname" title="{{ creator_name }}"><span class="pname-text">{{ creator_name }}</span></span>
+          {% endwith %}
         {% else %}
-          —
+          <span class="audit-value pname" title="—"><span class="pname-text">—</span></span>
         {% endif %}
       </div>
     </div>

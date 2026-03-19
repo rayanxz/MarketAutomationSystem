@@ -950,6 +950,26 @@ def bill_view(request, bill_id: int):
             if iid not in origin_by_item and mv.container_id:
                 origin_by_item[iid] = mv
 
+    storage_locations: list[str] = []
+    seen_container_ids: set[int] = set()
+    for mv in origin_by_item.values():
+        cont = getattr(mv, "container", None)
+        if not cont:
+            continue
+        cid = getattr(cont, "id", None)
+        if cid in seen_container_ids:
+            continue
+        if cid is not None:
+            seen_container_ids.add(cid)
+        label = (
+            getattr(cont, "display_label", None)
+            or getattr(cont, "name", None)
+            or getattr(cont, "code", "")
+        )
+        if label:
+            storage_locations.append(str(label))
+    storage_location_label = "، ".join(storage_locations) if storage_locations else "—"
+
     error_msg = None
     from collections import defaultdict
     from inventory.models import SaleCostPart
@@ -1131,6 +1151,7 @@ def bill_view(request, bill_id: int):
         "error_msg": error_msg,
         "selected_items": selected_items,
         "initial_status": initial_status,
+        "storage_location_label": storage_location_label,
     }
     return render(request, "billing/bill_view.html", ctx)
 
