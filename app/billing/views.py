@@ -1103,7 +1103,6 @@ def bill_view(request, bill_id: int):
                 "unit1_label": unit1_label,
                 "unit2_label": unit2_label,
                 "cost": it.cost,
-                "price": it.price,
                 "currency": (getattr(it, "currency", None) or "SYP").upper(),
                 "qty_u1": qty_u1,
                 "qty_u1_ui": _ui_2dp(qty_u1),
