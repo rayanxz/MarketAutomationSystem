@@ -135,7 +135,7 @@
     width:100%;
     border-collapse:collapse;
     table-layout:fixed;
-    min-width:1440px; /* keep stable audit widths; scroll horizontally when needed */
+    min-width:1460px; /* stable audit widths; keep explicit distribution predictable */
   }
   table.bill th,
   table.bill td{
@@ -181,12 +181,23 @@
     overflow:hidden;
     text-overflow:ellipsis;
   }
-  table.bill th.col-used-currency,
-  table.bill td.col-used-currency-cell{
-    width:92px;
-    text-align:center;
-    white-space:nowrap;
-    font-weight:700;
+  table.bill th.col-qty,
+  table.bill td.col-qty-cell{
+    width:108px;
+    min-width:108px;
+    max-width:108px;
+  }
+  table.bill th.col-balance,
+  table.bill td.col-balance-cell{
+    width:112px;
+    min-width:112px;
+    max-width:112px;
+  }
+  table.bill th.col-flow,
+  table.bill td.col-flow-cell{
+    width:108px;
+    min-width:108px;
+    max-width:108px;
   }
   table.bill td.qty-display,
   table.bill td.stock-display{
@@ -547,18 +558,17 @@
             <th class="select-col" style="width:36px;"></th>
             <th class="col-product">المنتج</th>
             <th class="col-unit-cost">كلفة الوحدة الأولى</th>
-            <th class="col-used-currency">العملة المستخدمة</th>
-            <th>الكمية (الوحدة الأولى)</th>
-            <th>الكمية (الوحدة الثانية)</th>
+            <th class="col-qty">الكمية (الوحدة الأولى)</th>
+            <th class="col-qty">الكمية (الوحدة الثانية)</th>
             <th class="col-total-cost">الكلفة الإجمالية</th>
 
-            <th class="col-orange">المتبقي في المتجر</th>
-            <th class="col-orange">المتبقي في المستودع 1</th>
-            <th class="col-orange">المتبقي في المستودع 2</th>
+            <th class="col-orange col-balance">المتبقي في المتجر</th>
+            <th class="col-orange col-balance">المتبقي في المستودع 1</th>
+            <th class="col-orange col-balance">المتبقي في المستودع 2</th>
 
-            <th class="col-purple">المباع</th>
+            <th class="col-purple col-flow">المباع</th>
 
-            <th class="col-red">إجمالي المرتجع</th>
+            <th class="col-red col-flow">إجمالي المرتجع</th>
             <th class="col-red col-returns-action">المرتجعات</th>
           </tr>
         </thead>
@@ -594,14 +604,18 @@
             </td>
 
             <!-- cost -->
-            <td class="col-unit-cost-cell">{{ row.cost|human_number }}</td>
-            <td class="col-used-currency-cell">{{ row.currency|default:"SYP" }}</td>
+            <td class="col-unit-cost-cell">
+              <div class="total-cost-wrap">
+                <span class="total-cost-cur" aria-hidden="true">{% if row.currency == "USD" %}${% else %}SYP{% endif %}</span>
+                <span class="total-cost-value">{{ row.cost|human_number }}</span>
+              </div>
+            </td>
 
             <!-- qty u1 / u2 -->
-            <td class="qty-display {% if row.highlight_unit == 1 %}hl-unit{% endif %}">
+            <td class="col-qty-cell qty-display {% if row.highlight_unit == 1 %}hl-unit{% endif %}">
               {{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
             </td>
-            <td class="qty-display {% if row.highlight_unit == 2 %}hl-unit{% endif %}">
+            <td class="col-qty-cell qty-display {% if row.highlight_unit == 2 %}hl-unit{% endif %}">
               {% if row.unit2_label %}
                 {{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}
               {% else %}
@@ -618,15 +632,15 @@
             </td>
 
             <!-- containers -->
-            <td class="col-orange stock-display">{{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
-            <td class="col-orange stock-display">{{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
-            <td class="col-orange stock-display">{{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-orange col-balance-cell stock-display">{{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-orange col-balance-cell stock-display">{{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-orange col-balance-cell stock-display">{{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- sold -->
-            <td class="col-purple stock-display">{{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-purple col-flow-cell stock-display">{{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- total returned -->
-            <td class="col-red stock-display">{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-red col-flow-cell stock-display">{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- show returns -->
             <td class="col-red col-returns-action">
@@ -645,7 +659,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="13" style="text-align:center; color:#6b7280;">
+            <td colspan="12" style="text-align:center; color:#6b7280;">
               لا توجد عناصر
             </td>
           </tr>
