@@ -153,6 +153,48 @@
     top:0;
     z-index:1;
   }
+  table.bill th.col-product{
+    width:18%;
+  }
+  table.bill th.col-used-currency,
+  table.bill td.col-used-currency-cell{
+    width:92px;
+    text-align:center;
+    white-space:nowrap;
+    font-weight:700;
+  }
+  table.bill td.qty-display,
+  table.bill td.stock-display{
+    white-space:nowrap;
+  }
+  table.bill th.col-returns-action,
+  table.bill td.col-returns-action{
+    width:118px;
+    text-align:center;
+  }
+  .total-cost-wrap{
+    display:flex;
+    align-items:center;
+    gap:2px;
+    direction:ltr; /* keep currency indicator on the left, amount on the right */
+    width:100%;
+  }
+  .total-cost-value{
+    flex:1 1 auto;
+    min-width:0;
+    white-space:nowrap;
+  }
+  .total-cost-cur{
+    flex:0 0 auto;
+    font-size:10px;
+    line-height:1;
+    color:#15803d;
+    background:#f8fafc;
+    border:1px solid #e5e7eb;
+    border-radius:8px;
+    padding:1px 4px;
+    white-space:nowrap;
+  }
 
   .total-box{
     display:flex;
@@ -478,22 +520,22 @@
         <thead>
           <tr>
             <th class="select-col" style="width:36px;"></th>
-            <th>المنتج</th>
+            <th class="col-product">المنتج</th>
             <th>كلفة الوحدة الأولى</th>
+            <th class="col-used-currency">العملة المستخدمة</th>
             <th>سعر الوحدة الأولى</th>
             <th>الكمية (الوحدة الأولى)</th>
             <th>الكمية (الوحدة الثانية)</th>
             <th>الكلفة الإجمالية</th>
 
-            <th class="col-orange">المتبقي</th>
-            <th class="col-orange">المتجر</th>
-            <th class="col-orange">مستودع 1</th>
-            <th class="col-orange">مستودع 2</th>
+            <th class="col-orange">المتبقي في المتجر</th>
+            <th class="col-orange">المتبقي في المستودع 1</th>
+            <th class="col-orange">المتبقي في المستودع 2</th>
 
             <th class="col-purple">المباع</th>
 
             <th class="col-red">إجمالي المرتجع</th>
-            <th class="col-red">المرتجعات</th>
+            <th class="col-red col-returns-action">المرتجعات</th>
           </tr>
         </thead>
         <tbody>
@@ -529,37 +571,42 @@
 
             <!-- cost / price -->
             <td>{{ row.cost|human_number }}</td>
+            <td class="col-used-currency-cell">{{ row.currency|default:"SYP" }}</td>
             <td>{{ row.price|human_number }}</td>
 
             <!-- qty u1 / u2 -->
-            <td class="{% if row.highlight_unit == 1 %}hl-unit{% endif %}">
-              {{ row.qty_u1_str }}
+            <td class="qty-display {% if row.highlight_unit == 1 %}hl-unit{% endif %}">
+              {{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
             </td>
-            <td class="{% if row.highlight_unit == 2 %}hl-unit{% endif %}">
-              {% if row.qty_u2_str %}
-                {{ row.qty_u2_str }}
+            <td class="qty-display {% if row.highlight_unit == 2 %}hl-unit{% endif %}">
+              {% if row.unit2_label %}
+                {{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}
               {% else %}
                 —
               {% endif %}
             </td>
 
             <!-- totals -->
-            <td>{{ row.line_total|human_number }}</td>
+            <td>
+              <div class="total-cost-wrap">
+                <span class="total-cost-cur" aria-hidden="true">{% if row.currency == "USD" %}${% else %}SYP{% endif %}</span>
+                <span class="total-cost-value">{{ row.line_total|human_number }}</span>
+              </div>
+            </td>
 
-            <!-- left + containers -->
-            <td class="col-orange">{{ row.left_qty_str }}</td>
-            <td class="col-orange">{{ row.store_qty_str }}</td>
-            <td class="col-orange">{{ row.wh1_qty_str }}</td>
-            <td class="col-orange">{{ row.wh2_qty_str }}</td>
+            <!-- containers -->
+            <td class="col-orange stock-display">{{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-orange stock-display">{{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-orange stock-display">{{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- sold -->
-            <td class="col-purple">{{ row.sold_qty_str }}</td>
+            <td class="col-purple stock-display">{{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- total returned -->
-            <td class="col-red">{{ row.returned_qty_str }}</td>
+            <td class="col-red stock-display">{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- show returns -->
-            <td class="col-red">
+            <td class="col-red col-returns-action">
               {% if row.has_returns %}
                 <button
                   type="button"

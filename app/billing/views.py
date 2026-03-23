@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -30,6 +30,18 @@ def _fmt2(x: Decimal | None) -> str:
     """
     q = (x if x is not None else DEC0).quantize(DEC2)
     return f"{q:.2f}"
+
+
+def _ui_2dp(x: Decimal | None) -> Decimal:
+    """
+    Display-only clip to max 2 decimals (toward zero).
+    Storage precision remains unchanged.
+    """
+    try:
+        d = Decimal(str(x if x is not None else DEC0))
+    except (InvalidOperation, TypeError, ValueError):
+        return DEC0
+    return d.quantize(DEC2, rounding=ROUND_DOWN)
 
 from django.db.models import Sum , Q
 from stock.models import StockFifoLayer
@@ -1092,25 +1104,33 @@ def bill_view(request, bill_id: int):
                 "unit2_label": unit2_label,
                 "cost": it.cost,
                 "price": it.price,
+                "currency": (getattr(it, "currency", None) or "SYP").upper(),
                 "qty_u1": qty_u1,
+                "qty_u1_ui": _ui_2dp(qty_u1),
                 "qty_u1_str": f"{_fmt2(qty_u1)} {unit1_label}",
                 "qty_u2": qty_u2,
+                "qty_u2_ui": _ui_2dp(qty_u2),
                 "qty_u2_str": f"{_fmt2(qty_u2)} {unit2_label}" if unit2_label else "",
                 "highlight_unit": highlight_unit,
                 "line_total": it.line_total,
                 "left_qty": left_qty,
                 "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
                 "returned_qty": total_returned,
+                "returned_qty_ui": _ui_2dp(total_returned),
                 "returned_qty_str": f"{_fmt2(total_returned)} {unit1_label}",
                 "has_returns": has_returns,
                 "can_return": left_qty > DEC0,
                 "store_qty": store_qty,
+                "store_qty_ui": _ui_2dp(store_qty),
                 "store_qty_str": f"{_fmt2(store_qty)} {unit1_label}",
                 "wh1_qty": wh1_qty,
+                "wh1_qty_ui": _ui_2dp(wh1_qty),
                 "wh1_qty_str": f"{_fmt2(wh1_qty)} {unit1_label}",
                 "wh2_qty": wh2_qty,
+                "wh2_qty_ui": _ui_2dp(wh2_qty),
                 "wh2_qty_str": f"{_fmt2(wh2_qty)} {unit1_label}",
                 "sold_qty": sold_qty,
+                "sold_qty_ui": _ui_2dp(sold_qty),
                 "sold_qty_str": f"{_fmt2(sold_qty)} {unit1_label}",
                 # for search
                 "product_id": prod_code,
