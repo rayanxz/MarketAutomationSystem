@@ -16,11 +16,38 @@
   const showReturnButtons = Array.prototype.slice.call(
     document.querySelectorAll(".btn-show-return")
   );
+  const stockToggleBtns = Array.prototype.slice.call(
+    document.querySelectorAll("[data-stock-toggle]")
+  );
+  const STOCK_EXPANDED_CLASS = "stock-breakdown-expanded";
+
+  function setStockBreakdownExpanded(expanded) {
+    const isExpanded = !!expanded;
+    root.classList.toggle(STOCK_EXPANDED_CLASS, isExpanded);
+    if (!stockToggleBtns.length) return;
+    const label = isExpanded ? "إخفاء تفاصيل المتبقي" : "إظهار تفاصيل المتبقي";
+    stockToggleBtns.forEach(function (btn) {
+      btn.textContent = isExpanded ? "-" : "+";
+      btn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+    });
+  }
 
   function getCheckboxes() {
     return Array.prototype.slice.call(
       document.querySelectorAll(".return-select")
     );
+  }
+
+  if (stockToggleBtns.length) {
+    setStockBreakdownExpanded(false); // default compact mode
+    stockToggleBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const next = !root.classList.contains(STOCK_EXPANDED_CLASS);
+        setStockBreakdownExpanded(next);
+      });
+    });
   }
 
   /* ================== SELECT MODE (FOR WIZARD) ================== */

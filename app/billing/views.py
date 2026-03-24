@@ -1064,6 +1064,7 @@ def bill_view(request, bill_id: int):
                 wh1_qty = q3(wh1_qty + q_left)
             elif code == "wh2":
                 wh2_qty = q3(wh2_qty + q_left)
+        total_remaining = q3(store_qty + wh1_qty + wh2_qty)
 
         # left_qty already reflects sales + provider returns (both consume FIFO)
         sold_qty = q3(sold_by_item.get(it.id, DEC0))
@@ -1128,6 +1129,8 @@ def bill_view(request, bill_id: int):
                 "wh2_qty": wh2_qty,
                 "wh2_qty_ui": _ui_2dp(wh2_qty),
                 "wh2_qty_str": f"{_fmt2(wh2_qty)} {unit1_label}",
+                "total_remaining": total_remaining,
+                "total_remaining_ui": _ui_2dp(total_remaining),
                 "sold_qty": sold_qty,
                 "sold_qty_ui": _ui_2dp(sold_qty),
                 "sold_qty_str": f"{_fmt2(sold_qty)} {unit1_label}",
