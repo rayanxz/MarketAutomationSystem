@@ -22,6 +22,11 @@
   .viewport-center > .center-box{
     max-width:1560px;
   }
+  .bill-view{
+    --col-product-width:230px;
+    --col-unit-cost-width:132px;
+    --col-total-cost-width:132px;
+  }
   .bill-wrap{
     display:grid;
     grid-template-columns:minmax(0,1fr) 320px;
@@ -141,10 +146,16 @@
     min-width:100%;
     border-collapse:collapse;
     table-layout:fixed;
-    min-width:1280px; /* compact stock mode default */
+    min-width:1160px; /* compact stock + compact returns mode default */
   }
   .bill-view.stock-breakdown-expanded table.bill{
-    min-width:1460px; /* expanded stock breakdown needs more horizontal space */
+    min-width:1280px; /* expanded stock breakdown */
+  }
+  .bill-view.returns-col-expanded table.bill{
+    min-width:1280px; /* expanded returns */
+  }
+  .bill-view.stock-breakdown-expanded.returns-col-expanded table.bill{
+    min-width:1400px; /* both stock + returns expanded */
   }
   table.bill th,
   table.bill td{
@@ -164,25 +175,30 @@
     top:0;
     z-index:1;
   }
-  table.bill th.col-product,
-  table.bill td.col-product-cell{
-    width:230px;
+  table.bill th.col-product{
+    width:var(--col-product-width);
     min-width:230px;
-    max-width:230px;
+    max-width:var(--col-product-width);
+    text-align:center;
+  }
+  table.bill td.col-product-cell{
+    width:var(--col-product-width);
+    min-width:230px;
+    max-width:var(--col-product-width);
     text-align:start; /* keep product names readable with ellipsis in RTL */
   }
   table.bill th.col-unit-cost,
   table.bill td.col-unit-cost-cell{
-    width:132px;
+    width:var(--col-unit-cost-width);
     min-width:132px;
-    max-width:132px;
+    max-width:var(--col-unit-cost-width);
     white-space:nowrap;
   }
   table.bill th.col-total-cost,
   table.bill td.col-total-cost-cell{
-    width:132px;
+    width:var(--col-total-cost-width);
     min-width:132px;
-    max-width:132px;
+    max-width:var(--col-total-cost-width);
     white-space:nowrap;
   }
   table.bill td.pname.col-product-cell,
@@ -200,9 +216,9 @@
   }
   table.bill th.col-balance-total,
   table.bill td.col-balance-total-cell{
-    width:138px;
-    min-width:138px;
-    max-width:138px;
+    width:108px;
+    min-width:108px;
+    max-width:108px;
   }
   table.bill th.col-balance-detail,
   table.bill td.col-balance-detail-cell{
@@ -237,7 +253,22 @@
   .bill-view.stock-breakdown-expanded table.bill td.stock-detail-col{
     display:table-cell;
   }
+  table.bill th.returns-detail-col,
+  table.bill td.returns-detail-col{
+    display:none;
+  }
+  .bill-view.returns-col-expanded table.bill th.returns-detail-col,
+  .bill-view.returns-col-expanded table.bill td.returns-detail-col{
+    display:table-cell;
+  }
   .stock-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:6px;
+    min-width:0;
+  }
+  .returns-head{
     display:flex;
     align-items:center;
     justify-content:space-between;
@@ -257,6 +288,21 @@
     color:#334155;
   }
   .stock-toggle-btn:hover{
+    background:#eef2ff;
+  }
+  .returns-toggle-btn{
+    border:1px solid #cbd5e1;
+    background:#fff;
+    border-radius:6px;
+    width:22px;
+    height:22px;
+    line-height:18px;
+    padding:0;
+    font-size:13px;
+    cursor:pointer;
+    color:#334155;
+  }
+  .returns-toggle-btn:hover{
     background:#eef2ff;
   }
   .total-cost-wrap{
@@ -610,7 +656,7 @@
         <thead>
           <tr>
             <th class="select-col" style="width:36px;"></th>
-            <th class="col-product">المنتج</th>
+            <th class="col-product">اسم المنتج</th>
             <th class="col-unit-cost">كلفة الوحدة الأولى</th>
             <th class="col-qty">الكمية (الوحدة الأولى)</th>
             <th class="col-qty">الكمية (الوحدة الثانية)</th>
@@ -647,8 +693,32 @@
 
             <th class="col-purple col-flow">المباع</th>
 
-            <th class="col-red col-flow">إجمالي المرتجع</th>
-            <th class="col-red col-returns-action">المرتجعات</th>
+            <th class="col-red col-flow">
+              <div class="returns-head">
+                <span>إجمالي المرتجع</span>
+                <button
+                  type="button"
+                  data-returns-toggle
+                  class="returns-toggle-btn"
+                  aria-expanded="false"
+                  aria-label="إظهار عمود المرتجعات"
+                  title="إظهار عمود المرتجعات"
+                >+</button>
+              </div>
+            </th>
+            <th class="col-red col-returns-action returns-detail-col">
+              <div class="returns-head">
+                <span>المرتجعات</span>
+                <button
+                  type="button"
+                  data-returns-toggle
+                  class="returns-toggle-btn"
+                  aria-expanded="true"
+                  aria-label="إخفاء عمود المرتجعات"
+                  title="إخفاء عمود المرتجعات"
+                >-</button>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -723,7 +793,7 @@
             <td class="col-red col-flow-cell stock-display">{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
 
             <!-- show returns -->
-            <td class="col-red col-returns-action">
+            <td class="col-red col-returns-action returns-detail-col">
               {% if row.has_returns %}
                 <button
                   type="button"

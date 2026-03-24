@@ -19,12 +19,82 @@
   const stockToggleBtns = Array.prototype.slice.call(
     document.querySelectorAll("[data-stock-toggle]")
   );
+  const returnsToggleBtns = Array.prototype.slice.call(
+    document.querySelectorAll("[data-returns-toggle]")
+  );
   const STOCK_EXPANDED_CLASS = "stock-breakdown-expanded";
+  const RETURNS_EXPANDED_CLASS = "returns-col-expanded";
+  const tableWrap = root.querySelector(".bill-table-wrap");
+  const billTable = tableWrap ? tableWrap.querySelector("table.bill") : null;
+  const FLEX_MIN_PRODUCT = 230;
+  const FLEX_MIN_UNIT_COST = 132;
+  const FLEX_MIN_TOTAL_COST = 132;
+  let rebalanceRaf = 0;
+
+  function applyFlexibleColumnWidths(productWidth, unitCostWidth, totalCostWidth) {
+    root.style.setProperty("--col-product-width", String(productWidth) + "px");
+    root.style.setProperty("--col-unit-cost-width", String(unitCostWidth) + "px");
+    root.style.setProperty("--col-total-cost-width", String(totalCostWidth) + "px");
+  }
+
+  function measureIntrinsicTableWidth() {
+    if (!billTable) return 0;
+    const previousInlineMinWidth = billTable.style.minWidth;
+    billTable.style.minWidth = "0px";
+    const intrinsicWidth = Math.ceil(billTable.scrollWidth);
+    billTable.style.minWidth = previousInlineMinWidth;
+    return intrinsicWidth;
+  }
+
+  function getCssMinTableWidth() {
+    if (!billTable) return 0;
+    const cssMinWidth = parseFloat(window.getComputedStyle(billTable).minWidth);
+    return Number.isFinite(cssMinWidth) ? cssMinWidth : 0;
+  }
+
+  function rebalanceFlexibleColumns() {
+    if (!tableWrap || !billTable) return;
+
+    applyFlexibleColumnWidths(
+      FLEX_MIN_PRODUCT,
+      FLEX_MIN_UNIT_COST,
+      FLEX_MIN_TOTAL_COST
+    );
+
+    const availableWidth = Math.floor(tableWrap.clientWidth);
+    const cssMinTableWidth = getCssMinTableWidth();
+    if (!availableWidth || availableWidth <= cssMinTableWidth) return;
+
+    const intrinsicTableWidth = measureIntrinsicTableWidth();
+    const extraWidth = Math.max(0, availableWidth - intrinsicTableWidth);
+    if (!extraWidth) return;
+
+    const sharedExtra = extraWidth / 3;
+    applyFlexibleColumnWidths(
+      FLEX_MIN_PRODUCT + sharedExtra,
+      FLEX_MIN_UNIT_COST + sharedExtra,
+      FLEX_MIN_TOTAL_COST + sharedExtra
+    );
+  }
+
+  function scheduleFlexibleColumnsRebalance() {
+    if (!tableWrap || !billTable) return;
+    if (rebalanceRaf) {
+      window.cancelAnimationFrame(rebalanceRaf);
+    }
+    rebalanceRaf = window.requestAnimationFrame(function () {
+      rebalanceRaf = 0;
+      rebalanceFlexibleColumns();
+    });
+  }
 
   function setStockBreakdownExpanded(expanded) {
     const isExpanded = !!expanded;
     root.classList.toggle(STOCK_EXPANDED_CLASS, isExpanded);
-    if (!stockToggleBtns.length) return;
+    if (!stockToggleBtns.length) {
+      scheduleFlexibleColumnsRebalance();
+      return;
+    }
     const label = isExpanded ? "إخفاء تفاصيل المتبقي" : "إظهار تفاصيل المتبقي";
     stockToggleBtns.forEach(function (btn) {
       btn.textContent = isExpanded ? "-" : "+";
@@ -32,6 +102,7 @@
       btn.setAttribute("aria-label", label);
       btn.setAttribute("title", label);
     });
+    scheduleFlexibleColumnsRebalance();
   }
 
   function getCheckboxes() {
@@ -50,6 +121,33 @@
     });
   }
 
+  function setReturnsColumnExpanded(expanded) {
+    const isExpanded = !!expanded;
+    root.classList.toggle(RETURNS_EXPANDED_CLASS, isExpanded);
+    if (!returnsToggleBtns.length) {
+      scheduleFlexibleColumnsRebalance();
+      return;
+    }
+    const label = isExpanded ? "إخفاء عمود المرتجعات" : "إظهار عمود المرتجعات";
+    returnsToggleBtns.forEach(function (btn) {
+      btn.textContent = isExpanded ? "-" : "+";
+      btn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+    });
+    scheduleFlexibleColumnsRebalance();
+  }
+
+  if (returnsToggleBtns.length) {
+    setReturnsColumnExpanded(false); // default compact mode
+    returnsToggleBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const next = !root.classList.contains(RETURNS_EXPANDED_CLASS);
+        setReturnsColumnExpanded(next);
+      });
+    });
+  }
+
   /* ================== SELECT MODE (FOR WIZARD) ================== */
 
     function enterSelectMode() {
@@ -62,6 +160,7 @@
       btn.disabled = true;                 // for the click handler + semantics
       btn.setAttribute("aria-disabled", "true");
     });
+    scheduleFlexibleColumnsRebalance();
   }
 
   function exitSelectMode(clearChecks) {
@@ -80,6 +179,7 @@
       btn.disabled = false;
       btn.removeAttribute("aria-disabled");
     });
+    scheduleFlexibleColumnsRebalance();
   }
 
 
@@ -466,4 +566,15 @@
       mode = checked.value;
     }
   }
+
+  if (tableWrap && window.ResizeObserver) {
+    const wrapResizeObserver = new window.ResizeObserver(function () {
+      scheduleFlexibleColumnsRebalance();
+    });
+    wrapResizeObserver.observe(tableWrap);
+  }
+
+  window.addEventListener("resize", scheduleFlexibleColumnsRebalance);
+  window.addEventListener("load", scheduleFlexibleColumnsRebalance);
+  scheduleFlexibleColumnsRebalance();
 })();
