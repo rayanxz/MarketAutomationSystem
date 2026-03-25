@@ -236,6 +236,18 @@
   table.bill td.stock-display{
     white-space:nowrap;
   }
+  table.bill tbody td{
+    overflow:hidden;
+  }
+  table.bill .cell-clip{
+    display:block;
+    width:100%;
+    min-width:0;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    text-align:center;
+  }
   table.bill th.col-returns-action,
   table.bill td.col-returns-action{
     width:118px;
@@ -311,11 +323,16 @@
     gap:2px;
     direction:ltr; /* keep currency indicator on the left, amount on the right */
     width:100%;
+    min-width:0;
   }
   .total-cost-value{
     flex:1 1 auto;
     min-width:0;
+    display:block;
     white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    text-align:center; /* center value in the available space to the right of icon */
   }
   .total-cost-cur{
     flex:0 0 32px;
@@ -750,7 +767,7 @@
                   {% if row.item_id in selected_items %}checked{% endif %}
                 >
               {% else %}
-                <span class="muted">—</span>
+                <span class="cell-clip muted" title="&mdash;">&mdash;</span>
               {% endif %}
             </td>
 
@@ -763,19 +780,26 @@
             <td class="col-unit-cost-cell">
               <div class="total-cost-wrap">
                 <span class="total-cost-cur" aria-hidden="true">{% if row.currency == "USD" %}${% else %}SYP{% endif %}</span>
-                <span class="total-cost-value">{{ row.cost|human_number }}</span>
+                <span
+                  class="total-cost-value"
+                  title="{% if row.currency == 'USD' %}${% else %}SYP{% endif %} {{ row.cost|human_number }}"
+                >{{ row.cost|human_number }}</span>
               </div>
             </td>
 
             <!-- qty u1 / u2 -->
             <td class="col-qty-cell qty-display {% if row.highlight_unit == 1 %}hl-unit{% endif %}">
-              {{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
             </td>
             <td class="col-qty-cell qty-display {% if row.highlight_unit == 2 %}hl-unit{% endif %}">
               {% if row.unit2_label %}
-                {{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}
+                <span class="cell-clip" title="{{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}">
+                  {{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}
+                </span>
               {% else %}
-                —
+                <span class="cell-clip" title="&mdash;">&mdash;</span>
               {% endif %}
             </td>
 
@@ -783,21 +807,48 @@
             <td class="col-total-cost-cell">
               <div class="total-cost-wrap">
                 <span class="total-cost-cur" aria-hidden="true">{% if row.currency == "USD" %}${% else %}SYP{% endif %}</span>
-                <span class="total-cost-value">{{ row.line_total|human_number }}</span>
+                <span
+                  class="total-cost-value"
+                  title="{% if row.currency == 'USD' %}${% else %}SYP{% endif %} {{ row.line_total|human_number }}"
+                >{{ row.line_total|human_number }}</span>
               </div>
             </td>
 
             <!-- containers -->
-            <td class="col-orange col-balance-total-cell stock-display stock-total-col">{{ row.total_remaining_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
-            <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">{{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
-            <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">{{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
-            <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">{{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-orange col-balance-total-cell stock-display stock-total-col">
+              <span class="cell-clip" title="{{ row.total_remaining_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.total_remaining_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
+            </td>
+            <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">
+              <span class="cell-clip" title="{{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
+            </td>
+            <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">
+              <span class="cell-clip" title="{{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
+            </td>
+            <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">
+              <span class="cell-clip" title="{{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
+            </td>
 
             <!-- sold -->
-            <td class="col-purple col-flow-cell stock-display">{{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-purple col-flow-cell stock-display">
+              <span class="cell-clip" title="{{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
+            </td>
 
             <!-- total returned -->
-            <td class="col-red col-flow-cell stock-display">{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}</td>
+            <td class="col-red col-flow-cell stock-display">
+              <span class="cell-clip" title="{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
+                {{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              </span>
+            </td>
 
             <!-- show returns -->
             <td class="col-red col-returns-action returns-detail-col">
@@ -806,11 +857,12 @@
                   type="button"
                   class="btn-mini btn-show-return"
                   data-returns-url="{% url 'billing_returns_list' %}?bill_serial={{ bill.serial }}"
+                  title="عرض المرتجعات"
                 >
                   عرض المرتجعات
                 </button>
               {% else %}
-                <span class="muted">—</span>
+                <span class="cell-clip muted" title="&mdash;">&mdash;</span>
               {% endif %}
             </td>
           </tr>
