@@ -5,14 +5,6 @@
   const root = document.getElementById("billView");
   if (!root || !window.__BILLING__) return;
 
-  const wizardUrl = window.__BILLING__.wizardUrl;
-  const selectedItemsRaw = (window.__BILLING__.selectedItems || "").trim();
-
-  const btnStart = document.getElementById("btnStartReturn");
-  const btnProceed = document.getElementById("btnProceedReturn");
-  const btnCancel = document.getElementById("btnCancelReturnSelection");
-  const controls = document.getElementById("returnSelectControls");
-
   const showReturnButtons = Array.prototype.slice.call(
     document.querySelectorAll(".btn-show-return")
   );
@@ -30,6 +22,33 @@
   const FLEX_MIN_UNIT_COST = 132;
   const FLEX_MIN_TOTAL_COST = 132;
   let rebalanceRaf = 0;
+  const settlementPreviewMode = document.getElementById("settlementPreviewMode");
+  const settlementPreviewTotal = document.getElementById("settlementPreviewTotal");
+  const settlementPreviewCurrency = document.getElementById("settlementPreviewCurrency");
+  const panelData = window.__BILLING__.panel || {};
+  const wizardUrl = String(window.__BILLING__.wizardUrl || "").trim();
+  const selectedItemsRaw = String(window.__BILLING__.selectedItems || "").trim();
+  const controls = document.querySelector(".return-select-controls");
+  const btnStart = document.getElementById("btnStartReturn");
+  const btnCancel = document.getElementById("btnCancelReturn");
+  const btnProceed = document.getElementById("btnProceedReturn");
+
+  function toNumber(raw) {
+    const n = parseFloat(String(raw == null ? "" : raw).trim().replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Match add_bill display rules: comma group separator, clip to 2 decimals, trim trailing zeros.
+  function formatDisplay2(value) {
+    const n = Number(value == null ? 0 : value);
+    if (!Number.isFinite(n)) return "0";
+    const clipped = Math.trunc(n * 100) / 100;
+    if (clipped === 0 || Object.is(clipped, -0)) return "0";
+    const parts = clipped.toFixed(2).split(".");
+    const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const frac = (parts[1] || "").replace(/0+$/, "");
+    return frac ? intPart + "." + frac : intPart;
+  }
 
   function applyFlexibleColumnWidths(productWidth, unitCostWidth, totalCostWidth) {
     root.style.setProperty("--col-product-width", String(productWidth) + "px");
@@ -86,6 +105,28 @@
       rebalanceRaf = 0;
       rebalanceFlexibleColumns();
     });
+  }
+
+  function recalcSettlementPreview() {
+    if (!settlementPreviewMode || !settlementPreviewTotal || !settlementPreviewCurrency) return;
+
+    const totalSyp = toNumber(panelData.totalSyp);
+    const totalUsd = toNumber(panelData.totalUsd);
+    const fxRate = toNumber(panelData.fxRate);
+    const mode = (settlementPreviewMode.value || "SYP").toUpperCase();
+    const hasFx = fxRate > 0;
+
+    let preview = Number.NaN;
+    if (mode === "USD") {
+      if (hasFx || Math.abs(totalSyp) < 0.000001) {
+        preview = totalUsd + (hasFx ? (totalSyp / fxRate) : 0);
+      }
+    } else if (hasFx || Math.abs(totalUsd) < 0.000001) {
+      preview = totalSyp + (hasFx ? (totalUsd * fxRate) : 0);
+    }
+
+    settlementPreviewTotal.textContent = Number.isFinite(preview) ? formatDisplay2(preview) : "—";
+    settlementPreviewCurrency.textContent = mode === "USD" ? "$" : "ل.س";
   }
 
   function setStockBreakdownExpanded(expanded) {
@@ -148,6 +189,11 @@
     });
   }
 
+  if (settlementPreviewMode) {
+    settlementPreviewMode.addEventListener("change", recalcSettlementPreview);
+  }
+  recalcSettlementPreview();
+
   /* ================== SELECT MODE (FOR WIZARD) ================== */
 
     function enterSelectMode() {
@@ -193,37 +239,41 @@
       return;
     }
 
+    if (!wizardUrl) return;
     const params = new URLSearchParams();
     params.set("items", ids.join(","));
     window.location.href = wizardUrl + "?" + params.toString();
   }
 
-  // wire buttons
-  if (btnStart) {
-    btnStart.addEventListener("click", function () {
-      enterSelectMode();
-    });
-  }
-  if (btnCancel) {
-    btnCancel.addEventListener("click", function () {
-      exitSelectMode(true);
-    });
-  }
-  if (btnProceed) {
-    btnProceed.addEventListener("click", proceed);
-  }
-
-  // auto-enter selection mode if server gave preselected items
-  if (selectedItemsRaw) {
-    const pre = selectedItemsRaw.split(",").map(function (s) { return s.trim(); });
-    getCheckboxes().forEach(function (cb) {
-      if (pre.indexOf(cb.value) !== -1) cb.checked = true;
-    });
-    if (pre.length) {
-      enterSelectMode();
+  const hasSelectModeUi = !!(controls || btnStart || btnCancel || btnProceed);
+  if (hasSelectModeUi) {
+    // wire buttons
+    if (btnStart) {
+      btnStart.addEventListener("click", function () {
+        enterSelectMode();
+      });
     }
-  } else {
-    exitSelectMode(false);
+    if (btnCancel) {
+      btnCancel.addEventListener("click", function () {
+        exitSelectMode(true);
+      });
+    }
+    if (btnProceed) {
+      btnProceed.addEventListener("click", proceed);
+    }
+
+    // auto-enter selection mode if server gave preselected items
+    if (selectedItemsRaw) {
+      const pre = selectedItemsRaw.split(",").map(function (s) { return s.trim(); });
+      getCheckboxes().forEach(function (cb) {
+        if (pre.indexOf(cb.value) !== -1) cb.checked = true;
+      });
+      if (pre.length) {
+        enterSelectMode();
+      }
+    } else {
+      exitSelectMode(false);
+    }
   }
 
   // "عرض المرتجعات" buttons → navigate same window
