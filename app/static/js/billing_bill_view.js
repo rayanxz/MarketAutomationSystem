@@ -22,15 +22,18 @@
   const FLEX_MIN_UNIT_COST = 132;
   const FLEX_MIN_TOTAL_COST = 132;
   let rebalanceRaf = 0;
-  const settlementPreviewMode = document.getElementById("settlementPreviewMode");
-  const settlementPreviewTotal = document.getElementById("settlementPreviewTotal");
-  const settlementPreviewCurrency = document.getElementById("settlementPreviewCurrency");
+  const settlementCurrencySelect = document.getElementById("payCurrency") || document.getElementById("settlementPreviewMode");
+  const settlementTotalOutput = document.getElementById("billTotalBox") || document.getElementById("settlementPreviewTotal");
+  const settlementCurrencyOutput = document.getElementById("settleCurLabel") || document.getElementById("settlementPreviewCurrency");
+  const billTotalSypOutput = document.getElementById("billTotalSyp");
+  const billTotalUsdOutput = document.getElementById("billTotalUsd");
+  const grandTotalsOutput = document.getElementById("grandTotals");
   const panelData = window.__BILLING__.panel || {};
   const wizardUrl = String(window.__BILLING__.wizardUrl || "").trim();
   const selectedItemsRaw = String(window.__BILLING__.selectedItems || "").trim();
-  const controls = document.querySelector(".return-select-controls");
+  const controls = document.getElementById("returnSelectControls") || document.querySelector(".return-select-controls");
   const btnStart = document.getElementById("btnStartReturn");
-  const btnCancel = document.getElementById("btnCancelReturn");
+  const btnCancel = document.getElementById("btnCancelReturnSelection") || document.getElementById("btnCancelReturn");
   const btnProceed = document.getElementById("btnProceedReturn");
 
   function toNumber(raw) {
@@ -108,25 +111,47 @@
   }
 
   function recalcSettlementPreview() {
-    if (!settlementPreviewMode || !settlementPreviewTotal || !settlementPreviewCurrency) return;
+    if (!settlementCurrencySelect || !settlementTotalOutput || !settlementCurrencyOutput) return;
 
     const totalSyp = toNumber(panelData.totalSyp);
     const totalUsd = toNumber(panelData.totalUsd);
     const fxRate = toNumber(panelData.fxRate);
-    const mode = (settlementPreviewMode.value || "SYP").toUpperCase();
     const hasFx = fxRate > 0;
+    const mode = (settlementCurrencySelect.value || "SYP").toUpperCase();
 
-    let preview = Number.NaN;
-    if (mode === "USD") {
-      if (hasFx || Math.abs(totalSyp) < 0.000001) {
-        preview = totalUsd + (hasFx ? (totalSyp / fxRate) : 0);
-      }
-    } else if (hasFx || Math.abs(totalUsd) < 0.000001) {
-      preview = totalSyp + (hasFx ? (totalUsd * fxRate) : 0);
+    let settlementSyp = Number.NaN;
+    let settlementUsd = Number.NaN;
+    if (hasFx || Math.abs(totalUsd) < 0.000001) {
+      settlementSyp = totalSyp + (hasFx ? (totalUsd * fxRate) : 0);
+    }
+    if (hasFx || Math.abs(totalSyp) < 0.000001) {
+      settlementUsd = totalUsd + (hasFx ? (totalSyp / fxRate) : 0);
     }
 
-    settlementPreviewTotal.textContent = Number.isFinite(preview) ? formatDisplay2(preview) : "—";
-    settlementPreviewCurrency.textContent = mode === "USD" ? "$" : "ل.س";
+    const preview = mode === "USD" ? settlementUsd : settlementSyp;
+    const previewText = Number.isFinite(preview) ? formatDisplay2(preview) : "—";
+    settlementTotalOutput.textContent = previewText;
+    settlementTotalOutput.setAttribute("title", previewText);
+    settlementCurrencyOutput.textContent = mode === "USD" ? "USD" : "SYP";
+
+    if (billTotalSypOutput) {
+      const sypText = formatDisplay2(totalSyp);
+      billTotalSypOutput.textContent = sypText;
+      billTotalSypOutput.setAttribute("title", sypText);
+    }
+    if (billTotalUsdOutput) {
+      const usdText = formatDisplay2(totalUsd);
+      billTotalUsdOutput.textContent = usdText;
+      billTotalUsdOutput.setAttribute("title", usdText);
+    }
+    if (grandTotalsOutput) {
+      if (Number.isFinite(settlementSyp) && Number.isFinite(settlementUsd)) {
+        grandTotalsOutput.textContent =
+          "إجمالي بالتحويل: " + formatDisplay2(settlementSyp) + " SYP | " + formatDisplay2(settlementUsd) + " USD";
+      } else {
+        grandTotalsOutput.textContent = "إجمالي بالتحويل: —";
+      }
+    }
   }
 
   function setStockBreakdownExpanded(expanded) {
@@ -189,8 +214,12 @@
     });
   }
 
-  if (settlementPreviewMode) {
-    settlementPreviewMode.addEventListener("change", recalcSettlementPreview);
+  if (settlementCurrencySelect) {
+    const preferredCur = String(panelData.settlementCurrency || "").toUpperCase();
+    if (preferredCur && settlementCurrencySelect.querySelector('option[value="' + preferredCur + '"]')) {
+      settlementCurrencySelect.value = preferredCur;
+    }
+    settlementCurrencySelect.addEventListener("change", recalcSettlementPreview);
   }
   recalcSettlementPreview();
 

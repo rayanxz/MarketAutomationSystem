@@ -366,6 +366,40 @@
     position:sticky;
     top:12px;
   }
+  .foot-right{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .foot-left > .foot-right{
+    margin-top:auto;
+    padding-top:12px;
+  }
+  .pay-head{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+    align-items:end;
+    margin-top:8px;
+  }
+  .total-box{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:10px 12px;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    margin-bottom:10px;
+  }
+  .total-amt{
+    font-size:24px;
+    font-weight:800;
+    direction:ltr;
+    text-align:left;
+    font-variant-numeric:tabular-nums;
+  }
   .bill-side-stack{
     display:grid;
     gap:10px;
@@ -410,6 +444,33 @@
     align-items:center;
     gap:6px;
     direction:ltr;
+  }
+  .bill-fx-info{
+    margin-top:10px;
+    padding:8px 10px;
+    border:1px dashed #cbd5e1;
+    border-radius:10px;
+    background:#f8fafc;
+    display:grid;
+    gap:4px;
+  }
+  .bill-fx-label{
+    color:#64748b;
+    font-size:12px;
+    font-weight:600;
+    text-align:right;
+  }
+  .bill-fx-value{
+    color:#334155;
+    font-size:14px;
+    font-weight:700;
+    direction:ltr;
+    text-align:left;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+  .bill-payment-card{
+    margin-top:10px;
   }
   .btn{
     padding:10px 14px;
@@ -549,6 +610,10 @@
       position:static;
       top:auto;
     }
+    .foot-left > .foot-right{
+      margin-top:12px;
+      padding-top:0;
+    }
   }
   @media (max-width:760px){
     .bill-search-row{
@@ -600,7 +665,8 @@
     panel: {
       totalSyp: "{{ bill.total_syp|unlocalize }}",
       totalUsd: "{{ bill.total_usd|unlocalize }}",
-      fxRate: "{{ bill.fx_rate_usd_to_syp_used|default:bill.fx_usd_syp|default:'0'|unlocalize }}"
+      fxRate: "{{ bill.fx_rate_usd_to_syp_used|default:bill.fx_usd_syp|default:'0'|unlocalize }}",
+      settlementCurrency: "{{ bill.settlement_currency|default:'SYP' }}"
     }
   };
 </script>
@@ -903,58 +969,69 @@
 
   <aside class="bill-side">
     <section class="foot-left">
-      <div class="bill-side-stack">
-        <div class="bill-side-card">
-          <div class="bill-side-row">
-            <span class="bill-side-label">إجمالي الفاتورة (ل.س)</span>
-            <span class="bill-side-value bill-side-value-num" title="{{ bill_total_syp_ui|human_number }}">{{ bill_total_syp_ui|human_number }}</span>
-          </div>
-          <div class="bill-side-row">
-            <span class="bill-side-label">إجمالي الفاتورة ($)</span>
-            <span class="bill-side-value bill-side-value-num" title="{{ bill_total_usd_ui|human_number }}">{{ bill_total_usd_ui|human_number }}</span>
-          </div>
-        </div>
+      <div class="total-box">
+        <div class="muted">الإجمالي (SYP)</div>
+        <div id="billTotalSyp" class="total-amt" title="{{ bill_total_syp_ui|human_number }}">{{ bill_total_syp_ui|human_number }}</div>
+      </div>
+      <div class="total-box">
+        <div class="muted">الإجمالي (USD)</div>
+        <div id="billTotalUsd" class="total-amt" title="{{ bill_total_usd_ui|human_number }}">{{ bill_total_usd_ui|human_number }}</div>
+      </div>
+      <div class="total-box">
+        <div class="muted">إجمالي التسوية (<span id="settleCurLabel">SYP</span>)</div>
+        <div id="billTotalBox" class="total-amt" title="—">—</div>
+      </div>
+      <div class="muted" id="grandTotals" style="margin-top:6px;"></div>
 
-        <div class="bill-side-card">
-          <div class="bill-side-row">
-            <span class="bill-side-label">سعر الصرف عند إنشاء الفاتورة</span>
-            <span class="bill-side-value bill-side-value-num" title="{{ bill_fx_rate_ui|human_number }}">{{ bill_fx_rate_ui|human_number }}</span>
-          </div>
-        </div>
-
-        <div class="bill-side-card">
-          <label class="bill-side-label" for="settlementPreviewMode">طريقة عرض التسوية</label>
-          <select id="settlementPreviewMode" class="input bill-side-select">
-            <option value="SYP">عرض بالليرة السورية</option>
-            <option value="USD">عرض بالدولار</option>
+      <div class="pay-head">
+        <div class="field">
+          <label class="muted" for="payCurrency">عملة التسوية</label>
+          <select id="payCurrency" class="input">
+            <option value="SYP">SYP</option>
+            <option value="USD">USD</option>
           </select>
-          <div class="bill-side-row">
-            <span class="bill-side-label">إجمالي الفاتورة بعد التسوية</span>
-            <span class="bill-side-value bill-side-value-num bill-side-preview">
-              <span id="settlementPreviewTotal">—</span>
-              <span id="settlementPreviewCurrency">ل.س</span>
-            </span>
-          </div>
         </div>
+      </div>
 
-        <div class="bill-side-card">
-          <div class="bill-side-row">
-            <span class="bill-side-label">حالة الدفع عند الإنشاء</span>
-            <span class="bill-side-value" title="{{ created_payment_status_label }}">{{ created_payment_status_label }}</span>
-          </div>
-          <div class="bill-side-row">
-            <span class="bill-side-label">طريقة الدفع عند الإنشاء</span>
-            <span class="bill-side-value" title="{{ created_payment_method_label }}">{{ created_payment_method_label }}</span>
-          </div>
-          <div class="bill-side-row">
-            <span class="bill-side-label">المبلغ المدفوع (ل.س)</span>
-            <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|human_number }}">{{ created_paid_syp_ui|human_number }}</span>
-          </div>
-          <div class="bill-side-row">
-            <span class="bill-side-label">المبلغ المدفوع ($)</span>
-            <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|human_number }}">{{ created_paid_usd_ui|human_number }}</span>
-          </div>
+      <div class="bill-fx-info" role="note" aria-label="سعر الصرف عند إنشاء الفاتورة">
+        <div class="bill-fx-label">سعر الصرف عند إنشاء الفاتورة</div>
+        <div class="bill-fx-value" title="{{ bill_fx_rate_ui|human_number }}">{{ bill_fx_rate_ui|human_number }}</div>
+      </div>
+
+      <div class="bill-side-card bill-payment-card">
+        <div class="bill-side-row">
+          <span class="bill-side-label">حالة الدفع عند الإنشاء</span>
+          <span class="bill-side-value" title="{{ created_payment_status_label }}">{{ created_payment_status_label }}</span>
         </div>
+        <div class="bill-side-row">
+          <span class="bill-side-label">طريقة الدفع عند الإنشاء</span>
+          <span class="bill-side-value" title="{{ created_payment_method_label }}">{{ created_payment_method_label }}</span>
+        </div>
+        <div class="bill-side-row">
+          <span class="bill-side-label">المبلغ المدفوع (ل.س)</span>
+          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|human_number }}">{{ created_paid_syp_ui|human_number }}</span>
+        </div>
+        <div class="bill-side-row">
+          <span class="bill-side-label">المبلغ المدفوع ($)</span>
+          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|human_number }}">{{ created_paid_usd_ui|human_number }}</span>
+        </div>
+      </div>
+
+      <div class="foot-right">
+        <a class="btn-sec" href="{% url 'billing_list' %}">رجوع</a>
+        {% if has_debt_now %}
+          <a class="btn-sec" href="{% url 'debts_page' %}?serial={{ bill.serial }}">معلومات الدين</a>
+        {% endif %}
+
+        {% if can_return %}
+          <button type="button" class="btn" id="btnStartReturn">إضافة مرتجع</button>
+          <div class="return-select-controls" id="returnSelectControls">
+            <button type="button" class="btn" id="btnProceedReturn">متابعة</button>
+            <button type="button" class="btn" id="btnCancelReturnSelection">إلغاء التحديد</button>
+          </div>
+        {% else %}
+          <span class="muted">الفاتورة مغلقة</span>
+        {% endif %}
       </div>
     </section>
   </aside>
