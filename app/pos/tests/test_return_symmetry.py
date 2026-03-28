@@ -533,31 +533,33 @@ class PosReturnSymmetryTests(TestCase):
         self._seed_stock(prod_p, self.store_provider)
         self._seed_stock(prod_s, self.store_sales)
 
-        stock_before_p = StockEntry.objects.get(product=prod_p, container=self.store_provider).qty_primary
-        cash_before_p_usd = self.cash_provider.balance_usd
-        debt_before_p = CreditorDebt.objects.filter(source_model="ProviderReturn", currency_code="USD").count()
-
         bill = BillingSV.create_bill(
             actor=self.user,
             provider_id=self.provider.id,
             status="unpaid",
             paid_amount=Decimal("0"),
-            items=[],
+            items=[
+                {
+                    "product_id": prod_p.id,
+                    "unit_index": 1,
+                    "qty_raw": "10",
+                    "cost": "10",
+                    "price": "15",
+                    "currency": "USD",
+                }
+            ],
             update_product_defaults=False,
             container=self.store_provider,
             money_container_id=None,
             settlement_currency="USD",
             fx_usd_syp=Decimal("10000"),
         )
-        bill_item = bill.items.create(
-            product=prod_p,
-            unit_index=1,
-            qty_primary=Decimal("10"),
-            cost=Decimal("10"),
-            price=Decimal("15"),
-            line_total=Decimal("100"),
-            currency="USD",
-        )
+        bill_item = bill.items.first()
+        self.assertIsNotNone(bill_item)
+
+        stock_before_p = StockEntry.objects.get(product=prod_p, container=self.store_provider).qty_primary
+        cash_before_p_usd = self.cash_provider.balance_usd
+        debt_before_p = CreditorDebt.objects.filter(source_model="ProviderReturn", currency_code="USD").count()
 
         with transaction.atomic():
             with self.assertRaises(ValueError):

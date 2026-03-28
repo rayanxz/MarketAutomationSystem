@@ -10,7 +10,14 @@ from billing.models import Provider, Bill, ProviderReturn
 from debts.models import CreditorDebt, CreditorReceipt
 from audit_log.models import AuditLog
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from financials.models import MoneyContainer, Currency, MoneyContainerCurrency, Receipt, ReceiptStatus
+from financials.models import (
+    MoneyContainer,
+    Currency,
+    MoneyContainerCurrency,
+    PostingTargetType,
+    Receipt,
+    ReceiptStatus,
+)
 from financials import services as FinSV
 from stock.models import ProductContainer, StockFifoLayer
 from inventory.models import ProductMovement, DEC0, q3
@@ -290,6 +297,80 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         receipt_row = CreditorReceipt.objects.filter(entry=entry).first()
         self.assertIsNotNone(receipt_row)
         self.assertIsNotNone(receipt_row.receipt_id)
+
+    def test_paid_mixed_return_uses_one_receipt_and_settlement_currency_cash(self):
+        p1 = _create_min_product("PaidMixSYP")
+        p2 = _create_min_product("PaidMixUSD")
+
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[
+                {"product_id": p1.id, "unit_index": 1, "qty_raw": "1", "cost": "5000", "currency": "SYP"},
+                {"product_id": p2.id, "unit_index": 1, "qty_raw": "2", "cost": "3", "currency": "USD"},
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+            fx_usd_syp=Decimal("15000"),
+        )
+        items = list(bill.items.order_by("id"))
+        before = FinSV.container_balance(container_id=self.cash.id)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="paid",
+            paid_amount=Decimal("0"),
+            items=[
+                {"bill_item_id": items[0].id, "product_id": items[0].product_id, "unit_index": 1, "qty_primary": "1",
+                 "container_splits": [{"code": "store", "qty_primary": "1"}]},
+                {"bill_item_id": items[1].id, "product_id": items[1].product_id, "unit_index": 1, "qty_primary": "2",
+                 "container_splits": [{"code": "store", "qty_primary": "2"}]},
+            ],
+            container=None,
+            source_bill_serial=bill.serial,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="HISTORICAL",
+        )
+
+        receipts = list(
+            Receipt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=str(pret.id),
+                status=ReceiptStatus.POSTED,
+            )
+        )
+        self.assertEqual(len(receipts), 1)
+        receipt = receipts[0]
+
+        debt_rows = list(
+            CreditorReceipt.objects.filter(
+                entry__source_app="billing",
+                entry__source_model="ProviderReturn",
+                entry__source_id=str(pret.id),
+                receipt_id=receipt.id,
+            )
+        )
+        self.assertEqual(len(debt_rows), 2)
+
+        container_totals: dict[str, Decimal] = {}
+        for ln in receipt.lines.select_related("currency").all():
+            if ln.target_type != PostingTargetType.CONTAINER:
+                continue
+            code = ln.currency.code
+            container_totals[code] = q3(container_totals.get(code, DEC0) + ln.amount)
+
+        self.assertEqual(q3(container_totals.get("SYP", DEC0)), q3(pret.total))
+        self.assertEqual(q3(container_totals.get("USD", DEC0)), DEC0)
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), q3(pret.total))
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
 
     def test_unpaid_return_creates_creditor_debts(self):
         p1 = _create_min_product("SYP-Prod2")

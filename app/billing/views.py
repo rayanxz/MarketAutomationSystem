@@ -601,6 +601,14 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
     amount_syp = _dec(pay.get("amount_syp"), "0")
     amount_usd = _dec(pay.get("amount_usd"), "0")
     paid_amount = _dec(pay.get("paid_amount"), "0")
+    fx_rate_raw = pay.get("fx_rate")
+    if fx_rate_raw in (None, ""):
+        fx_rate_raw = payload.get("fx_rate")
+    fx_rate_snapshot = None
+    if fx_rate_raw not in (None, ""):
+        fx_rate_snapshot = _q_fx(_dec(fx_rate_raw, "0"))
+        if fx_rate_snapshot <= DEC0:
+            return _bad("invalid FX rate", 400)
 
     if paid_amount < DEC0:
         return _bad("paid amount must be >= 0", 400)
@@ -635,17 +643,6 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                     return _bad("full payment requires a valid amount", 400)
                 if method == "mixed" and amount_syp == DEC0 and amount_usd == DEC0:
                     return _bad("mixed full payment requires at least one amount", 400)
-
-            try:
-                fx_now = FinSV.get_current_fx_syp_per_usd()
-            except Exception:
-                return _bad("FX rate is required for payment conversion", 400)
-            fx_now = _q_fx(fx_now)
-            if fx_now <= DEC0:
-                return _bad("FX rate is required for payment conversion", 400)
-
-            paid_amount_dec = amount_usd + (amount_syp / fx_now) if settlement_currency == "USD" else amount_syp + (amount_usd * fx_now)
-            paid_amount = _q_money(settlement_currency, paid_amount_dec)
 
     from financials.models import MoneyContainerCurrency
 
@@ -691,6 +688,11 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             container=container,
             money_container_id=int(money_container_id),
             settlement_currency=settlement_currency,
+            fx_usd_syp=fx_rate_snapshot,
+            payment_status=status,
+            payment_method=(None if legacy_pay_shape else method),
+            paid_syp=(None if legacy_pay_shape else amount_syp),
+            paid_usd=(None if legacy_pay_shape else amount_usd),
         )
         return JsonResponse({"ok": True, "bill": bill_row(bill)})
     except (ValidationError, ValueError, InvalidOperation) as e:
@@ -1017,15 +1019,11 @@ def bill_view(request, bill_id: int):
     items_rows = []
     for it in item_qs:
         prod = it.product
-        if not prod:
-            continue
 
         unit1_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip()
         unit2_label = (getattr(it, "unit_2_label_at_txn", "") or "").strip()
         if not unit1_label:
-            unit1_label = prod.get_unit_primary_display() or ""
-        if not unit2_label and getattr(prod, "unit_secondary", None):
-            unit2_label = prod.get_unit_secondary_display() or ""
+            unit1_label = "—"
 
         qty_primary = q3(it.qty_primary or DEC0)
         cf = getattr(it, "conv_factor_at_txn", None)
@@ -1070,7 +1068,7 @@ def bill_view(request, bill_id: int):
         sold_qty = q3(sold_by_item.get(it.id, DEC0))
 
         # product identifiers for search
-        prod_code = str(getattr(prod, "id", "") or "")
+        prod_code = str(getattr(it, "product_id", "") or "")
         barcode_vals: list[str] = []
         try:
             seen_barcodes: set[str] = set()
@@ -1100,7 +1098,7 @@ def bill_view(request, bill_id: int):
         items_rows.append(
             {
                 "item_id": it.id,
-                "product_name": (getattr(it, "product_name_at_txn", "") or getattr(prod, "name", "") or ""),
+                "product_name": ((getattr(it, "product_name_at_txn", "") or "").strip() or "—"),
                 "unit1_label": unit1_label,
                 "unit2_label": unit2_label,
                 "cost": it.cost,
@@ -1168,70 +1166,91 @@ def bill_view(request, bill_id: int):
         bill_fx_rate = DEC0
     bill_fx_rate = q3(bill_fx_rate)
 
+    creation_status_raw = (getattr(bill, "creation_payment_status", None) or "").lower().strip()
+    creation_method_raw = (getattr(bill, "creation_payment_method", None) or "").lower().strip()
+    has_creation_snapshot = bool(creation_status_raw in {"paid", "partial", "unpaid"})
+
     created_paid_syp = DEC0
     created_paid_usd = DEC0
-    try:
-        creation_payment_rows = (
-            DebtorPayment.objects
-            .filter(
-                entry__source_app="billing",
-                entry__source_model="Bill",
-                receipt__isnull=False,
-                receipt__source_app="billing",
-                receipt__source_model="Bill",
-                receipt__source_id__in=[str(bill.id), f"{bill.id}:USD"],
-            )
-            .filter(
-                source_identity_lookup_q(
-                    source_ids=[bill.id],
-                    source_field="entry__source_id",
-                    legacy_field="entry__legacy_source_id",
+    created_payment_status_code = "not_paid"
+    created_payment_method_code = "NONE"
+
+    if has_creation_snapshot:
+        created_paid_syp = q3(getattr(bill, "creation_paid_syp", DEC0) or DEC0)
+        created_paid_usd = q3(getattr(bill, "creation_paid_usd", DEC0) or DEC0)
+        created_payment_status_code = {
+            "paid": "fully_paid",
+            "partial": "partially_paid",
+            "unpaid": "not_paid",
+        }.get(creation_status_raw, "not_paid")
+        created_payment_method_code = {
+            "syp_only": "SYP_ONLY",
+            "usd_only": "USD_ONLY",
+            "separate": "SEPARATE",
+            "mixed": "MIXED",
+            "none": "NONE",
+            "": "NONE",
+        }.get(creation_method_raw, "NONE")
+    else:
+        try:
+            creation_payment_rows = (
+                DebtorPayment.objects
+                .filter(
+                    entry__source_app="billing",
+                    entry__source_model="Bill",
+                    receipt__isnull=False,
+                    receipt__source_app="billing",
+                    receipt__source_model="Bill",
+                    receipt__source_id__in=[str(bill.id), f"{bill.id}:USD"],
                 )
+                .filter(
+                    source_identity_lookup_q(
+                        source_ids=[bill.id],
+                        source_field="entry__source_id",
+                        legacy_field="entry__legacy_source_id",
+                    )
+                )
+                .values("currency_code")
+                .annotate(total_amount=Sum("amount"))
             )
-            .values("currency_code")
-            .annotate(total_amount=Sum("amount"))
-        )
-        for r in creation_payment_rows:
-            cur = (r.get("currency_code") or "SYP").upper()
-            amt = q3(r.get("total_amount") or DEC0)
-            if cur == "USD":
-                created_paid_usd = q3(created_paid_usd + amt)
-            else:
-                created_paid_syp = q3(created_paid_syp + amt)
-    except Exception:
-        created_paid_syp = DEC0
-        created_paid_usd = DEC0
+            for r in creation_payment_rows:
+                cur = (r.get("currency_code") or "SYP").upper()
+                amt = q3(r.get("total_amount") or DEC0)
+                if cur == "USD":
+                    created_paid_usd = q3(created_paid_usd + amt)
+                else:
+                    created_paid_syp = q3(created_paid_syp + amt)
+        except Exception:
+            created_paid_syp = DEC0
+            created_paid_usd = DEC0
 
-    # Map creation payment status/method to read-only labels shown in the side panel.
-    has_any_total = (bill_total_syp > DEC0) or (bill_total_usd > DEC0)
-    full_syp = (bill_total_syp <= DEC0) or (created_paid_syp >= bill_total_syp)
-    full_usd = (bill_total_usd <= DEC0) or (created_paid_usd >= bill_total_usd)
+        has_any_total = (bill_total_syp > DEC0) or (bill_total_usd > DEC0)
+        full_syp = (bill_total_syp <= DEC0) or (created_paid_syp >= bill_total_syp)
+        full_usd = (bill_total_usd <= DEC0) or (created_paid_usd >= bill_total_usd)
 
-    if has_any_total and full_syp and full_usd:
-        created_payment_status_code = "fully_paid"
-    elif (created_paid_syp > DEC0) or (created_paid_usd > DEC0):
-        created_payment_status_code = "partially_paid"
-    else:
-        created_payment_status_code = "not_paid"
-
-    settlement_currency_code = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()
-    if (created_paid_syp > DEC0) and (created_paid_usd > DEC0):
-        # "SEPARATE" means each currency was paid exactly by its own bill total.
-        if (
-            created_payment_status_code == "fully_paid"
-            and (created_paid_syp == bill_total_syp)
-            and (created_paid_usd == bill_total_usd)
-        ):
-            created_payment_method_code = "SEPARATE"
+        if has_any_total and full_syp and full_usd:
+            created_payment_status_code = "fully_paid"
+        elif (created_paid_syp > DEC0) or (created_paid_usd > DEC0):
+            created_payment_status_code = "partially_paid"
         else:
-            created_payment_method_code = "MIXED"
-    elif created_paid_usd > DEC0:
-        created_payment_method_code = "USD_ONLY"
-    elif created_paid_syp > DEC0:
-        created_payment_method_code = "SYP_ONLY"
-    else:
-        # No payment at creation: fall back to settlement currency for a stable display mapping.
-        created_payment_method_code = "USD_ONLY" if settlement_currency_code == "USD" else "SYP_ONLY"
+            created_payment_status_code = "not_paid"
+
+        settlement_currency_code = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()
+        if (created_paid_syp > DEC0) and (created_paid_usd > DEC0):
+            if (
+                created_payment_status_code == "fully_paid"
+                and (created_paid_syp == bill_total_syp)
+                and (created_paid_usd == bill_total_usd)
+            ):
+                created_payment_method_code = "SEPARATE"
+            else:
+                created_payment_method_code = "MIXED"
+        elif created_paid_usd > DEC0:
+            created_payment_method_code = "USD_ONLY"
+        elif created_paid_syp > DEC0:
+            created_payment_method_code = "SYP_ONLY"
+        else:
+            created_payment_method_code = "USD_ONLY" if settlement_currency_code == "USD" else "SYP_ONLY"
 
     created_payment_status_label = {
         "fully_paid": "مدفوعة بالكامل",
@@ -1244,6 +1263,7 @@ def bill_view(request, bill_id: int):
         "USD_ONLY": "تم الدفع بالدولار فقط",
         "SEPARATE": "تم الدفع بعملتين منفصلتين",
         "MIXED": "تم الدفع بشكل مختلط",
+        "NONE": "بدون دفع عند الإنشاء",
     }.get(created_payment_method_code, "تم الدفع بالليرة السورية فقط")
 
     # parse selected items (when coming back from wizard with ?items=1,2,3)

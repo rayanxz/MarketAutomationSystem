@@ -516,6 +516,261 @@ def post_settlement_with_fx(
 
 
 @transaction.atomic
+def post_counterparty_bill_action_with_fx(
+    *,
+    actor,
+    counterparty_id: int,
+    totals_by_code: Dict[str, Decimal],
+    settled_counterparty_by_code: Dict[str, Decimal] | None = None,
+    container_paid_by_code: Dict[str, Decimal] | None = None,
+    container_id: int | None = None,
+    fx_syp_per_usd: Decimal | None,
+    note: str = "",
+    **source,
+) -> Receipt:
+    """
+    Post one canonical receipt for a purchase-bill action.
+
+    - Counterparty total increase: negative counterparty lines (per bill total currency).
+    - Counterparty settlement: positive counterparty lines (per paid allocation currency).
+    - Cash movement: negative container lines (per actual paid currency).
+
+    This keeps one logical bill action represented by one receipt while preserving
+    multi-currency semantics.
+    """
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
+    if fx <= 0:
+        raise ValueError("FX is required for receipts.")
+
+    cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
+
+    def _normalize_amounts(raw_map: Dict[str, Decimal] | None, *, field_name: str) -> Dict[str, Decimal]:
+        cleaned: Dict[str, Decimal] = {}
+        for code_raw, raw in (raw_map or {}).items():
+            code = (code_raw or "").upper().strip()
+            if not code:
+                raise ValueError(f"{field_name} currency code is required")
+            cur = Currency.objects.get(code=code)
+            amt = q_currency(Decimal(raw or DEC0), currency=cur)
+            if amt < 0:
+                raise ValueError(f"{field_name} amount cannot be negative")
+            if amt == 0:
+                continue
+            cleaned[code] = amt
+        return cleaned
+
+    total_map = _normalize_amounts(totals_by_code, field_name="totals_by_code")
+    if not total_map:
+        raise ValueError("Bill totals cannot be all zero")
+
+    settled_cp_map = _normalize_amounts(
+        settled_counterparty_by_code,
+        field_name="settled_counterparty_by_code",
+    )
+    container_paid_map = _normalize_amounts(
+        container_paid_by_code,
+        field_name="container_paid_by_code",
+    )
+
+    for code, settled in settled_cp_map.items():
+        total_for_code = total_map.get(code, DEC0)
+        if settled > total_for_code:
+            raise ValueError(f"Counterparty settled amount exceeds bill total in {code}")
+
+    if container_paid_map and not container_id:
+        raise ValueError("container_id is required when cash payment exists")
+
+    container = None
+    if container_paid_map:
+        container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+        _assert_container_usable(container)
+        for code in container_paid_map.keys():
+            if not _container_currency_enabled(container_id=container.id, currency_code=code):
+                raise ValueError(f"Currency {code} is disabled for this container")
+
+    kind = ReceiptKind.COUNTERPARTY_SETTLE if container_paid_map else ReceiptKind.COUNTERPARTY_INC
+    r = _mk_receipt(
+        actor=actor,
+        kind=kind,
+        note=note,
+        fx_syp_per_usd=fx,
+        **source,
+    )
+
+    for code in sorted(total_map.keys()):
+        currency = Currency.objects.get(code=code)
+        total_amt = total_map[code]
+        _add_line_counterparty(
+            receipt=r,
+            counterparty=cp,
+            currency=currency,
+            amount=-total_amt,
+            meta={"component": "bill_total"},
+        )
+
+    for code in sorted(settled_cp_map.keys()):
+        currency = Currency.objects.get(code=code)
+        settled_amt = settled_cp_map[code]
+        _add_line_counterparty(
+            receipt=r,
+            counterparty=cp,
+            currency=currency,
+            amount=settled_amt,
+            meta={"component": "bill_settlement"},
+        )
+
+    if container and container_paid_map:
+        for code in sorted(container_paid_map.keys()):
+            currency = Currency.objects.get(code=code)
+            paid_amt = container_paid_map[code]
+            _add_line_container(
+                receipt=r,
+                container=container,
+                currency=currency,
+                amount=-paid_amt,
+                meta={"component": "bill_cash_out"},
+            )
+
+    _post_receipt(r)
+
+    if container and container_paid_map:
+        for code in sorted(container_paid_map.keys()):
+            _apply_container_balance_delta(
+                container=container,
+                currency_code=code,
+                amount=-container_paid_map[code],
+            )
+
+    return r
+
+
+@transaction.atomic
+def post_counterparty_return_action_with_fx(
+    *,
+    actor,
+    counterparty_id: int,
+    totals_by_code: Dict[str, Decimal],
+    settled_counterparty_by_code: Dict[str, Decimal] | None = None,
+    container_collected_by_code: Dict[str, Decimal] | None = None,
+    container_id: int | None = None,
+    fx_syp_per_usd: Decimal | None,
+    note: str = "",
+    **source,
+) -> Receipt:
+    """
+    Post one canonical receipt for a provider-return action.
+
+    - Counterparty total increase: positive counterparty lines (per return total currency).
+    - Counterparty settlement: negative counterparty lines (per collected allocation currency).
+    - Cash movement: positive container lines (per actual collected currency).
+    """
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
+    if fx <= 0:
+        raise ValueError("FX is required for receipts.")
+
+    cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
+
+    def _normalize_amounts(raw_map: Dict[str, Decimal] | None, *, field_name: str) -> Dict[str, Decimal]:
+        cleaned: Dict[str, Decimal] = {}
+        for code_raw, raw in (raw_map or {}).items():
+            code = (code_raw or "").upper().strip()
+            if not code:
+                raise ValueError(f"{field_name} currency code is required")
+            cur = Currency.objects.get(code=code)
+            amt = q_currency(Decimal(raw or DEC0), currency=cur)
+            if amt < 0:
+                raise ValueError(f"{field_name} amount cannot be negative")
+            if amt == 0:
+                continue
+            cleaned[code] = amt
+        return cleaned
+
+    total_map = _normalize_amounts(totals_by_code, field_name="totals_by_code")
+    if not total_map:
+        raise ValueError("Return totals cannot be all zero")
+
+    settled_cp_map = _normalize_amounts(
+        settled_counterparty_by_code,
+        field_name="settled_counterparty_by_code",
+    )
+    container_collected_map = _normalize_amounts(
+        container_collected_by_code,
+        field_name="container_collected_by_code",
+    )
+
+    for code, settled in settled_cp_map.items():
+        total_for_code = total_map.get(code, DEC0)
+        if settled > total_for_code:
+            raise ValueError(f"Counterparty settled amount exceeds return total in {code}")
+
+    if container_collected_map and not container_id:
+        raise ValueError("container_id is required when cash collection exists")
+
+    container = None
+    if container_collected_map:
+        container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+        _assert_container_usable(container)
+        for code in container_collected_map.keys():
+            if not _container_currency_enabled(container_id=container.id, currency_code=code):
+                raise ValueError(f"Currency {code} is disabled for this container")
+
+    kind = ReceiptKind.COUNTERPARTY_SETTLE if container_collected_map else ReceiptKind.COUNTERPARTY_INC
+    r = _mk_receipt(
+        actor=actor,
+        kind=kind,
+        note=note,
+        fx_syp_per_usd=fx,
+        **source,
+    )
+
+    for code in sorted(total_map.keys()):
+        currency = Currency.objects.get(code=code)
+        total_amt = total_map[code]
+        _add_line_counterparty(
+            receipt=r,
+            counterparty=cp,
+            currency=currency,
+            amount=total_amt,
+            meta={"component": "return_total"},
+        )
+
+    for code in sorted(settled_cp_map.keys()):
+        currency = Currency.objects.get(code=code)
+        settled_amt = settled_cp_map[code]
+        _add_line_counterparty(
+            receipt=r,
+            counterparty=cp,
+            currency=currency,
+            amount=-settled_amt,
+            meta={"component": "return_settlement"},
+        )
+
+    if container and container_collected_map:
+        for code in sorted(container_collected_map.keys()):
+            currency = Currency.objects.get(code=code)
+            collected_amt = container_collected_map[code]
+            _add_line_container(
+                receipt=r,
+                container=container,
+                currency=currency,
+                amount=collected_amt,
+                meta={"component": "return_cash_in"},
+            )
+
+    _post_receipt(r)
+
+    if container and container_collected_map:
+        for code in sorted(container_collected_map.keys()):
+            _apply_container_balance_delta(
+                container=container,
+                currency_code=code,
+                amount=container_collected_map[code],
+            )
+
+    return r
+
+
+@transaction.atomic
 def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt:
     orig = (
         Receipt.objects.select_for_update()

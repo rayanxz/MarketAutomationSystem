@@ -78,6 +78,18 @@ class Provider(models.Model):
 # =========================
 
 class Bill(models.Model):
+    class CreationPaymentStatus(models.TextChoices):
+        PAID = "paid", "مدفوعة بالكامل"
+        UNPAID = "unpaid", "غير مدفوعة"
+        PARTIAL = "partial", "مدفوعة جزئياً"
+
+    class CreationPaymentMethod(models.TextChoices):
+        NONE = "none", "بدون دفع"
+        SYP_ONLY = "syp_only", "SYP فقط"
+        USD_ONLY = "usd_only", "USD فقط"
+        SEPARATE = "separate", "منفصل"
+        MIXED = "mixed", "مختلط"
+
     # NOTE: Debt state (paid/remaining/status) lives in DebtorEntry now.
     serial   = models.PositiveIntegerField(unique=True, db_index=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="bills")
@@ -95,6 +107,32 @@ class Bill(models.Model):
         blank=True,
         on_delete=models.PROTECT,
         related_name="purchase_bills",
+    )
+
+    creation_payment_status = models.CharField(
+        max_length=10,
+        choices=CreationPaymentStatus.choices,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    creation_payment_method = models.CharField(
+        max_length=12,
+        choices=CreationPaymentMethod.choices,
+        null=True,
+        blank=True,
+    )
+    creation_paid_syp = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+        validators=[MinValueValidator(0)],
+    )
+    creation_paid_usd = models.DecimalField(
+        max_digits=14,
+        decimal_places=3,
+        default=Decimal("0.000"),
+        validators=[MinValueValidator(0)],
     )
 
     total      = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),

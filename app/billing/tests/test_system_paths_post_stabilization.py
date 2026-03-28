@@ -338,7 +338,7 @@ class PostStabilizationSystemPathTests(TestCase):
             len(all_related_receipt_ids),
         )
 
-    def test_mixed_currency_paid_return_should_keep_receipt_currency_alignment(self):
+    def test_mixed_currency_paid_return_should_use_single_canonical_receipt(self):
         p_syp = self._product(name="Return Mixed SYP")
         p_usd = self._product(name="Return Mixed USD")
 
@@ -396,28 +396,29 @@ class PostStabilizationSystemPathTests(TestCase):
         self.assertEqual(q3(by_cur["SYP"].amount), q3(ret.total_syp))
         self.assertEqual(q3(by_cur["USD"].amount), q3(ret.total_usd))
 
-        for row in rows:
-            receipt = row.receipt
-            posted_in_row_currency = Decimal("0")
-            container_currencies = set()
-            for ln in receipt.lines.select_related("currency").all():
-                if ln.target_type == PostingTargetType.CONTAINER and ln.currency.code == row.currency_code:
-                    posted_in_row_currency += abs(ln.amount)
-                if ln.target_type == PostingTargetType.CONTAINER:
-                    container_currencies.add(ln.currency.code)
-            self.assertEqual(
-                q3(posted_in_row_currency),
-                q3(row.amount),
-                msg=f"receipt={receipt.id} row_currency={row.currency_code} row_amount={row.amount}",
-            )
-            self.assertEqual(container_currencies, {row.currency_code})
+        receipt_ids = {row.receipt_id for row in rows}
+        self.assertEqual(len(receipt_ids), 1)
+        receipt = rows[0].receipt
+
+        container_totals: dict[str, Decimal] = {}
+        counterparty_totals: dict[str, Decimal] = {}
+        for ln in receipt.lines.select_related("currency").all():
+            if ln.target_type == PostingTargetType.CONTAINER:
+                container_totals[ln.currency.code] = q3(container_totals.get(ln.currency.code, DEC0) + ln.amount)
+            else:
+                counterparty_totals[ln.currency.code] = q3(counterparty_totals.get(ln.currency.code, DEC0) + ln.amount)
+
+        # Return settled in SYP: one cash-in line in settlement currency only.
+        self.assertEqual(q3(container_totals.get("SYP", DEC0)), q3(ret.total))
+        self.assertEqual(q3(container_totals.get("USD", DEC0)), DEC0)
+
+        # Fully-settled return keeps counterparty net at zero per currency.
+        self.assertEqual(q3(counterparty_totals.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(counterparty_totals.get("USD", DEC0)), DEC0)
 
         after_bal = FinSV.container_balance(container_id=self.cash.id)
         self.assertEqual(
             q3(after_bal.get("SYP", DEC0) - base_bal.get("SYP", DEC0)),
-            q3(ret.total_syp),
+            q3(ret.total),
         )
-        self.assertEqual(
-            q3(after_bal.get("USD", DEC0) - base_bal.get("USD", DEC0)),
-            q3(ret.total_usd),
-        )
+        self.assertEqual(q3(after_bal.get("USD", DEC0) - base_bal.get("USD", DEC0)), DEC0)

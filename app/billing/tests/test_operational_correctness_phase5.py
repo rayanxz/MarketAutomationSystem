@@ -13,7 +13,7 @@ from billing import services as BillingSV
 from billing.models import Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials import services as FinSV
-from financials.models import Currency, MoneyContainer, MoneyContainerCurrency
+from financials.models import ContainerFeature, Currency, MoneyContainer, MoneyContainerCurrency
 from stock.models import ProductContainer
 
 
@@ -49,6 +49,14 @@ class BillingOperationalCorrectnessPhase5Tests(TestCase):
             is_active=True,
             created_by=cls.manager,
         )
+        feature, _ = ContainerFeature.objects.get_or_create(
+            code="purchase_bills",
+            defaults={"name": "Purchase Bills", "is_active": True},
+        )
+        if not feature.is_active:
+            feature.is_active = True
+            feature.save(update_fields=["is_active"])
+        cls.cash.features.add(feature)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.cash,
             currency=cls.syp,

@@ -39,7 +39,7 @@ from audit_log.services import (
 )
 
 from financials import services as FinSV
-from financials.models import Counterparty, CounterpartyType, MoneyContainer, Receipt, ReceiptStatus, ReceiptKind, PostingLine, PostingTargetType
+from financials.models import Currency, Counterparty, CounterpartyType, MoneyContainer, Receipt, ReceiptStatus
 
 
 
@@ -140,6 +140,261 @@ def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal, *,
     if intended > total:
         intended = total
     return intended
+
+
+def _settlement_amount_from_components(
+    *,
+    settlement_currency: str,
+    paid_syp: Decimal,
+    paid_usd: Decimal,
+    fx_snapshot: Decimal,
+) -> Decimal:
+    settle = (settlement_currency or "SYP").upper()
+    if settle == "USD":
+        return _q_money("USD", (paid_usd or DEC0) + ((paid_syp or DEC0) / fx_snapshot))
+    return _q_money("SYP", (paid_syp or DEC0) + ((paid_usd or DEC0) * fx_snapshot))
+
+
+def _settlement_quantum(currency_code: str) -> Decimal:
+    cur = Currency.objects.get(code=(currency_code or "SYP").upper())
+    return Decimal("1").scaleb(-int(cur.decimals or 0))
+
+
+def _allocate_paid_to_debt_buckets(
+    *,
+    total_syp: Decimal,
+    total_usd: Decimal,
+    actual_paid_syp: Decimal,
+    actual_paid_usd: Decimal,
+    fx_snapshot: Decimal,
+) -> tuple[Decimal, Decimal]:
+    """
+    Allocate actual paid amounts into debtor-currency buckets.
+    Same-currency debt is consumed first, then any overflow is FX-converted
+    into the other debt bucket.
+    """
+    rem_syp = Decimal(total_syp or DEC0)
+    rem_usd = Decimal(total_usd or DEC0)
+    pool_syp = Decimal(actual_paid_syp or DEC0)
+    pool_usd = Decimal(actual_paid_usd or DEC0)
+
+    paid_entry_syp = min(pool_syp, rem_syp)
+    rem_syp -= paid_entry_syp
+    pool_syp -= paid_entry_syp
+
+    paid_entry_usd = min(pool_usd, rem_usd)
+    rem_usd -= paid_entry_usd
+    pool_usd -= paid_entry_usd
+
+    if pool_syp > DEC0 and rem_usd > DEC0:
+        usd_from_syp = pool_syp / fx_snapshot
+        usd_extra = min(rem_usd, usd_from_syp)
+        paid_entry_usd += usd_extra
+        rem_usd -= usd_extra
+        pool_syp -= (usd_extra * fx_snapshot)
+
+    if pool_usd > DEC0 and rem_syp > DEC0:
+        syp_from_usd = pool_usd * fx_snapshot
+        syp_extra = min(rem_syp, syp_from_usd)
+        paid_entry_syp += syp_extra
+        rem_syp -= syp_extra
+        pool_usd -= (syp_extra / fx_snapshot)
+
+    paid_entry_syp = _q_money("SYP", max(DEC0, min(total_syp, paid_entry_syp)))
+    paid_entry_usd = _q_money("USD", max(DEC0, min(total_usd, paid_entry_usd)))
+    return paid_entry_syp, paid_entry_usd
+
+
+def _resolve_creation_payment_plan(
+    *,
+    status: str,
+    settlement_currency: str,
+    total_syp: Decimal,
+    total_usd: Decimal,
+    fx_snapshot: Decimal,
+    payment_method: str | None,
+    paid_syp: Decimal | None,
+    paid_usd: Decimal | None,
+    legacy_paid_amount: Decimal | None,
+) -> dict[str, Decimal | str]:
+    status_norm = (status or "").lower().strip()
+    if status_norm not in {"paid", "unpaid", "partial"}:
+        raise ValidationError("Invalid payment status")
+
+    settle = (settlement_currency or "SYP").upper()
+    total_syp = _q_money("SYP", total_syp or DEC0)
+    total_usd = _q_money("USD", total_usd or DEC0)
+
+    settlement_total = _settlement_amount_from_components(
+        settlement_currency=settle,
+        paid_syp=total_syp,
+        paid_usd=total_usd,
+        fx_snapshot=fx_snapshot,
+    )
+    settlement_quantum = _settlement_quantum(settle)
+
+    explicit_intent = (
+        payment_method is not None
+        or paid_syp is not None
+        or paid_usd is not None
+    )
+
+    if explicit_intent:
+        method_norm = (payment_method or "").lower().strip()
+        actual_paid_syp = _q_money("SYP", paid_syp or DEC0)
+        actual_paid_usd = _q_money("USD", paid_usd or DEC0)
+
+        if status_norm == "unpaid":
+            if method_norm not in {"", "none"}:
+                raise ValidationError("payment method is disabled when status is unpaid")
+            if actual_paid_syp > DEC0 or actual_paid_usd > DEC0:
+                raise ValidationError("payment amounts must be 0 when status is unpaid")
+            method_norm = "none"
+        else:
+            allowed_methods = {"syp_only", "usd_only", "separate", "mixed"}
+            if method_norm not in allowed_methods:
+                raise ValidationError("invalid payment method")
+            if status_norm == "partial" and method_norm == "separate":
+                raise ValidationError("separate payment mode is only allowed for full payment")
+            if method_norm == "syp_only" and actual_paid_usd > DEC0:
+                raise ValidationError("USD amount must be 0 for SYP-only payment mode")
+            if method_norm == "usd_only" and actual_paid_syp > DEC0:
+                raise ValidationError("SYP amount must be 0 for USD-only payment mode")
+            if method_norm == "separate":
+                if status_norm != "paid":
+                    raise ValidationError("separate payment mode is only allowed for full payment")
+                if actual_paid_syp != total_syp or actual_paid_usd != total_usd:
+                    raise ValidationError("separate full payment must match bill totals per currency")
+            if actual_paid_syp <= DEC0 and actual_paid_usd <= DEC0:
+                raise ValidationError("payment amount must be > 0 when status is paid or partial")
+    else:
+        method_norm = "none" if status_norm == "unpaid" else ("usd_only" if settle == "USD" else "syp_only")
+        legacy_paid = _q_money(settle, legacy_paid_amount or DEC0)
+        if status_norm == "unpaid":
+            if legacy_paid != DEC0:
+                raise ValidationError("paid_amount must be 0 when status is unpaid")
+            actual_paid_syp = DEC0
+            actual_paid_usd = DEC0
+        elif settle == "USD":
+            actual_paid_usd = settlement_total if status_norm == "paid" else legacy_paid
+            actual_paid_syp = DEC0
+        else:
+            actual_paid_syp = settlement_total if status_norm == "paid" else legacy_paid
+            actual_paid_usd = DEC0
+
+    settlement_paid = _settlement_amount_from_components(
+        settlement_currency=settle,
+        paid_syp=actual_paid_syp,
+        paid_usd=actual_paid_usd,
+        fx_snapshot=fx_snapshot,
+    )
+
+    if status_norm == "partial":
+        if settlement_paid <= DEC0:
+            raise ValidationError("paid_amount must be > 0 when status is partial")
+        if settlement_paid > settlement_total:
+            raise ValidationError("paid_amount cannot exceed settlement total")
+    elif status_norm == "paid":
+        if abs(settlement_paid - settlement_total) > settlement_quantum:
+            raise ValidationError("full payment must match settlement total using bill FX")
+
+    if status_norm == "unpaid":
+        paid_entry_syp = DEC0
+        paid_entry_usd = DEC0
+    else:
+        paid_entry_syp, paid_entry_usd = _allocate_paid_to_debt_buckets(
+            total_syp=total_syp,
+            total_usd=total_usd,
+            actual_paid_syp=actual_paid_syp,
+            actual_paid_usd=actual_paid_usd,
+            fx_snapshot=fx_snapshot,
+        )
+
+    return {
+        "status": status_norm,
+        "method": method_norm,
+        "actual_paid_syp": _q_money("SYP", actual_paid_syp),
+        "actual_paid_usd": _q_money("USD", actual_paid_usd),
+        "entry_paid_syp": _q_money("SYP", paid_entry_syp),
+        "entry_paid_usd": _q_money("USD", paid_entry_usd),
+        "settlement_total": settlement_total,
+        "settlement_paid": settlement_paid,
+    }
+
+
+def _resolve_return_collection_plan(
+    *,
+    status: str,
+    settlement_currency: str,
+    total_syp: Decimal,
+    total_usd: Decimal,
+    fx_snapshot: Decimal,
+    intended_collected: Decimal,
+) -> dict[str, Decimal | str]:
+    status_norm = (status or "").lower().strip()
+    if status_norm not in {"paid", "unpaid", "partial"}:
+        raise ValidationError("Invalid payment status")
+
+    settle = (settlement_currency or "SYP").upper()
+    if settle not in {"SYP", "USD"}:
+        raise ValidationError("Invalid settlement currency")
+
+    total_syp = _q_money("SYP", total_syp or DEC0)
+    total_usd = _q_money("USD", total_usd or DEC0)
+    settlement_total = _settlement_amount_from_components(
+        settlement_currency=settle,
+        paid_syp=total_syp,
+        paid_usd=total_usd,
+        fx_snapshot=fx_snapshot,
+    )
+    settlement_quantum = _settlement_quantum(settle)
+
+    intended = _q_money(settle, intended_collected or DEC0)
+    if status_norm == "unpaid":
+        if intended != DEC0:
+            raise ValidationError("Paid amount must be 0 when status is unpaid.")
+        settlement_collected = DEC0
+    elif status_norm == "paid":
+        settlement_collected = settlement_total
+    else:
+        if intended <= DEC0:
+            raise ValidationError("Paid amount must be > 0 when status is partial.")
+        if intended > settlement_total:
+            raise ValidationError("Paid amount exceeds return total.")
+        settlement_collected = intended
+        if abs(settlement_collected - settlement_total) <= settlement_quantum:
+            status_norm = "paid"
+
+    actual_collected_syp = DEC0
+    actual_collected_usd = DEC0
+    if settlement_collected > DEC0:
+        if settle == "USD":
+            actual_collected_usd = settlement_collected
+        else:
+            actual_collected_syp = settlement_collected
+
+    if status_norm == "unpaid":
+        entry_collected_syp = DEC0
+        entry_collected_usd = DEC0
+    else:
+        entry_collected_syp, entry_collected_usd = _allocate_paid_to_debt_buckets(
+            total_syp=total_syp,
+            total_usd=total_usd,
+            actual_paid_syp=actual_collected_syp,
+            actual_paid_usd=actual_collected_usd,
+            fx_snapshot=fx_snapshot,
+        )
+
+    return {
+        "status": status_norm,
+        "actual_collected_syp": _q_money("SYP", actual_collected_syp),
+        "actual_collected_usd": _q_money("USD", actual_collected_usd),
+        "entry_collected_syp": _q_money("SYP", entry_collected_syp),
+        "entry_collected_usd": _q_money("USD", entry_collected_usd),
+        "settlement_total": settlement_total,
+        "settlement_collected": settlement_collected,
+    }
+
 
 def _recalc_bill_currency_totals(*, bill: Bill) -> None:
     """
@@ -267,19 +522,23 @@ def create_bill(
     actor,
     provider_id: int,
     status: str,
-    paid_amount: Decimal,
+    paid_amount: Decimal = DEC0,
     items: Iterable[Dict[str, Any]],
     update_product_defaults: bool = False,
     container: ProductContainer | None = None,
     money_container_id: int | None = None,
     settlement_currency: str = "SYP",   # 🔥 authoritative currency
     fx_usd_syp: Decimal | None = None,   # 🔥 snapshot FX (SYP per 1 USD)
+    payment_status: str | None = None,
+    payment_method: str | None = None,
+    paid_syp: Decimal | None = None,
+    paid_usd: Decimal | None = None,
 ) -> Bill:
     """
     Create a purchase Bill with multi-currency items.
     - Each BillItem has its own currency (SYP / USD)
     - Bill stores FX snapshot and per-currency subtotals
-    - Financials posting happens ONLY in settlement_currency
+    - Creation payment intent is persisted and posted through one canonical receipt
     """
 
     # -------------------------------
@@ -297,10 +556,37 @@ def create_bill(
     if settlement_currency not in ("SYP", "USD"):
         raise ValueError("Invalid settlement currency")
 
-    paid_amount_dec = _parse_decimal_value(raw=paid_amount, field_name="paid_amount") or DEC0
-    if paid_amount_dec < 0:
+    status_input = payment_status if payment_status is not None else status
+    status_norm = (status_input or "").lower().strip()
+    if status_norm not in {"paid", "unpaid", "partial"}:
+        raise ValidationError("Invalid payment status")
+
+    legacy_paid_amount = _parse_decimal_value(
+        raw=paid_amount,
+        field_name="paid_amount",
+        allow_empty=True,
+    )
+    if legacy_paid_amount is not None and legacy_paid_amount < 0:
         raise ValidationError("paid_amount must be >= 0")
-    intended_paid = _q_money(settlement_currency, paid_amount_dec)
+
+    input_paid_syp = _parse_decimal_value(
+        raw=paid_syp,
+        field_name="paid_syp",
+        allow_empty=True,
+    )
+    if input_paid_syp is not None and input_paid_syp < 0:
+        raise ValidationError("paid_syp must be >= 0")
+
+    input_paid_usd = _parse_decimal_value(
+        raw=paid_usd,
+        field_name="paid_usd",
+        allow_empty=True,
+    )
+    if input_paid_usd is not None and input_paid_usd < 0:
+        raise ValidationError("paid_usd must be >= 0")
+
+    input_method = (payment_method or "").lower().strip() if payment_method is not None else None
+
     items = list(items)
     if not items:
         raise ValidationError("no items")
@@ -571,37 +857,54 @@ def create_bill(
     ])
 
     # -------------------------------
+    # Resolve and persist creation payment intent
+    # -------------------------------
+    payment_plan = _resolve_creation_payment_plan(
+        status=status_norm,
+        settlement_currency=bill.settlement_currency,
+        total_syp=bill.total_syp,
+        total_usd=bill.total_usd,
+        fx_snapshot=fx_snapshot,
+        payment_method=input_method,
+        paid_syp=input_paid_syp,
+        paid_usd=input_paid_usd,
+        legacy_paid_amount=legacy_paid_amount,
+    )
+
+    status_norm = str(payment_plan["status"])
+    method_norm = str(payment_plan["method"])
+    actual_paid_syp = _q_money("SYP", payment_plan["actual_paid_syp"])
+    actual_paid_usd = _q_money("USD", payment_plan["actual_paid_usd"])
+    entry_paid_syp = _q_money("SYP", payment_plan["entry_paid_syp"])
+    entry_paid_usd = _q_money("USD", payment_plan["entry_paid_usd"])
+    settlement_total = _q_money(bill.settlement_currency, payment_plan["settlement_total"])
+    settlement_paid = _q_money(bill.settlement_currency, payment_plan["settlement_paid"])
+
+    bill.creation_payment_status = status_norm
+    bill.creation_payment_method = method_norm
+    bill.creation_paid_syp = actual_paid_syp
+    bill.creation_paid_usd = actual_paid_usd
+    bill.save(
+        update_fields=[
+            "creation_payment_status",
+            "creation_payment_method",
+            "creation_paid_syp",
+            "creation_paid_usd",
+        ]
+    )
+    status_norm = (bill.creation_payment_status or status_norm).lower()
+    method_norm = (bill.creation_payment_method or method_norm).lower()
+    actual_paid_syp = _q_money("SYP", bill.creation_paid_syp or DEC0)
+    actual_paid_usd = _q_money("USD", bill.creation_paid_usd or DEC0)
+
+    # -------------------------------
     # Debts (per currency)
     # -------------------------------
-    status_norm = (status or "").lower().strip()
-    if status_norm not in {"paid", "unpaid", "partial"}:
-        raise ValidationError("Invalid payment status")
-    settlement_total = bill.total_usd if bill.settlement_currency == "USD" else bill.total_syp
-    if status_norm == "unpaid" and intended_paid != DEC0:
-        raise ValidationError("paid_amount must be 0 when status is unpaid")
-    if status_norm == "partial":
-        if intended_paid <= DEC0:
-            raise ValidationError("paid_amount must be > 0 when status is partial")
-        if intended_paid > settlement_total:
-            raise ValidationError("paid_amount cannot exceed settlement total")
-
-    if bill.settlement_currency == "USD":
-        paid_syp = DEC0
-        paid_usd = _resolve_paid_amount(status_norm, intended_paid, bill.total_usd, currency_code="USD")
-    else:
-        paid_syp = _resolve_paid_amount(status_norm, intended_paid, bill.total_syp, currency_code="SYP")
-        paid_usd = DEC0
-
-    if status_norm == "paid":
-        paid_syp = _q_money("SYP", bill.total_syp)
-        paid_usd = _q_money("USD", bill.total_usd)
-
-    final_paid = paid_usd if bill.settlement_currency == "USD" else paid_syp
 
     entry_syp = DebtSV.create_debtor_entry(
         provider=provider,
         total=bill.total_syp,
-        paid_amount=paid_syp,
+        paid_amount=entry_paid_syp,
         source_app="billing",
         source_model="Bill",
         source_id=str(bill.id),
@@ -614,7 +917,7 @@ def create_bill(
         entry_usd = DebtSV.create_debtor_entry(
             provider=provider,
             total=bill.total_usd,
-            paid_amount=paid_usd,
+            paid_amount=entry_paid_usd,
             source_app="billing",
             source_model="Bill",
             source_id=str(bill.id),
@@ -623,127 +926,77 @@ def create_bill(
         )
 
     # -------------------------------
-    # Financials (per-currency)
+    # Financials (one canonical receipt)
     # -------------------------------
     cp = _ensure_provider_cp(provider=provider)
 
-    cash_container = (
-        MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-        if money_container_id
-        else _default_purchase_money_container()
-    )
+    has_cash_payment = (actual_paid_syp > DEC0) or (actual_paid_usd > DEC0)
+    cash_container = None
+    if money_container_id:
+        cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+    elif has_cash_payment:
+        cash_container = _default_purchase_money_container()
+
     if cash_container and bill.money_container_id != cash_container.id:
         bill.money_container = cash_container
         bill.save(update_fields=["money_container"])
 
     fx_for_receipts = _q_fx(bill.fx_rate_usd_to_syp_used or bill.fx_usd_syp or FinSV.get_current_fx_syp_per_usd())
+    totals_by_code: Dict[str, Decimal] = {}
+    if bill.total_syp > DEC0:
+        totals_by_code["SYP"] = _q_money("SYP", bill.total_syp)
+    if bill.total_usd > DEC0:
+        totals_by_code["USD"] = _q_money("USD", bill.total_usd)
 
-    receipts = []
+    settled_counterparty_by_code: Dict[str, Decimal] = {}
+    if entry_paid_syp > DEC0:
+        settled_counterparty_by_code["SYP"] = _q_money("SYP", entry_paid_syp)
+    if entry_paid_usd > DEC0:
+        settled_counterparty_by_code["USD"] = _q_money("USD", entry_paid_usd)
 
-    # Counterparty adjust per currency
-    if entry_syp and entry_syp.total > DEC0:
-        receipts.append(FinSV.post_counterparty_adjust_with_fx(
-            actor=actor,
-            counterparty_id=cp.id,
+    container_paid_by_code: Dict[str, Decimal] = {}
+    if actual_paid_syp > DEC0:
+        container_paid_by_code["SYP"] = _q_money("SYP", actual_paid_syp)
+    if actual_paid_usd > DEC0:
+        container_paid_by_code["USD"] = _q_money("USD", actual_paid_usd)
+
+    primary_receipt = FinSV.post_counterparty_bill_action_with_fx(
+        actor=actor,
+        counterparty_id=cp.id,
+        totals_by_code=totals_by_code,
+        settled_counterparty_by_code=settled_counterparty_by_code,
+        container_paid_by_code=container_paid_by_code,
+        container_id=(cash_container.id if cash_container else None),
+        fx_syp_per_usd=fx_for_receipts,
+        note=f"Purchase bill #{bill.serial}",
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+    )
+
+    receipts = [primary_receipt]
+
+    # Link creation payment history rows to the canonical bill receipt.
+    from debts.models import DebtorPayment
+
+    if entry_syp and entry_paid_syp > DEC0:
+        DebtorPayment.objects.create(
+            entry=entry_syp,
+            amount=_q_money("SYP", entry_paid_syp),
             currency_code="SYP",
-            amount_signed=-entry_syp.total,
-            fx_syp_per_usd=fx_for_receipts,
-            note=f"Purchase bill #{bill.serial} (SYP)",
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-        ))
-    if entry_usd and entry_usd.total > DEC0:
-        receipts.append(FinSV.post_counterparty_adjust_with_fx(
-            actor=actor,
-            counterparty_id=cp.id,
-            currency_code="USD",
-            amount_signed=-entry_usd.total,
-            fx_syp_per_usd=fx_for_receipts,
-            note=f"Purchase bill #{bill.serial} (USD)",
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-        ))
-
-    # Settlement receipts per currency (paid amounts only)
-    posted_paid_syp = _q_money("SYP", entry_syp.paid_amount if entry_syp else DEC0)
-    posted_paid_usd = _q_money("USD", entry_usd.paid_amount if entry_usd else DEC0)
-    if posted_paid_syp > DEC0:
-        receipts.append(FinSV.post_settlement_with_fx(
-            actor=actor,
-            container_id=cash_container.id,
-            counterparty_id=cp.id,
-            currency_code="SYP",
-            cash_amount_signed=-posted_paid_syp,
-            fx_syp_per_usd=fx_for_receipts,
-            note=f"Purchase bill payment #{bill.serial} (SYP)",
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-        ))
-    if posted_paid_usd > DEC0:
-        receipts.append(FinSV.post_settlement_with_fx(
-            actor=actor,
-            container_id=cash_container.id,
-            counterparty_id=cp.id,
-            currency_code="USD",
-            cash_amount_signed=-posted_paid_usd,
-            fx_syp_per_usd=fx_for_receipts,
-            note=f"Purchase bill payment #{bill.serial} (USD)",
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-        ))
-
-    # Link payment history to receipts (if any)
-    if receipts:
-        from debts.models import DebtorPayment
-        entry_by_currency = {}
-        entry_syp = DebtSV.resolve_debtor_entry_for_source(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code="SYP",
-            for_update=True,
+            receipt=primary_receipt,
+            money_container=cash_container,
+            fx_syp_per_usd_used=fx_for_receipts,
         )
-        entry_usd = DebtSV.resolve_debtor_entry_for_source(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
+    if entry_usd and entry_paid_usd > DEC0:
+        DebtorPayment.objects.create(
+            entry=entry_usd,
+            amount=_q_money("USD", entry_paid_usd),
             currency_code="USD",
-            for_update=True,
+            receipt=primary_receipt,
+            money_container=cash_container,
+            fx_syp_per_usd_used=fx_for_receipts,
         )
-        if entry_syp:
-            entry_by_currency["SYP"] = entry_syp
-        if entry_usd:
-            entry_by_currency["USD"] = entry_usd
-        for r in receipts:
-            # only settlement receipts should create payment rows
-            if r.kind != ReceiptKind.COUNTERPARTY_SETTLE:
-                continue
-            cur = None
-            # infer currency from posting lines
-            for ln in r.lines.all():
-                if ln.target_type == PostingTargetType.CONTAINER:
-                    cur = ln.currency.code
-                    break
-            cur = (cur or "SYP").upper()
-            entry = entry_by_currency.get(cur)
-            if not entry:
-                continue
-            amt = posted_paid_syp if cur == "SYP" else posted_paid_usd
-            amt = _q_money(cur, amt)
-            if amt <= DEC0:
-                continue
-            DebtorPayment.objects.create(
-                entry=entry,
-                amount=amt,
-                currency_code=cur,
-                receipt=r,
-                money_container=cash_container,
-                fx_syp_per_usd_used=fx_for_receipts,
-            )
 
     # -------------------------------
     # AUDIT    # -------------------------------
@@ -761,11 +1014,14 @@ def create_bill(
                 "serial": bill.serial,
                 "provider_id": provider.id,
                 "provider_name": provider.name,
-                "status": (status or "").lower(),
+                "status": status_norm,
+                "payment_method": method_norm,
                 "total": str(settlement_total),
                 "total_syp": str(bill.total_syp),
                 "total_usd": str(bill.total_usd),
-                "paid_amount": str(final_paid),
+                "paid_amount": str(settlement_paid),
+                "paid_syp": str(actual_paid_syp),
+                "paid_usd": str(actual_paid_usd),
                 "settlement_currency": bill.settlement_currency,
                 "fx": str(bill.fx_usd_syp),
                 "items_count": len(items),
@@ -1433,33 +1689,29 @@ def create_return(
 
     # ----- Create debt -----
     status_norm = (status or "").lower().strip()
-    final_collected = _resolve_paid_amount(status, intended_paid, pret.total, currency_code=settlement_currency)
-    if status_norm == "paid":
-        final_collected = pret.total
-
-    if status_norm != "paid":
-        if settlement_currency == "USD":
-            if final_collected > pret.total_usd:
-                raise ValueError("Paid amount exceeds USD total for this return.")
-        else:
-            if final_collected > pret.total_syp:
-                raise ValueError("Paid amount exceeds SYP total for this return.")
-
-    collected_syp = DEC0
-    collected_usd = DEC0
-    if status_norm == "paid":
-        collected_syp = pret.total_syp
-        collected_usd = pret.total_usd
-    else:
-        if settlement_currency == "USD":
-            collected_usd = _q_money("USD", final_collected)
-        else:
-            collected_syp = _q_money("SYP", final_collected)
+    fx_for_plan = _q_fx(pret.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
+    collection_plan = _resolve_return_collection_plan(
+        status=status_norm,
+        settlement_currency=settlement_currency,
+        total_syp=pret.total_syp,
+        total_usd=pret.total_usd,
+        fx_snapshot=fx_for_plan,
+        intended_collected=intended_paid,
+    )
+    status_norm = str(collection_plan["status"])
+    final_collected = _q_money(settlement_currency, collection_plan["settlement_collected"])
+    actual_collected_syp = _q_money("SYP", collection_plan["actual_collected_syp"])
+    actual_collected_usd = _q_money("USD", collection_plan["actual_collected_usd"])
+    entry_collected_syp = _q_money("SYP", collection_plan["entry_collected_syp"])
+    entry_collected_usd = _q_money("USD", collection_plan["entry_collected_usd"])
+    pret.initial_status = status_norm
+    pret.initial_paid = final_collected
+    pret.save(update_fields=["initial_status", "initial_paid"])
 
     entry_syp = DebtSV.create_creditor_entry(
         provider=provider,
         total=pret.total_syp,
-        collected=collected_syp,
+        collected=entry_collected_syp,
         source_app="billing",
         source_model="ProviderReturn",
         source_id=str(pret.id),
@@ -1471,7 +1723,7 @@ def create_return(
         entry_usd = DebtSV.create_creditor_entry(
             provider=provider,
             total=pret.total_usd,
-            collected=collected_usd,
+            collected=entry_collected_usd,
             source_app="billing",
             source_model="ProviderReturn",
             source_id=str(pret.id),
@@ -1484,124 +1736,66 @@ def create_return(
 
     posted_collected_syp = _q_money("SYP", entry_syp.collected if entry_syp else DEC0)
     posted_collected_usd = _q_money("USD", entry_usd.collected if entry_usd else DEC0)
-    has_any_collection = (posted_collected_syp > DEC0) or (posted_collected_usd > DEC0)
+    has_any_collection = (actual_collected_syp > DEC0) or (actual_collected_usd > DEC0)
 
     cash_container = None
     if has_any_collection:
         if not money_container_id:
             raise ValueError("money container is required for paid returns")
         cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-    else:
-        cash_container = _default_money_container()
 
-    fx_for_receipt = _q_fx(pret.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
-    receipts: list[Receipt] = []
-
-    # Counterparty adjustment must reflect authoritative per-currency debt totals.
+    fx_for_receipt = fx_for_plan
+    totals_by_code: Dict[str, Decimal] = {}
     if entry_syp and entry_syp.total > DEC0:
-        receipts.append(
-            FinSV.post_counterparty_adjust_with_fx(
-                actor=actor,
-                counterparty_id=cp.id,
-                currency_code="SYP",
-                amount_signed=+_q_money("SYP", entry_syp.total),
-                fx_syp_per_usd=fx_for_receipt,
-                note=f"Provider return #{pret.serial} (SYP)",
-                source_app="billing",
-                source_model="ProviderReturn",
-                source_id=str(pret.id),
-            )
-        )
+        totals_by_code["SYP"] = _q_money("SYP", entry_syp.total)
     if entry_usd and entry_usd.total > DEC0:
-        receipts.append(
-            FinSV.post_counterparty_adjust_with_fx(
-                actor=actor,
-                counterparty_id=cp.id,
-                currency_code="USD",
-                amount_signed=+_q_money("USD", entry_usd.total),
-                fx_syp_per_usd=fx_for_receipt,
-                note=f"Provider return #{pret.serial} (USD)",
-                source_app="billing",
-                source_model="ProviderReturn",
-                source_id=str(pret.id),
-            )
-        )
+        totals_by_code["USD"] = _q_money("USD", entry_usd.total)
 
-    # Settlement receipts must also stay currency-aligned.
-    settlement_receipt_syp = None
-    settlement_receipt_usd = None
+    settled_counterparty_by_code: Dict[str, Decimal] = {}
     if posted_collected_syp > DEC0:
-        settlement_receipt_syp = FinSV.post_settlement_with_fx(
-            actor=actor,
-            container_id=cash_container.id,
-            counterparty_id=cp.id,
-            currency_code="SYP",
-            cash_amount_signed=+posted_collected_syp,
-            fx_syp_per_usd=fx_for_receipt,
-            note=f"Provider return settlement #{pret.serial} (SYP)",
-            source_app="billing",
-            source_model="ProviderReturn",
-            source_id=str(pret.id),
-        )
-        receipts.append(settlement_receipt_syp)
+        settled_counterparty_by_code["SYP"] = posted_collected_syp
     if posted_collected_usd > DEC0:
-        settlement_receipt_usd = FinSV.post_settlement_with_fx(
-            actor=actor,
-            container_id=cash_container.id,
-            counterparty_id=cp.id,
-            currency_code="USD",
-            cash_amount_signed=+posted_collected_usd,
-            fx_syp_per_usd=fx_for_receipt,
-            note=f"Provider return settlement #{pret.serial} (USD)",
-            source_app="billing",
-            source_model="ProviderReturn",
-            source_id=str(pret.id),
+        settled_counterparty_by_code["USD"] = posted_collected_usd
+
+    container_collected_by_code: Dict[str, Decimal] = {}
+    if actual_collected_syp > DEC0:
+        container_collected_by_code["SYP"] = actual_collected_syp
+    if actual_collected_usd > DEC0:
+        container_collected_by_code["USD"] = actual_collected_usd
+
+    primary_receipt = FinSV.post_counterparty_return_action_with_fx(
+        actor=actor,
+        counterparty_id=cp.id,
+        totals_by_code=totals_by_code,
+        settled_counterparty_by_code=settled_counterparty_by_code,
+        container_collected_by_code=container_collected_by_code,
+        container_id=(cash_container.id if cash_container else None),
+        fx_syp_per_usd=fx_for_receipt,
+        note=f"Provider return #{pret.serial}",
+        source_app="billing",
+        source_model="ProviderReturn",
+        source_id=str(pret.id),
+    )
+    receipts = [primary_receipt]
+
+    if entry_syp and posted_collected_syp > DEC0:
+        CreditorReceipt.objects.create(
+            entry=entry_syp,
+            amount=posted_collected_syp,
+            currency_code="SYP",
+            receipt=primary_receipt,
+            money_container=cash_container,
+            fx_syp_per_usd_used=fx_for_receipt,
         )
-        receipts.append(settlement_receipt_usd)
-
-    # Link collection history rows to their matching per-currency settlement receipts.
-    entry_by_currency = {}
-    entry_syp = DebtSV.resolve_creditor_entry_for_source(
-        source_app="billing",
-        source_model="ProviderReturn",
-        source_id=str(pret.id),
-        currency_code="SYP",
-        for_update=True,
-    )
-    entry_usd = DebtSV.resolve_creditor_entry_for_source(
-        source_app="billing",
-        source_model="ProviderReturn",
-        source_id=str(pret.id),
-        currency_code="USD",
-        for_update=True,
-    )
-    if entry_syp:
-        entry_by_currency["SYP"] = entry_syp
-    if entry_usd:
-        entry_by_currency["USD"] = entry_usd
-
-    if settlement_receipt_syp and posted_collected_syp > DEC0:
-        entry = entry_by_currency.get("SYP")
-        if entry:
-            CreditorReceipt.objects.create(
-                entry=entry,
-                amount=posted_collected_syp,
-                currency_code="SYP",
-                receipt=settlement_receipt_syp,
-                money_container=cash_container,
-                fx_syp_per_usd_used=fx_for_receipt,
-            )
-    if settlement_receipt_usd and posted_collected_usd > DEC0:
-        entry = entry_by_currency.get("USD")
-        if entry:
-            CreditorReceipt.objects.create(
-                entry=entry,
-                amount=posted_collected_usd,
-                currency_code="USD",
-                receipt=settlement_receipt_usd,
-                money_container=cash_container,
-                fx_syp_per_usd_used=fx_for_receipt,
-            )
+    if entry_usd and posted_collected_usd > DEC0:
+        CreditorReceipt.objects.create(
+            entry=entry_usd,
+            amount=posted_collected_usd,
+            currency_code="USD",
+            receipt=primary_receipt,
+            money_container=cash_container,
+            fx_syp_per_usd_used=fx_for_receipt,
+        )
 
     # ----- AUDIT -----
     is_wizard = bool(any((row.get("container_splits") or []) for row in items))
@@ -1618,7 +1812,7 @@ def create_return(
                 "serial": pret.serial,
                 "provider_id": provider.id,
                 "provider_name": provider.name,
-                "status": (status or "").lower(),
+                "status": status_norm,
                 "total": str(q3(pret.total)),
                 "total_syp": str(q3(pret.total_syp)),
                 "total_usd": str(q3(pret.total_usd)),
@@ -1642,7 +1836,7 @@ def create_return(
             "serial": pret.serial,
             "provider_id": provider.id,
             "provider_name": provider.name,
-            "status": (status or "").lower(),
+            "status": status_norm,
             "collected_amount": str(final_collected),
             "total": str(pret.total),
             "total_syp": str(pret.total_syp),

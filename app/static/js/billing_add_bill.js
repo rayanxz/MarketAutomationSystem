@@ -972,6 +972,7 @@ refreshAutoSerial();
           amount_usd: "0",
           paid_amount: "0",
           settlement_total: fmt4(totals.settlementSelected),
+          fx_rate: totals.fx > 0 ? String(totals.fx) : "",
         },
       };
     }
@@ -1035,6 +1036,7 @@ refreshAutoSerial();
         amount_usd: fmt4(amountUsd),
         paid_amount: fmt4(paidSettlement),
         settlement_total: fmt4(settlementTotal),
+        fx_rate: totals.fx > 0 ? String(totals.fx) : "",
       },
     };
   }

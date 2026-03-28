@@ -14,7 +14,7 @@ from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from debts.models import DebtorDebt, DebtorPayment
-from financials.models import Currency, MoneyContainer, MoneyContainerCurrency
+from financials.models import ContainerFeature, Currency, MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from inventory.models import ProductMovement, DEC0, q3
 from stock.models import ProductContainer, StockFifoLayer
@@ -54,6 +54,14 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        feature, _ = ContainerFeature.objects.get_or_create(
+            code="purchase_bills",
+            defaults={"name": "Purchase Bills", "is_active": True},
+        )
+        if not feature.is_active:
+            feature.is_active = True
+            feature.save(update_fields=["is_active"])
+        cls.cash.features.add(feature)
         MoneyContainerCurrency.objects.get_or_create(
             container=cls.cash,
             currency=cls.syp,
