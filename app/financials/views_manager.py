@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q, Count
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -17,6 +17,7 @@ from accounts.models import AccountProfile
 
 from financials.models import (
     MoneyContainer,
+    Counterparty,
     Currency,
     PostingLine,
     PostingTargetType,
@@ -456,3 +457,368 @@ def container_manual_events(request: HttpRequest) -> HttpResponse:
         "rows": rows,
     }
     return render(request, "financials/manager/container_manual_events.html", ctx)
+
+
+def _source_document_url(*, source_app: str, source_model: str, source_id: str) -> str:
+    app_code = (source_app or "").strip().lower()
+    model_code = (source_model or "").strip()
+    sid = (source_id or "").strip()
+    if not sid:
+        return ""
+    try:
+        sid_int = int(sid.split(":", 1)[0])
+    except (TypeError, ValueError):
+        return ""
+
+    try:
+        if app_code == "billing" and model_code == "Bill":
+            return reverse("billing_bill_view", kwargs={"bill_id": sid_int})
+        if app_code == "billing" and model_code == "ProviderReturn":
+            return reverse("billing_return_view", kwargs={"ret_id": sid_int})
+        if app_code == "pos" and model_code == "SalesBill":
+            return reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": sid_int})
+        if app_code == "pos" and model_code == "SalesReturn":
+            return reverse("pos:pos_manager_sale_return_settle", kwargs={"return_id": sid_int})
+    except Exception:
+        return ""
+    return ""
+
+
+@login_required
+@role_required(AccountProfile.Role.MANAGER)
+def receipt_explorer(request: HttpRequest) -> HttpResponse:
+    source_app = (request.GET.get("source_app") or "").strip()
+    source_model = (request.GET.get("source_model") or "").strip()
+    source_id = (request.GET.get("source_id") or "").strip()
+    status = (request.GET.get("status") or "").strip()
+    kind = (request.GET.get("kind") or "").strip()
+    action_key = (request.GET.get("action_key") or "").strip()
+    currency_code = (request.GET.get("currency") or "").strip().upper()
+    container_id = (request.GET.get("container_id") or "").strip()
+    counterparty_id = (request.GET.get("counterparty_id") or "").strip()
+    date_from = (request.GET.get("date_from") or "").strip()
+    date_to = (request.GET.get("date_to") or "").strip()
+
+    qs = (
+        Receipt.objects
+        .select_related("actor")
+        .prefetch_related("lines", "lines__currency", "lines__container", "lines__counterparty")
+        .order_by("-id")
+    )
+
+    if source_app:
+        qs = qs.filter(source_app=source_app)
+    if source_model:
+        qs = qs.filter(source_model=source_model)
+    if source_id:
+        qs = qs.filter(source_id=source_id)
+    if kind:
+        qs = qs.filter(kind=kind)
+    if action_key:
+        qs = qs.filter(action_key=action_key)
+    if status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status__in=[ReceiptStatus.POSTED, ReceiptStatus.REVERSED])
+    if currency_code:
+        qs = qs.filter(lines__currency__code=currency_code)
+    if container_id:
+        qs = qs.filter(lines__container_id=int(container_id))
+    if counterparty_id:
+        qs = qs.filter(lines__counterparty_id=int(counterparty_id))
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    rows: list[dict[str, Any]] = []
+    for r in qs.distinct()[:300]:
+        lines = list(r.lines.all())
+        line_rows = []
+        for ln in lines:
+            if ln.target_type == PostingTargetType.CONTAINER:
+                target_label = f"حاوية: {getattr(ln.container, 'name', '—')}"
+            else:
+                cp_name = getattr(ln.counterparty, "name", "—")
+                cp_type = getattr(ln.counterparty, "type", "")
+                target_label = f"طرف مقابل: {cp_name} ({cp_type})"
+            line_rows.append(
+                {
+                    "target_label": target_label,
+                    "currency": getattr(ln.currency, "code", "—"),
+                    "amount": ln.amount,
+                }
+            )
+
+        doc_url = _source_document_url(
+            source_app=r.source_app,
+            source_model=r.source_model,
+            source_id=r.source_id,
+        )
+        trace_url = (
+            f"{reverse('financials:document_trace')}?source_app={r.source_app}&source_model={r.source_model}&source_id={r.source_id}"
+            if r.source_app and r.source_model and r.source_id
+            else ""
+        )
+        rows.append(
+            {
+                "receipt": r,
+                "line_rows": line_rows,
+                "doc_url": doc_url,
+                "trace_url": trace_url,
+            }
+        )
+
+    ctx = {
+        **_secondary_menu_ctx("receipt_explorer"),
+        "rows": rows,
+        "filters": {
+            "source_app": source_app,
+            "source_model": source_model,
+            "source_id": source_id,
+            "status": status,
+            "kind": kind,
+            "action_key": action_key,
+            "currency": currency_code,
+            "container_id": container_id,
+            "counterparty_id": counterparty_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+        "containers": MoneyContainer.objects.filter(is_active=True).order_by("name"),
+        "counterparties": Counterparty.objects.filter(is_active=True).order_by("type", "name")[:500],
+        "kinds": ReceiptKind.choices,
+        "statuses": ReceiptStatus.choices,
+        "source_apps": (
+            Receipt.objects.exclude(source_app="").values_list("source_app", flat=True).distinct().order_by("source_app")
+        ),
+        "source_models": (
+            Receipt.objects.exclude(source_model="").values_list("source_model", flat=True).distinct().order_by("source_model")
+        ),
+    }
+    return render(request, "financials/manager/receipt_explorer.html", ctx)
+
+
+@login_required
+@role_required(AccountProfile.Role.MANAGER)
+def document_trace(request: HttpRequest) -> HttpResponse:
+    from debts.models import DebtorDebt, DebtorPayment, CreditorDebt, CreditorReceipt
+
+    source_app = (request.GET.get("source_app") or "").strip()
+    source_model = (request.GET.get("source_model") or "").strip()
+    source_id = (request.GET.get("source_id") or "").strip()
+
+    receipts = Receipt.objects.none()
+    debtor_entries = DebtorDebt.objects.none()
+    creditor_entries = CreditorDebt.objects.none()
+    debtor_payments = DebtorPayment.objects.none()
+    creditor_receipts = CreditorReceipt.objects.none()
+    reversal_rows = Receipt.objects.none()
+    source_document = None
+    source_document_url = ""
+    source_document_label = ""
+
+    if source_app and source_model and source_id:
+        receipts = (
+            Receipt.objects
+            .select_related("actor")
+            .prefetch_related("lines", "lines__currency", "lines__container", "lines__counterparty")
+            .filter(source_app=source_app, source_model=source_model, source_id=source_id)
+            .order_by("created_at", "id")
+        )
+        debtor_entries = DebtorDebt.objects.filter(
+            source_app=source_app,
+            source_model=source_model,
+        ).filter(Q(source_id=source_id) | Q(source_id__startswith=f"{source_id}:")).order_by("id")
+        creditor_entries = CreditorDebt.objects.filter(
+            source_app=source_app,
+            source_model=source_model,
+        ).filter(Q(source_id=source_id) | Q(source_id__startswith=f"{source_id}:")).order_by("id")
+        debtor_payments = (
+            DebtorPayment.objects
+            .select_related("receipt", "money_container", "entry")
+            .filter(entry__in=debtor_entries)
+            .order_by("created_at", "id")
+        )
+        creditor_receipts = (
+            CreditorReceipt.objects
+            .select_related("receipt", "money_container", "entry")
+            .filter(entry__in=creditor_entries)
+            .order_by("created_at", "id")
+        )
+        reversal_rows = (
+            Receipt.objects
+            .filter(reverses_id__in=[r.id for r in receipts])
+            .select_related("reverses", "actor")
+            .order_by("created_at", "id")
+        )
+
+        app_code = source_app.lower()
+        try:
+            sid_int = int(source_id.split(":", 1)[0])
+        except (TypeError, ValueError):
+            sid_int = 0
+        if sid_int > 0:
+            try:
+                if app_code == "billing" and source_model == "Bill":
+                    from billing.models import Bill
+                    source_document = Bill.objects.select_related("provider").get(pk=sid_int)
+                    source_document_label = f"فاتورة شراء #{source_document.serial}"
+                elif app_code == "billing" and source_model == "ProviderReturn":
+                    from billing.models import ProviderReturn
+                    source_document = ProviderReturn.objects.select_related("provider").get(pk=sid_int)
+                    source_document_label = f"مرتجع مورد #{source_document.serial}"
+                elif app_code == "pos" and source_model == "SalesBill":
+                    from pos.models import SalesBill
+                    source_document = SalesBill.objects.select_related("customer").get(pk=sid_int)
+                    source_document_label = f"فاتورة مبيعات POS #{source_document.id}"
+                elif app_code == "pos" and source_model == "SalesReturn":
+                    from pos.models import SalesReturn
+                    source_document = SalesReturn.objects.select_related("sale_bill").get(pk=sid_int)
+                    source_document_label = f"مرتجع مبيعات POS #{source_document.serial or source_document.id}"
+            except Exception:
+                source_document = None
+            source_document_url = _source_document_url(
+                source_app=source_app,
+                source_model=source_model,
+                source_id=source_id,
+            )
+
+    currency_totals: dict[str, Decimal] = {}
+    for r in receipts:
+        for ln in r.lines.all():
+            cur = getattr(ln.currency, "code", "SYP")
+            currency_totals[cur] = (currency_totals.get(cur, Decimal("0")) + (ln.amount or Decimal("0")))
+
+    ctx = {
+        **_secondary_menu_ctx("document_trace"),
+        "source_app": source_app,
+        "source_model": source_model,
+        "source_id": source_id,
+        "source_document": source_document,
+        "source_document_url": source_document_url,
+        "source_document_label": source_document_label,
+        "receipts": receipts,
+        "debtor_entries": debtor_entries,
+        "creditor_entries": creditor_entries,
+        "debtor_payments": debtor_payments,
+        "creditor_receipts": creditor_receipts,
+        "reversal_rows": reversal_rows,
+        "currency_totals": currency_totals,
+    }
+    return render(request, "financials/manager/document_trace.html", ctx)
+
+
+@login_required
+@role_required(AccountProfile.Role.MANAGER)
+def reconciliation_dashboard(request: HttpRequest) -> HttpResponse:
+    from billing.models import Bill, ProviderReturn
+    from pos.models import SalesBill, SalesReturn
+
+    bill_receipt_ids = set()
+    for sid in Receipt.objects.filter(source_app="billing", source_model="Bill").values_list("source_id", flat=True):
+        try:
+            bill_receipt_ids.add(int(str(sid).split(":", 1)[0]))
+        except Exception:
+            continue
+    return_receipt_ids = set()
+    for sid in Receipt.objects.filter(source_app="billing", source_model="ProviderReturn").values_list("source_id", flat=True):
+        try:
+            return_receipt_ids.add(int(str(sid).split(":", 1)[0]))
+        except Exception:
+            continue
+    pos_bill_receipt_ids = set()
+    for sid in Receipt.objects.filter(source_app="pos", source_model="SalesBill").values_list("source_id", flat=True):
+        try:
+            pos_bill_receipt_ids.add(int(str(sid).split(":", 1)[0]))
+        except Exception:
+            continue
+    pos_return_receipt_ids = set()
+    for sid in Receipt.objects.filter(source_app="pos", source_model="SalesReturn").values_list("source_id", flat=True):
+        try:
+            pos_return_receipt_ids.add(int(str(sid).split(":", 1)[0]))
+        except Exception:
+            continue
+
+    missing_bill_receipts = (
+        Bill.objects
+        .filter(Q(total_syp__gt=0) | Q(total_usd__gt=0))
+        .exclude(id__in=bill_receipt_ids)
+        .select_related("provider")
+        .order_by("-id")[:50]
+    )
+    missing_provider_return_receipts = (
+        ProviderReturn.objects
+        .filter(Q(total_syp__gt=0) | Q(total_usd__gt=0))
+        .exclude(id__in=return_receipt_ids)
+        .select_related("provider")
+        .order_by("-id")[:50]
+    )
+    missing_pos_bill_receipts = (
+        SalesBill.objects
+        .filter(finalized=True, parked=False)
+        .filter(Q(total_syp__gt=0) | Q(total_usd__gt=0))
+        .exclude(id__in=pos_bill_receipt_ids)
+        .select_related("customer")
+        .order_by("-id")[:50]
+    )
+    missing_pos_return_receipts = (
+        SalesReturn.objects
+        .filter(status=SalesReturn.Status.POSTED)
+        .filter(Q(total_syp__gt=0) | Q(total_usd__gt=0))
+        .exclude(id__in=pos_return_receipt_ids)
+        .select_related("sale_bill")
+        .order_by("-id")[:50]
+    )
+
+    orphan_receipts = (
+        Receipt.objects
+        .filter(Q(source_app="") | Q(source_model="") | Q(source_id=""))
+        .order_by("-id")[:100]
+    )
+
+    duplicate_action_keys = (
+        Receipt.objects
+        .exclude(action_key__isnull=True)
+        .exclude(action_key="")
+        .values("action_key")
+        .annotate(c=Count("id"))
+        .filter(c__gt=1)
+        .order_by("-c", "action_key")
+    )
+
+    fx_anomalies = (
+        Receipt.objects
+        .filter(status__in=[ReceiptStatus.POSTED, ReceiptStatus.REVERSED])
+        .filter(Q(fx_syp_per_usd__isnull=True) | Q(fx_syp_per_usd__lte=0))
+        .order_by("-id")[:100]
+    )
+
+    container_currency_mismatches = []
+    rows = (
+        PostingLine.objects
+        .select_related("receipt", "container", "currency")
+        .filter(target_type=PostingTargetType.CONTAINER, container__isnull=False)
+        .order_by("-id")[:1000]
+    )
+    for ln in rows:
+        enabled = MoneyContainerCurrency.objects.filter(
+            container_id=ln.container_id,
+            currency_id=ln.currency_id,
+            is_enabled=True,
+        ).exists()
+        if not enabled:
+            container_currency_mismatches.append(ln)
+
+    ctx = {
+        **_secondary_menu_ctx("reconciliation"),
+        "missing_bill_receipts": missing_bill_receipts,
+        "missing_provider_return_receipts": missing_provider_return_receipts,
+        "missing_pos_bill_receipts": missing_pos_bill_receipts,
+        "missing_pos_return_receipts": missing_pos_return_receipts,
+        "orphan_receipts": orphan_receipts,
+        "duplicate_action_keys": duplicate_action_keys,
+        "fx_anomalies": fx_anomalies,
+        "container_currency_mismatches": container_currency_mismatches[:100],
+    }
+    return render(request, "financials/manager/reconciliation_dashboard.html", ctx)

@@ -1,0 +1,229 @@
+﻿{% extends "financials/manager/base_financials.html" %}
+{% load formatting %}
+
+{% block title %}لوحة المطابقة المالية{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px;">لوحة المطابقة المالية</h2>
+  <div class="card" style="padding:12px;margin-bottom:12px;">
+    <div class="muted">هذه الصفحة مخصصة لاكتشاف التناقضات ومراجعتها قبل أي تصحيح يدوي.</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">فواتير شراء مالية بدون سند</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">المعرف</th>
+            <th style="padding:10px;">السيريال</th>
+            <th style="padding:10px;">المورد</th>
+            <th style="padding:10px;">الإجمالي SYP</th>
+            <th style="padding:10px;">الإجمالي USD</th>
+            <th style="padding:10px;">رابط</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in missing_bill_receipts %}
+            <tr>
+              <td style="padding:10px;">{{ b.id }}</td>
+              <td style="padding:10px;">{{ b.serial }}</td>
+              <td style="padding:10px;">{{ b.provider.name|default:"—" }}</td>
+              <td style="padding:10px;">{{ b.total_syp|human_number }}</td>
+              <td style="padding:10px;">{{ b.total_usd|human_number }}</td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_bill_view' b.id %}">فتح</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">مرتجعات مورد مالية بدون سند</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">المعرف</th>
+            <th style="padding:10px;">السيريال</th>
+            <th style="padding:10px;">المورد</th>
+            <th style="padding:10px;">الإجمالي SYP</th>
+            <th style="padding:10px;">الإجمالي USD</th>
+            <th style="padding:10px;">رابط</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in missing_provider_return_receipts %}
+            <tr>
+              <td style="padding:10px;">{{ r.id }}</td>
+              <td style="padding:10px;">{{ r.serial }}</td>
+              <td style="padding:10px;">{{ r.provider.name|default:"—" }}</td>
+              <td style="padding:10px;">{{ r.total_syp|human_number }}</td>
+              <td style="padding:10px;">{{ r.total_usd|human_number }}</td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_return_view' r.id %}">فتح</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">فواتير POS نهائية بدون سند</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">المعرف</th>
+            <th style="padding:10px;">العميل</th>
+            <th style="padding:10px;">الإجمالي SYP</th>
+            <th style="padding:10px;">الإجمالي USD</th>
+            <th style="padding:10px;">رابط</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in missing_pos_bill_receipts %}
+            <tr>
+              <td style="padding:10px;">{{ b.id }}</td>
+              <td style="padding:10px;">{{ b.customer_name|default:"—" }}</td>
+              <td style="padding:10px;">{{ b.total_syp|human_number }}</td>
+              <td style="padding:10px;">{{ b.total_usd|human_number }}</td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'pos:pos_manager_bill_detail' b.id %}">فتح</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">مرتجعات POS منشورة بدون سند</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">المعرف</th>
+            <th style="padding:10px;">السيريال</th>
+            <th style="padding:10px;">الإجمالي SYP</th>
+            <th style="padding:10px;">الإجمالي USD</th>
+            <th style="padding:10px;">رابط</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in missing_pos_return_receipts %}
+            <tr>
+              <td style="padding:10px;">{{ r.id }}</td>
+              <td style="padding:10px;">{{ r.serial|default:"—" }}</td>
+              <td style="padding:10px;">{{ r.total_syp|human_number }}</td>
+              <td style="padding:10px;">{{ r.total_usd|human_number }}</td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'pos:pos_manager_sale_return_settle' r.id %}">فتح</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px;">
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">سندات بلا مصدر</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">السند</th>
+            <th style="padding:10px;">النوع</th>
+            <th style="padding:10px;">الحالة</th>
+            <th style="padding:10px;">المنشأ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in orphan_receipts %}
+            <tr>
+              <td style="padding:10px;">{{ r.serial }}</td>
+              <td style="padding:10px;">{{ r.get_kind_display }}</td>
+              <td style="padding:10px;">{{ r.get_status_display }}</td>
+              <td style="padding:10px;">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">مفاتيح إجراء مكررة</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">المفتاح</th>
+            <th style="padding:10px;">عدد السندات</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in duplicate_action_keys %}
+            <tr>
+              <td style="padding:10px;">{{ row.action_key }}</td>
+              <td style="padding:10px;">{{ row.c }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="2" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">سندات ببيانات FX غير صالحة</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">السند</th>
+            <th style="padding:10px;">المصدر</th>
+            <th style="padding:10px;">FX</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in fx_anomalies %}
+            <tr>
+              <td style="padding:10px;">{{ r.serial }}</td>
+              <td style="padding:10px;">{{ r.source_app }}/{{ r.source_model }}/{{ r.source_id }}</td>
+              <td style="padding:10px;">{{ r.fx_syp_per_usd|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <div style="padding:12px 12px 0;font-weight:700;">قيود حاوية بعملة غير مفعلة</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">السند</th>
+            <th style="padding:10px;">الحاوية</th>
+            <th style="padding:10px;">العملة</th>
+            <th style="padding:10px;">المبلغ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ln in container_currency_mismatches %}
+            <tr>
+              <td style="padding:10px;">{{ ln.receipt.serial }}</td>
+              <td style="padding:10px;">{{ ln.container.name|default:"—" }}</td>
+              <td style="padding:10px;">{{ ln.currency.code|default:"—" }}</td>
+              <td style="padding:10px;">{{ ln.amount|human_number }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" style="padding:14px;">لا توجد حالات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

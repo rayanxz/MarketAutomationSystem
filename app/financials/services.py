@@ -1,4 +1,4 @@
-# financials/services.py
+﻿# financials/services.py
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -22,7 +22,7 @@ from .models import (
     PostingLine,
     PostingTargetType,
     MoneyContainerCurrency,
-    FxSettings,          # ✅ new
+    FxSettings,          # âœ… new
 )
 import json
 
@@ -174,9 +174,10 @@ def _mk_receipt(
     source_id: str = "",
     group_key=None,
     reverses: Optional[Receipt] = None,
-    fx_syp_per_usd: Optional[Decimal] = None,  # ✅ new
+    fx_syp_per_usd: Optional[Decimal] = None,
+    action_key: str | None = None,
 ) -> Receipt:
-    # ✅ hard block: any created receipt must carry FX
+    # Hard block: any created receipt must carry FX (except opening balance).
     fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else None
     if kind != ReceiptKind.OPENING_BALANCE:
         if fx is None or fx <= 0:
@@ -192,7 +193,8 @@ def _mk_receipt(
         source_model=source_model or "",
         source_id=str(source_id or ""),
         reverses=reverses,
-        fx_syp_per_usd=fx,  # ✅ stored snapshot
+        fx_syp_per_usd=fx,
+        action_key=((action_key or "").strip() or None),
     )
     if group_key is not None:
         kwargs["group_key"] = group_key
@@ -201,7 +203,6 @@ def _mk_receipt(
     r.ensure_serial()
     r.save(update_fields=["serial"])
     return r
-
 
 def _post_receipt(r: Receipt) -> Receipt:
     # extra safety: refuse posting if FX missing
@@ -239,7 +240,7 @@ def _add_line_counterparty(*, receipt: Receipt, counterparty: Counterparty, curr
 
 
 @transaction.atomic
-def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str, Decimal], note: str = "رصيد افتتاحي") -> Receipt:
+def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str, Decimal], note: str = "Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ") -> Receipt:
     try:
         fx = get_current_fx_syp_per_usd()
     except ValueError:
@@ -525,6 +526,7 @@ def post_counterparty_bill_action_with_fx(
     container_paid_by_code: Dict[str, Decimal] | None = None,
     container_id: int | None = None,
     fx_syp_per_usd: Decimal | None,
+    action_key: str | None = None,
     note: str = "",
     **source,
 ) -> Receipt:
@@ -541,6 +543,17 @@ def post_counterparty_bill_action_with_fx(
     fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
     if fx <= 0:
         raise ValueError("FX is required for receipts.")
+
+    action_key_norm = (action_key or "").strip() or None
+    if action_key_norm:
+        existing = (
+            Receipt.objects
+            .select_for_update()
+            .filter(action_key=action_key_norm)
+            .first()
+        )
+        if existing is not None:
+            return existing
 
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
 
@@ -589,13 +602,26 @@ def post_counterparty_bill_action_with_fx(
                 raise ValueError(f"Currency {code} is disabled for this container")
 
     kind = ReceiptKind.COUNTERPARTY_SETTLE if container_paid_map else ReceiptKind.COUNTERPARTY_INC
-    r = _mk_receipt(
-        actor=actor,
-        kind=kind,
-        note=note,
-        fx_syp_per_usd=fx,
-        **source,
-    )
+    try:
+        r = _mk_receipt(
+            actor=actor,
+            kind=kind,
+            note=note,
+            fx_syp_per_usd=fx,
+            action_key=action_key_norm,
+            **source,
+        )
+    except IntegrityError:
+        if action_key_norm:
+            existing = (
+                Receipt.objects
+                .select_for_update()
+                .filter(action_key=action_key_norm)
+                .first()
+            )
+            if existing is not None:
+                return existing
+        raise
 
     for code in sorted(total_map.keys()):
         currency = Currency.objects.get(code=code)
@@ -654,6 +680,7 @@ def post_counterparty_return_action_with_fx(
     container_collected_by_code: Dict[str, Decimal] | None = None,
     container_id: int | None = None,
     fx_syp_per_usd: Decimal | None,
+    action_key: str | None = None,
     note: str = "",
     **source,
 ) -> Receipt:
@@ -667,6 +694,17 @@ def post_counterparty_return_action_with_fx(
     fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
     if fx <= 0:
         raise ValueError("FX is required for receipts.")
+
+    action_key_norm = (action_key or "").strip() or None
+    if action_key_norm:
+        existing = (
+            Receipt.objects
+            .select_for_update()
+            .filter(action_key=action_key_norm)
+            .first()
+        )
+        if existing is not None:
+            return existing
 
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
 
@@ -715,13 +753,26 @@ def post_counterparty_return_action_with_fx(
                 raise ValueError(f"Currency {code} is disabled for this container")
 
     kind = ReceiptKind.COUNTERPARTY_SETTLE if container_collected_map else ReceiptKind.COUNTERPARTY_INC
-    r = _mk_receipt(
-        actor=actor,
-        kind=kind,
-        note=note,
-        fx_syp_per_usd=fx,
-        **source,
-    )
+    try:
+        r = _mk_receipt(
+            actor=actor,
+            kind=kind,
+            note=note,
+            fx_syp_per_usd=fx,
+            action_key=action_key_norm,
+            **source,
+        )
+    except IntegrityError:
+        if action_key_norm:
+            existing = (
+                Receipt.objects
+                .select_for_update()
+                .filter(action_key=action_key_norm)
+                .first()
+            )
+            if existing is not None:
+                return existing
+        raise
 
     for code in sorted(total_map.keys()):
         currency = Currency.objects.get(code=code)
@@ -771,6 +822,72 @@ def post_counterparty_return_action_with_fx(
 
 
 @transaction.atomic
+def post_counterparty_sale_action_with_fx(
+    *,
+    actor,
+    counterparty_id: int,
+    totals_by_code: Dict[str, Decimal],
+    settled_counterparty_by_code: Dict[str, Decimal] | None = None,
+    container_collected_by_code: Dict[str, Decimal] | None = None,
+    container_id: int | None = None,
+    fx_syp_per_usd: Decimal | None,
+    action_key: str | None = None,
+    note: str = "",
+    **source,
+) -> Receipt:
+    """
+    Canonical POS sale posting.
+    Sign semantics are equivalent to provider-return action:
+    counterparty total increases, settlement reduces it, cash moves into container.
+    """
+    return post_counterparty_return_action_with_fx(
+        actor=actor,
+        counterparty_id=counterparty_id,
+        totals_by_code=totals_by_code,
+        settled_counterparty_by_code=settled_counterparty_by_code,
+        container_collected_by_code=container_collected_by_code,
+        container_id=container_id,
+        fx_syp_per_usd=fx_syp_per_usd,
+        action_key=action_key,
+        note=note,
+        **source,
+    )
+
+
+@transaction.atomic
+def post_counterparty_sale_return_action_with_fx(
+    *,
+    actor,
+    counterparty_id: int,
+    totals_by_code: Dict[str, Decimal],
+    settled_counterparty_by_code: Dict[str, Decimal] | None = None,
+    container_paid_by_code: Dict[str, Decimal] | None = None,
+    container_id: int | None = None,
+    fx_syp_per_usd: Decimal | None,
+    action_key: str | None = None,
+    note: str = "",
+    **source,
+) -> Receipt:
+    """
+    Canonical POS sales-return posting.
+    Sign semantics are equivalent to provider-bill action:
+    counterparty total decreases, settlement offsets it, cash moves out of container.
+    """
+    return post_counterparty_bill_action_with_fx(
+        actor=actor,
+        counterparty_id=counterparty_id,
+        totals_by_code=totals_by_code,
+        settled_counterparty_by_code=settled_counterparty_by_code,
+        container_paid_by_code=container_paid_by_code,
+        container_id=container_id,
+        fx_syp_per_usd=fx_syp_per_usd,
+        action_key=action_key,
+        note=note,
+        **source,
+    )
+
+
+@transaction.atomic
 def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt:
     orig = (
         Receipt.objects.select_for_update()
@@ -782,7 +899,7 @@ def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt
     if orig.reversed_by.exists():
         raise ValueError("Receipt is already reversed")
 
-    # ✅ reversal copies FX snapshot from original
+    # âœ… reversal copies FX snapshot from original
     if orig.fx_syp_per_usd is None or Decimal(orig.fx_syp_per_usd) <= 0:
         raise ValueError("Original receipt has no FX; cannot reverse safely.")
 
@@ -856,3 +973,4 @@ def counterparty_balance(*, counterparty_id: int) -> dict[str, Decimal]:
         .order_by()
     )
     return {row["currency__code"]: (row["s"] or DEC0) for row in qs}
+

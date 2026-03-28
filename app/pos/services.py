@@ -61,6 +61,31 @@ def _ensure_customer_counterparty(*, customer) -> Counterparty:
     return cp
 
 
+def ensure_bill_counterparty(*, bill: SalesBill) -> Counterparty:
+    """
+    Resolve a counterparty for POS bill financial posting.
+    - Linked customer profile when available.
+    - Stable unlinked customer counterparty for walk-in cash sales.
+    """
+    if bill.customer_id and bill.customer is not None:
+        return _ensure_customer_counterparty(customer=bill.customer)
+
+    name = (bill.customer_name or "").strip() or "POS Walk-in Customer"
+    cp, created = Counterparty.objects.get_or_create(
+        type=CounterpartyType.CUSTOMER,
+        provider=None,
+        customer=None,
+        name=name,
+        defaults={
+            "is_active": True,
+        },
+    )
+    if not created and (cp.name or "").strip() != name:
+        cp.name = name
+        cp.save(update_fields=["name"])
+    return cp
+
+
 def get_or_create_work_day(now=None) -> PosDay:
     """
     Ensure we have a PosDay for the current local calendar date.
@@ -358,99 +383,6 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
                 product.price_syp = unit_price
                 product.save(update_fields=["default_price_syp", "latest_price_syp", "price_syp"])
 
-    # ==========================
-    # 5) Financials: cash-in receipt (paid only)
-    # ==========================
-    if bill.pay_status == SalesBill.PAY_NONE:
-        return
-
-    if not bill.money_container_id:
-        raise RuntimeError("POS_MISSING_MONEY_CONTAINER")
-
-    total_syp = _q_money(SYP, bill.total_syp or DEC0)
-    total_usd = _q_money(USD, bill.total_usd or DEC0)
-
-    # fallback for legacy bills
-    if total_syp == 0 and total_usd == 0:
-        for row in rows:
-            try:
-                product = Product.objects.get(pk=row.product_id, is_active=True)
-            except Product.DoesNotExist:
-                raise ValidationError("Product is archived and cannot be used in new operations.")
-            row_total = _calc_row_total(product=product, row=row)
-            row_currency = (row.sale_currency or SYP).upper()
-            if row_currency == USD:
-                total_usd = _q_money(USD, total_usd + row_total)
-            else:
-                total_syp = _q_money(SYP, total_syp + row_total)
-
-    fx_rate = _q_fx(bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
-
-    paid_syp = DEC0
-    paid_usd = DEC0
-    mode = bill.settlement_mode or SalesBill.SETTLE_SPLIT
-
-    if bill.pay_status == SalesBill.PAY_FULL:
-        if mode == SalesBill.SETTLE_ALL_SYP:
-            paid_syp = _q_money(SYP, total_syp + (total_usd * fx_rate))
-        elif mode == SalesBill.SETTLE_ALL_USD:
-            paid_usd = _q_money(USD, total_usd + (total_syp / fx_rate))
-        else:
-            paid_syp = total_syp
-            paid_usd = total_usd
-    else:
-        if mode == SalesBill.SETTLE_ALL_SYP:
-            paid_syp = _q_money(SYP, bill.paid_amount or DEC0)
-        elif mode == SalesBill.SETTLE_ALL_USD:
-            paid_usd = _q_money(USD, bill.paid_amount or DEC0)
-        else:
-            paid_syp = _q_money(SYP, bill.paid_amount or DEC0)
-
-    amounts = {}
-    if paid_syp > 0:
-        amounts[SYP] = paid_syp
-    if paid_usd > 0:
-        amounts[USD] = paid_usd
-
-    if amounts:
-        if bill.pay_status == SalesBill.PAY_FULL:
-            FinSV.post_pos_sale_receipt(
-                actor=actor,
-                container_id=bill.money_container_id,
-                amounts_by_code=amounts,
-                fx_syp_per_usd=fx_rate,
-                note="POS sale receipt",
-                source_app="pos",
-                source_model="SalesBill",
-                source_id=str(bill.id),
-            )
-        else:
-            if not bill.customer_id:
-                raise RuntimeError("POS_CUSTOMER_REQUIRED_FOR_DEBT")
-            cp = _ensure_customer_counterparty(customer=bill.customer)
-            if paid_syp > 0:
-                FinSV.post_settlement_with_fx(
-                    actor=actor,
-                    container_id=bill.money_container_id,
-                    counterparty_id=cp.id,
-                    currency_code=SYP,
-                    cash_amount_signed=+paid_syp,
-                    fx_syp_per_usd=fx_rate,
-                    note="POS sale settlement (SYP)",
-                    source_app="pos",
-                    source_model="SalesBill",
-                    source_id=str(bill.id),
-                )
-            if paid_usd > 0:
-                FinSV.post_settlement_with_fx(
-                    actor=actor,
-                    container_id=bill.money_container_id,
-                    counterparty_id=cp.id,
-                    currency_code=USD,
-                    cash_amount_signed=+paid_usd,
-                    fx_syp_per_usd=fx_rate,
-                    note="POS sale settlement (USD)",
-                    source_app="pos",
-                    source_model="SalesBill",
-                    source_id=str(bill.id),
-                )
+    # Financial posting is handled centrally in pos.api_bills to keep one canonical
+    # commercial receipt per finalized POS bill action.
+    return

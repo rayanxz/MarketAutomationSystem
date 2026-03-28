@@ -12,7 +12,6 @@ from django.db import transaction
 from .models import SalesBill, SalesBillRow, CustomerProfile, PosShift
 from debts import services as DebtSV
 from debts.models import DebtorDebt, DebtorPayment, PartyType
-from financials.models import Receipt, ReceiptStatus
 from catalog.models import Product
 from core.currency import SYP, USD
 from financials.models import MoneyContainer, MoneyContainerCurrency
@@ -71,175 +70,170 @@ def _calc_row_total(*, product: Product, row: dict) -> Decimal:
 
 
 def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
-    if bill.pay_status == SalesBill.PAY_FULL:
-        return
-
-    if not bill.customer_id:
-        raise ValueError("CUSTOMER_REQUIRED_FOR_DEBT")
-
-    cp = POSSV._ensure_customer_counterparty(customer=bill.customer)
-
     fx_rate = FinSV.q_fx(bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
     total_syp = _q_money(SYP, bill.total_syp or DEC0)
     total_usd = _q_money(USD, bill.total_usd or DEC0)
-
     mode = bill.settlement_mode or SalesBill.SETTLE_SPLIT
-    paid_amount = _q_money(SYP if mode != SalesBill.SETTLE_ALL_USD else USD, bill.paid_amount or DEC0)
+    pay_status = bill.pay_status or SalesBill.PAY_NONE
 
-    receipt = (
-        Receipt.objects.filter(
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-            status=ReceiptStatus.POSTED,
-        )
-        .order_by("-id")
-        .first()
-    )
+    # Legacy fallback if split totals were not persisted on old rows.
+    if total_syp <= DEC0 and total_usd <= DEC0:
+        for row in bill.rows.all():
+            try:
+                product = Product.objects.get(pk=row.product_id, is_active=True)
+            except Product.DoesNotExist:
+                raise ValidationError("Product is archived and cannot be used in new operations.")
+            row_total = POSSV._calc_row_total(product=product, row=row)
+            row_currency = (row.sale_currency or SYP).upper()
+            if row_currency == USD:
+                total_usd = _q_money(USD, total_usd + row_total)
+            else:
+                total_syp = _q_money(SYP, total_syp + row_total)
+
+    totals_by_code: dict[str, Decimal] = {}
+    settled_counterparty_by_code: dict[str, Decimal] = {}
+    container_collected_by_code: dict[str, Decimal] = {}
+    debtor_entries_by_code: dict[str, DebtorDebt] = {}
+
+    customer_party_name = (bill.customer_name or "").strip()
+    if pay_status != SalesBill.PAY_FULL and not bill.customer_id and not customer_party_name:
+        raise ValueError("CUSTOMER_REQUIRED_FOR_DEBT")
 
     if mode == SalesBill.SETTLE_ALL_SYP:
-        total = _q_money(SYP, total_syp + (total_usd * fx_rate))
-        paid = _q_money(SYP, paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0)
-        entry = DebtSV.create_debtor_entry(
-            provider=None,
-            total=total,
-            paid_amount=paid,
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-            currency_code=SYP,
-            party_type=PartyType.CUSTOMER,
-            party_name=bill.customer_name or "",
-            customer_id=bill.customer_id,
-        )
-        if total > 0:
-            FinSV.post_counterparty_adjust_with_fx(
-                actor=actor,
-                counterparty_id=cp.id,
-                currency_code=SYP,
-                amount_signed=+entry.total,
-                fx_syp_per_usd=fx_rate,
-                note=f"POS customer debt #{bill.id} (SYP)",
+        total_settlement_syp = _q_money(SYP, total_syp + (total_usd * fx_rate))
+        if total_settlement_syp > DEC0:
+            totals_by_code[SYP] = total_settlement_syp
+        paid_syp = DEC0
+        if pay_status == SalesBill.PAY_FULL:
+            paid_syp = total_settlement_syp
+        elif pay_status == SalesBill.PAY_PARTIAL:
+            paid_syp = _q_money(SYP, bill.paid_amount or DEC0)
+        if paid_syp > DEC0:
+            settled_counterparty_by_code[SYP] = paid_syp
+            container_collected_by_code[SYP] = paid_syp
+        if pay_status != SalesBill.PAY_FULL and total_settlement_syp > DEC0:
+            debtor_entries_by_code[SYP] = DebtSV.create_debtor_entry(
+                provider=None,
+                total=total_settlement_syp,
+                paid_amount=paid_syp,
                 source_app="pos",
                 source_model="SalesBill",
                 source_id=str(bill.id),
+                currency_code=SYP,
+                party_type=PartyType.CUSTOMER,
+                party_name=customer_party_name,
+                customer_id=bill.customer_id,
             )
-        if receipt and paid > 0:
-            if not DebtorPayment.objects.filter(entry=entry, receipt=receipt).exists():
-                DebtorPayment.objects.create(
-                    entry=entry,
-                    amount=_q_money(SYP, paid),
-                    currency_code=SYP,
-                    receipt=receipt,
-                    money_container=bill.money_container,
-                    fx_syp_per_usd_used=fx_rate,
-                )
-        return
-
-    if mode == SalesBill.SETTLE_ALL_USD:
-        total = _q_money(USD, total_usd + (total_syp / fx_rate))
-        paid = _q_money(USD, paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0)
-        entry = DebtSV.create_debtor_entry(
-            provider=None,
-            total=total,
-            paid_amount=paid,
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-            currency_code=USD,
-            party_type=PartyType.CUSTOMER,
-            party_name=bill.customer_name or "",
-            customer_id=bill.customer_id,
-        )
-        if total > 0:
-            FinSV.post_counterparty_adjust_with_fx(
-                actor=actor,
-                counterparty_id=cp.id,
+    elif mode == SalesBill.SETTLE_ALL_USD:
+        total_settlement_usd = _q_money(USD, total_usd + (total_syp / fx_rate))
+        if total_settlement_usd > DEC0:
+            totals_by_code[USD] = total_settlement_usd
+        paid_usd = DEC0
+        if pay_status == SalesBill.PAY_FULL:
+            paid_usd = total_settlement_usd
+        elif pay_status == SalesBill.PAY_PARTIAL:
+            paid_usd = _q_money(USD, bill.paid_amount or DEC0)
+        if paid_usd > DEC0:
+            settled_counterparty_by_code[USD] = paid_usd
+            container_collected_by_code[USD] = paid_usd
+        if pay_status != SalesBill.PAY_FULL and total_settlement_usd > DEC0:
+            debtor_entries_by_code[USD] = DebtSV.create_debtor_entry(
+                provider=None,
+                total=total_settlement_usd,
+                paid_amount=paid_usd,
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=str(bill.id),
                 currency_code=USD,
-                amount_signed=+entry.total,
-                fx_syp_per_usd=fx_rate,
-                note=f"POS customer debt #{bill.id} (USD)",
-                source_app="pos",
-                source_model="SalesBill",
-                source_id=str(bill.id),
+                party_type=PartyType.CUSTOMER,
+                party_name=customer_party_name,
+                customer_id=bill.customer_id,
             )
-        if receipt and paid > 0:
-            if not DebtorPayment.objects.filter(entry=entry, receipt=receipt).exists():
-                DebtorPayment.objects.create(
-                    entry=entry,
-                    amount=_q_money(USD, paid),
-                    currency_code=USD,
-                    receipt=receipt,
-                    money_container=bill.money_container,
-                    fx_syp_per_usd_used=fx_rate,
+    else:
+        if total_syp > DEC0:
+            totals_by_code[SYP] = total_syp
+        if total_usd > DEC0:
+            totals_by_code[USD] = total_usd
+
+        paid_syp = DEC0
+        paid_usd = DEC0
+        if pay_status == SalesBill.PAY_FULL:
+            paid_syp = total_syp
+            paid_usd = total_usd
+        elif pay_status == SalesBill.PAY_PARTIAL:
+            paid_syp = _q_money(SYP, bill.paid_amount or DEC0)
+
+        if paid_syp > DEC0:
+            settled_counterparty_by_code[SYP] = paid_syp
+            container_collected_by_code[SYP] = paid_syp
+        if paid_usd > DEC0:
+            settled_counterparty_by_code[USD] = paid_usd
+            container_collected_by_code[USD] = paid_usd
+
+        if pay_status != SalesBill.PAY_FULL:
+            if total_syp > DEC0:
+                debtor_entries_by_code[SYP] = DebtSV.create_debtor_entry(
+                    provider=None,
+                    total=total_syp,
+                    paid_amount=paid_syp,
+                    source_app="pos",
+                    source_model="SalesBill",
+                    source_id=str(bill.id),
+                    currency_code=SYP,
+                    party_type=PartyType.CUSTOMER,
+                    party_name=customer_party_name,
+                    customer_id=bill.customer_id,
                 )
+            if total_usd > DEC0:
+                debtor_entries_by_code[USD] = DebtSV.create_debtor_entry(
+                    provider=None,
+                    total=total_usd,
+                    paid_amount=paid_usd,
+                    source_app="pos",
+                    source_model="SalesBill",
+                    source_id=str(bill.id),
+                    currency_code=USD,
+                    party_type=PartyType.CUSTOMER,
+                    party_name=customer_party_name,
+                    customer_id=bill.customer_id,
+                )
+
+    if not totals_by_code:
         return
 
-    # split (SYP + USD)
-    paid_syp = _q_money(SYP, paid_amount if bill.pay_status == SalesBill.PAY_PARTIAL else DEC0)
-    paid_usd = DEC0
+    if container_collected_by_code and not bill.money_container_id:
+        raise ValueError("POS_MISSING_MONEY_CONTAINER")
 
-    entry_syp = None
-    entry_usd = None
-    if total_syp > 0:
-        entry_syp = DebtSV.create_debtor_entry(
-            provider=None,
-            total=total_syp,
-            paid_amount=paid_syp,
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-            currency_code=SYP,
-            party_type=PartyType.CUSTOMER,
-            party_name=bill.customer_name or "",
-            customer_id=bill.customer_id,
-        )
-        FinSV.post_counterparty_adjust_with_fx(
-            actor=actor,
-            counterparty_id=cp.id,
-            currency_code=SYP,
-            amount_signed=+entry_syp.total,
-            fx_syp_per_usd=fx_rate,
-            note=f"POS customer debt #{bill.id} (SYP)",
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-        )
-    if total_usd > 0:
-        entry_usd = DebtSV.create_debtor_entry(
-            provider=None,
-            total=total_usd,
-            paid_amount=paid_usd,
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-            currency_code=USD,
-            party_type=PartyType.CUSTOMER,
-            party_name=bill.customer_name or "",
-            customer_id=bill.customer_id,
-        )
-        FinSV.post_counterparty_adjust_with_fx(
-            actor=actor,
-            counterparty_id=cp.id,
-            currency_code=USD,
-            amount_signed=+entry_usd.total,
-            fx_syp_per_usd=fx_rate,
-            note=f"POS customer debt #{bill.id} (USD)",
-            source_app="pos",
-            source_model="SalesBill",
-            source_id=str(bill.id),
-        )
+    cp = POSSV.ensure_bill_counterparty(bill=bill)
+    primary_receipt = FinSV.post_counterparty_sale_action_with_fx(
+        actor=actor,
+        counterparty_id=cp.id,
+        totals_by_code=totals_by_code,
+        settled_counterparty_by_code=settled_counterparty_by_code,
+        container_collected_by_code=container_collected_by_code,
+        container_id=(bill.money_container_id if container_collected_by_code else None),
+        fx_syp_per_usd=fx_rate,
+        action_key=f"pos:SalesBill:{bill.id}:create",
+        note=f"POS sale #{bill.id}",
+        source_app="pos",
+        source_model="SalesBill",
+        source_id=str(bill.id),
+    )
 
-    if receipt and paid_syp > 0 and entry_syp:
-        if not DebtorPayment.objects.filter(entry=entry_syp, receipt=receipt).exists():
-            DebtorPayment.objects.create(
-                entry=entry_syp,
-                amount=_q_money(SYP, paid_syp),
-                currency_code=SYP,
-                receipt=receipt,
-                money_container=bill.money_container,
-                fx_syp_per_usd_used=fx_rate,
-            )
+    for code, entry in debtor_entries_by_code.items():
+        paid = _q_money(code, getattr(entry, "paid_amount", DEC0) or DEC0)
+        if paid <= DEC0:
+            continue
+        if DebtorPayment.objects.filter(entry=entry, receipt=primary_receipt).exists():
+            continue
+        DebtorPayment.objects.create(
+            entry=entry,
+            amount=paid,
+            currency_code=code,
+            receipt=primary_receipt,
+            money_container=bill.money_container if container_collected_by_code else None,
+            fx_syp_per_usd_used=fx_rate,
+        )
 
 @role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_POST

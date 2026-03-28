@@ -4,6 +4,7 @@ import json
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
@@ -11,7 +12,7 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import DebtorPayment
+from debts.models import DebtorPayment, DebtorDebt
 from financials import services as FinSV
 from financials.models import (
     ContainerFeature,
@@ -260,3 +261,100 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
         row = resp.context["items_rows"][0]
         self.assertEqual(row["product_name"], "—")
         self.assertEqual(row["unit1_label"], "—")
+
+    def test_zero_total_bill_is_non_financial_without_receipt_or_debt(self):
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            payment_status="unpaid",
+            payment_method="none",
+            paid_syp=Decimal("0"),
+            paid_usd=Decimal("0"),
+            items=[
+                {"product_id": self.prod_syp.id, "unit_index": 1, "qty_raw": "1", "cost": "0", "currency": "SYP"},
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+            fx_usd_syp=Decimal("15000"),
+        )
+
+        self.assertEqual(bill.total_syp, Decimal("0"))
+        self.assertEqual(bill.total_usd, Decimal("0"))
+        self.assertEqual(bill.creation_payment_status, "unpaid")
+        self.assertEqual(bill.creation_payment_method, "none")
+
+        self.assertFalse(
+            Receipt.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+            ).exists()
+        )
+        self.assertFalse(
+            DebtorDebt.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+            ).exists()
+        )
+
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_syp, Decimal("0"))
+        self.assertEqual(self.cash.balance_usd, Decimal("0"))
+
+    def test_zero_total_bill_rejects_payment_attempt(self):
+        with self.assertRaises(ValidationError):
+            BillingSV.create_bill(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="paid",
+                paid_amount=Decimal("1"),
+                payment_status="paid",
+                payment_method="syp_only",
+                paid_syp=Decimal("1"),
+                paid_usd=Decimal("0"),
+                items=[
+                    {"product_id": self.prod_syp.id, "unit_index": 1, "qty_raw": "1", "cost": "0", "currency": "SYP"},
+                ],
+                container=self.store,
+                money_container_id=self.cash.id,
+                settlement_currency="SYP",
+                fx_usd_syp=Decimal("15000"),
+            )
+
+    def test_bill_view_legacy_missing_creation_snapshot_marks_unknown(self):
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[
+                {"product_id": self.prod_syp.id, "unit_index": 1, "qty_raw": "1", "cost": "1000", "currency": "SYP"},
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+            fx_usd_syp=Decimal("15000"),
+        )
+        bill.creation_payment_status = ""
+        bill.creation_payment_method = ""
+        bill.creation_paid_syp = Decimal("0")
+        bill.creation_paid_usd = Decimal("0")
+        bill.save(
+            update_fields=[
+                "creation_payment_status",
+                "creation_payment_method",
+                "creation_paid_syp",
+                "creation_paid_usd",
+            ]
+        )
+
+        resp = self.client.get(reverse("billing_bill_view", args=[bill.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["created_payment_status_code"], "unknown")
+        self.assertEqual(resp.context["created_payment_method_code"], "UNKNOWN")
+        self.assertEqual(resp.context["created_payment_status_label"], "غير معروف (سجل قديم)")
+        self.assertEqual(resp.context["created_payment_method_label"], "غير معروف (سجل قديم)")

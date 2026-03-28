@@ -24,7 +24,7 @@ from debts.models import DebtorDebt, PartyType
 from audit_log import services as AuditSV
 
 from .models import SalesBill, SalesBillRow, SalesReturn, SalesReturnRow
-from .services import _ensure_customer_counterparty
+from .services import ensure_bill_counterparty
 
 logger = logging.getLogger(__name__)
 
@@ -414,81 +414,71 @@ def post_sales_return(
                 discount_pct_at_txn=getattr(r, "discount_pct_at_txn", None),
             )
 
-        fx_rate = bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd()
+        fx_rate = FinSV.q_fx(bill.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
+        cp = ensure_bill_counterparty(bill=bill)
 
-        def _apply_debt_and_settle(*, amount: Decimal, currency_code: str) -> tuple[Decimal, Decimal]:
-            if amount <= DEC0:
-                return DEC0, DEC0
+        reductions_by_code: dict[str, Decimal] = {"SYP": DEC0, "USD": DEC0}
+        remaining_by_code: dict[str, Decimal] = {"SYP": DEC0, "USD": DEC0}
+        cash_refund_by_code: dict[str, Decimal] = {"SYP": DEC0, "USD": DEC0}
+        credit_by_code: dict[str, Decimal] = {"SYP": DEC0, "USD": DEC0}
+        debtor_entries_by_code: dict[str, DebtorDebt | None] = {"SYP": None, "USD": None}
 
-            cur = (currency_code or "SYP").upper()
+        for cur, amount in (("SYP", total_syp), ("USD", total_usd)):
             total_amount = _q_money(cur, amount)
-            reduce_amount = DEC0
+            if total_amount <= DEC0:
+                continue
+            entry = _find_debtor_entry(bill_id=bill.id, currency_code=cur) if bill.customer_id else None
+            debtor_entries_by_code[cur] = entry
+            reducible = DEC0
+            if entry and entry.remaining > DEC0:
+                reducible = _q_money(cur, min(total_amount, entry.remaining))
+            reductions_by_code[cur] = reducible
+            remaining = _q_money(cur, total_amount - reducible)
+            remaining_by_code[cur] = remaining
+            if remaining > DEC0:
+                if settle == "cash":
+                    cash_refund_by_code[cur] = remaining
+                else:
+                    credit_by_code[cur] = remaining
 
-            entry = None
-            if bill.customer_id:
-                entry = _find_debtor_entry(bill_id=bill.id, currency_code=cur)
-                if entry and entry.remaining > DEC0:
-                    reduce_amount = _q_money(cur, min(total_amount, entry.remaining))
-
-            remaining_amount = _q_money(cur, total_amount - reduce_amount)
-
-            if remaining_amount > DEC0 and settle == "cash":
+        if settle == "cash":
+            any_cash_refund = (cash_refund_by_code["SYP"] > DEC0) or (cash_refund_by_code["USD"] > DEC0)
+            if any_cash_refund:
                 if not money_container_id:
                     raise ValueError("money_container_id is required for cash refunds")
-
                 container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-
-                if not MoneyContainerCurrency.objects.filter(
-                    container_id=container.id,
-                    currency__code=cur,
-                    is_enabled=True,
-                ).exists():
-                    raise ValueError(f"Currency {cur} is disabled for this container")
-
+                for cur in ("SYP", "USD"):
+                    refund_amt = cash_refund_by_code[cur]
+                    if refund_amt <= DEC0:
+                        continue
+                    if not MoneyContainerCurrency.objects.filter(
+                        container_id=container.id,
+                        currency__code=cur,
+                        is_enabled=True,
+                    ).exists():
+                        raise ValueError(f"Currency {cur} is disabled for this container")
                 container.refresh_from_db(fields=["balance_syp", "balance_usd"])
-                bal = container.balance_usd if cur == "USD" else container.balance_syp
-                if _q_money(cur, _dec(bal)) < remaining_amount:
-                    raise ValueError(f"Insufficient funds after debt reduction for {cur}")
+                if cash_refund_by_code["SYP"] > DEC0 and _q_money("SYP", _dec(container.balance_syp or DEC0)) < cash_refund_by_code["SYP"]:
+                    raise ValueError("Insufficient funds after debt reduction for SYP")
+                if cash_refund_by_code["USD"] > DEC0 and _q_money("USD", _dec(container.balance_usd or DEC0)) < cash_refund_by_code["USD"]:
+                    raise ValueError("Insufficient funds after debt reduction for USD")
 
-            if reduce_amount > DEC0 and entry is not None:
-                entry.total = _q_money(cur, (entry.total or DEC0) - reduce_amount)
+        for cur in ("SYP", "USD"):
+            entry = debtor_entries_by_code[cur]
+            reduce_amt = reductions_by_code[cur]
+            if reduce_amt > DEC0 and entry is not None:
+                entry.total = _q_money(cur, (entry.total or DEC0) - reduce_amt)
                 entry.status = DebtorDebt.Status.CLOSED if entry.remaining <= DEC0 else DebtorDebt.Status.OPEN
                 entry.save(update_fields=["total", "status"])
 
-                cp = _ensure_customer_counterparty(customer=bill.customer)
-                FinSV.post_counterparty_adjust_with_fx(
-                    actor=actor,
-                    counterparty_id=cp.id,
-                    currency_code=cur,
-                    amount_signed=-reduce_amount,
-                    fx_syp_per_usd=fx_rate,
-                    note=f"POS return debt reduce #{ret.serial or ret.id}",
-                    source_app="pos",
-                    source_model="SalesReturn",
-                    source_id=str(ret.id),
-                )
-
-            if remaining_amount <= DEC0:
-                return reduce_amount, DEC0
-
-            if settle == "cash":
-                container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-                FinSV.post_cash_withdraw(
-                    actor=actor,
-                    container_id=container.id,
-                    currency_code=cur,
-                    amount=remaining_amount,
-                    note=f"POS sales return refund #{ret.serial or ret.id}",
-                    source_app="pos",
-                    source_model="SalesReturn",
-                    source_id=str(ret.id),
-                )
-                return reduce_amount, remaining_amount
-
-            if settle == "credit":
+        if settle == "credit":
+            for cur in ("SYP", "USD"):
+                credit_amt = credit_by_code[cur]
+                if credit_amt <= DEC0:
+                    continue
                 DebtSV.create_creditor_entry(
                     provider=None,
-                    total=remaining_amount,
+                    total=credit_amt,
                     collected=DEC0,
                     source_app="pos",
                     source_model="SalesReturn",
@@ -500,21 +490,40 @@ def post_sales_return(
                     customer_id=bill.customer_id,
                 )
 
-                cp = _ensure_customer_counterparty(customer=bill.customer)
-                FinSV.post_counterparty_adjust_with_fx(
-                    actor=actor,
-                    counterparty_id=cp.id,
-                    currency_code=cur,
-                    amount_signed=-remaining_amount,
-                    fx_syp_per_usd=fx_rate,
-                    note=f"POS return credit #{ret.serial or ret.id}",
-                    source_app="pos",
-                    source_model="SalesReturn",
-                    source_id=str(ret.id),
-                )
-                return reduce_amount, remaining_amount
+        totals_by_code: dict[str, Decimal] = {}
+        if total_syp > DEC0:
+            totals_by_code["SYP"] = _q_money("SYP", total_syp)
+        if total_usd > DEC0:
+            totals_by_code["USD"] = _q_money("USD", total_usd)
 
-            return reduce_amount, remaining_amount
+        settled_counterparty_by_code: dict[str, Decimal] = {}
+        container_paid_by_code: dict[str, Decimal] = {}
+        for cur in ("SYP", "USD"):
+            cash_amt = cash_refund_by_code[cur]
+            if cash_amt > DEC0:
+                settled_counterparty_by_code[cur] = _q_money(cur, cash_amt)
+                container_paid_by_code[cur] = _q_money(cur, cash_amt)
+
+        if totals_by_code:
+            FinSV.post_counterparty_sale_return_action_with_fx(
+                actor=actor,
+                counterparty_id=cp.id,
+                totals_by_code=totals_by_code,
+                settled_counterparty_by_code=settled_counterparty_by_code,
+                container_paid_by_code=container_paid_by_code,
+                container_id=(money_container_id if container_paid_by_code else None),
+                fx_syp_per_usd=fx_rate,
+                action_key=f"pos:SalesReturn:{ret.id}:create",
+                note=f"POS sales return #{ret.serial or ret.id}",
+                source_app="pos",
+                source_model="SalesReturn",
+                source_id=str(ret.id),
+            )
+
+        dbg_red_syp = reductions_by_code["SYP"]
+        dbg_red_usd = reductions_by_code["USD"]
+        dbg_rem_syp = remaining_by_code["SYP"]
+        dbg_rem_usd = remaining_by_code["USD"]
 
         def _mark_posted() -> SalesReturn:
             ret.status = SalesReturn.Status.POSTED
@@ -538,17 +547,6 @@ def post_sales_return(
             )
 
             return ret
-
-        red_syp, rem_syp = _apply_debt_and_settle(amount=total_syp, currency_code="SYP")
-        red_usd, rem_usd = _apply_debt_and_settle(amount=total_usd, currency_code="USD")
-
-        dbg_red_syp = red_syp
-        dbg_red_usd = red_usd
-        dbg_rem_syp = rem_syp
-        dbg_rem_usd = rem_usd
-
-        if rem_syp <= DEC0 and rem_usd <= DEC0 and (red_syp > DEC0 or red_usd > DEC0):
-            return _mark_posted()
 
         return _mark_posted()
     except Exception as e:

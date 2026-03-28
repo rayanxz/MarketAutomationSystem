@@ -1,0 +1,248 @@
+﻿{% extends "financials/manager/base_financials.html" %}
+{% load formatting %}
+
+{% block title %}تتبع الأثر المالي{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px;">تتبع الأثر المالي للمستند</h2>
+
+  <form method="get" class="card" style="padding:12px;margin-bottom:12px;">
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px;">
+      <div>
+        <label>التطبيق</label>
+        <input class="input" name="source_app" value="{{ source_app }}" placeholder="billing / pos">
+      </div>
+      <div>
+        <label>نوع المستند</label>
+        <input class="input" name="source_model" value="{{ source_model }}" placeholder="Bill / SalesBill ...">
+      </div>
+      <div>
+        <label>رقم المصدر</label>
+        <input class="input" name="source_id" value="{{ source_id }}" placeholder="مثال: 125">
+      </div>
+      <div style="display:flex;align-items:end;gap:10px;">
+        <button class="btn" type="submit">تتبع</button>
+        <a class="btn-soft" href="{% url 'financials:document_trace' %}">مسح</a>
+      </div>
+    </div>
+  </form>
+
+  {% if source_app and source_model and source_id %}
+    <div class="card" style="padding:12px;margin-bottom:12px;">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-weight:700;">مرجع التتبع</div>
+          <div class="muted" style="margin-top:4px;">{{ source_app }}/{{ source_model }}/{{ source_id }}</div>
+          {% if source_document_label %}
+            <div style="margin-top:6px;">{{ source_document_label }}</div>
+          {% endif %}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          {% for code, total in currency_totals.items %}
+            <span class="chip">{{ code }}: {{ total|human_number }}</span>
+          {% empty %}
+            <span class="chip">لا يوجد إجمالي قيد</span>
+          {% endfor %}
+          {% if source_document_url %}
+            <a class="btn-soft" href="{{ source_document_url }}">فتح المستند</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;margin-bottom:12px;">
+      <div style="padding:12px 12px 0;font-weight:700;">السندات المرتبطة</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">التاريخ</th>
+            <th style="padding:10px;">الرقم</th>
+            <th style="padding:10px;">النوع</th>
+            <th style="padding:10px;">الحالة</th>
+            <th style="padding:10px;">المستخدم</th>
+            <th style="padding:10px;">القيود</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in receipts %}
+            <tr>
+              <td style="padding:10px;white-space:nowrap;">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+              <td style="padding:10px;white-space:nowrap;">{{ r.serial }}</td>
+              <td style="padding:10px;white-space:nowrap;">{{ r.get_kind_display }}</td>
+              <td style="padding:10px;white-space:nowrap;">{{ r.get_status_display }}</td>
+              <td style="padding:10px;white-space:nowrap;">{{ r.actor.username }}</td>
+              <td style="padding:10px;min-width:340px;">
+                {% for ln in r.lines.all %}
+                  <div>
+                    {% if ln.target_type == "container" %}
+                      حاوية: {{ ln.container.name|default:"—" }}
+                    {% else %}
+                      طرف مقابل: {{ ln.counterparty.name|default:"—" }}
+                    {% endif %}
+                    | {{ ln.currency.code }} | {{ ln.amount|human_number }}
+                  </div>
+                {% empty %}
+                  —
+                {% endfor %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" style="padding:14px;">لا توجد سندات مرتبطة.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;">
+      <div class="card" style="padding:0;overflow:auto;">
+        <div style="padding:12px 12px 0;font-weight:700;">ذمم مدينة مرتبطة</div>
+        <table class="tbl" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:10px;">المعرف</th>
+              <th style="padding:10px;">العملة</th>
+              <th style="padding:10px;">الإجمالي</th>
+              <th style="padding:10px;">المدفوع</th>
+              <th style="padding:10px;">المتبقي</th>
+              <th style="padding:10px;">الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in debtor_entries %}
+              <tr>
+                <td style="padding:10px;">{{ e.id }}</td>
+                <td style="padding:10px;">{{ e.currency_code|default:"—" }}</td>
+                <td style="padding:10px;">{{ e.total|human_number }}</td>
+                <td style="padding:10px;">{{ e.paid_amount|human_number }}</td>
+                <td style="padding:10px;">{{ e.remaining|human_number }}</td>
+                <td style="padding:10px;">{{ e.get_status_display }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" style="padding:14px;">لا توجد ذمم مدينة.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="padding:0;overflow:auto;">
+        <div style="padding:12px 12px 0;font-weight:700;">ذمم دائنة مرتبطة</div>
+        <table class="tbl" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:10px;">المعرف</th>
+              <th style="padding:10px;">العملة</th>
+              <th style="padding:10px;">الإجمالي</th>
+              <th style="padding:10px;">المحصل</th>
+              <th style="padding:10px;">المتبقي</th>
+              <th style="padding:10px;">الحالة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in creditor_entries %}
+              <tr>
+                <td style="padding:10px;">{{ e.id }}</td>
+                <td style="padding:10px;">{{ e.currency_code|default:"—" }}</td>
+                <td style="padding:10px;">{{ e.total|human_number }}</td>
+                <td style="padding:10px;">{{ e.collected|human_number }}</td>
+                <td style="padding:10px;">{{ e.remaining|human_number }}</td>
+                <td style="padding:10px;">{{ e.get_status_display }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" style="padding:14px;">لا توجد ذمم دائنة.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="padding:0;overflow:auto;">
+        <div style="padding:12px 12px 0;font-weight:700;">دفعات الذمم المدينة</div>
+        <table class="tbl" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:10px;">التاريخ</th>
+              <th style="padding:10px;">القيد</th>
+              <th style="padding:10px;">العملة</th>
+              <th style="padding:10px;">المبلغ</th>
+              <th style="padding:10px;">السند</th>
+              <th style="padding:10px;">الحاوية</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in debtor_payments %}
+              <tr>
+                <td style="padding:10px;white-space:nowrap;">{{ p.created_at|date:"Y-m-d H:i" }}</td>
+                <td style="padding:10px;">{{ p.entry_id }}</td>
+                <td style="padding:10px;">{{ p.currency_code|default:"—" }}</td>
+                <td style="padding:10px;">{{ p.amount|human_number }}</td>
+                <td style="padding:10px;">{{ p.receipt.serial|default:"—" }}</td>
+                <td style="padding:10px;">{{ p.money_container.name|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" style="padding:14px;">لا توجد دفعات مدينة.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="padding:0;overflow:auto;">
+        <div style="padding:12px 12px 0;font-weight:700;">تحصيلات الذمم الدائنة</div>
+        <table class="tbl" style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="padding:10px;">التاريخ</th>
+              <th style="padding:10px;">القيد</th>
+              <th style="padding:10px;">العملة</th>
+              <th style="padding:10px;">المبلغ</th>
+              <th style="padding:10px;">السند</th>
+              <th style="padding:10px;">الحاوية</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in creditor_receipts %}
+              <tr>
+                <td style="padding:10px;white-space:nowrap;">{{ p.created_at|date:"Y-m-d H:i" }}</td>
+                <td style="padding:10px;">{{ p.entry_id }}</td>
+                <td style="padding:10px;">{{ p.currency_code|default:"—" }}</td>
+                <td style="padding:10px;">{{ p.amount|human_number }}</td>
+                <td style="padding:10px;">{{ p.receipt.serial|default:"—" }}</td>
+                <td style="padding:10px;">{{ p.money_container.name|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" style="padding:14px;">لا توجد تحصيلات دائنة.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:auto;margin-top:12px;">
+      <div style="padding:12px 12px 0;font-weight:700;">سندات عكس مرتبطة</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="padding:10px;">التاريخ</th>
+            <th style="padding:10px;">السند</th>
+            <th style="padding:10px;">يعكس</th>
+            <th style="padding:10px;">المنفذ</th>
+            <th style="padding:10px;">الحالة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reversal_rows %}
+            <tr>
+              <td style="padding:10px;white-space:nowrap;">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+              <td style="padding:10px;">{{ r.serial }}</td>
+              <td style="padding:10px;">{{ r.reverses.serial|default:"—" }}</td>
+              <td style="padding:10px;">{{ r.actor.username }}</td>
+              <td style="padding:10px;">{{ r.get_status_display }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" style="padding:14px;">لا توجد سندات عكس.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card" style="padding:14px;">أدخل التطبيق ونوع المستند ورقم المصدر لعرض الأثر المالي الكامل.</div>
+  {% endif %}
+{% endblock %}

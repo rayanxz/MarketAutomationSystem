@@ -437,6 +437,11 @@
       return num.toFixed(3);
     }
 
+    function isZeroFinancialTotal(totals) {
+      const eps = 0.0000001;
+      return Math.abs(totals.totalSyp || 0) <= eps && Math.abs(totals.totalUsd || 0) <= eps;
+    }
+
     function recalcTotals() {
       let totalSyp = 0;
       let totalUsd = 0;
@@ -484,6 +489,28 @@
 
     function updateRemainingLabel() {
       const totals = recalcTotals();
+      const zeroTotal = isZeroFinancialTotal(totals);
+
+      if (statusPaid) statusPaid.disabled = zeroTotal;
+      if (statusPartial) statusPartial.disabled = zeroTotal;
+      if (statusUnpaid) statusUnpaid.disabled = zeroTotal;
+
+      if (zeroTotal) {
+        if (statusUnpaid) statusUnpaid.checked = true;
+        if (paidInput) {
+          paidInput.value = "";
+          paidInput.disabled = true;
+        }
+        if (moneyContainer) {
+          moneyContainer.value = "";
+          moneyContainer.disabled = true;
+        }
+        if (lblRemaining) {
+          lblRemaining.textContent = "الإجمالي صفري: المرتجع غير مالي ولا يوجد أي دفع.";
+        }
+        return;
+      }
+
       let remaining = totals.settlementTotal;
 
       const status = getCurrentStatus();

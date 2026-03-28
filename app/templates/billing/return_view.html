@@ -1,17 +1,17 @@
-{% extends "manager/base_manager.html" %}
+﻿{% extends "manager/base_manager.html" %}
 {% load static l10n formatting %}
-{% block title %}عرض مرتجع مورد  {% endblock %}
+{% block title %}Ø¹Ø±Ø¶ Ù…Ø±ØªØ¬Ø¹ Ù…ÙˆØ±Ø¯  {% endblock %}
 
 {% block menu_secondary %}
   {% with name=request.resolver_match.url_name %}
   <div class="tabs-row">
-    <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
-    <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة المدين</a>
-    <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
-    <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">قائمة الدائن</a>
-    <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
-    <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+    <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">Ø¥Ø¶Ø§ÙØ© ÙØ§ØªÙˆØ±Ø©</a>
+    <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„ÙÙˆØ§ØªÙŠØ±</a>
+    <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø¯ÙŠÙ†</a>
+    <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">Ø¥Ø¶Ø§ÙØ© Ø¯ÙŠÙ†</a>
+    <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¯Ø§Ø¦Ù†</a>
+    <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</a>
+    <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ù…Ø±ØªØ¬Ø¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</a>
   </div>
   {% endwith %}
 {% endblock %}
@@ -247,25 +247,25 @@
 
   {# ===== HEADER ===== #}
   <section class="card">
-    <h2 style="margin:0 0 10px;">تفاصيل مرتجع المورد</h2>
+    <h2 style="margin:0 0 10px;">ØªÙØ§ØµÙŠÙ„ Ù…Ø±ØªØ¬Ø¹ Ø§Ù„Ù…ÙˆØ±Ø¯</h2>
     <div class="row">
       <div class="field">
-        <div class="muted">السيريال</div>
-        <div class="badge">{{ pret.serial|default:"—"|human_number }}</div>
+        <div class="muted">Ø§Ù„Ø³ÙŠØ±ÙŠØ§Ù„</div>
+        <div class="badge">{{ pret.serial|default:"â€”"|human_number }}</div>
       </div>
       <div class="field">
-        <div class="muted">المورد</div>
+        <div class="muted">Ø§Ù„Ù…ÙˆØ±Ø¯</div>
         <div class="badge">{{ pret.provider.name }}</div>
       </div>
       <div class="field">
-        <div class="muted">التاريخ</div>
+        <div class="muted">Ø§Ù„ØªØ§Ø±ÙŠØ®</div>
         <div class="badge">{{ pret.created_at|date:"Y-m-d H:i" }}</div>
       </div>
     </div>
 
     {% if source_bill %}
       <div class="source-bill-box">
-        هذا المرتجع ناتج عن فاتورة شراء رقم
+        Ù‡Ø°Ø§ Ø§Ù„Ù…Ø±ØªØ¬Ø¹ Ù†Ø§ØªØ¬ Ø¹Ù† ÙØ§ØªÙˆØ±Ø© Ø´Ø±Ø§Ø¡ Ø±Ù‚Ù…
         <a href="{% url 'billing_bill_view' source_bill.id %}">
           {{ source_bill.serial|human_number }}
         </a>
@@ -275,15 +275,15 @@
 
   {# ===== ITEMS TABLE (with search) ===== #}
   <section class="card">
-    <h3 style="margin:0 0 10px;">المنتجات المرجعة وتوزيعها على الحاويات</h3>
+    <h3 style="margin:0 0 10px;">Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª Ø§Ù„Ù…Ø±Ø¬Ø¹Ø© ÙˆØªÙˆØ²ÙŠØ¹Ù‡Ø§ Ø¹Ù„Ù‰ Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª</h3>
 
     <div class="search-box">
-      <div class="search-label">بحث عن منتج في المرتجع</div>
+      <div class="search-label">Ø¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬ ÙÙŠ Ø§Ù„Ù…Ø±ØªØ¬Ø¹</div>
       <input
         type="text"
         id="retSearchInput"
         class="search-input"
-        placeholder="اكتب جزءاً من اسم المنتج..."
+        placeholder="Ø§ÙƒØªØ¨ Ø¬Ø²Ø¡Ø§Ù‹ Ù…Ù† Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬..."
         autocomplete="off"
       >
       <div id="retSearchList" class="search-list"></div>
@@ -293,15 +293,15 @@
       <table class="ret-table">
         <thead>
           <tr>
-            <th>المنتج</th>
-            <th>كلفة الوحدة الأولى</th>
-            <th>الكمية المرجعة (و١)</th>
+            <th>Ø§Ù„Ù…Ù†ØªØ¬</th>
+            <th>ÙƒÙ„ÙØ© Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰</th>
+            <th>Ø§Ù„ÙƒÙ…ÙŠØ© Ø§Ù„Ù…Ø±Ø¬Ø¹Ø© (ÙˆÙ¡)</th>
 
-            <th class="col-store">من المتجر</th>
-            <th class="col-wh1">من مستودع 1</th>
-            <th class="col-wh2">من مستودع 2</th>
+            <th class="col-store">Ù…Ù† Ø§Ù„Ù…ØªØ¬Ø±</th>
+            <th class="col-wh1">Ù…Ù† Ù…Ø³ØªÙˆØ¯Ø¹ 1</th>
+            <th class="col-wh2">Ù…Ù† Ù…Ø³ØªÙˆØ¯Ø¹ 2</th>
 
-            <th>الإجمالي</th>
+            <th>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
           </tr>
         </thead>
         <tbody>
@@ -334,7 +334,7 @@
         {% else %}
           <tr>
             <td colspan="7" class="cell-center">
-              لا يوجد عناصر في هذا المرتجع.
+              Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø¹Ù†Ø§ØµØ± ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ù…Ø±ØªØ¬Ø¹.
             </td>
           </tr>
         {% endif %}
@@ -425,16 +425,17 @@
   {# ===== FOOTER BUTTONS ===== #}
   <section class="card footer-card">
     <span class="muted">
-      هذه الصفحة للعرض فقط. الحركات المخزنية تم تطبيقها فعلياً عند إنشاء المرتجع.
+      Ù‡Ø°Ù‡ Ø§Ù„ØµÙØ­Ø© Ù„Ù„Ø¹Ø±Ø¶ ÙÙ‚Ø·. Ø§Ù„Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù…Ø®Ø²Ù†ÙŠØ© ØªÙ… ØªØ·Ø¨ÙŠÙ‚Ù‡Ø§ ÙØ¹Ù„ÙŠØ§Ù‹ Ø¹Ù†Ø¯ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…Ø±ØªØ¬Ø¹.
     </span>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       {% if source_bill %}
         <a href="{% url 'billing_bill_view' source_bill.id %}" class="btn-action primary">
-          عرض فاتورة الشراء الأصلية
+          Ø¹Ø±Ø¶ ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø´Ø±Ø§Ø¡ Ø§Ù„Ø£ØµÙ„ÙŠØ©
         </a>
       {% endif %}
+      <a href="{% url 'financials:document_trace' %}?source_app=billing&source_model=ProviderReturn&source_id={{ pret.id }}" class="btn-action">الأثر المالي</a>
       <a href="{% url 'billing_returns_list' %}" class="btn-action">
-        رجوع إلى قائمة مرتجعات الموردين
+        Ø±Ø¬ÙˆØ¹ Ø¥Ù„Ù‰ Ù‚Ø§Ø¦Ù…Ø© Ù…Ø±ØªØ¬Ø¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†
       </a>
     </div>
   </section>
@@ -513,7 +514,7 @@
       list.style.display = "block";
     });
 
-    // Enter → jump to first match
+    // Enter â†’ jump to first match
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -532,3 +533,5 @@
   })();
 </script>
 {% endblock %}
+
+

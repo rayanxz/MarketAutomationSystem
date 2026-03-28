@@ -29,6 +29,9 @@
   // Pay widgets
   const payRadios = document.querySelectorAll('input[name="pay"]');
   const payMethodRadios = document.querySelectorAll('input[name="payMethod"]');
+  const payUnpaidRadio = document.getElementById("payUnpaid");
+  const payPartialRadio = document.getElementById("payPartial");
+  const payPaidRadio = document.getElementById("payPaid");
   const payMethodsFieldset = document.getElementById("payMethodsFieldset");
   const payMethodSeparate = document.getElementById("payMethodSeparate");
   const payMethodHint = document.getElementById("payMethodHint");
@@ -38,6 +41,7 @@
   const paySeparateUsdInput = document.getElementById("paySeparateUsd");
   const payMixedSypInput = document.getElementById("payMixedSyp");
   const payMixedUsdInput = document.getElementById("payMixedUsd");
+  const moneyContainerSelect = document.getElementById("moneyContainerSelect");
   const costWarnModal = document.getElementById("costWarnModal");
   const costWarnRows = document.getElementById("costWarnRows");
   const costWarnConfirm = document.getElementById("costWarnConfirm");
@@ -90,6 +94,10 @@
     if (!Number.isFinite(n) || n <= 0) return 0;
     return n;
   };
+  const isZeroFinancialTotal = (totals) => (
+    Math.abs(Number(totals?.totalSyp || 0)) <= EPS &&
+    Math.abs(Number(totals?.totalUsd || 0)) <= EPS
+  );
   const setNumericInputValue = (input, value) => {
     if (!input) return;
     const n = Number(value);
@@ -822,6 +830,7 @@ refreshAutoSerial();
     const settlementSelected = settleCur === "USD" ? settlementUsd : settlementSyp;
     if (totalBox) totalBox.textContent = Number.isFinite(settlementSelected) ? formatDisplay2(settlementSelected) : "—";
 
+    const isZeroTotal = isZeroFinancialTotal({ totalSyp, totalUsd });
     payState.totals = {
       totalSyp,
       totalUsd,
@@ -830,6 +839,7 @@ refreshAutoSerial();
       settlementSelected: Number.isFinite(settlementSelected) ? settlementSelected : 0,
       settlementCurrency: settleCur,
       fx: hasFx ? fxVal : null,
+      isZeroTotal,
     };
     syncPayUI();
 
@@ -895,13 +905,44 @@ refreshAutoSerial();
   }
 
   function syncPayUI(){
-    const status = selectedPayStatus();
+    let status = selectedPayStatus();
     let method = selectedPayMethod();
+    const isZeroTotal = !!payState.totals.isZeroTotal;
     const isUnpaid = status === "unpaid";
     const isPartial = status === "partial";
     const isPaid = status === "paid";
     const needsFx = (payState.totals.totalSyp > EPS) && (payState.totals.totalUsd > EPS);
     const hasFx = payState.totals.fx > 0;
+
+    if (isZeroTotal) {
+      if (payUnpaidRadio) payUnpaidRadio.checked = true;
+      status = "unpaid";
+      payRadios.forEach((r) => { r.disabled = true; });
+      payMethodRadios.forEach((r) => { r.disabled = true; });
+      setNumericInputValue(paySypOnlyInput, 0);
+      setNumericInputValue(payUsdOnlyInput, 0);
+      setNumericInputValue(paySeparateSypInput, 0);
+      setNumericInputValue(paySeparateUsdInput, 0);
+      setNumericInputValue(payMixedSypInput, 0);
+      setNumericInputValue(payMixedUsdInput, 0);
+      if (payMethodsFieldset) {
+        payMethodsFieldset.disabled = true;
+        payMethodsFieldset.classList.add("is-disabled");
+      }
+      if (moneyContainerSelect) {
+        moneyContainerSelect.value = "";
+        moneyContainerSelect.disabled = true;
+      }
+      if (payMethodHint) {
+        payMethodHint.textContent = "الإجمالي صفري: الفاتورة غير مالية ولا يوجد دفع عند الإنشاء.";
+      }
+      showActivePayMethodPanel(method);
+      return;
+    }
+
+    payRadios.forEach((r) => { r.disabled = false; });
+    payMethodRadios.forEach((r) => { r.disabled = false; });
+    if (moneyContainerSelect) moneyContainerSelect.disabled = false;
 
     if (payMethodsFieldset) {
       payMethodsFieldset.disabled = isUnpaid;
@@ -957,6 +998,21 @@ refreshAutoSerial();
     const status = selectedPayStatus();
     const method = selectedPayMethod();
     const totals = payState.totals;
+    if (totals.isZeroTotal) {
+      return {
+        ok: true,
+        pay: {
+          status: "unpaid",
+          method: "none",
+          amount_syp: "0",
+          amount_usd: "0",
+          paid_amount: "0",
+          settlement_total: "0",
+          fx_rate: totals.fx > 0 ? String(totals.fx) : "",
+          non_financial: true,
+        },
+      };
+    }
     const needsFx = (totals.totalSyp > EPS) && (totals.totalUsd > EPS);
     if (status !== "unpaid" && needsFx && !(totals.fx > 0)) {
       return { ok: false, error: "لا يمكن إتمام الدفع قبل ضبط سعر الصرف بشكل صحيح." };
@@ -1145,12 +1201,9 @@ refreshAutoSerial();
   const payPayload = payResult.pay;
 
   const container_code = document.getElementById("containerSelect")?.value || "store";
-
-  const moneyContainerSelect = document.getElementById("moneyContainerSelect");
-
   const money_container_id = parseInt(moneyContainerSelect?.value || "0", 10) || null;
-
-  if (!money_container_id){
+  const requiresMoneyContainer = payPayload?.status !== "unpaid";
+  if (requiresMoneyContainer && !money_container_id){
     saveErr.textContent = "اختر صندوق الدفع أولاً.";
     saveErr.hidden = false;
     saveInFlight = false;

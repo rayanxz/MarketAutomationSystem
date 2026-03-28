@@ -233,6 +233,31 @@ def _resolve_creation_payment_plan(
     )
     settlement_quantum = _settlement_quantum(settle)
 
+    # Zero-total purchase bills are valid but strictly non-financial.
+    if settlement_total <= DEC0:
+        attempted_method = (payment_method or "").lower().strip() if payment_method is not None else ""
+        attempted_paid_syp = _q_money("SYP", paid_syp or DEC0) if paid_syp is not None else DEC0
+        attempted_paid_usd = _q_money("USD", paid_usd or DEC0) if paid_usd is not None else DEC0
+        attempted_legacy = _q_money(settle, legacy_paid_amount or DEC0) if legacy_paid_amount is not None else DEC0
+        if (
+            attempted_paid_syp > DEC0
+            or attempted_paid_usd > DEC0
+            or attempted_legacy > DEC0
+            or status_norm in {"paid", "partial"}
+            or attempted_method not in {"", "none"}
+        ):
+            raise ValidationError("zero-total bills are non-financial and cannot include payment")
+        return {
+            "status": "unpaid",
+            "method": "none",
+            "actual_paid_syp": DEC0,
+            "actual_paid_usd": DEC0,
+            "entry_paid_syp": DEC0,
+            "entry_paid_usd": DEC0,
+            "settlement_total": settlement_total,
+            "settlement_paid": DEC0,
+        }
+
     explicit_intent = (
         payment_method is not None
         or paid_syp is not None
@@ -348,6 +373,21 @@ def _resolve_return_collection_plan(
         fx_snapshot=fx_snapshot,
     )
     settlement_quantum = _settlement_quantum(settle)
+
+    # Zero-total returns are valid but strictly non-financial.
+    if settlement_total <= DEC0:
+        intended = _q_money(settle, intended_collected or DEC0)
+        if status_norm in {"paid", "partial"} or intended > DEC0:
+            raise ValidationError("zero-total returns are non-financial and cannot include collection")
+        return {
+            "status": "unpaid",
+            "actual_collected_syp": DEC0,
+            "actual_collected_usd": DEC0,
+            "entry_collected_syp": DEC0,
+            "entry_collected_usd": DEC0,
+            "settlement_total": settlement_total,
+            "settlement_collected": DEC0,
+        }
 
     intended = _q_money(settle, intended_collected or DEC0)
     if status_norm == "unpaid":
@@ -897,6 +937,41 @@ def create_bill(
     actual_paid_syp = _q_money("SYP", bill.creation_paid_syp or DEC0)
     actual_paid_usd = _q_money("USD", bill.creation_paid_usd or DEC0)
 
+    # Zero-total bills are non-financial: no debts, no receipts, no cash movement.
+    if bill.total_syp <= DEC0 and bill.total_usd <= DEC0:
+        log_create(
+            actor=actor,
+            target=bill,
+            title="Create purchase bill",
+            message=f"Purchase bill #{bill.serial} provider={provider.name} total={settlement_total}",
+            meta={
+                "kind": "billing.purchase_bill_created",
+                "summary": {
+                    "bill_id": bill.id,
+                    "serial": bill.serial,
+                    "provider_id": provider.id,
+                    "provider_name": provider.name,
+                    "status": status_norm,
+                    "payment_method": method_norm,
+                    "total": str(settlement_total),
+                    "total_syp": str(bill.total_syp),
+                    "total_usd": str(bill.total_usd),
+                    "paid_amount": str(DEC0),
+                    "paid_syp": str(DEC0),
+                    "paid_usd": str(DEC0),
+                    "settlement_currency": bill.settlement_currency,
+                    "fx": str(bill.fx_usd_syp),
+                    "items_count": len(items),
+                    "is_non_financial_zero_total": True,
+                },
+                "financials": {
+                    "receipt_ids": [],
+                    "is_non_financial_zero_total": True,
+                },
+            },
+        )
+        return bill
+
     # -------------------------------
     # Debts (per currency)
     # -------------------------------
@@ -968,6 +1043,7 @@ def create_bill(
         container_paid_by_code=container_paid_by_code,
         container_id=(cash_container.id if cash_container else None),
         fx_syp_per_usd=fx_for_receipts,
+        action_key=f"billing:Bill:{bill.id}:create",
         note=f"Purchase bill #{bill.serial}",
         source_app="billing",
         source_model="Bill",
@@ -1708,6 +1784,56 @@ def create_return(
     pret.initial_paid = final_collected
     pret.save(update_fields=["initial_status", "initial_paid"])
 
+    # Zero-total provider returns are non-financial: no debts, no receipts, no cash movement.
+    if pret.total_syp <= DEC0 and pret.total_usd <= DEC0:
+        is_wizard = bool(any((row.get("container_splits") or []) for row in items))
+        log_create(
+            actor=actor,
+            target=pret,
+            title="Create provider return",
+            message=f"Provider return #{pret.serial} provider={provider.name} total={pret.total}",
+            meta={
+                "kind": "billing.provider_return_created",
+                "summary": {
+                    "return_id": pret.id,
+                    "serial": pret.serial,
+                    "provider_id": provider.id,
+                    "provider_name": provider.name,
+                    "status": status_norm,
+                    "total": str(q3(pret.total)),
+                    "total_syp": str(q3(pret.total_syp)),
+                    "total_usd": str(q3(pret.total_usd)),
+                    "collected_amount": str(q3(DEC0)),
+                    "items_count": len(items),
+                    "source_bill_serial": source_bill_serial,
+                    "settlement_currency": settlement_currency,
+                    "valuation_mode": valuation_mode_norm,
+                    "fx_rate_used": str(pret.fx_rate_used) if pret.fx_rate_used else None,
+                    "legacy_container": (getattr(container, "code", None) if container else None),
+                    "wizard_mode": is_wizard,
+                    "is_non_financial_zero_total": True,
+                },
+                "financials": {
+                    "currency": settlement_currency,
+                    "money_container_id": None,
+                    "receipt_ids": [],
+                    "receipt_serials": [],
+                    "is_non_financial_zero_total": True,
+                },
+            },
+            after={
+                "serial": pret.serial,
+                "total": str(q3(pret.total)),
+                "total_syp": str(q3(pret.total_syp)),
+                "total_usd": str(q3(pret.total_usd)),
+                "status": pret.status,
+                "valuation_mode": pret.valuation_mode,
+                "settlement_currency": pret.settlement_currency,
+                "fx_rate_used": str(pret.fx_rate_used) if pret.fx_rate_used else None,
+            },
+        )
+        return pret
+
     entry_syp = DebtSV.create_creditor_entry(
         provider=provider,
         total=pret.total_syp,
@@ -1771,6 +1897,7 @@ def create_return(
         container_collected_by_code=container_collected_by_code,
         container_id=(cash_container.id if cash_container else None),
         fx_syp_per_usd=fx_for_receipt,
+        action_key=f"billing:ProviderReturn:{pret.id}:create",
         note=f"Provider return #{pret.serial}",
         source_app="billing",
         source_model="ProviderReturn",

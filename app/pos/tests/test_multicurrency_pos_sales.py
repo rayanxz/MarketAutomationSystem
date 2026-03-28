@@ -418,22 +418,16 @@ class PosMultiCurrencySalesTests(TestCase):
         self.cash.refresh_from_db()
         self.assertEqual(self.cash.balance_syp, Decimal("400"))
 
-        self.assertTrue(
+        receipts = list(
             Receipt.objects.filter(
                 source_app="pos",
                 source_model="SalesBill",
                 source_id=str(data["bill"]["id"]),
-                kind=ReceiptKind.COUNTERPARTY_INC,
-            ).exists()
+            )
         )
-        self.assertTrue(
-            Receipt.objects.filter(
-                source_app="pos",
-                source_model="SalesBill",
-                source_id=str(data["bill"]["id"]),
-                kind=ReceiptKind.COUNTERPARTY_SETTLE,
-            ).exists()
-        )
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(receipts[0].kind, ReceiptKind.COUNTERPARTY_SETTLE)
+        self.assertEqual(receipts[0].action_key, f"pos:SalesBill:{data['bill']['id']}:create")
 
     def test_duplicate_name_customers_use_distinct_counterparties_in_pos_debt_flow(self):
         p_syp = self._create_product(

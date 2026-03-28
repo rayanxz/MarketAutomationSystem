@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 
@@ -634,3 +635,75 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         self.assertIsNotNone(pret)
 
 
+    def test_zero_total_return_is_non_financial_without_receipt_or_debt(self):
+        product = _create_min_product("Zero-Return")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("0"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            money_container_id=None,
+            currency_code="SYP",
+            valuation_mode="HISTORICAL",
+        )
+
+        self.assertEqual(q3(pret.total_syp), q3(Decimal("0")))
+        self.assertEqual(q3(pret.total_usd), q3(Decimal("0")))
+
+        self.assertFalse(
+            Receipt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=str(pret.id),
+            ).exists()
+        )
+        self.assertFalse(
+            CreditorDebt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=str(pret.id),
+            ).exists()
+        )
+
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance_syp, Decimal("0"))
+        self.assertEqual(self.cash.balance_usd, Decimal("0"))
+
+    def test_zero_total_return_rejects_collection_attempt(self):
+        product = _create_min_product("Zero-Return-Reject")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("0"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        with self.assertRaises(ValidationError):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="paid",
+                paid_amount=Decimal("1"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                money_container_id=self.cash.id,
+                currency_code="SYP",
+                valuation_mode="HISTORICAL",
+            )

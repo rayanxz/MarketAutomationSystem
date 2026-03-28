@@ -1,0 +1,150 @@
+﻿{% extends "financials/manager/base_financials.html" %}
+{% load formatting %}
+
+{% block title %}مستكشف السندات المالية{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 10px;">مستكشف السندات المالية</h2>
+
+  <form method="get" class="card" style="padding:12px;margin-bottom:12px;">
+    <div style="display:grid;grid-template-columns:repeat(5,minmax(180px,1fr));gap:10px;">
+      <div>
+        <label>التطبيق</label>
+        <select class="input" name="source_app">
+          <option value="">الكل</option>
+          {% for app_code in source_apps %}
+            <option value="{{ app_code }}" {% if filters.source_app == app_code %}selected{% endif %}>{{ app_code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>نوع المستند</label>
+        <select class="input" name="source_model">
+          <option value="">الكل</option>
+          {% for model_code in source_models %}
+            <option value="{{ model_code }}" {% if filters.source_model == model_code %}selected{% endif %}>{{ model_code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>رقم المصدر</label>
+        <input class="input" name="source_id" value="{{ filters.source_id }}" placeholder="مثال: 125">
+      </div>
+      <div>
+        <label>نوع السند</label>
+        <select class="input" name="kind">
+          <option value="">الكل</option>
+          {% for code, label in kinds %}
+            <option value="{{ code }}" {% if filters.kind == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>الحالة</label>
+        <select class="input" name="status">
+          <option value="">الافتراضي (مرحل + معكوس)</option>
+          {% for code, label in statuses %}
+            <option value="{{ code }}" {% if filters.status == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>مفتاح الإجراء</label>
+        <input class="input" name="action_key" value="{{ filters.action_key }}" placeholder="billing:Bill:101:create">
+      </div>
+      <div>
+        <label>العملة</label>
+        <select class="input" name="currency">
+          <option value="">الكل</option>
+          <option value="SYP" {% if filters.currency == "SYP" %}selected{% endif %}>SYP</option>
+          <option value="USD" {% if filters.currency == "USD" %}selected{% endif %}>USD</option>
+        </select>
+      </div>
+      <div>
+        <label>الحاوية</label>
+        <select class="input" name="container_id">
+          <option value="">الكل</option>
+          {% for c in containers %}
+            <option value="{{ c.id }}" {% if filters.container_id == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>الطرف المقابل</label>
+        <select class="input" name="counterparty_id">
+          <option value="">الكل</option>
+          {% for cp in counterparties %}
+            <option value="{{ cp.id }}" {% if filters.counterparty_id == cp.id|stringformat:"s" %}selected{% endif %}>
+              {{ cp.name }} ({{ cp.type }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>من تاريخ</label>
+        <input class="input" type="date" name="date_from" value="{{ filters.date_from }}">
+      </div>
+      <div>
+        <label>إلى تاريخ</label>
+        <input class="input" type="date" name="date_to" value="{{ filters.date_to }}">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px;">
+      <button class="btn" type="submit">تطبيق</button>
+      <a class="btn-soft" href="{% url 'financials:receipt_explorer' %}">مسح الفلاتر</a>
+    </div>
+  </form>
+
+  <div class="card" style="padding:0;overflow:auto;">
+    <table class="tbl" style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="padding:10px;">التاريخ</th>
+          <th style="padding:10px;">رقم السند</th>
+          <th style="padding:10px;">النوع / الحالة</th>
+          <th style="padding:10px;">المصدر</th>
+          <th style="padding:10px;">مفتاح الإجراء</th>
+          <th style="padding:10px;">FX</th>
+          <th style="padding:10px;">المنفذ</th>
+          <th style="padding:10px;">القيود</th>
+          <th style="padding:10px;">روابط</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.created_at|date:"Y-m-d H:i" }}</td>
+            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.serial }}</td>
+            <td style="padding:10px;white-space:nowrap;">
+              {{ row.receipt.get_kind_display }}<br>
+              <small>{{ row.receipt.get_status_display }}</small>
+            </td>
+            <td style="padding:10px;white-space:nowrap;">
+              {{ row.receipt.source_app }}/{{ row.receipt.source_model }}/{{ row.receipt.source_id }}
+            </td>
+            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.action_key|default:"—" }}</td>
+            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.fx_syp_per_usd|default:"—"|human_number }}</td>
+            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.actor.username }}</td>
+            <td style="padding:10px;min-width:360px;">
+              {% for ln in row.line_rows %}
+                <div>{{ ln.target_label }} | {{ ln.currency }} | {{ ln.amount|human_number }}</div>
+              {% empty %}
+                —
+              {% endfor %}
+            </td>
+            <td style="padding:10px;white-space:nowrap;">
+              {% if row.doc_url %}
+                <a class="btn-soft" href="{{ row.doc_url }}">المستند</a>
+              {% endif %}
+              {% if row.trace_url %}
+                <a class="btn-soft" href="{{ row.trace_url }}">الأثر المالي</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="9" style="padding:14px;">لا توجد بيانات مطابقة للفلاتر.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

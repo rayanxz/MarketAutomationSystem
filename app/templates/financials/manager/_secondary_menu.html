@@ -1,19 +1,28 @@
 ﻿{% comment %}
 Lower menu for financials pages.
-fin_active: list | create | movements
+fin_active: list | create | movements | manual | fx | receipt_explorer | document_trace | reconciliation
 {% endcomment %}
 
 <a class="btn-sec{% if fin_active == 'create' %} active{% endif %}"
-   href="{% url 'financials:container_create' %}">انشاء حاوية مال </a>
+   href="{% url 'financials:container_create' %}">إنشاء حاوية مال</a>
 
 <a class="btn-sec{% if fin_active == 'movements' %} active{% endif %}"
    href="{% url 'financials:container_movements' %}">حركة حاويات المال</a>
 
 <a class="btn-sec{% if fin_active == 'manual' %} active{% endif %}"
-   href="{% url 'financials:container_manual_events' %}">انشاء حركات يدوية لحاويات المال</a>
+   href="{% url 'financials:container_manual_events' %}">حركات يدوية للحاويات</a>
 
 <a class="btn-sec{% if fin_active == 'list' %} active{% endif %}"
    href="{% url 'financials:container_list' %}">قائمة حاويات المال</a>
-   
+
 <a class="btn-sec{% if fin_active == 'fx' %} active{% endif %}"
    href="{% url 'financials:fx_settings' %}">سعر الصرف</a>
+
+<a class="btn-sec{% if fin_active == 'receipt_explorer' %} active{% endif %}"
+   href="{% url 'financials:receipt_explorer' %}">مستكشف السندات</a>
+
+<a class="btn-sec{% if fin_active == 'document_trace' %} active{% endif %}"
+   href="{% url 'financials:document_trace' %}">أثر المستند المالي</a>
+
+<a class="btn-sec{% if fin_active == 'reconciliation' %} active{% endif %}"
+   href="{% url 'financials:reconciliation_dashboard' %}">لوحة المطابقة</a>

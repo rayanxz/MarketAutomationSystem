@@ -52,7 +52,7 @@ from accounts.utils import has_role
 from catalog.models import Product
 
 from billing.models import Provider, Bill, ProviderReturn
-from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry, DebtorPayment
+from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
 from debts.source_identity import source_identity_lookup_q, source_identity_numeric_base
 
 from . import selectors as S
@@ -198,9 +198,7 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
     item_rows: list[dict[str, Any]] = []
     for it in pret.items.all():
         prod = it.product
-        unit_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip()
-        if not unit_label:
-            unit_label = prod.get_unit_primary_display() or "الوحدة الأولى"
+        unit_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip() or "—"
 
         cont = per_prod_cont.get(it.product_id, {})
         store_qty = cont.get("store", DEC0)
@@ -211,7 +209,7 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
         item_rows.append(
             {
                 "item": it,
-                "product_name": (getattr(it, "product_name_at_txn", "") or getattr(prod, "name", "") or ""),
+                "product_name": ((getattr(it, "product_name_at_txn", "") or "").strip() or "—"),
                 "unit_label": unit_label,
                 "store_qty": store_qty,
                 "wh1_qty": wh1_qty,
@@ -578,10 +576,12 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
         return _bad("invalid container", 400)
     
     money_container_id_raw = payload.get("money_container_id")
-    try:
-        money_container_id = int(money_container_id_raw)
-    except (TypeError, ValueError):
-        return _bad("invalid money container", 400)
+    money_container_id = None
+    if money_container_id_raw not in (None, "", "null"):
+        try:
+            money_container_id = int(money_container_id_raw)
+        except (TypeError, ValueError):
+            return _bad("invalid money container", 400)
 
     settlement_currency = (payload.get("currency_code") or "SYP").strip().upper()
     if settlement_currency not in {"SYP", "USD"}:
@@ -646,17 +646,16 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
 
     from financials.models import MoneyContainerCurrency
 
-    if not money_container_id:
-        return _bad("money container is required", 400)
-
-    mc = _resolve_purchase_money_container_for_user(
-        user=request.user,
-        container_id=money_container_id,
-    )
-    if not mc:
-        return _bad("money container is not allowed for purchase bills", 400)
-
+    mc = None
     if status in {"paid", "partial"}:
+        if not money_container_id:
+            return _bad("money container is required when payment exists", 400)
+        mc = _resolve_purchase_money_container_for_user(
+            user=request.user,
+            container_id=money_container_id,
+        )
+        if not mc:
+            return _bad("money container is not allowed for purchase bills", 400)
         required_payment_currencies = set()
         if legacy_pay_shape:
             required_payment_currencies.add(settlement_currency)
@@ -674,6 +673,13 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                 is_enabled=True,
             ).exists():
                 return _bad(f"Currency {cur_code} is disabled for this money container", 400)
+    elif money_container_id:
+        mc = _resolve_purchase_money_container_for_user(
+            user=request.user,
+            container_id=money_container_id,
+        )
+        if not mc:
+            return _bad("money container is not allowed for purchase bills", 400)
 
     update_defaults = bool(payload.get("update_product_defaults") or False)
 
@@ -686,7 +692,7 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             items=items,
             update_product_defaults=update_defaults,
             container=container,
-            money_container_id=int(money_container_id),
+            money_container_id=money_container_id,
             settlement_currency=settlement_currency,
             fx_usd_syp=fx_rate_snapshot,
             payment_status=status,
@@ -1168,12 +1174,15 @@ def bill_view(request, bill_id: int):
 
     creation_status_raw = (getattr(bill, "creation_payment_status", None) or "").lower().strip()
     creation_method_raw = (getattr(bill, "creation_payment_method", None) or "").lower().strip()
-    has_creation_snapshot = bool(creation_status_raw in {"paid", "partial", "unpaid"})
+    has_creation_snapshot = bool(
+        creation_status_raw in {"paid", "partial", "unpaid"}
+        and creation_method_raw in {"none", "syp_only", "usd_only", "separate", "mixed"}
+    )
 
     created_paid_syp = DEC0
     created_paid_usd = DEC0
-    created_payment_status_code = "not_paid"
-    created_payment_method_code = "NONE"
+    created_payment_status_code = "unknown"
+    created_payment_method_code = "UNKNOWN"
 
     if has_creation_snapshot:
         created_paid_syp = q3(getattr(bill, "creation_paid_syp", DEC0) or DEC0)
@@ -1192,70 +1201,14 @@ def bill_view(request, bill_id: int):
             "": "NONE",
         }.get(creation_method_raw, "NONE")
     else:
-        try:
-            creation_payment_rows = (
-                DebtorPayment.objects
-                .filter(
-                    entry__source_app="billing",
-                    entry__source_model="Bill",
-                    receipt__isnull=False,
-                    receipt__source_app="billing",
-                    receipt__source_model="Bill",
-                    receipt__source_id__in=[str(bill.id), f"{bill.id}:USD"],
-                )
-                .filter(
-                    source_identity_lookup_q(
-                        source_ids=[bill.id],
-                        source_field="entry__source_id",
-                        legacy_field="entry__legacy_source_id",
-                    )
-                )
-                .values("currency_code")
-                .annotate(total_amount=Sum("amount"))
-            )
-            for r in creation_payment_rows:
-                cur = (r.get("currency_code") or "SYP").upper()
-                amt = q3(r.get("total_amount") or DEC0)
-                if cur == "USD":
-                    created_paid_usd = q3(created_paid_usd + amt)
-                else:
-                    created_paid_syp = q3(created_paid_syp + amt)
-        except Exception:
-            created_paid_syp = DEC0
-            created_paid_usd = DEC0
-
-        has_any_total = (bill_total_syp > DEC0) or (bill_total_usd > DEC0)
-        full_syp = (bill_total_syp <= DEC0) or (created_paid_syp >= bill_total_syp)
-        full_usd = (bill_total_usd <= DEC0) or (created_paid_usd >= bill_total_usd)
-
-        if has_any_total and full_syp and full_usd:
-            created_payment_status_code = "fully_paid"
-        elif (created_paid_syp > DEC0) or (created_paid_usd > DEC0):
-            created_payment_status_code = "partially_paid"
-        else:
-            created_payment_status_code = "not_paid"
-
-        settlement_currency_code = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()
-        if (created_paid_syp > DEC0) and (created_paid_usd > DEC0):
-            if (
-                created_payment_status_code == "fully_paid"
-                and (created_paid_syp == bill_total_syp)
-                and (created_paid_usd == bill_total_usd)
-            ):
-                created_payment_method_code = "SEPARATE"
-            else:
-                created_payment_method_code = "MIXED"
-        elif created_paid_usd > DEC0:
-            created_payment_method_code = "USD_ONLY"
-        elif created_paid_syp > DEC0:
-            created_payment_method_code = "SYP_ONLY"
-        else:
-            created_payment_method_code = "USD_ONLY" if settlement_currency_code == "USD" else "SYP_ONLY"
+        created_paid_syp = DEC0
+        created_paid_usd = DEC0
 
     created_payment_status_label = {
         "fully_paid": "مدفوعة بالكامل",
         "partially_paid": "مدفوعة جزئياً",
         "not_paid": "غير مدفوعة",
+        "unknown": "غير معروف (سجل قديم)",
     }.get(created_payment_status_code, "غير مدفوعة")
 
     created_payment_method_label = {
@@ -1264,6 +1217,7 @@ def bill_view(request, bill_id: int):
         "SEPARATE": "تم الدفع بعملتين منفصلتين",
         "MIXED": "تم الدفع بشكل مختلط",
         "NONE": "بدون دفع عند الإنشاء",
+        "UNKNOWN": "غير معروف (سجل قديم)",
     }.get(created_payment_method_code, "تم الدفع بالليرة السورية فقط")
 
     # parse selected items (when coming back from wizard with ?items=1,2,3)
@@ -1437,9 +1391,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         if not prod:
             continue
 
-        unit1_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip()
-        if not unit1_label:
-            unit1_label = prod.get_unit_primary_display() or ""
+        unit1_label = (getattr(it, "unit_1_label_at_txn", "") or "").strip() or "—"
 
         left_qty = q3(left_map.get(it.id, DEC0))
 
@@ -1460,7 +1412,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
         rows.append(
             {
                 "item_id": it.id,
-                "product_name": (getattr(it, "product_name_at_txn", "") or getattr(prod, "name", "") or ""),
+                "product_name": ((getattr(it, "product_name_at_txn", "") or "").strip() or "—"),
                 "unit1_label": unit1_label,
                 "cost": it.cost,
                 "currency": getattr(it, "currency", None) or "SYP",
@@ -1619,6 +1571,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
             if not items_payload:
                 raise ValueError("No return items were selected.")
+            is_zero_total_return = (total_return_syp <= DEC0) and (total_return_usd <= DEC0)
 
             # 3) pay status + amount validation
             raw_status = (return_status_selected or "").lower()
@@ -1632,7 +1585,12 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
             status = raw_status
 
-            if status == "partial":
+            if is_zero_total_return:
+                if status in {"paid", "partial"} or paid_amount > DEC0:
+                    raise ValueError("Zero-total returns are non-financial and cannot include payment.")
+                status = "unpaid"
+                paid_amount = DEC0
+            elif status == "partial":
                 if paid_amount <= DEC0:
                     status = "unpaid"
                     paid_amount = DEC0
@@ -1663,7 +1621,11 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 items=items_payload,
                 container=None,  # using per-item container_splits
                 source_bill_serial=bill.serial,
-                money_container_id=(int(money_container_id_raw) if money_container_id_raw else None),
+                money_container_id=(
+                    int(money_container_id_raw)
+                    if (money_container_id_raw and paid_amount > DEC0)
+                    else None
+                ),
                 currency_code=settlement_currency_selected,
                 valuation_mode=valuation_mode_selected,
             )

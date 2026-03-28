@@ -11,6 +11,7 @@ from accounts.models import AccountProfile
 from audit_log.models import AuditLog
 from pos.models import SalesBill, PosShift
 from financials.models import MoneyContainer, MoneyContainerCurrency, ContainerFeature, Currency
+from financials import services as FinSV
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 
 
@@ -34,6 +35,10 @@ class PosAuditTests(TransactionTestCase):
             code="SYP",
             defaults={"name": "Syrian Pound", "decimals": 0, "is_active": True},
         )
+        Currency.objects.get_or_create(
+            code="USD",
+            defaults={"name": "US Dollar", "decimals": 2, "is_active": True},
+        )
 
         pos_feature, _ = ContainerFeature.objects.get_or_create(
             code="pos_sales",
@@ -52,6 +57,7 @@ class PosAuditTests(TransactionTestCase):
             currency=self.syp,
             defaults={"is_enabled": True},
         )
+        FinSV.set_current_fx(actor=self.user, rate_syp_per_usd=1)
 
         col = ProductCollection.objects.create(name="POS Audit Collection")
         prod_set = ProductSet.objects.create(collection=col, name="POS Audit Set")

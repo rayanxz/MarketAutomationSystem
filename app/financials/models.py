@@ -245,6 +245,8 @@ class Receipt(models.Model):
     source_app = models.CharField(max_length=50, blank=True)
     source_model = models.CharField(max_length=80, blank=True)
     source_id = models.CharField(max_length=80, blank=True)
+    # Deterministic idempotency key for canonical commercial creation receipts.
+    action_key = models.CharField(max_length=180, null=True, blank=True, unique=True)
 
     group_key = models.UUIDField(default=uuid4, editable=False, db_index=True)
 
