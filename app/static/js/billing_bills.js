@@ -58,7 +58,23 @@
     return `<span class="pname" title="${safe}"><span class="pname-text">${safe}</span></span>`;
   }
 
-  function pill(status) {
+  function _numOrNaN(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function isZeroTotalBill(bill) {
+    const syp = _numOrNaN(bill?.total_syp);
+    const usd = _numOrNaN(bill?.total_usd);
+    if (!Number.isFinite(syp) || !Number.isFinite(usd)) return false;
+    return Math.abs(syp) < 1e-9 && Math.abs(usd) < 1e-9;
+  }
+
+  function pill(bill) {
+    if (isZeroTotalBill(bill)) {
+      return `<span class="status zero" title="فاتورة بدون تأثير مالي">فاتورة صفرية</span>`;
+    }
+    const status = String(bill?.status || "").toLowerCase();
     const cls = status === "paid" ? "paid" : (status === "partial" ? "partial" : "unpaid");
     const label = status === "paid"
       ? "مدفوعة"
@@ -92,7 +108,7 @@
         <td>${ellipsisCell(creator, "—")}</td>
         <td>${ellipsisCell(nfmt(b.total_syp), "0")}</td>
         <td>${ellipsisCell(nfmt(b.total_usd), "0")}</td>
-        <td>${pill(b.status)}</td>
+        <td>${pill(b)}</td>
         <td>${ellipsisCell(dt, "—")}</td>
         <td>
           <div class="actions-cell">

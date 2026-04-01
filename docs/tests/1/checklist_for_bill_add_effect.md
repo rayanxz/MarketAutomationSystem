@@ -1,13 +1,13 @@
 A. Purchase Bill (bill_add)
  # create bill with total = 0
  # payment section is disabled
- UI shows clear message (non-financial)
- save works without errors
+ # UI shows clear message (non-financial)
+ # save works without errors
  result:
- no receipt created
- no container change
- no debt created
- bill appears normally in bill_list & bill_view
+ # no receipt created
+ # no container change
+ # no debt created
+ # bill appears normally in bill_list & bill_view
 B. Provider Return
  create return with total = 0
  payment controls disabled
