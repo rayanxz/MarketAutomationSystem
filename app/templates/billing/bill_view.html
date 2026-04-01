@@ -1,18 +1,18 @@
 ﻿{% extends "manager/base_manager.html" %}
 {% load static l10n formatting %}
 
-{% block title %}ØªÙØ§ØµÙŠÙ„ Ø§Ù„ÙØ§ØªÙˆØ±Ø©  {% endblock %}
+{% block title %}تفاصيل الفاتورة  {% endblock %}
 
 {% block menu_secondary %}
   {% with name=request.resolver_match.url_name %}
 <div class="tabs-row">
-  <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">Ø¥Ø¶Ø§ÙØ© ÙØ§ØªÙˆØ±Ø©</a>
-  <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„ÙÙˆØ§ØªÙŠØ±</a>
-  <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø¯ÙŠÙ†</a>
-  <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">Ø¥Ø¶Ø§ÙØ© Ø¯ÙŠÙ†</a>
-  <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¯Ø§Ø¦Ù†</a>
-  <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</a>
-  <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ù…Ø±ØªØ¬Ø¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</a>
+  <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+  <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+  <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة المدين</a>
+  <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
+  <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">قائمة الدائن</a>
+  <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+  <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
 </div>
   {% endwith %}
 {% endblock %}
@@ -511,7 +511,7 @@
   .col-purple { background:#f5f3ff; }
   .col-red    { background:#fef2f2; }
 
-  /* selection mode (checkbox column) â€“ kept for wizard */
+  /* selection mode (checkbox column) – kept for wizard */
   .select-col { display:none; }
   .bill-view.bill-select-active .select-col{
     display:table-cell;
@@ -687,38 +687,38 @@
 
 <!-- HEADER -->
 <section class="card">
-  <h4>Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ÙØ§ØªÙˆØ±Ø©</h4>
+  <h4>بيانات الفاتورة</h4>
 
   <div class="audit-strip">
     <div class="audit-grid">
       <div class="audit-item">
-        <span class="audit-label">Ø±Ù…Ø² Ø§Ù„ÙØ§ØªÙˆØ±Ø© (Ø¢Ù„ÙŠ):</span>
+        <span class="audit-label">رمز الفاتورة (آلي):</span>
         <span class="audit-value pname" title="{{ bill.serial|human_number }}"><span class="pname-text">{{ bill.serial|human_number }}</span></span>
       </div>
 
       <div class="audit-item">
-        <span class="audit-label">Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ±Ø¯:</span>
+        <span class="audit-label">اسم المورد:</span>
         <span class="audit-value pname" title="{{ bill.provider.name }}"><span class="pname-text">{{ bill.provider.name }}</span></span>
       </div>
 
       <div class="audit-item">
-        <span class="audit-label">Ù…ÙƒØ§Ù† Ø§Ù„ØªØ®Ø²ÙŠÙ†:</span>
+        <span class="audit-label">مكان التخزين:</span>
         <span class="audit-value pname" title="{{ storage_location_label }}"><span class="pname-text">{{ storage_location_label }}</span></span>
       </div>
 
       <div class="audit-item">
-        <span class="audit-label">ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡:</span>
+        <span class="audit-label">تاريخ الإنشاء:</span>
         <span class="audit-value pname" title="{{ bill.created_at|date:'Y-m-d H:i' }}"><span class="pname-text">{{ bill.created_at|date:"Y-m-d H:i" }}</span></span>
       </div>
 
       <div class="audit-item">
-        <span class="audit-label">Ø£ÙÙ†Ø´Ø¦Øª Ø¨ÙˆØ§Ø³Ø·Ø©:</span>
+        <span class="audit-label">أُنشئت بواسطة:</span>
         {% if bill.created_by %}
           {% with creator_name=bill.created_by.get_full_name|default:bill.created_by.username %}
             <span class="audit-value pname" title="{{ creator_name }}"><span class="pname-text">{{ creator_name }}</span></span>
           {% endwith %}
         {% else %}
-          <span class="audit-value pname" title="â€”"><span class="pname-text">â€”</span></span>
+          <span class="audit-value pname" title="—"><span class="pname-text">—</span></span>
         {% endif %}
       </div>
     </div>
@@ -730,34 +730,34 @@
   <section class="card">
     <div class="bill-search-row">
       <div class="search-box bill-search-main" id="billSearchBox">
-        <label class="muted" for="billSearchInput">Ø§Ù„Ø¨Ø­Ø« Ø¯Ø§Ø®Ù„ Ø§Ù„ÙØ§ØªÙˆØ±Ø©</label>
+        <label class="muted" for="billSearchInput">البحث داخل الفاتورة</label>
         <input
           id="billSearchInput"
           type="text"
           class="input bill-search-input"
-          placeholder="Ø§ÙƒØªØ¨ Ù„Ù„Ø¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬..."
+          placeholder="اكتب للبحث عن منتج..."
         >
         <div class="modes-inline">
           <label>
             <input type="radio" name="billSearchMode" value="name" checked>
-            Ø¨Ø§Ù„Ø§Ø³Ù…
+            بالاسم
           </label>
           <label>
             <input type="radio" name="billSearchMode" value="id">
-            Ø¨Ø§Ù„Ù…Ø¹Ø±Ù‘Ù (ID)
+            بالمعرّف (ID)
           </label>
           <label>
             <input type="radio" name="billSearchMode" value="code">
-            Ø¨Ø§Ù„ÙƒÙˆØ¯
+            بالكود
           </label>
           <label>
             <input type="radio" name="billSearchMode" value="barcode">
-            Ø¨Ø§Ù„Ø¨Ø§Ø±ÙƒÙˆØ¯
+            بالباركود
           </label>
         </div>
         <div id="billSearchSuggest" class="search-suggest-list" style="display:none;"></div>
       </div>
-      <button id="btnBillSearch" class="btn" type="button">Ø¨Ø­Ø«</button>
+      <button id="btnBillSearch" class="btn" type="button">بحث</button>
     </div>
   </section>
 
@@ -768,66 +768,66 @@
         <thead>
           <tr>
             <th class="select-col" style="width:36px;"></th>
-            <th class="col-product">Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬</th>
-            <th class="col-unit-cost">ÙƒÙ„ÙØ© Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰</th>
-            <th class="col-qty">Ø§Ù„ÙƒÙ…ÙŠØ© (Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø£ÙˆÙ„Ù‰)</th>
-            <th class="col-qty">Ø§Ù„ÙƒÙ…ÙŠØ© (Ø§Ù„ÙˆØ­Ø¯Ø© Ø§Ù„Ø«Ø§Ù†ÙŠØ©)</th>
-            <th class="col-total-cost">Ø§Ù„ÙƒÙ„ÙØ© Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠØ©</th>
+            <th class="col-product">اسم المنتج</th>
+            <th class="col-unit-cost">كلفة الوحدة الأولى</th>
+            <th class="col-qty">الكمية (الوحدة الأولى)</th>
+            <th class="col-qty">الكمية (الوحدة الثانية)</th>
+            <th class="col-total-cost">الكلفة الإجمالية</th>
 
             <th class="col-orange col-balance-total stock-total-col">
               <div class="stock-head">
-                <span>Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ</span>
+                <span>إجمالي المتبقي</span>
                 <button
                   type="button"
                   data-stock-toggle
                   class="stock-toggle-btn"
                   aria-expanded="false"
-                  aria-label="Ø¥Ø¸Ù‡Ø§Ø± ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ"
-                  title="Ø¥Ø¸Ù‡Ø§Ø± ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ"
+                  aria-label="إظهار تفاصيل المتبقي"
+                  title="إظهار تفاصيل المتبقي"
                 >+</button>
               </div>
             </th>
-            <th class="col-orange col-balance-detail stock-detail-col">Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ ÙÙŠ Ø§Ù„Ù…ØªØ¬Ø±</th>
-            <th class="col-orange col-balance-detail stock-detail-col">Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ ÙÙŠ Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹ 1</th>
+            <th class="col-orange col-balance-detail stock-detail-col">المتبقي في المتجر</th>
+            <th class="col-orange col-balance-detail stock-detail-col">المتبقي في المستودع 1</th>
             <th class="col-orange col-balance-detail stock-detail-col">
               <div class="stock-head">
-                <span>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ ÙÙŠ Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹ 2</span>
+                <span>المتبقي في المستودع 2</span>
                 <button
                   type="button"
                   data-stock-toggle
                   class="stock-toggle-btn"
                   aria-expanded="true"
-                  aria-label="Ø¥Ø®ÙØ§Ø¡ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ"
-                  title="Ø¥Ø®ÙØ§Ø¡ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ"
+                  aria-label="إخفاء تفاصيل المتبقي"
+                  title="إخفاء تفاصيل المتبقي"
                 >-</button>
               </div>
             </th>
 
-            <th class="col-purple col-flow">Ø§Ù„Ù…Ø¨Ø§Ø¹</th>
+            <th class="col-purple col-flow">المباع</th>
 
             <th class="col-red col-flow">
               <div class="returns-head">
-                <span>Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø±ØªØ¬Ø¹</span>
+                <span>إجمالي المرتجع</span>
                 <button
                   type="button"
                   data-returns-toggle
                   class="returns-toggle-btn"
                   aria-expanded="false"
-                  aria-label="Ø¥Ø¸Ù‡Ø§Ø± Ø¹Ù…ÙˆØ¯ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª"
-                  title="Ø¥Ø¸Ù‡Ø§Ø± Ø¹Ù…ÙˆØ¯ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª"
+                  aria-label="إظهار عمود المرتجعات"
+                  title="إظهار عمود المرتجعات"
                 >+</button>
               </div>
             </th>
             <th class="col-red col-returns-action returns-detail-col">
               <div class="returns-head">
-                <span>Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª</span>
+                <span>المرتجعات</span>
                 <button
                   type="button"
                   data-returns-toggle
                   class="returns-toggle-btn"
                   aria-expanded="true"
-                  aria-label="Ø¥Ø®ÙØ§Ø¡ Ø¹Ù…ÙˆØ¯ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª"
-                  title="Ø¥Ø®ÙØ§Ø¡ Ø¹Ù…ÙˆØ¯ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª"
+                  aria-label="إخفاء عمود المرتجعات"
+                  title="إخفاء عمود المرتجعات"
                 >-</button>
               </div>
             </th>
@@ -945,9 +945,9 @@
                   type="button"
                   class="btn-mini btn-show-return"
                   data-returns-url="{% url 'billing_returns_list' %}?bill_serial={{ bill.serial }}"
-                  title="Ø¹Ø±Ø¶ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª"
+                  title="عرض المرتجعات"
                 >
-                  Ø¹Ø±Ø¶ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§Øª
+                  عرض المرتجعات
                 </button>
               {% else %}
                 <span class="cell-clip muted" title="&mdash;">&mdash;</span>
@@ -957,7 +957,7 @@
         {% empty %}
           <tr>
             <td colspan="12" style="text-align:center; color:#6b7280;">
-              Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù†Ø§ØµØ±
+              لا توجد عناصر
             </td>
           </tr>
         {% endfor %}
@@ -970,22 +970,22 @@
   <aside class="bill-side">
     <section class="foot-left">
       <div class="total-box">
-        <div class="muted">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ (SYP)</div>
+        <div class="muted">الإجمالي (SYP)</div>
         <div id="billTotalSyp" class="total-amt" title="{{ bill_total_syp_ui|human_number }}">{{ bill_total_syp_ui|human_number }}</div>
       </div>
       <div class="total-box">
-        <div class="muted">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ (USD)</div>
+        <div class="muted">الإجمالي (USD)</div>
         <div id="billTotalUsd" class="total-amt" title="{{ bill_total_usd_ui|human_number }}">{{ bill_total_usd_ui|human_number }}</div>
       </div>
       <div class="total-box">
-        <div class="muted">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ØªØ³ÙˆÙŠØ© (<span id="settleCurLabel">SYP</span>)</div>
-        <div id="billTotalBox" class="total-amt" title="â€”">â€”</div>
+        <div class="muted">إجمالي التسوية (<span id="settleCurLabel">SYP</span>)</div>
+        <div id="billTotalBox" class="total-amt" title="—">—</div>
       </div>
       <div class="muted" id="grandTotals" style="margin-top:6px;"></div>
 
       <div class="pay-head">
         <div class="field">
-          <label class="muted" for="payCurrency">Ø¹Ù…Ù„Ø© Ø§Ù„ØªØ³ÙˆÙŠØ©</label>
+          <label class="muted" for="payCurrency">عملة التسوية</label>
           <select id="payCurrency" class="input">
             <option value="SYP">SYP</option>
             <option value="USD">USD</option>
@@ -993,45 +993,45 @@
         </div>
       </div>
 
-      <div class="bill-fx-info" role="note" aria-label="Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù Ø¹Ù†Ø¯ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙØ§ØªÙˆØ±Ø©">
-        <div class="bill-fx-label">Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù Ø¹Ù†Ø¯ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙØ§ØªÙˆØ±Ø©</div>
+      <div class="bill-fx-info" role="note" aria-label="سعر الصرف عند إنشاء الفاتورة">
+        <div class="bill-fx-label">سعر الصرف عند إنشاء الفاتورة</div>
         <div class="bill-fx-value" title="{{ bill_fx_rate_ui|human_number }}">{{ bill_fx_rate_ui|human_number }}</div>
       </div>
 
       <div class="bill-side-card bill-payment-card">
         <div class="bill-side-row">
-          <span class="bill-side-label">Ø­Ø§Ù„Ø© Ø§Ù„Ø¯ÙØ¹ Ø¹Ù†Ø¯ Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡</span>
+          <span class="bill-side-label">حالة الدفع عند الإنشاء</span>
           <span class="bill-side-value" title="{{ created_payment_status_label }}">{{ created_payment_status_label }}</span>
         </div>
         <div class="bill-side-row">
-          <span class="bill-side-label">Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹ Ø¹Ù†Ø¯ Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡</span>
+          <span class="bill-side-label">طريقة الدفع عند الإنشاء</span>
           <span class="bill-side-value" title="{{ created_payment_method_label }}">{{ created_payment_method_label }}</span>
         </div>
         <div class="bill-side-row">
-          <span class="bill-side-label">Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø¯ÙÙˆØ¹ (Ù„.Ø³)</span>
+          <span class="bill-side-label">المبلغ المدفوع (ل.س)</span>
           <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|human_number }}">{{ created_paid_syp_ui|human_number }}</span>
         </div>
         <div class="bill-side-row">
-          <span class="bill-side-label">Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø¯ÙÙˆØ¹ ($)</span>
+          <span class="bill-side-label">المبلغ المدفوع ($)</span>
           <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|human_number }}">{{ created_paid_usd_ui|human_number }}</span>
         </div>
       </div>
 
       <div class="foot-right">
-        <a class="btn-sec" href="{% url 'billing_list' %}">Ø±Ø¬ÙˆØ¹</a>
+        <a class="btn-sec" href="{% url 'billing_list' %}">رجوع</a>
         {% if has_debt_now %}
-          <a class="btn-sec" href="{% url 'debts_page' %}?serial={{ bill.serial }}">Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§Ù„Ø¯ÙŠÙ†</a>
+          <a class="btn-sec" href="{% url 'debts_page' %}?serial={{ bill.serial }}">معلومات الدين</a>
         {% endif %}
         <a class="btn-sec" href="{% url 'financials:document_trace' %}?source_app=billing&source_model=Bill&source_id={{ bill.id }}">الأثر المالي</a>
 
         {% if can_return %}
-          <button type="button" class="btn" id="btnStartReturn">Ø¥Ø¶Ø§ÙØ© Ù…Ø±ØªØ¬Ø¹</button>
+          <button type="button" class="btn" id="btnStartReturn">إضافة مرتجع</button>
           <div class="return-select-controls" id="returnSelectControls">
-            <button type="button" class="btn" id="btnProceedReturn">Ù…ØªØ§Ø¨Ø¹Ø©</button>
-            <button type="button" class="btn" id="btnCancelReturnSelection">Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ­Ø¯ÙŠØ¯</button>
+            <button type="button" class="btn" id="btnProceedReturn">متابعة</button>
+            <button type="button" class="btn" id="btnCancelReturnSelection">إلغاء التحديد</button>
           </div>
         {% else %}
-          <span class="muted">Ø§Ù„ÙØ§ØªÙˆØ±Ø© Ù…ØºÙ„Ù‚Ø©</span>
+          <span class="muted">الفاتورة مغلقة</span>
         {% endif %}
       </div>
     </section>

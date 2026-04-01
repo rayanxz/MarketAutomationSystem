@@ -1,6 +1,6 @@
 A. Purchase Bill (bill_add)
- create bill with total = 0
- payment section is disabled
+ # create bill with total = 0
+ # payment section is disabled
  UI shows clear message (non-financial)
  save works without errors
  result:
