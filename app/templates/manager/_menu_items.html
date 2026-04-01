@@ -1,17 +1,17 @@
 ﻿{% with name=request.resolver_match.url_name %}
-  <a href="{% url 'manager_dash' %}" class="{% if name == 'manager_dash' %}active{% endif %}">Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©</a>
+  <a href="{% url 'manager_dash' %}" class="{% if name == 'manager_dash' %}active{% endif %}">الصفحة الرئيسية</a>
   <a href="{% url 'manager_collections' %}"
-     class="{% if name == 'manager_collections' or name == 'manager_product_new' or name == 'manager_product_edit' %}active{% endif %}">Ø§Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª</a>
+     class="{% if name == 'manager_collections' or name == 'manager_product_new' or name == 'manager_product_edit' %}active{% endif %}">ادارة المنتجات</a>
   <a href="{% url 'billing_home' %}"
-     class="{% if name == 'billing_home' or name == 'billing_add' or name == 'billing_list' or name == 'billing_bill_view' or name == 'billing_bill_return_wizard' or name == 'billing_providers' or name == 'billing_returns_list' or name == 'billing_return_view' or name == 'debts_page' or name == 'debts_add' or name == 'creditors_page' or name == 'debts_view_debt' %}active{% endif %}">Ø§Ø¯Ø§Ø±Ø© Ø§Ù„ÙÙˆØ§ØªÙŠØ±</a>
+     class="{% if name == 'billing_home' or name == 'billing_add' or name == 'billing_list' or name == 'billing_bill_view' or name == 'billing_bill_return_wizard' or name == 'billing_providers' or name == 'billing_returns_list' or name == 'billing_return_view' or name == 'debts_page' or name == 'debts_add' or name == 'creditors_page' or name == 'debts_view_debt' %}active{% endif %}">ادارة الفواتير</a>
   <a href="{% url 'financials:container_list' %}" data-hardnav="1"
-     class="{% if name == 'container_list' or name == 'container_create' or name == 'container_edit' or name == 'container_movements' or name == 'container_manual_events' or name == 'fx_settings' or name == 'receipt_explorer' or name == 'document_trace' or name == 'reconciliation_dashboard' %}active{% endif %}">Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø­Ø§ÙˆÙŠØ§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ©</a>
+     class="{% if name == 'container_list' or name == 'container_create' or name == 'container_edit' or name == 'container_movements' or name == 'container_manual_events' or name == 'fx_settings' or name == 'receipt_explorer' or name == 'document_trace' or name == 'reconciliation_dashboard' %}active{% endif %}">ادراة حاويات المال</a>
   <a class="btn-sec{% if name == 'products_import' or name == 'products_import_analyze' or name == 'products_import_map' or name == 'products_import_stage' or name == 'products_import_update_row' or name == 'products_import_commit' %} active{% endif %}"
-     href="{% url 'products_import' %}">Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ù…Ù† Ø¥ÙƒØ³Ù„</a>
+     href="{% url 'products_import' %}">استيراد من اكسل</a>
   <a class="{% if name == 'products_export' or name == 'products_export_prepare' or name == 'products_export_download' %}btn-soft active{% else %}btn-sec{% endif %}"
-     href="{% url 'products_export' %}">ØªØµØ¯ÙŠØ± Excel/ODS</a>
+     href="{% url 'products_export' %}">تصدير الى اكسل</a>
   <a href="{% url 'stock:stock_list' %}"
-     class="{% if name == 'stock_list' or name == 'stock_move' or name == 'product_movements' %}active{% endif %}">Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø®Ø²ÙˆÙ†</a>
+     class="{% if name == 'stock_list' or name == 'stock_move' or name == 'product_movements' %}active{% endif %}">ادارة المخزون</a>
   <a href="{% url 'pos:pos_manager_overview' %}"
      class="{% if name == 'pos_manager_overview' or name == 'pos_manager_overview_timeline' or name == 'pos_manager_bill_detail' or name == 'pos_manager_sale_return_wizard' or name == 'pos_manager_sale_return_settle' or name == 'pos_manager_sale_return_post' or name == 'pos_manager_customers' or name == 'pos_manager_customer_debts' %}active{% endif %}">POS</a>
 {% endwith %}
