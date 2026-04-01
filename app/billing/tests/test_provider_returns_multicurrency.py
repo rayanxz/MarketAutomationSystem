@@ -14,6 +14,7 @@ from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials.models import (
     MoneyContainer,
     Currency,
+    ContainerFeature,
     MoneyContainerCurrency,
     PostingTargetType,
     Receipt,
@@ -36,16 +37,27 @@ def _ensure_container_currency(container: MoneyContainer, code: str) -> None:
 
 def _ensure_money_container(actor) -> MoneyContainer:
     mc = MoneyContainer.objects.filter(name="Test Cash").first()
-    if mc:
-        return mc
-    return MoneyContainer.objects.create(
-        ref_code="CASH-RET-01",
-        name="Test Cash",
-        container_type=MoneyContainer.ContainerType.DRAWER,
-        is_active=True,
-        created_by=actor,
-        note="auto-created by test",
+    if not mc:
+        mc = MoneyContainer.objects.create(
+            ref_code="CASH-RET-01",
+            name="Test Cash",
+            container_type=MoneyContainer.ContainerType.DRAWER,
+            is_active=True,
+            created_by=actor,
+            note="auto-created by test",
+        )
+
+    f_purchase, _ = ContainerFeature.objects.get_or_create(
+        code="purchase_bills",
+        defaults={"name": "Purchase Bills", "is_active": True},
     )
+    f_returns, _ = ContainerFeature.objects.get_or_create(
+        code="provider_returns",
+        defaults={"name": "Provider Returns", "is_active": True},
+    )
+    mc.features.add(f_purchase, f_returns)
+    mc.allowed_users.add(actor)
+    return mc
 
 
 def _ensure_store_container() -> ProductContainer:

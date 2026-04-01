@@ -37,6 +37,7 @@ def _assert_sufficient(*, container: MoneyContainer, currency_code: str, amount:
 
 @transaction.atomic
 def post_manual_add(*, actor, container_id: int, currency_code: str, amount: Decimal, note: str = "") -> Receipt:
+    FSV.require_money_container_for_user(user=actor, container_id=container_id)
     if not _currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED")
     src = f"ADD:{uuid4().hex}"
@@ -54,10 +55,11 @@ def post_manual_add(*, actor, container_id: int, currency_code: str, amount: Dec
 
 @transaction.atomic
 def post_manual_withdraw(*, actor, container_id: int, currency_code: str, amount: Decimal, note: str = "") -> Receipt:
+    FSV.require_money_container_for_user(user=actor, container_id=container_id)
     if not _currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED")
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
-    FSV._assert_container_usable(container)
+    FSV.assert_money_container_access(user=actor, container=container)
     _assert_sufficient(container=container, currency_code=currency_code, amount=amount)
     src = f"WITHDRAW:{uuid4().hex}"
     return FSV.post_cash_withdraw(
@@ -82,14 +84,16 @@ def post_manual_transfer(
     amount: Decimal,
     note: str = "",
 ) -> Receipt:
+    FSV.require_money_container_for_user(user=actor, container_id=from_container_id)
+    FSV.require_money_container_for_user(user=actor, container_id=to_container_id)
     if not _currency_enabled(container_id=from_container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED_FROM")
     if not _currency_enabled(container_id=to_container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED_TO")
     from_container = MoneyContainer.objects.select_for_update().get(pk=from_container_id)
     to_container = MoneyContainer.objects.select_for_update().get(pk=to_container_id)
-    FSV._assert_container_usable(from_container)
-    FSV._assert_container_usable(to_container)
+    FSV.assert_money_container_access(user=actor, container=from_container)
+    FSV.assert_money_container_access(user=actor, container=to_container)
     _assert_sufficient(container=from_container, currency_code=currency_code, amount=amount)
     src = f"TRANSFER:{uuid4().hex}"
     return FSV.post_transfer(
@@ -125,6 +129,8 @@ def post_manual_exchange(
         raise ValueError("INVALID_CURRENCY")
 
     target_container_id = to_container_id or from_container_id
+    FSV.require_money_container_for_user(user=actor, container_id=from_container_id)
+    FSV.require_money_container_for_user(user=actor, container_id=target_container_id)
 
     if not _currency_enabled(container_id=from_container_id, currency_code=cur_from):
         raise ValueError("CURRENCY_DISABLED_FROM")
@@ -149,8 +155,8 @@ def post_manual_exchange(
         to_container = from_container
     else:
         to_container = MoneyContainer.objects.select_for_update().get(pk=target_container_id)
-    FSV._assert_container_usable(from_container)
-    FSV._assert_container_usable(to_container)
+    FSV.assert_money_container_access(user=actor, container=from_container)
+    FSV.assert_money_container_access(user=actor, container=to_container)
     _assert_sufficient(container=from_container, currency_code=cur_from, amount=amt_from)
 
     src = f"EXCH:{uuid4().hex}"

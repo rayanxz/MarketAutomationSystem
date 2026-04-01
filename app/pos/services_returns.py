@@ -17,7 +17,7 @@ from inventory.models import SaleCostPart
 from stock import services as StockSV
 from stock.models import ProductContainer
 from stock.services import MissingCostBasisError
-from financials.models import MoneyContainer, MoneyContainerCurrency
+from financials.models import MoneyContainerCurrency
 from financials import services as FinSV
 from debts import services as DebtSV
 from debts.models import DebtorDebt, PartyType
@@ -446,7 +446,12 @@ def post_sales_return(
             if any_cash_refund:
                 if not money_container_id:
                     raise ValueError("money_container_id is required for cash refunds")
-                container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+                container = FinSV.require_money_container_for_user(
+                    user=actor,
+                    container_id=money_container_id,
+                    feature_code=("pos_returns", "pos_sales"),
+                    for_update=True,
+                )
                 for cur in ("SYP", "USD"):
                     refund_amt = cash_refund_by_code[cur]
                     if refund_amt <= DEC0:

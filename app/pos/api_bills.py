@@ -385,12 +385,14 @@ def api_bill_save(request: HttpRequest):
             except (ValueError, MoneyContainer.DoesNotExist):
                 return JsonResponse({"ok": False, "error": "INVALID_CONTAINER"}, status=400)
 
-            if not container.features.filter(code="pos_sales", is_active=True).exists():
+            if not container.is_active:
+                return JsonResponse({"ok": False, "error": "INVALID_CONTAINER"}, status=400)
+
+            if not FinSV.container_supports_feature(container=container, feature_code="pos_sales"):
                 return JsonResponse({"ok": False, "error": "CONTAINER_NOT_POS"}, status=400)
 
-            if not has_role(request.user, AccountProfile.Role.MANAGER):
-                if container.allowed_users.exists() and not container.allowed_users.filter(pk=request.user.pk).exists():
-                    return JsonResponse({"ok": False, "error": "CONTAINER_FORBIDDEN"}, status=403)
+            if not FinSV.user_has_money_container_access(user=request.user, container=container):
+                return JsonResponse({"ok": False, "error": "CONTAINER_FORBIDDEN"}, status=403)
 
             enabled_codes = set(
                 MoneyContainerCurrency.objects

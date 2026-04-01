@@ -2,7 +2,7 @@
 from __future__ import annotations
 from decimal import Decimal
 from datetime import date
-from typing import Optional
+from typing import Optional, Any
 import logging
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -26,9 +26,6 @@ from financials.models import (
     MoneyContainerCurrency,
     Receipt,
 )
-from accounts.models import AccountProfile
-from accounts.utils import has_role
-
 from inventory.models import DEC0
 
 from django.db.models import Q
@@ -236,12 +233,17 @@ def resolve_creditor_entry_for_source(
     return rows[0] if rows else None
 
 
-def _assert_container_access(*, actor, container: MoneyContainer) -> None:
-    if not container.is_active:
-        raise ValueError("Container is inactive / disabled")
-    if not has_role(actor, AccountProfile.Role.MANAGER):
-        if container.allowed_users.exists() and not container.allowed_users.filter(pk=actor.pk).exists():
-            raise ValueError("Container access denied for this user")
+def _assert_container_access(
+    *,
+    actor,
+    container: MoneyContainer,
+    required_feature_code: Any = None,
+) -> None:
+    FinSV.assert_money_container_access(
+        user=actor,
+        container=container,
+        feature_code=required_feature_code,
+    )
 
 
 def _ensure_provider_counterparty(*, provider: Provider) -> Counterparty:
@@ -556,6 +558,7 @@ def pay_debt(
     full: bool = False,
     money_container_id: Optional[int] = None,
     currency_code: Optional[str] = None,
+    required_feature_code: Any = None,
 ) -> DebtorDebt:
     """
     Pay a debtor debt (we owe provider) -> cash OUT.
@@ -581,7 +584,11 @@ def pay_debt(
         raise ValueError("money_container_id is required")
 
     container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-    _assert_container_access(actor=actor, container=container)
+    _assert_container_access(
+        actor=actor,
+        container=container,
+        required_feature_code=required_feature_code,
+    )
 
     if not MoneyContainerCurrency.objects.filter(container_id=container.id, currency__code=cur, is_enabled=True).exists():
         raise ValueError(f"Currency {cur} is disabled for this container")
@@ -648,6 +655,7 @@ def collect_debt(
     full: bool = False,
     money_container_id: Optional[int] = None,
     currency_code: Optional[str] = None,
+    required_feature_code: Any = None,
 ) -> CreditorDebt:
     """
     Collect a creditor debt (provider owes us) -> cash IN.
@@ -673,7 +681,11 @@ def collect_debt(
         raise ValueError("money_container_id is required")
 
     container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
-    _assert_container_access(actor=actor, container=container)
+    _assert_container_access(
+        actor=actor,
+        container=container,
+        required_feature_code=required_feature_code,
+    )
 
     if not MoneyContainerCurrency.objects.filter(container_id=container.id, currency__code=cur, is_enabled=True).exists():
         raise ValueError(f"Currency {cur} is disabled for this container")

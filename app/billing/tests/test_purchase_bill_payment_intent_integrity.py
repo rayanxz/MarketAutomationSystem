@@ -68,6 +68,7 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
             created_by=cls.actor,
         )
         cls.cash.features.add(feature)
+        cls.cash.allowed_users.add(cls.actor)
 
         for code in ("SYP", "USD"):
             cur = Currency.objects.get(code=code)

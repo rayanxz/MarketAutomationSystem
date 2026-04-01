@@ -53,6 +53,14 @@ class PosReturnSymmetryTests(TestCase):
             code="pos_sales",
             defaults={"name": "POS Sales", "is_active": True, "sort_order": 10},
         )
+        cls.purchase_feature, _ = ContainerFeature.objects.get_or_create(
+            code="purchase_bills",
+            defaults={"name": "Purchase Bills", "is_active": True, "sort_order": 30},
+        )
+        cls.provider_return_feature, _ = ContainerFeature.objects.get_or_create(
+            code="provider_returns",
+            defaults={"name": "Provider Returns", "is_active": True, "sort_order": 40},
+        )
 
         cls.cash_provider = MoneyContainer.objects.create(
             name="Provider Cash",
@@ -62,7 +70,11 @@ class PosReturnSymmetryTests(TestCase):
             balance_syp=Decimal("1000000"),
             balance_usd=Decimal("100"),
         )
-        cls.cash_provider.features.add(cls.pos_feature)
+        cls.cash_provider.features.add(
+            cls.pos_feature,
+            cls.purchase_feature,
+            cls.provider_return_feature,
+        )
         cls.cash_provider.allowed_users.add(cls.user)
 
         cls.cash_sales = MoneyContainer.objects.create(

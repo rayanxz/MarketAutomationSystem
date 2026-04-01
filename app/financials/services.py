@@ -25,6 +25,8 @@ from .models import (
     FxSettings,          # âœ… new
 )
 import json
+from accounts.models import AccountProfile
+from accounts.utils import has_role
 
 DEC0 = Decimal("0")
 FX_DECIMALS = 6
@@ -91,6 +93,111 @@ def set_current_fx(*, actor, rate_syp_per_usd: Decimal) -> FxSettings:
 def _assert_container_usable(container: MoneyContainer) -> None:
     if not container.is_active:
         raise ValueError("Container is inactive / disabled")
+
+
+def user_has_money_container_access(*, user, container: MoneyContainer) -> bool:
+    """
+    Access rule:
+    - system owner is always allowed
+    - otherwise user must be explicitly in allowed_users
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if has_role(user, AccountProfile.Role.OWNER):
+        return True
+    return container.allowed_users.filter(pk=user.pk).exists()
+
+
+def _normalize_feature_codes(feature_code: Any) -> list[str]:
+    if feature_code in (None, ""):
+        return []
+    if isinstance(feature_code, (list, tuple, set)):
+        out: list[str] = []
+        for raw in feature_code:
+            code = str(raw or "").strip()
+            if code:
+                out.append(code)
+        return out
+    code = str(feature_code or "").strip()
+    return [code] if code else []
+
+
+def container_supports_feature(*, container: MoneyContainer, feature_code: Any = None) -> bool:
+    codes = _normalize_feature_codes(feature_code)
+    if not codes:
+        return True
+    return container.features.filter(code__in=codes, is_active=True).exists()
+
+
+def assert_money_container_access(
+    *,
+    user,
+    container: MoneyContainer,
+    feature_code: Any = None,
+) -> None:
+    if not container.is_active:
+        raise ValueError("Container is inactive / disabled")
+    if not container_supports_feature(container=container, feature_code=feature_code):
+        raise ValueError("money container does not support this operation")
+    if not user_has_money_container_access(user=user, container=container):
+        raise ValueError("Container access denied for this user")
+
+
+def money_containers_for_user_qs(*, user, feature_code: Any = None):
+    qs = MoneyContainer.objects.filter(is_active=True)
+    codes = _normalize_feature_codes(feature_code)
+    if codes:
+        qs = qs.filter(features__code__in=codes, features__is_active=True)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return qs.none()
+    if has_role(user, AccountProfile.Role.OWNER):
+        return qs.distinct()
+    return qs.filter(allowed_users=user).distinct()
+
+
+def resolve_money_container_for_user(
+    *,
+    user,
+    container_id: int | str,
+    feature_code: Any = None,
+    for_update: bool = False,
+) -> MoneyContainer | None:
+    try:
+        cid = int(container_id)
+    except (TypeError, ValueError):
+        return None
+
+    qs = money_containers_for_user_qs(user=user, feature_code=feature_code)
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.filter(pk=cid).first()
+
+
+def require_money_container_for_user(
+    *,
+    user,
+    container_id: int | str,
+    feature_code: Any = None,
+    for_update: bool = False,
+) -> MoneyContainer:
+    try:
+        cid = int(container_id)
+    except (TypeError, ValueError):
+        raise ValueError("invalid money container")
+
+    qs = MoneyContainer.objects
+    if for_update:
+        qs = qs.select_for_update()
+    container = qs.filter(pk=cid).first()
+    if container is None:
+        raise ValueError("invalid money container")
+    if not container.is_active:
+        raise ValueError("Container is inactive / disabled")
+    if not container_supports_feature(container=container, feature_code=feature_code):
+        raise ValueError("money container does not support this operation")
+    if not user_has_money_container_access(user=user, container=container):
+        raise ValueError("money container is not allowed for this operation")
+    return container
 
 
 def ensure_currency_states(*, container: MoneyContainer) -> None:

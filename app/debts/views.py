@@ -9,13 +9,12 @@ from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from accounts.models import AccountProfile
-from accounts.utils import has_role
 from accounts.decorators import role_required
 
 from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry, DebtReminder
 from debts.source_identity import source_identity_base
-from financials.models import MoneyContainer, Receipt, ReceiptKind
-from django.db.models import Q
+from financials.models import Receipt, ReceiptKind
+from financials import services as FinSV
 from . import selectors as S
 from .serializers import debtor_row, creditor_row
 from debts import services as SV
@@ -79,10 +78,9 @@ def _int_or_none(s):
 
 
 def _allowed_containers(user):
-    qs = MoneyContainer.objects.filter(is_active=True).order_by("name")
-    if not has_role(user, AccountProfile.Role.MANAGER):
-        qs = qs.filter(Q(allowed_users__isnull=True) | Q(allowed_users=user)).distinct()
-    return list(qs)
+    return list(
+        FinSV.money_containers_for_user_qs(user=user).order_by("name")
+    )
 
 
 def _entry_details(direction: str, entry_id: int) -> dict:

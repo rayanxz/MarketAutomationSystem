@@ -18,12 +18,11 @@ from django.template.loader import render_to_string
 
 from accounts.decorators import role_required
 from accounts.models import AccountProfile
-from accounts.utils import has_role
 from .models import PosDay, PosShift, PosLoginSession, SalesBill, CustomerProfile, SalesReturn
 from debts.models import DebtorDebt, PartyType
 
 from inventory.models import ProductMovement , DEC0 , q3 , q4
-from financials.models import MoneyContainer, MoneyContainerCurrency
+from financials.models import MoneyContainerCurrency
 from financials import services as FinSV
 
 User = get_user_model()
@@ -200,18 +199,12 @@ def pos_screen(request: HttpRequest) -> HttpResponse:
     user = request.user
 
     containers_qs = (
-        MoneyContainer.objects
-        .filter(is_active=True, features__code="pos_sales", features__is_active=True)
-        .distinct()
+        FinSV.money_containers_for_user_qs(
+            user=user,
+            feature_code="pos_sales",
+        )
         .order_by("name")
     )
-
-    if not has_role(user, AccountProfile.Role.MANAGER):
-        containers_qs = (
-            containers_qs
-            .filter(Q(allowed_users__isnull=True) | Q(allowed_users=user))
-            .distinct()
-        )
 
     containers = []
     for c in containers_qs:

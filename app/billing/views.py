@@ -16,7 +16,7 @@ from billing import services as BillingSV
 
 from inventory.models import DEC0 , q3 , ProductMovement , q4
 
-from financials.models import MoneyContainer , Currency
+from financials.models import Currency
 
 from financials import services as FinSV
 
@@ -48,7 +48,6 @@ from stock.models import StockFifoLayer
 
 from accounts.models import AccountProfile
 from accounts.decorators import role_required
-from accounts.utils import has_role
 from catalog.models import Product
 
 from billing.models import Provider, Bill, ProviderReturn
@@ -71,31 +70,25 @@ from django.conf import settings
 # ---------- Page views ----------
 
 PURCHASE_BILLS_FEATURE_CODE = "purchase_bills"
+PROVIDER_RETURNS_FEATURE_CODES = ("provider_returns", "purchase_bills")
 
 
 def _purchase_money_containers_qs_for_user(user):
-    qs = (
-        MoneyContainer.objects
-        .filter(
-            is_active=True,
-            features__code=PURCHASE_BILLS_FEATURE_CODE,
-            features__is_active=True,
+    return (
+        FinSV.money_containers_for_user_qs(
+            user=user,
+            feature_code=PURCHASE_BILLS_FEATURE_CODE,
         )
-        .distinct()
         .order_by("id")
     )
-    # Keep parity with POS: manager/owner can use any qualifying container.
-    if not has_role(user, AccountProfile.Role.MANAGER):
-        qs = (
-            qs
-            .filter(Q(allowed_users__isnull=True) | Q(allowed_users=user))
-            .distinct()
-        )
-    return qs
 
 
 def _resolve_purchase_money_container_for_user(*, user, container_id: int):
-    return _purchase_money_containers_qs_for_user(user).filter(pk=container_id).first()
+    return FinSV.resolve_money_container_for_user(
+        user=user,
+        container_id=container_id,
+        feature_code=PURCHASE_BILLS_FEATURE_CODE,
+    )
 
 @role_required(AccountProfile.Role.MANAGER)
 def billing_home(request: HttpRequest) -> HttpResponse:
@@ -1275,8 +1268,10 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
     )
 
     money_containers = (
-        MoneyContainer.objects
-        .filter(is_active=True, container_type=MoneyContainer.ContainerType.DRAWER)
+        FinSV.money_containers_for_user_qs(
+            user=request.user,
+            feature_code=PROVIDER_RETURNS_FEATURE_CODES,
+        )
         .order_by("id")
     )
 

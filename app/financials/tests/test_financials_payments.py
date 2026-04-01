@@ -42,6 +42,7 @@ class DebtsFinancialsPaymentsTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        cls.container.allowed_users.add(cls.actor)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.container, currency=cls.syp, defaults={"is_enabled": True}
         )

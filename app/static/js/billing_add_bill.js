@@ -930,8 +930,9 @@ refreshAutoSerial();
         payMethodsFieldset.classList.add("is-disabled");
       }
       if (moneyContainerSelect) {
-        moneyContainerSelect.value = "";
-        moneyContainerSelect.disabled = true;
+        // Keep container options visible in zero-total mode.
+        // Financial enforcement remains backend-side (status/payment-driven).
+        moneyContainerSelect.disabled = false;
       }
       if (payMethodHint) {
         payMethodHint.textContent = "الإجمالي صفري: الفاتورة غير مالية ولا يوجد دفع عند الإنشاء.";

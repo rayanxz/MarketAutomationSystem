@@ -37,6 +37,7 @@ class ManualEventApiPrecisionTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        cls.a.allowed_users.add(cls.actor)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.a,
             currency=cls.syp,

@@ -48,6 +48,8 @@ from financials.models import Currency, Counterparty, CounterpartyType, MoneyCon
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
 DEC4 = Decimal("0.0001")
+FEATURE_PURCHASE_BILLS = "purchase_bills"
+FEATURE_PROVIDER_RETURNS = ("provider_returns", FEATURE_PURCHASE_BILLS)
 
 def q3(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC3)
@@ -536,12 +538,24 @@ def _default_money_container() -> MoneyContainer:
     return c
 
 
-def _default_purchase_money_container() -> MoneyContainer:
+def _default_purchase_money_container(*, actor=None) -> MoneyContainer:
+    if actor is not None:
+        c = (
+            FinSV.money_containers_for_user_qs(
+                user=actor,
+                feature_code=FEATURE_PURCHASE_BILLS,
+            )
+            .order_by("id")
+            .first()
+        )
+        if not c:
+            raise ValueError("No allowed active money container with purchase_bills feature found")
+        return c
     c = (
         MoneyContainer.objects
         .filter(
             is_active=True,
-            features__code="purchase_bills",
+            features__code=FEATURE_PURCHASE_BILLS,
             features__is_active=True,
         )
         .distinct()
@@ -1008,9 +1022,15 @@ def create_bill(
     has_cash_payment = (actual_paid_syp > DEC0) or (actual_paid_usd > DEC0)
     cash_container = None
     if money_container_id:
-        cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+        required_feature = FEATURE_PURCHASE_BILLS if has_cash_payment else None
+        cash_container = FinSV.require_money_container_for_user(
+            user=actor,
+            container_id=money_container_id,
+            feature_code=required_feature,
+            for_update=True,
+        )
     elif has_cash_payment:
-        cash_container = _default_purchase_money_container()
+        cash_container = _default_purchase_money_container(actor=actor)
 
     if cash_container and bill.money_container_id != cash_container.id:
         bill.money_container = cash_container
@@ -1868,7 +1888,12 @@ def create_return(
     if has_any_collection:
         if not money_container_id:
             raise ValueError("money container is required for paid returns")
-        cash_container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
+        cash_container = FinSV.require_money_container_for_user(
+            user=actor,
+            container_id=money_container_id,
+            feature_code=FEATURE_PROVIDER_RETURNS,
+            for_update=True,
+        )
 
     fx_for_receipt = fx_for_plan
     totals_by_code: Dict[str, Decimal] = {}
@@ -2246,6 +2271,7 @@ def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, c
         full=True,
         money_container_id=money_container_id,
         currency_code=cur,
+        required_feature_code=FEATURE_PURCHASE_BILLS,
     )
 
     log_update(
@@ -2285,6 +2311,7 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Opt
         full=False,
         money_container_id=money_container_id,
         currency_code=cur,
+        required_feature_code=FEATURE_PURCHASE_BILLS,
     )
 
     log_update(
@@ -2316,6 +2343,7 @@ def collect_full(*, actor, return_id: int, money_container_id: Optional[int] = N
         full=True,
         money_container_id=money_container_id,
         currency_code=cur,
+        required_feature_code=FEATURE_PROVIDER_RETURNS,
     )
 
     log_update(
@@ -2354,6 +2382,7 @@ def collect_partial(*, actor, return_id: int, amount: Decimal, money_container_i
         full=False,
         money_container_id=money_container_id,
         currency_code=cur,
+        required_feature_code=FEATURE_PROVIDER_RETURNS,
     )
 
     log_update(

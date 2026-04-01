@@ -15,6 +15,7 @@ from accounts.models import AccountProfile
 from catalog.models import Product, UnitType
 from inventory.models import DEC0, q3
 from stock.models import ProductContainer
+from financials import services as FinSV
 
 from .models import SalesBill, SalesReturn
 from . import services_returns as SV
@@ -158,7 +159,12 @@ def pos_manager_sale_return_wizard(request: HttpRequest, bill_id: int) -> HttpRe
     )
 
 
-def _build_settle_context(ret: SalesReturn, *, error_msg: str = "") -> dict[str, Any]:
+def _build_settle_context(
+    ret: SalesReturn,
+    *,
+    user,
+    error_msg: str = "",
+) -> dict[str, Any]:
     rows = list(ret.rows.all().order_by("id"))
     total_syp = DEC0
     total_usd = DEC0
@@ -168,8 +174,13 @@ def _build_settle_context(ret: SalesReturn, *, error_msg: str = "") -> dict[str,
         else:
             total_syp = q3(total_syp + q3(_dec(r.line_total)))
 
-    from financials.models import MoneyContainer
-    money_containers = MoneyContainer.objects.filter(is_active=True).order_by("id")
+    money_containers = (
+        FinSV.money_containers_for_user_qs(
+            user=user,
+            feature_code=("pos_returns", "pos_sales"),
+        )
+        .order_by("id")
+    )
 
     return {
         "ret": ret,
@@ -194,7 +205,7 @@ def pos_manager_sale_return_settle(request: HttpRequest, return_id: int) -> Http
     if ret.status != SalesReturn.Status.DRAFT:
         return redirect("pos:pos_manager_bill_detail", bill_id=ret.sale_bill_id)
 
-    ctx = _build_settle_context(ret)
+    ctx = _build_settle_context(ret, user=request.user)
     return render(request, "pos/manager_sale_return_settle.html", ctx)
 
 

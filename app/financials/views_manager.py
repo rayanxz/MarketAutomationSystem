@@ -422,7 +422,9 @@ def container_movements(request: HttpRequest) -> HttpResponse:
 @login_required
 @role_required(AccountProfile.Role.MANAGER)
 def container_manual_events(request: HttpRequest) -> HttpResponse:
-    containers = list(MoneyContainer.objects.all().order_by("name"))
+    containers = list(
+        FSV.money_containers_for_user_qs(user=request.user).order_by("name")
+    )
     currencies = list(Currency.objects.filter(is_active=True).order_by("code"))
     fx = (
         FxSettings.objects.filter(is_active=True)
