@@ -1,5 +1,5 @@
 {% extends "manager/base_manager.html" %}
-{% load static %}
+{% load static formatting %}
 
 {% block title %}{% if editing %}تعديل منتج{% else %}إضافة منتج{% endif %}{% endblock %}
 
@@ -288,12 +288,12 @@
 
           <div class="field">
             <label>آخر تكلفة (ليرة)</label>
-            <input class="input" value="{{ product.latest_cost_syp|default:'0' }}" disabled>
+            <input class="input" value="{{ product.latest_cost_syp|default:0|human_number }}" disabled>
           </div>
 
           <div class="field">
             <label>آخر تكلفة (دولار)</label>
-            <input class="input" value="{{ product.latest_cost_usd|default:'0' }}" disabled>
+            <input class="input" value="{{ product.latest_cost_usd|default:0|human_number }}" disabled>
           </div>
         </div>
 
@@ -338,12 +338,12 @@
 
           <div class="field">
             <label>آخر سعر بيع (ليرة)</label>
-            <input class="input" value="{{ product.latest_price_syp|default:'0' }}" disabled>
+            <input class="input" value="{{ product.latest_price_syp|default:0|human_number }}" disabled>
           </div>
 
           <div class="field">
             <label>آخر سعر بيع (دولار)</label>
-            <input class="input" value="{{ product.latest_price_usd|default:'0' }}" disabled>
+            <input class="input" value="{{ product.latest_price_usd|default:0|human_number }}" disabled>
           </div>
         </div>
       </div>

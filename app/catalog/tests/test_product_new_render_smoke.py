@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from accounts.models import AccountProfile
 from catalog.models import Product, ProductBarcode, ProductCollection, ProductSet, ProductUnitId, UnitType
+from core.templatetags.formatting import human_number
 from inventory.models import ProductMovement
 
 
@@ -71,6 +72,29 @@ class ProductNewRenderSmokeTests(TestCase):
         html = resp.content.decode("utf-8")
         self.assertNotRegex(html, r'id="localIdentifierSearchInput"[^>]*\bdisabled\b')
         self.assertNotRegex(html, r'id="localIdentifierSearchButton"[^>]*\bdisabled\b')
+
+    def test_edit_mode_latest_cost_price_use_global_human_number_format(self):
+        product = self._create_product("P-RENDER-LATEST-FMT")
+        product.latest_cost_syp = Decimal("1234567.8000")
+        product.latest_cost_usd = Decimal("12.3400")
+        product.latest_price_syp = Decimal("2500000.0000")
+        product.latest_price_usd = Decimal("5.5000")
+        product.save(
+            update_fields=[
+                "latest_cost_syp",
+                "latest_cost_usd",
+                "latest_price_syp",
+                "latest_price_usd",
+            ]
+        )
+
+        resp = self.client.get(reverse("manager_product_edit", args=[product.id]))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertIn(f'value="{human_number(product.latest_cost_syp)}"', html)
+        self.assertIn(f'value="{human_number(product.latest_cost_usd)}"', html)
+        self.assertIn(f'value="{human_number(product.latest_price_syp)}"', html)
+        self.assertIn(f'value="{human_number(product.latest_price_usd)}"', html)
 
     def test_edit_mode_with_history_renders(self):
         product = self._create_product("P-RENDER-HIST")
