@@ -81,6 +81,7 @@ class ProductPolicyTests(TestCase):
         unit_primary: str,
         unit_secondary: str,
         conversion_factor: Optional[str] = None,
+        **overrides,
     ):
         data = {
             "collection_name": product.set.collection.name,
@@ -105,6 +106,8 @@ class ProductPolicyTests(TestCase):
         }
         if conversion_factor is not None:
             data["conversion_factor"] = conversion_factor
+        if overrides:
+            data.update(overrides)
         url = reverse("manager_product_edit", kwargs={"pk": product.id})
         return self.client.post(url, data=data)
 
@@ -143,6 +146,68 @@ class ProductPolicyTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertIn("default_cost_syp", resp.context["form"].errors)
+
+    def test_create_rejects_when_purchase_currencies_all_disabled(self):
+        ProductCollection.objects.create(name="C")
+        ProductSet.objects.create(collection=ProductCollection.objects.get(name="C"), name="S")
+        msg = "\u0627\u0644\u0631\u062c\u0627\u0621 \u0627\u0628\u0642\u0627\u0621 \u0639\u0645\u0644\u0629 \u0648\u0627\u062d\u062f\u0629 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0641\u0639\u0644\u0629"
+        resp = self.client.post(
+            reverse("manager_product_new"),
+            data={
+                "collection_name": "C",
+                "set_name": "S",
+                "create_parent": "",
+                "name": "NO-PURCH-CURR",
+                "unit_primary": UnitType.PIECE,
+                "unit_secondary": "",
+                "allow_syp_sales": "on",
+                "allow_syp_purchasing": "",
+                "allow_usd_sales": "",
+                "allow_usd_purchasing": "",
+                "default_purchase_currency": "SYP",
+                "default_sale_currency": "SYP",
+                "default_cost_syp": "1.0000",
+                "default_cost_usd": "0.0000",
+                "default_price_syp": "2.0000",
+                "default_price_usd": "0.0000",
+                "notes": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("allow_syp_purchasing", resp.context["form"].errors)
+        self.assertIn(msg, resp.context["form"].errors["allow_syp_purchasing"])
+        self.assertFalse(Product.objects.filter(name="NO-PURCH-CURR").exists())
+
+    def test_create_rejects_when_sale_currencies_all_disabled(self):
+        ProductCollection.objects.create(name="C")
+        ProductSet.objects.create(collection=ProductCollection.objects.get(name="C"), name="S")
+        msg = "\u0627\u0644\u0631\u062c\u0627\u0621 \u0627\u0628\u0642\u0627\u0621 \u0639\u0645\u0644\u0629 \u0648\u0627\u062d\u062f\u0629 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0641\u0639\u0644\u0629"
+        resp = self.client.post(
+            reverse("manager_product_new"),
+            data={
+                "collection_name": "C",
+                "set_name": "S",
+                "create_parent": "",
+                "name": "NO-SALE-CURR",
+                "unit_primary": UnitType.PIECE,
+                "unit_secondary": "",
+                "allow_syp_sales": "",
+                "allow_syp_purchasing": "on",
+                "allow_usd_sales": "",
+                "allow_usd_purchasing": "",
+                "default_purchase_currency": "SYP",
+                "default_sale_currency": "SYP",
+                "default_cost_syp": "1.0000",
+                "default_cost_usd": "0.0000",
+                "default_price_syp": "2.0000",
+                "default_price_usd": "0.0000",
+                "notes": "",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("allow_syp_sales", resp.context["form"].errors)
+        self.assertIn(msg, resp.context["form"].errors["allow_syp_sales"])
+        self.assertFalse(Product.objects.filter(name="NO-SALE-CURR").exists())
 
     def test_hard_delete_allowed_when_no_history_and_zero_stock(self):
         prod = self._create_product(collection_name="C1X", set_name="S1X", product_name="P1X")
@@ -297,6 +362,27 @@ class ProductPolicyTests(TestCase):
         self.assertEqual(prod.unit_primary, UnitType.PIECE)
         self.assertEqual(prod.unit_secondary, "")
         self.assertIsNone(prod.conversion_factor)
+
+    def test_edit_rejects_when_purchase_currencies_all_disabled(self):
+        prod = self._create_product(collection_name="C9P", set_name="S9P", product_name="P9P")
+        msg = "\u0627\u0644\u0631\u062c\u0627\u0621 \u0627\u0628\u0642\u0627\u0621 \u0639\u0645\u0644\u0629 \u0648\u0627\u062d\u062f\u0629 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0641\u0639\u0644\u0629"
+
+        resp = self._post_product_edit(
+            product=prod,
+            unit_primary=UnitType.PIECE,
+            unit_secondary="",
+            conversion_factor=None,
+            allow_syp_purchasing="",
+            allow_usd_purchasing="",
+            allow_syp_sales="on",
+            allow_usd_sales="",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("allow_syp_purchasing", resp.context["form"].errors)
+        self.assertIn(msg, resp.context["form"].errors["allow_syp_purchasing"])
+
+        prod.refresh_from_db()
+        self.assertTrue(prod.allow_syp_purchasing or prod.allow_usd_purchasing)
 
     def test_create_same_units_rejected(self):
         col, _ = ProductCollection.objects.get_or_create(name="C")

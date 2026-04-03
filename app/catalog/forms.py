@@ -293,13 +293,16 @@ class ProductCreateForm(forms.Form):
         allow_usd_purch = bool(cleaned.get("allow_usd_purchasing"))
         allow_syp_sales = bool(cleaned.get("allow_syp_sales"))
         allow_usd_sales = bool(cleaned.get("allow_usd_sales"))
+        at_least_one_currency_msg = "الرجاء ابقاء عملة واحدة على الأقل مفعلة"
 
         default_purchase_currency = cleaned.get("default_purchase_currency") or None
         default_sale_currency = cleaned.get("default_sale_currency") or None
 
         if not allow_syp_purch and not allow_usd_purch:
+            self.add_error("allow_syp_purchasing", at_least_one_currency_msg)
             cleaned["default_purchase_currency"] = None
         if not allow_syp_sales and not allow_usd_sales:
+            self.add_error("allow_syp_sales", at_least_one_currency_msg)
             cleaned["default_sale_currency"] = None
 
         if allow_syp_purch and not allow_usd_purch:

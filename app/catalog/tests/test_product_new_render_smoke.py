@@ -57,6 +57,12 @@ class ProductNewRenderSmokeTests(TestCase):
                 msg=f"{name} should not render a native min attribute",
             )
 
+    def test_create_mode_renders_currency_group_error_slots(self):
+        resp = self.client.get(reverse("manager_product_new"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'data-live-error-for="purchase_currency_group"', html=False)
+        self.assertContains(resp, 'data-live-error-for="sale_currency_group"', html=False)
+
     def test_edit_mode_without_history_renders(self):
         product = self._create_product("P-RENDER-NO-HIST")
         resp = self.client.get(reverse("manager_product_edit", args=[product.id]))

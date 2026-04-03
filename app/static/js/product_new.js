@@ -1016,9 +1016,22 @@
   }
 
   function validatePurchaseCurrency({ force = false } = {}) {
-    const allowSyp = !!document.getElementById("allowSypPurch")?.checked;
-    const allowUsd = !!document.getElementById("allowUsdPurch")?.checked;
+    const allowSypEl = document.getElementById("allowSypPurch");
+    const allowUsdEl = document.getElementById("allowUsdPurch");
+    const allowSyp = !!allowSypEl?.checked;
+    const allowUsd = !!allowUsdEl?.checked;
+    const atLeastOneCurrencyMsg = "الرجاء ابقاء عملة واحدة على الأقل مفعلة";
     let ok = true;
+
+    if (!allowSyp && !allowUsd) {
+      setFieldError("purchase_currency_group", atLeastOneCurrencyMsg, { force });
+      const showInvalid = shouldShow("purchase_currency_group", force);
+      [allowSypEl, allowUsdEl].forEach((el) => el?.classList.toggle("invalid", showInvalid));
+      ok = false;
+    } else {
+      clearFieldError("purchase_currency_group");
+      [allowSypEl, allowUsdEl].forEach((el) => el?.classList.remove("invalid"));
+    }
 
     ok = validateNonNegativeNumberField("default_cost_syp", { force, active: allowSyp }) && ok;
     ok = validateNonNegativeNumberField("default_cost_usd", { force, active: allowUsd }) && ok;
@@ -1033,9 +1046,22 @@
   }
 
   function validateSalesCurrency({ force = false } = {}) {
-    const allowSyp = !!document.getElementById("allowSypSales")?.checked;
-    const allowUsd = !!document.getElementById("allowUsdSales")?.checked;
+    const allowSypEl = document.getElementById("allowSypSales");
+    const allowUsdEl = document.getElementById("allowUsdSales");
+    const allowSyp = !!allowSypEl?.checked;
+    const allowUsd = !!allowUsdEl?.checked;
+    const atLeastOneCurrencyMsg = "الرجاء ابقاء عملة واحدة على الأقل مفعلة";
     let ok = true;
+
+    if (!allowSyp && !allowUsd) {
+      setFieldError("sale_currency_group", atLeastOneCurrencyMsg, { force });
+      const showInvalid = shouldShow("sale_currency_group", force);
+      [allowSypEl, allowUsdEl].forEach((el) => el?.classList.toggle("invalid", showInvalid));
+      ok = false;
+    } else {
+      clearFieldError("sale_currency_group");
+      [allowSypEl, allowUsdEl].forEach((el) => el?.classList.remove("invalid"));
+    }
 
     ok = validateNonNegativeNumberField("default_price_syp", { force, active: allowSyp }) && ok;
     ok = validateNonNegativeNumberField("default_price_usd", { force, active: allowUsd }) && ok;

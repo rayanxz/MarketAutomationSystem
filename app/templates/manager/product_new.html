@@ -46,6 +46,7 @@
   .currency-options{ width:100%; }
   .currency-options label{ display:flex; align-items:center; gap:8px; direction:rtl; text-align:right; justify-content:flex-start; width:100%; margin:0; padding:0; }
   .currency-options input[type="checkbox"]{ margin:0; }
+  .currency-options input[type="checkbox"].invalid{ outline:2px solid #b42318; outline-offset:2px; border-radius:4px; }
   .fx-input-wrap{ display:flex; align-items:stretch; gap:6px; direction:ltr; width:100%; }
   .fx-input-wrap .input{ flex:1 1 auto; }
   .fx-btn{
@@ -253,6 +254,7 @@
               <label><input type="checkbox" id="allowSypPurch" name="allow_syp_purchasing" {% if form.allow_syp_purchasing.value %}checked{% endif %}> السماح بالشراء بالليرة</label>
               <label><input type="checkbox" id="allowUsdPurch" name="allow_usd_purchasing" {% if form.allow_usd_purchasing.value %}checked{% endif %}> السماح بالشراء بالدولار</label>
             </div>
+            {% if form.errors.allow_syp_purchasing %}<div class="err" data-live-error-for="purchase_currency_group">{{ form.errors.allow_syp_purchasing.0 }}</div>{% elif form.errors.allow_usd_purchasing %}<div class="err" data-live-error-for="purchase_currency_group">{{ form.errors.allow_usd_purchasing.0 }}</div>{% else %}<div class="err" data-live-error-for="purchase_currency_group" hidden></div>{% endif %}
           </div>
 
           <div class="field" data-live-field="default_purchase_currency">
@@ -302,6 +304,7 @@
               <label><input type="checkbox" id="allowSypSales" name="allow_syp_sales" {% if form.allow_syp_sales.value %}checked{% endif %}> السماح بالبيع بالليرة</label>
               <label><input type="checkbox" id="allowUsdSales" name="allow_usd_sales" {% if form.allow_usd_sales.value %}checked{% endif %}> السماح بالبيع بالدولار</label>
             </div>
+            {% if form.errors.allow_syp_sales %}<div class="err" data-live-error-for="sale_currency_group">{{ form.errors.allow_syp_sales.0 }}</div>{% elif form.errors.allow_usd_sales %}<div class="err" data-live-error-for="sale_currency_group">{{ form.errors.allow_usd_sales.0 }}</div>{% else %}<div class="err" data-live-error-for="sale_currency_group" hidden></div>{% endif %}
           </div>
 
           <div class="field" data-live-field="default_sale_currency">

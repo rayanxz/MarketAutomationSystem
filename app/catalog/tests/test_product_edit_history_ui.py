@@ -133,3 +133,23 @@ class ProductEditHistoryUiTests(TestCase):
         self.assertContains(resp, "\u0647\u0630\u0627 \u0627\u0644\u062d\u0642\u0644 \u0645\u0642\u0641\u0644 \u0628\u0639\u062f \u0648\u062c\u0648\u062f \u062d\u0631\u0643\u0627\u062a \u0639\u0644\u0649 \u0627\u0644\u0645\u0646\u062a\u062c.")
         product.refresh_from_db()
         self.assertEqual(product.name, "P-HIST-LOCKED-MSG")
+
+    def test_edit_with_history_rejects_when_sale_currencies_all_disabled(self):
+        product = self._create_product("P-HIST-SALE-CURR")
+        self._add_history(product)
+        msg = "\u0627\u0644\u0631\u062c\u0627\u0621 \u0627\u0628\u0642\u0627\u0621 \u0639\u0645\u0644\u0629 \u0648\u0627\u062d\u062f\u0629 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0641\u0639\u0644\u0629"
+
+        payload = self._edit_payload(
+            product,
+            allow_syp_sales="",
+            allow_usd_sales="",
+            allow_syp_purchasing="on",
+            allow_usd_purchasing="",
+        )
+        resp = self.client.post(reverse("manager_product_edit", args=[product.id]), data=payload)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("allow_syp_sales", resp.context["form"].errors)
+        self.assertIn(msg, resp.context["form"].errors["allow_syp_sales"])
+        product.refresh_from_db()
+        self.assertTrue(product.allow_syp_sales or product.allow_usd_sales)
