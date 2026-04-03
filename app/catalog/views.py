@@ -384,6 +384,12 @@ def _bind_validation_error_to_form(
     *,
     mapping: dict[str, str] | None = None,
 ) -> None:
+    def _ui_msg(raw: str) -> str:
+        msg = (raw or "").strip()
+        if msg == "This field is locked after the product has history.":
+            return "هذا الحقل مقفل بعد وجود حركات على المنتج."
+        return msg or raw
+
     mapping = mapping or {}
     error_dict = getattr(exc, "error_dict", None)
     if error_dict:
@@ -391,10 +397,10 @@ def _bind_validation_error_to_form(
             target = mapping.get(field, field if field in form.fields else None)
             for e in errs:
                 msg = getattr(e, "message", None) or str(e)
-                form.add_error(target, msg)
+                form.add_error(target, _ui_msg(str(msg)))
         return
     for msg in _validation_messages(exc):
-        form.add_error(None, msg)
+        form.add_error(None, _ui_msg(str(msg)))
 
 
 # ---------- Collections (زمر) ----------

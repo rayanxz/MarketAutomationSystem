@@ -26,10 +26,10 @@ A. Purchase Bill — All Modes
 
 test each:
 
- fully paid (SYP only)
- fully paid (USD only)
- fully paid (separate)
- fully paid (mixed)
+ # fully paid (SYP only)
+ # fully paid (USD only)
+ # fully paid (separate)
+ # fully paid (mixed)
  partially paid (each mode)
  unpaid
 

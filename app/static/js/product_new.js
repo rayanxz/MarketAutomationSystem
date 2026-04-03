@@ -822,7 +822,10 @@
 
   async function validateProductName({ force = false } = {}) {
     const el = document.querySelector('[name="name"]');
-    if (!el || isLocked(el)) return clearFieldError("name");
+    if (!el || isLocked(el)) {
+      clearFieldError("name");
+      return true;
+    }
     const name = normalizeText(el.value);
     if (!name) {
       setFieldError("name", "يرجى إدخال اسم المنتج.", { force });
@@ -849,7 +852,10 @@
 
   async function validateCollection({ force = false } = {}) {
     const el = document.querySelector('[name="collection_name"]');
-    if (!el || isLocked(el)) return clearFieldError("collection_name");
+    if (!el || isLocked(el)) {
+      clearFieldError("collection_name");
+      return true;
+    }
     const value = normalizeText(el.value);
     if (!value) {
       setFieldError("collection_name", "يرجى إدخال اسم الزمرة.", { force });
@@ -874,7 +880,10 @@
   async function validateSet({ force = false } = {}) {
     const el = document.querySelector('[name="set_name"]');
     const colEl = document.querySelector('[name="collection_name"]');
-    if (!el || isLocked(el)) return clearFieldError("set_name");
+    if (!el || isLocked(el)) {
+      clearFieldError("set_name");
+      return true;
+    }
     const setName = normalizeText(el.value);
     const colName = normalizeText(colEl?.value);
     const wantsCreate = isCreateParentChecked();
@@ -1554,8 +1563,35 @@
     const invalid = document.querySelector(
       ".pn-wrap .input.invalid, .pn-wrap input.invalid, .pn-wrap select.invalid, .pn-wrap textarea.invalid"
     );
-    if (invalid instanceof HTMLElement && !invalid.disabled) return invalid;
+    if (
+      invalid instanceof HTMLElement &&
+      !invalid.hasAttribute("disabled") &&
+      !invalid.hasAttribute("readonly") &&
+      !invalid.closest("[hidden]")
+    ) {
+      return invalid;
+    }
     return null;
+  }
+
+  function hasBlockingInlineInputErrors() {
+    return Array.from(document.querySelectorAll(".inline-input input")).some((input) => {
+      if (!(input instanceof HTMLInputElement)) return false;
+      if (input.disabled || input.readOnly) return false;
+      return input.classList.contains("invalid");
+    });
+  }
+
+  function submitValidatedForm(submitter) {
+    submittingValidatedForm = true;
+    // Apply submitter-specific overrides, then submit natively once.
+    // Avoid nested requestSubmit() inside submit handler which can cause
+    // first-click no-op behavior in some browser/event-order combinations.
+    const submitterAction = submitter && submitter.getAttribute("formaction");
+    const submitterMethod = submitter && submitter.getAttribute("formmethod");
+    if (submitterAction) formEl.setAttribute("action", submitterAction);
+    if (submitterMethod) formEl.setAttribute("method", submitterMethod);
+    HTMLFormElement.prototype.submit.call(formEl);
   }
 
   async function runClientValidation({ force = false } = {}) {
@@ -1607,7 +1643,7 @@
       validateNonNegativeNumberField("cost_usd", { force }) &&
       validateNonNegativeNumberField("price_syp", { force }) &&
       validateNonNegativeNumberField("price_usd", { force }) &&
-      !document.querySelector(".inline-input input.invalid");
+      !hasBlockingInlineInputErrors();
 
     return syncOk && asyncResults.every(Boolean);
   }
@@ -1628,25 +1664,18 @@
     e.preventDefault();
     const ok = await runClientValidation({ force: true });
     if (ok) {
-      submittingValidatedForm = true;
-      if (typeof formEl.requestSubmit === "function") {
-        if (submitter) formEl.requestSubmit(submitter);
-        else formEl.requestSubmit();
-      } else {
-        // Fallback for old browsers: apply submitter action/method before submit().
-        const submitterAction = submitter && submitter.getAttribute("formaction");
-        const submitterMethod = submitter && submitter.getAttribute("formmethod");
-        if (submitterAction) formEl.setAttribute("action", submitterAction);
-        if (submitterMethod) formEl.setAttribute("method", submitterMethod);
-        formEl.submit();
-      }
+      submitValidatedForm(submitter);
       return;
     }
     const firstInvalid = firstInvalidFocusable();
     if (firstInvalid) {
       firstInvalid.focus({ preventScroll: false });
       firstInvalid.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
     }
+    // Never silently no-op on save: defer final decision to backend validation
+    // when client-side validation cannot point to an actionable field.
+    submitValidatedForm(submitter);
   });
 
   if (localIdentifierSearchButton) {
