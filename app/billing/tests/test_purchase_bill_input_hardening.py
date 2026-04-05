@@ -245,7 +245,7 @@ class PurchaseBillInputHardeningTests(TestCase):
         payload = self._payload()
         payload["pay"] = {
             "status": "partial",
-            "method": "mixed",
+            "method": "syp_only",
             "amount_syp": "5",
             "amount_usd": "0",
             "paid_amount": "0",  # server recalculates from structured amounts
@@ -256,3 +256,37 @@ class PurchaseBillInputHardeningTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
         self.assertTrue(resp.json().get("ok"))
         self.assertEqual(Bill.objects.count(), 1)
+
+    def test_partial_rejects_when_paid_equals_full_total(self):
+        payload = self._payload()
+        payload["pay"] = {
+            "status": "partial",
+            "method": "syp_only",
+            "amount_syp": "10",
+            "amount_usd": "0",
+            "paid_amount": "10",
+        }
+
+        resp = self._save(payload)
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json().get("ok"))
+        self.assertIn("choose full payment", resp.json().get("error", ""))
+        self.assertEqual(Bill.objects.count(), 0)
+
+    def test_partial_rejects_when_paid_exceeds_full_total(self):
+        payload = self._payload()
+        payload["pay"] = {
+            "status": "partial",
+            "method": "syp_only",
+            "amount_syp": "11",
+            "amount_usd": "0",
+            "paid_amount": "11",
+        }
+
+        resp = self._save(payload)
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json().get("ok"))
+        self.assertIn("cannot exceed settlement total", resp.json().get("error", ""))
+        self.assertEqual(Bill.objects.count(), 0)

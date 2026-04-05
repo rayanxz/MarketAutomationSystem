@@ -3,12 +3,18 @@ from __future__ import annotations
 from typing import Optional
 
 from django.db.models import (
-    Q, F, Value, DecimalField, Count, Sum
+    Q, F, Value, DecimalField, Count, Sum, OuterRef, Subquery, IntegerField
 )
 from django.db.models.functions import Coalesce, Lower
 
 from billing.models import Provider, Bill, ProviderReturn
-from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+from debts.models import (
+    DebtorDebt as DebtorEntry,
+    CreditorDebt as CreditorEntry,
+    DebtRecord,
+    DebtDirection,
+    DebtStatus,
+)
 
 
 # ---------- Providers ----------
@@ -28,6 +34,28 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
     if q:
         base = base.filter(name__icontains=q)
 
+    debt_dec = DecimalField(max_digits=14, decimal_places=3)
+    central_open = DebtRecord.objects.filter(
+        provider_id=OuterRef("pk"),
+        direction=DebtDirection.PAYABLE,
+        status=DebtStatus.OPEN,
+    )
+    central_count_sq = (
+        central_open.values("provider_id")
+        .annotate(c=Count("id"))
+        .values("c")[:1]
+    )
+    central_syp_sq = (
+        central_open.values("provider_id")
+        .annotate(s=Sum("remaining_syp", output_field=debt_dec))
+        .values("s")[:1]
+    )
+    central_usd_sq = (
+        central_open.values("provider_id")
+        .annotate(s=Sum("remaining_usd", output_field=debt_dec))
+        .values("s")[:1]
+    )
+
     # Stats based on subledger:
     # - bills_count: total bills
     # - unpaid_bills_count: open debtor entries (one per bill)
@@ -36,29 +64,48 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
         base
         .annotate(
             bills_count=Coalesce(Count("bills", distinct=True), Value(0)),
-            unpaid_bills_count=Coalesce(
+            legacy_unpaid_bills_count=Coalesce(
                 Count("debtor_entries", filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN), distinct=True),
                 Value(0),
             ),
-            total_debt_syp=Coalesce(
+            legacy_total_debt_syp=Coalesce(
                 Sum(
                     F("debtor_entries__total") - F("debtor_entries__paid_amount"),
                     filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN)
                     & (Q(debtor_entries__currency_code="SYP") | Q(debtor_entries__currency_code__isnull=True) | Q(debtor_entries__currency_code="")),
-                    output_field=DecimalField(max_digits=14, decimal_places=3),
+                    output_field=debt_dec,
                 ),
-                Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
-                output_field=DecimalField(max_digits=14, decimal_places=3),
+                Value(0, output_field=debt_dec),
+                output_field=debt_dec,
             ),
-            total_debt_usd=Coalesce(
+            legacy_total_debt_usd=Coalesce(
                 Sum(
                     F("debtor_entries__total") - F("debtor_entries__paid_amount"),
                     filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN) & Q(debtor_entries__currency_code="USD"),
-                    output_field=DecimalField(max_digits=14, decimal_places=3),
+                    output_field=debt_dec,
                 ),
-                Value(0, output_field=DecimalField(max_digits=14, decimal_places=3)),
-                output_field=DecimalField(max_digits=14, decimal_places=3),
+                Value(0, output_field=debt_dec),
+                output_field=debt_dec,
             ),
+            central_unpaid_bills_count=Coalesce(
+                Subquery(central_count_sq, output_field=IntegerField()),
+                Value(0),
+            ),
+            central_total_debt_syp=Coalesce(
+                Subquery(central_syp_sq, output_field=debt_dec),
+                Value(0, output_field=debt_dec),
+                output_field=debt_dec,
+            ),
+            central_total_debt_usd=Coalesce(
+                Subquery(central_usd_sq, output_field=debt_dec),
+                Value(0, output_field=debt_dec),
+                output_field=debt_dec,
+            ),
+        )
+        .annotate(
+            unpaid_bills_count=F("legacy_unpaid_bills_count") + F("central_unpaid_bills_count"),
+            total_debt_syp=F("legacy_total_debt_syp") + F("central_total_debt_syp"),
+            total_debt_usd=F("legacy_total_debt_usd") + F("central_total_debt_usd"),
         )
         .only("id", "name", "phone", "is_active")
     )

@@ -13,7 +13,7 @@ from django.urls import reverse
 from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
-from debts.models import DebtorDebt, DebtorPayment
+from debts.models import DebtRecord, DebtDirection, DebtCauseType
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, Receipt, ReceiptKind, ReceiptStatus
 from financials import services as FinSV
@@ -205,7 +205,7 @@ class MultiCurrencyPurchaseBillTests(TestCase):
         prod2 = self._product(name="Helper USD", allow_syp_purch=False, allow_usd_purch=True)
         self.assertEqual(prod2.get_effective_default_purchase_currency(), "USD")
 
-    def test_partial_payment_creates_debtor_payment_with_receipt(self):
+    def test_partial_payment_creates_one_central_debt_with_receipt(self):
         prod = self._product(name="Pay SYP", allow_syp_purch=True, allow_usd_purch=False)
         items = [
             {
@@ -226,17 +226,25 @@ class MultiCurrencyPurchaseBillTests(TestCase):
             settlement_currency="SYP",
         )
 
-        entry = DebtorDebt.objects.get(
+        debt = DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
+        )
+        self.assertEqual(debt.remaining_syp, Decimal("5"))
+        self.assertEqual(debt.remaining_usd, Decimal("0"))
+        self.assertEqual(debt.total_syp, Decimal("5"))
+        self.assertEqual(debt.total_usd, Decimal("0"))
+        self.assertEqual(debt.status, "open")
+
+        receipts = Receipt.objects.filter(
             source_app="billing",
             source_model="Bill",
             source_id=str(bill.id),
-            currency_code="SYP",
+            status=ReceiptStatus.POSTED,
         )
-        payment = DebtorPayment.objects.filter(entry=entry).first()
-        self.assertIsNotNone(payment)
-        self.assertIsNotNone(payment.receipt_id)
-
-        receipt = Receipt.objects.get(pk=payment.receipt_id)
+        self.assertEqual(receipts.count(), 1)
+        receipt = receipts.first()
         self.assertEqual(receipt.kind, ReceiptKind.COUNTERPARTY_SETTLE)
         self.assertEqual(receipt.status, ReceiptStatus.POSTED)
 

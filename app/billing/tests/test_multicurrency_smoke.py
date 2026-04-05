@@ -13,7 +13,7 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import DebtorDebt, DebtorPayment
+from debts.models import DebtRecord, DebtDirection, DebtCauseType
 from financials.models import ContainerFeature, Currency, MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from inventory.models import ProductMovement, DEC0, q3
@@ -62,6 +62,7 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
             feature.is_active = True
             feature.save(update_fields=["is_active"])
         cls.cash.features.add(feature)
+        cls.cash.allowed_users.add(cls.actor)
         MoneyContainerCurrency.objects.get_or_create(
             container=cls.cash,
             currency=cls.syp,
@@ -227,52 +228,54 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         for it in items_qs:
             self.assertEqual(fifo_map.get(str(it.id)), it.currency)
 
-        # Debts per currency
-        syp_entry = DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
+        debt = DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
+        )
+        self.assertEqual(q3(debt.total_syp), q3(bill.total_syp))
+        self.assertEqual(q3(debt.total_usd), q3(bill.total_usd))
+        self.assertEqual(q3(debt.remaining_syp), q3(bill.total_syp))
+        self.assertEqual(q3(debt.remaining_usd), q3(bill.total_usd))
+
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=Decimal("1000"),
+            money_container_id=self.cash.id,
             currency_code="SYP",
         )
-        usd_entry = DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=Decimal("5"),
+            money_container_id=self.cash.id,
             currency_code="USD",
         )
-        self.assertEqual(q3(syp_entry.total), q3(bill.total_syp))
-        self.assertEqual(q3(usd_entry.total), q3(bill.total_usd))
 
-        # Pay partial via existing endpoint
-        url_syp = reverse("debts_api_entry_pay_batch", kwargs={"direction": "debtor", "entry_id": syp_entry.id})
-        url_usd = reverse("debts_api_entry_pay_batch", kwargs={"direction": "debtor", "entry_id": usd_entry.id})
+        debt.refresh_from_db()
+        self.assertEqual(q3(debt.remaining_syp), q3(bill.total_syp - Decimal("1000")))
+        self.assertEqual(q3(debt.remaining_usd), q3(bill.total_usd - Decimal("5")))
 
-        r1 = self.client.post(url_syp, data={"amount": "1000", "money_container_id": self.cash.id, "currency_code": "SYP"})
-        r2 = self.client.post(url_usd, data={"amount": "5", "money_container_id": self.cash.id, "currency_code": "USD"})
-        self.assertEqual(r1.status_code, 200, r1.content.decode("utf-8"))
-        self.assertEqual(r2.status_code, 200, r2.content.decode("utf-8"))
-        self.assertTrue(r1.json().get("ok"))
-        self.assertTrue(r2.json().get("ok"))
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=debt.remaining_syp,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+        )
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=debt.remaining_usd,
+            money_container_id=self.cash.id,
+            currency_code="USD",
+        )
 
-        syp_entry.refresh_from_db()
-        usd_entry.refresh_from_db()
-        self.assertEqual(q3(syp_entry.paid_amount), q3(Decimal("1000")))
-        self.assertEqual(q3(usd_entry.paid_amount), q3(Decimal("5")))
-
-        # Pay remaining (full) via same endpoint
-        rem_syp = q3(syp_entry.remaining)
-        rem_usd = q3(usd_entry.remaining)
-        r3 = self.client.post(url_syp, data={"amount": str(rem_syp), "money_container_id": self.cash.id, "currency_code": "SYP"})
-        r4 = self.client.post(url_usd, data={"amount": str(rem_usd), "money_container_id": self.cash.id, "currency_code": "USD"})
-        self.assertEqual(r3.status_code, 200, r3.content.decode("utf-8"))
-        self.assertEqual(r4.status_code, 200, r4.content.decode("utf-8"))
-        self.assertTrue(r3.json().get("ok"))
-        self.assertTrue(r4.json().get("ok"))
-
-        syp_entry.refresh_from_db()
-        usd_entry.refresh_from_db()
-        self.assertEqual(q3(syp_entry.remaining), DEC0)
-        self.assertEqual(q3(usd_entry.remaining), DEC0)
+        debt.refresh_from_db()
+        self.assertEqual(q3(debt.remaining_syp), DEC0)
+        self.assertEqual(q3(debt.remaining_usd), DEC0)
+        self.assertEqual(debt.status, "closed")
 
     def test_syp_partial_payment_uses_currency_precision(self):
         prod = self._create_product(
@@ -305,18 +308,15 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
 
         self.assertEqual(bill.total_syp, Decimal("2"))
 
-        entry = DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code="SYP",
+        debt = DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
         )
-        self.assertEqual(entry.total, Decimal("2"))
-        self.assertEqual(entry.paid_amount, Decimal("1"))
-        self.assertEqual(entry.remaining, Decimal("1"))
-
-        payment = DebtorPayment.objects.get(entry=entry)
-        self.assertEqual(payment.amount, Decimal("1"))
+        self.assertEqual(debt.total_syp, Decimal("1"))
+        self.assertEqual(debt.total_usd, Decimal("0"))
+        self.assertEqual(debt.remaining_syp, Decimal("1"))
+        self.assertEqual(debt.remaining_usd, Decimal("0"))
 
         bal = FinSV.container_balance(container_id=self.cash.id)
         self.assertEqual(bal.get("SYP"), Decimal("-1"))
@@ -352,18 +352,15 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
 
         self.assertEqual(bill.total_usd, Decimal("3.02"))
 
-        entry = DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code="USD",
+        debt = DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
         )
-        self.assertEqual(entry.total, Decimal("3.02"))
-        self.assertEqual(entry.paid_amount, Decimal("0.34"))
-        self.assertEqual(entry.remaining, Decimal("2.68"))
-
-        payment = DebtorPayment.objects.get(entry=entry)
-        self.assertEqual(payment.amount, Decimal("0.34"))
+        self.assertEqual(debt.total_syp, Decimal("0"))
+        self.assertEqual(debt.total_usd, Decimal("2.68"))
+        self.assertEqual(debt.remaining_syp, Decimal("0"))
+        self.assertEqual(debt.remaining_usd, Decimal("2.68"))
 
         bal = FinSV.container_balance(container_id=self.cash.id)
         self.assertEqual(bal.get("USD"), Decimal("-0.34"))

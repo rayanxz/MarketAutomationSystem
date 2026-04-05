@@ -9,7 +9,14 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import CreditorDebt, CreditorReceipt, DebtorDebt, DebtorPayment
+from debts.models import (
+    CreditorDebt,
+    CreditorReceipt,
+    DebtRecord,
+    DebtSettlement,
+    DebtDirection,
+    DebtCauseType,
+)
 from financials import services as FinSV
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, Receipt, ReceiptStatus
 from inventory.models import DEC0, q3
@@ -43,6 +50,7 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        cls.cash.allowed_users.add(cls.actor)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.cash,
             currency=cls.syp,
@@ -73,12 +81,11 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             default_price_usd=Decimal("6"),
         )
 
-    def _bill_entry(self, bill: Bill, currency_code: str) -> DebtorDebt:
-        return DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code=currency_code,
+    def _bill_entry(self, bill: Bill) -> DebtRecord:
+        return DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
         )
 
     def test_purchase_two_partials_then_delete_restores_numeric_truth(self):
@@ -104,10 +111,11 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             settlement_currency="SYP",
         )
 
-        entry = self._bill_entry(bill, "SYP")
-        self.assertEqual(entry.total, Decimal("1000"))
-        self.assertEqual(entry.paid_amount, DEC0)
-        self.assertEqual(entry.remaining, Decimal("1000"))
+        entry = self._bill_entry(bill)
+        self.assertEqual(entry.total_syp, Decimal("1000"))
+        self.assertEqual(entry.total_usd, DEC0)
+        self.assertEqual(entry.remaining_syp, Decimal("1000"))
+        self.assertEqual(entry.remaining_usd, DEC0)
 
         BillingSV.pay_partial(
             actor=self.actor,
@@ -125,15 +133,15 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
         )
 
         entry.refresh_from_db()
-        self.assertEqual(entry.paid_amount, Decimal("1000"))
-        self.assertEqual(entry.remaining, DEC0)
-        self.assertEqual(entry.status, DebtorDebt.Status.CLOSED)
+        self.assertEqual(entry.remaining_syp, DEC0)
+        self.assertEqual(entry.remaining_usd, DEC0)
+        self.assertEqual(entry.status, "closed")
 
         payment_rows = list(
-            DebtorPayment.objects.filter(entry=entry, receipt__isnull=False).order_by("id")
+            DebtSettlement.objects.filter(debt=entry, receipt__isnull=False).order_by("id")
         )
         self.assertEqual(len(payment_rows), 2)
-        self.assertEqual(q3(sum((p.amount for p in payment_rows), Decimal("0"))), Decimal("1000.000"))
+        self.assertEqual(q3(sum((p.payment_syp for p in payment_rows), Decimal("0"))), Decimal("1000.000"))
 
         payment_receipt_ids = [p.receipt_id for p in payment_rows]
         bill_receipt_ids = list(
@@ -150,10 +158,10 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
         self.assertEqual(after_bal.get("SYP", DEC0), base_bal.get("SYP", DEC0))
         self.assertFalse(Bill.objects.filter(id=bill.id).exists())
         self.assertFalse(
-            DebtorDebt.objects.filter(
-                source_app="billing",
-                source_model="Bill",
-                source_id=str(bill.id),
+            DebtRecord.objects.filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=str(bill.id),
             ).exists()
         )
 
@@ -304,9 +312,9 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
         BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)
         self.assertFalse(Bill.objects.filter(id=bill.id).exists())
         self.assertFalse(
-            DebtorDebt.objects.filter(
-                source_app="billing",
-                source_model="Bill",
-                source_id=str(bill.id),
+            DebtRecord.objects.filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=str(bill.id),
             ).exists()
         )

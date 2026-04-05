@@ -881,6 +881,59 @@ refreshAutoSerial();
     return amountSyp;
   }
 
+  function readCurrentPaymentAmounts(status, method){
+    const totals = payState.totals;
+    let amountSyp = 0;
+    let amountUsd = 0;
+    if (method === "syp_only") {
+      amountSyp = status === "paid" ? totals.settlementSyp : toAmount(paySypOnlyInput?.value);
+    } else if (method === "usd_only") {
+      amountUsd = status === "paid" ? totals.settlementUsd : toAmount(payUsdOnlyInput?.value);
+    } else if (method === "separate") {
+      amountSyp = totals.totalSyp;
+      amountUsd = totals.totalUsd;
+    } else {
+      amountSyp = toAmount(payMixedSypInput?.value);
+      amountUsd = toAmount(payMixedUsdInput?.value);
+    }
+    return { amountSyp, amountUsd };
+  }
+
+  function partialRealtimeValidationHint(method, amountSyp, amountUsd){
+    const totals = payState.totals;
+    const settlementTotal = totals.settlementSelected;
+
+    if (method === "mixed") {
+      if (!(totals.totalSyp > EPS) || !(totals.totalUsd > EPS)) {
+        return "الدفع المختلط الجزئي يتطلب وجود إجمالي بعملتي SYP و USD.";
+      }
+      if (!(amountSyp > EPS) || !(amountUsd > EPS)) {
+        return "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر.";
+      }
+      if ((amountSyp - totals.totalSyp) > 0.0001) {
+        return "مبلغ الليرة لا يمكن أن يتجاوز إجمالي قسم الليرة في الفاتورة.";
+      }
+      if ((amountUsd - totals.totalUsd) > 0.0001) {
+        return "مبلغ الدولار لا يمكن أن يتجاوز إجمالي قسم الدولار في الفاتورة.";
+      }
+      const fullSyp = Math.abs(amountSyp - totals.totalSyp) <= 0.0001;
+      const fullUsd = Math.abs(amountUsd - totals.totalUsd) <= 0.0001;
+      if (fullSyp && fullUsd) {
+        return "يمكنك اختيار خيار (دفع كامل)";
+      }
+    }
+
+    const paidSettlement = toSettlementAmount(amountSyp, amountUsd);
+    if (paidSettlement == null || !Number.isFinite(paidSettlement)) return null;
+    if ((paidSettlement - settlementTotal) > 0.0001) {
+      return "مبلغ الدفع الجزئي لا يمكن أن يتجاوز إجمالي التسوية.";
+    }
+    if (Math.abs(paidSettlement - settlementTotal) <= 0.0001) {
+      return "يمكنك اختيار خيار (دفع كامل)";
+    }
+    return null;
+  }
+
   function syncMixedFullFrom(source){
     if (payState.syncingMixed) return;
     const fxVal = payState.totals.fx;
@@ -976,7 +1029,12 @@ refreshAutoSerial();
       if (method === "mixed") syncMixedFullFrom(payState.mixedLastEdited === "usd" ? "usd" : "syp");
       if (payMethodHint) payMethodHint.textContent = "في وضع الدفع الكامل: يجب أن تغطي المدفوعات كامل إجمالي التسوية.";
     } else if (isPartial) {
-      if (payMethodHint) payMethodHint.textContent = "في الدفع الجزئي يمكنك إدخال جزء من القيمة، والمتبقي يصبح ديناً على المورد.";
+      if (payMethodHint) {
+        const { amountSyp, amountUsd } = readCurrentPaymentAmounts(status, method);
+        payMethodHint.textContent =
+          partialRealtimeValidationHint(method, amountSyp, amountUsd)
+          || "في الدفع الجزئي يمكنك إدخال جزء من القيمة، والمتبقي يصبح ديناً على المورد.";
+      }
     } else if (payMethodHint) {
       payMethodHint.textContent = "حالة غير مدفوع: خيارات التسديد معطلة حتى اختيار دفع كامل أو جزئي.";
     }
@@ -1038,26 +1096,14 @@ refreshAutoSerial();
       return { ok: false, error: "خيار الدفع المنفصل متاح للدفع الكامل فقط." };
     }
 
-    let amountSyp = 0;
-    let amountUsd = 0;
-    if (method === "syp_only") {
-      amountSyp = status === "paid" ? totals.settlementSyp : toAmount(paySypOnlyInput?.value);
-      amountUsd = 0;
-    } else if (method === "usd_only") {
-      amountUsd = status === "paid" ? totals.settlementUsd : toAmount(payUsdOnlyInput?.value);
-      amountSyp = 0;
-    } else if (method === "separate") {
-      if (status !== "paid") return { ok: false, error: "خيار الدفع المنفصل مخصص للدفع الكامل." };
-      amountSyp = totals.totalSyp;
-      amountUsd = totals.totalUsd;
-    } else {
+    let { amountSyp, amountUsd } = readCurrentPaymentAmounts(status, method);
+    if (method === "separate" && status !== "paid") {
+      return { ok: false, error: "خيار الدفع المنفصل مخصص للدفع الكامل." };
+    }
+    if (method === "mixed" && status === "paid") {
+      syncMixedFullFrom(payState.mixedLastEdited === "usd" ? "usd" : "syp");
       amountSyp = toAmount(payMixedSypInput?.value);
       amountUsd = toAmount(payMixedUsdInput?.value);
-      if (status === "paid") {
-        syncMixedFullFrom(payState.mixedLastEdited === "usd" ? "usd" : "syp");
-        amountSyp = toAmount(payMixedSypInput?.value);
-        amountUsd = toAmount(payMixedUsdInput?.value);
-      }
     }
 
     if (amountSyp < 0 || amountUsd < 0) {
@@ -1071,11 +1117,33 @@ refreshAutoSerial();
 
     const settlementTotal = totals.settlementSelected;
     if (status === "partial") {
+      if (method === "mixed") {
+        if (!(totals.totalSyp > EPS) || !(totals.totalUsd > EPS)) {
+          return { ok: false, error: "الدفع المختلط الجزئي يتطلب وجود إجمالي بعملتي SYP و USD." };
+        }
+        if (!(amountSyp > EPS) || !(amountUsd > EPS)) {
+          return { ok: false, error: "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر." };
+        }
+        if ((amountSyp - totals.totalSyp) > 0.0001) {
+          return { ok: false, error: "مبلغ الليرة لا يمكن أن يتجاوز إجمالي قسم الليرة." };
+        }
+        if ((amountUsd - totals.totalUsd) > 0.0001) {
+          return { ok: false, error: "مبلغ الدولار لا يمكن أن يتجاوز إجمالي قسم الدولار." };
+        }
+        const fullSyp = Math.abs(amountSyp - totals.totalSyp) <= 0.0001;
+        const fullUsd = Math.abs(amountUsd - totals.totalUsd) <= 0.0001;
+        if (fullSyp && fullUsd) {
+          return { ok: false, error: "يمكنك اختيار خيار (دفع كامل)" };
+        }
+      }
       if (!(paidSettlement > EPS)) {
         return { ok: false, error: "عند اختيار دفع جزئي يجب إدخال مبلغ أكبر من الصفر." };
       }
       if ((paidSettlement - settlementTotal) > 0.0001) {
         return { ok: false, error: "مبلغ الدفع الجزئي لا يمكن أن يتجاوز إجمالي التسوية." };
+      }
+      if (Math.abs(paidSettlement - settlementTotal) <= 0.0001) {
+        return { ok: false, error: "يمكنك اختيار خيار (دفع كامل)" };
       }
     }
     if (status === "paid") {
@@ -1103,11 +1171,15 @@ refreshAutoSerial();
   payMixedSypInput?.addEventListener("input", () => {
     payState.mixedLastEdited = "syp";
     if (selectedPayStatus() === "paid" && selectedPayMethod() === "mixed") syncMixedFullFrom("syp");
+    syncPayUI();
   });
   payMixedUsdInput?.addEventListener("input", () => {
     payState.mixedLastEdited = "usd";
     if (selectedPayStatus() === "paid" && selectedPayMethod() === "mixed") syncMixedFullFrom("usd");
+    syncPayUI();
   });
+  paySypOnlyInput?.addEventListener("input", syncPayUI);
+  payUsdOnlyInput?.addEventListener("input", syncPayUI);
   payCurrency?.addEventListener("change", recalcBillTotal);
   tbody?.querySelectorAll("tr").forEach((tr) => {
     updateRowQtyWarning(tr);

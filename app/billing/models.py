@@ -12,10 +12,17 @@ from catalog.models import Product
 from financials.models import MoneyContainer
 from core.currency import CURRENCY_CHOICES, SYP as CURRENCY_SYP, USD as CURRENCY_USD
 
-from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+from debts.models import (
+    DebtorDebt as DebtorEntry,
+    CreditorDebt as CreditorEntry,
+    DebtRecord,
+    DebtDirection,
+    DebtCauseType,
+)
 from django.conf import settings
 
 DEC0 = Decimal("0.000")
+_CENTRAL_DEBT_MISSING = object()
 
 
 def _debt_entry_identity_priority(entry, *, base_source_id: str) -> tuple[int, int]:
@@ -212,6 +219,23 @@ class Bill(models.Model):
         UNPAID  = "unpaid",  "غير مدفوعة"
         PARTIAL = "partial", "مدفوعة جزئياً"
 
+    def _central_debt_record(self):
+        cached = getattr(self, "_central_debt_cached", _CENTRAL_DEBT_MISSING)
+        if cached is not _CENTRAL_DEBT_MISSING:
+            return cached
+        debt = (
+            DebtRecord.objects
+            .filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=str(self.id),
+            )
+            .order_by("id")
+            .first()
+        )
+        self._central_debt_cached = debt
+        return debt
+
     @property
     def debtor_entries(self):
         cached = getattr(self, "_debtor_entries_cached", None)
@@ -262,39 +286,131 @@ class Bill(models.Model):
 
     @property
     def paid_syp(self) -> Decimal:
+        central = self._central_debt_record()
+        if central is not None:
+            covered_syp = (central.total_syp or DEC0) - (central.remaining_syp or DEC0)
+            return ((self.creation_paid_syp or DEC0) + (covered_syp if covered_syp > DEC0 else DEC0)) or DEC0
+        if not self.debtor_entries:
+            return (self.creation_paid_syp or DEC0) or DEC0
         d = self._debtor_entry_by_currency(CURRENCY_SYP)
         return (d.paid_amount if d else DEC0) or DEC0
 
     @property
     def paid_usd(self) -> Decimal:
+        central = self._central_debt_record()
+        if central is not None:
+            covered_usd = (central.total_usd or DEC0) - (central.remaining_usd or DEC0)
+            return ((self.creation_paid_usd or DEC0) + (covered_usd if covered_usd > DEC0 else DEC0)) or DEC0
+        if not self.debtor_entries:
+            return (self.creation_paid_usd or DEC0) or DEC0
         d = self._debtor_entry_by_currency(CURRENCY_USD)
         return (d.paid_amount if d else DEC0) or DEC0
 
     @property
     def remaining_syp(self) -> Decimal:
+        central = self._central_debt_record()
+        if central is not None:
+            return (central.remaining_syp or DEC0) or DEC0
+        if not self.debtor_entries:
+            rem = (self.total_syp or DEC0) - (self.creation_paid_syp or DEC0)
+            return rem if rem > DEC0 else DEC0
         d = self._debtor_entry_by_currency(CURRENCY_SYP)
         return (d.remaining if d else (self.total_syp or DEC0)) or DEC0
 
     @property
     def remaining_usd(self) -> Decimal:
+        central = self._central_debt_record()
+        if central is not None:
+            return (central.remaining_usd or DEC0) or DEC0
+        if not self.debtor_entries:
+            rem = (self.total_usd or DEC0) - (self.creation_paid_usd or DEC0)
+            return rem if rem > DEC0 else DEC0
         d = self._debtor_entry_by_currency(CURRENCY_USD)
         return (d.remaining if d else (self.total_usd or DEC0)) or DEC0
 
 
     @property
     def paid_amount(self) -> Decimal:
+        central = self._central_debt_record()
+        if central is not None:
+            settle = (self.settlement_currency or CURRENCY_SYP).upper()
+            rem_s = self.remaining_syp
+            rem_u = self.remaining_usd
+            total_s = (self.total_syp or DEC0)
+            total_u = (self.total_usd or DEC0)
+            try:
+                fx = Decimal(str(getattr(self, "fx_rate_usd_to_syp_used", None) or getattr(self, "fx_usd_syp", None) or DEC0))
+            except Exception:
+                fx = DEC0
+            if settle == CURRENCY_USD:
+                if fx > 0:
+                    total_settle = total_u + (total_s / fx)
+                    rem_settle = rem_u + (rem_s / fx)
+                else:
+                    total_settle = total_u
+                    rem_settle = rem_u
+            else:
+                if fx > 0:
+                    total_settle = total_s + (total_u * fx)
+                    rem_settle = rem_s + (rem_u * fx)
+                else:
+                    total_settle = total_s
+                    rem_settle = rem_s
+            paid = total_settle - rem_settle
+            return paid if paid > DEC0 else DEC0
         if (self.settlement_currency or CURRENCY_SYP) == CURRENCY_USD:
             return self.paid_usd
         return self.paid_syp
 
     @property
     def remaining(self) -> Decimal:
+        central = self._central_debt_record()
+        if central is not None:
+            settle = (self.settlement_currency or CURRENCY_SYP).upper()
+            rem_s = self.remaining_syp
+            rem_u = self.remaining_usd
+            try:
+                fx = Decimal(str(getattr(self, "fx_rate_usd_to_syp_used", None) or getattr(self, "fx_usd_syp", None) or DEC0))
+            except Exception:
+                fx = DEC0
+            if settle == CURRENCY_USD:
+                if fx > 0:
+                    return rem_u + (rem_s / fx)
+                return rem_u
+            if fx > 0:
+                return rem_s + (rem_u * fx)
+            return rem_s
         if (self.settlement_currency or CURRENCY_SYP) == CURRENCY_USD:
             return self.remaining_usd
         return self.remaining_syp
 
     @property
     def status(self) -> str:
+        central = self._central_debt_record()
+        if central is not None:
+            rem_s = (central.remaining_syp or DEC0)
+            rem_u = (central.remaining_usd or DEC0)
+            if rem_s <= 0 and rem_u <= 0:
+                return Bill.Status.PAID
+
+            paid_s = self.paid_syp
+            paid_u = self.paid_usd
+            if paid_s > 0 or paid_u > 0:
+                return Bill.Status.PARTIAL
+            return Bill.Status.UNPAID
+
+        if not self.debtor_entries:
+            snapshot_status = (self.creation_payment_status or "").lower().strip()
+            if snapshot_status in {Bill.Status.PAID, Bill.Status.PARTIAL, Bill.Status.UNPAID}:
+                return snapshot_status
+            rem_s = self.remaining_syp
+            rem_u = self.remaining_usd
+            if rem_s <= 0 and rem_u <= 0:
+                return Bill.Status.PAID
+            if self.paid_syp > 0 or self.paid_usd > 0:
+                return Bill.Status.PARTIAL
+            return Bill.Status.UNPAID
+
         syp = self._debtor_entry_by_currency(CURRENCY_SYP)
         usd = self._debtor_entry_by_currency(CURRENCY_USD)
 

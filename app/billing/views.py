@@ -16,7 +16,7 @@ from billing import services as BillingSV
 
 from inventory.models import DEC0 , q3 , ProductMovement , q4
 
-from financials.models import Currency
+from financials.models import Currency, MoneyContainer
 
 from financials import services as FinSV
 
@@ -51,7 +51,14 @@ from accounts.decorators import role_required
 from catalog.models import Product
 
 from billing.models import Provider, Bill, ProviderReturn
-from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+from debts.models import (
+    DebtorDebt as DebtorEntry,
+    CreditorDebt as CreditorEntry,
+    DebtRecord,
+    DebtDirection,
+    DebtCauseType,
+    DebtStatus,
+)
 from debts.source_identity import source_identity_lookup_q, source_identity_numeric_base
 
 from . import selectors as S
@@ -386,7 +393,13 @@ def api_provider_delete(request: HttpRequest, pid: int) -> JsonResponse:
     # Block deletion if there are any OPEN debtor or creditor entries
     has_open_payables = DebtorEntry.objects.filter(provider=p, status=DebtorEntry.Status.OPEN).exists()
     has_open_receivables = CreditorEntry.objects.filter(provider=p, status=CreditorEntry.Status.OPEN).exists()
-    if has_open_payables or has_open_receivables:
+    has_open_central_debts = DebtRecord.objects.filter(
+        provider=p,
+        status=DebtStatus.OPEN,
+    ).filter(
+        Q(direction=DebtDirection.PAYABLE) | Q(direction=DebtDirection.RECEIVABLE)
+    ).exists()
+    if has_open_payables or has_open_receivables or has_open_central_debts:
         return _bad("cannot delete: outstanding balances exist")
 
     if not p.is_active:
@@ -648,6 +661,18 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             container_id=money_container_id,
         )
         if not mc:
+            mc = (
+                MoneyContainer.objects
+                .filter(
+                    id=money_container_id,
+                    is_active=True,
+                    features__code=PURCHASE_BILLS_FEATURE_CODE,
+                    features__is_active=True,
+                )
+                .distinct()
+                .first()
+            )
+        if not mc:
             return _bad("money container is not allowed for purchase bills", 400)
         required_payment_currencies = set()
         if legacy_pay_shape:
@@ -666,14 +691,6 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
                 is_enabled=True,
             ).exists():
                 return _bad(f"Currency {cur_code} is disabled for this money container", 400)
-    elif money_container_id:
-        mc = _resolve_purchase_money_container_for_user(
-            user=request.user,
-            container_id=money_container_id,
-        )
-        if not mc:
-            return _bad("money container is not allowed for purchase bills", 400)
-
     update_defaults = bool(payload.get("update_product_defaults") or False)
 
     try:
@@ -1146,11 +1163,18 @@ def bill_view(request, bill_id: int):
     has_debt_now = False
     try:
         if bill.serial:
-            has_debt_now = DebtorEntry.objects.filter(
+            has_legacy_debt = DebtorEntry.objects.filter(
                 source_app="billing",
                 source_model="Bill",
                 source_id=str(bill.id),
             ).exists()
+            has_central_debt = DebtRecord.objects.filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=str(bill.id),
+                status=DebtStatus.OPEN,
+            ).exists()
+            has_debt_now = has_legacy_debt or has_central_debt
 
     except Exception:
         has_debt_now = False

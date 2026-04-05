@@ -12,7 +12,7 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import DebtorPayment, DebtorDebt
+from debts.models import DebtRecord, DebtDirection, DebtCauseType
 from financials import services as FinSV
 from financials.models import (
     ContainerFeature,
@@ -187,15 +187,20 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
         bill = Bill.objects.get(pk=resp.json()["bill"]["id"])
 
-        receipt = Receipt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            status=ReceiptStatus.POSTED,
+        receipts = list(
+            Receipt.objects.filter(
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+                status=ReceiptStatus.POSTED,
+            ).order_by("id")
         )
-        container_lines = list(
-            receipt.lines.filter(target_type=PostingTargetType.CONTAINER).select_related("currency")
-        )
+        self.assertEqual(len(receipts), 2)
+        container_lines = []
+        for receipt in receipts:
+            container_lines.extend(
+                list(receipt.lines.filter(target_type=PostingTargetType.CONTAINER).select_related("currency"))
+            )
         self.assertEqual({ln.currency.code for ln in container_lines}, {"SYP", "USD"})
 
     def test_service_usd_only_full_payment_does_not_force_syp_container_movement(self):
@@ -227,15 +232,13 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
         self.assertEqual(self.cash.balance_syp, Decimal("0"))
         self.assertEqual(self.cash.balance_usd, Decimal("-2.07"))
 
-        receipt_ids = set(
-            DebtorPayment.objects.filter(
-                entry__source_app="billing",
-                entry__source_model="Bill",
-                entry__source_id=str(bill.id),
-                receipt__isnull=False,
-            ).values_list("receipt_id", flat=True)
+        receipts = Receipt.objects.filter(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(bill.id),
+            status=ReceiptStatus.POSTED,
         )
-        self.assertEqual(len(receipt_ids), 1)
+        self.assertEqual(receipts.count(), 1)
 
     def test_bill_view_uses_snapshot_placeholder_when_snapshot_fields_missing(self):
         bill = BillingSV.create_bill(
@@ -295,10 +298,10 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
             ).exists()
         )
         self.assertFalse(
-            DebtorDebt.objects.filter(
-                source_app="billing",
-                source_model="Bill",
-                source_id=str(bill.id),
+            DebtRecord.objects.filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=str(bill.id),
             ).exists()
         )
 

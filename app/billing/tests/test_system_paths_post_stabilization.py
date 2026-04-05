@@ -9,7 +9,14 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider, ProviderReturn
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import CreditorDebt, CreditorReceipt, DebtorDebt, DebtorPayment
+from debts.models import (
+    CreditorDebt,
+    CreditorReceipt,
+    DebtRecord,
+    DebtSettlement,
+    DebtDirection,
+    DebtCauseType,
+)
 from financials import services as FinSV
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, PostingTargetType, Receipt, ReceiptStatus
 from inventory.models import DEC0, ProductMovement, q3
@@ -44,6 +51,7 @@ class PostStabilizationSystemPathTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        cls.cash.allowed_users.add(cls.actor)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.cash,
             currency=cls.syp,
@@ -103,12 +111,11 @@ class PostStabilizationSystemPathTests(TestCase):
             settlement_currency=currency,
         )
 
-    def _entry_for_bill(self, bill: Bill, currency_code: str) -> DebtorDebt:
-        return DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code=currency_code,
+    def _entry_for_bill(self, bill: Bill) -> DebtRecord:
+        return DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
         )
 
     def _entries_for_return(self, ret: ProviderReturn) -> list[CreditorDebt]:
@@ -139,10 +146,10 @@ class PostStabilizationSystemPathTests(TestCase):
         )
         item = BillItem.objects.get(bill=bill)
 
-        entry = self._entry_for_bill(bill, "SYP")
-        self.assertEqual(entry.total, Decimal("1000"))
-        self.assertEqual(entry.paid_amount, Decimal("300"))
-        self.assertEqual(entry.remaining, Decimal("700"))
+        entry = self._entry_for_bill(bill)
+        self.assertEqual(entry.total_syp, Decimal("700"))
+        self.assertEqual(entry.remaining_syp, Decimal("700"))
+        self.assertEqual(entry.remaining_usd, DEC0)
 
         mid_bal = FinSV.container_balance(container_id=self.cash.id)
         self.assertEqual(mid_bal.get("SYP", DEC0), Decimal("-300"))
@@ -155,13 +162,14 @@ class PostStabilizationSystemPathTests(TestCase):
             currency_code="SYP",
         )
         entry.refresh_from_db()
-        self.assertEqual(entry.remaining, DEC0)
+        self.assertEqual(entry.remaining_syp, DEC0)
+        self.assertEqual(entry.status, "closed")
 
         before_delete_receipt_ids = list(
             Receipt.objects.filter(source_app="billing", source_model="Bill", source_id=str(bill.id)).values_list("id", flat=True)
         )
         later_payment_receipt_ids = list(
-            DebtorPayment.objects.filter(entry=entry, receipt__isnull=False).values_list("receipt_id", flat=True)
+            DebtSettlement.objects.filter(debt=entry, receipt__isnull=False).values_list("receipt_id", flat=True)
         )
 
         BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)
@@ -171,10 +179,10 @@ class PostStabilizationSystemPathTests(TestCase):
 
         self.assertFalse(Bill.objects.filter(id=bill.id).exists())
         self.assertFalse(
-            DebtorDebt.objects.filter(
-                source_app="billing",
-                source_model="Bill",
-                source_id=str(bill.id),
+            DebtRecord.objects.filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=str(bill.id),
             ).exists()
         )
 

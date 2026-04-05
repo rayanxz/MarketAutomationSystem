@@ -25,6 +25,11 @@ from debts.models import (
     DebtorDebt ,
     CreditorDebt ,
     CreditorReceipt,
+    DebtRecord,
+    DebtSettlement,
+    DebtDirection,
+    DebtCauseType,
+    OtherPartyType,
 )
 
 from catalog.models import Product
@@ -207,6 +212,65 @@ def _allocate_paid_to_debt_buckets(
     return paid_entry_syp, paid_entry_usd
 
 
+def _resolve_purchase_bill_remaining_components(
+    *,
+    status: str,
+    method: str,
+    total_syp: Decimal,
+    total_usd: Decimal,
+    actual_paid_syp: Decimal,
+    actual_paid_usd: Decimal,
+    fx_snapshot: Decimal,
+) -> tuple[Decimal, Decimal]:
+    total_syp = _q_money("SYP", total_syp or DEC0)
+    total_usd = _q_money("USD", total_usd or DEC0)
+    paid_syp = _q_money("SYP", actual_paid_syp or DEC0)
+    paid_usd = _q_money("USD", actual_paid_usd or DEC0)
+
+    status_norm = (status or "").lower().strip()
+    method_norm = (method or "").lower().strip()
+
+    if status_norm == "paid":
+        return DEC0, DEC0
+    if status_norm == "unpaid":
+        return total_syp, total_usd
+
+    if method_norm == "mixed":
+        rem_syp = total_syp - paid_syp
+        rem_usd = total_usd - paid_usd
+    elif method_norm == "syp_only":
+        if paid_syp <= total_syp:
+            rem_syp = total_syp - paid_syp
+            rem_usd = total_usd
+        else:
+            rem_syp = (total_syp + (total_usd * fx_snapshot)) - paid_syp
+            rem_usd = DEC0
+    elif method_norm == "usd_only":
+        if paid_usd <= total_usd:
+            rem_syp = total_syp
+            rem_usd = total_usd - paid_usd
+        else:
+            rem_syp = (total_syp + (total_usd * fx_snapshot)) - (paid_usd * fx_snapshot)
+            rem_usd = DEC0
+    elif method_norm == "separate":
+        rem_syp = DEC0
+        rem_usd = DEC0
+    else:
+        paid_entry_syp, paid_entry_usd = _allocate_paid_to_debt_buckets(
+            total_syp=total_syp,
+            total_usd=total_usd,
+            actual_paid_syp=paid_syp,
+            actual_paid_usd=paid_usd,
+            fx_snapshot=fx_snapshot,
+        )
+        rem_syp = total_syp - paid_entry_syp
+        rem_usd = total_usd - paid_entry_usd
+
+    rem_syp_q = _q_money("SYP", rem_syp if rem_syp > DEC0 else DEC0)
+    rem_usd_q = _q_money("USD", rem_usd if rem_usd > DEC0 else DEC0)
+    return rem_syp_q, rem_usd_q
+
+
 def _resolve_creation_payment_plan(
     *,
     status: str,
@@ -256,6 +320,8 @@ def _resolve_creation_payment_plan(
             "actual_paid_usd": DEC0,
             "entry_paid_syp": DEC0,
             "entry_paid_usd": DEC0,
+            "remaining_syp": DEC0,
+            "remaining_usd": DEC0,
             "settlement_total": settlement_total,
             "settlement_paid": DEC0,
         }
@@ -321,9 +387,33 @@ def _resolve_creation_payment_plan(
             raise ValidationError("paid_amount must be > 0 when status is partial")
         if settlement_paid > settlement_total:
             raise ValidationError("paid_amount cannot exceed settlement total")
+        if settlement_paid == settlement_total:
+            raise ValidationError("partial payment cannot equal full settlement; choose full payment status")
+
+        if method_norm == "mixed":
+            if total_syp <= DEC0 or total_usd <= DEC0:
+                raise ValidationError("mixed partial payment requires bill totals in both currencies")
+            if actual_paid_syp <= DEC0 or actual_paid_usd <= DEC0:
+                raise ValidationError("mixed partial payment requires both SYP and USD amounts")
+            if actual_paid_syp > total_syp:
+                raise ValidationError("SYP amount cannot exceed the SYP bill total in mixed partial mode")
+            if actual_paid_usd > total_usd:
+                raise ValidationError("USD amount cannot exceed the USD bill total in mixed partial mode")
+            if actual_paid_syp == total_syp and actual_paid_usd == total_usd:
+                raise ValidationError("mixed partial payment cannot equal full bill totals")
     elif status_norm == "paid":
         if abs(settlement_paid - settlement_total) > settlement_quantum:
             raise ValidationError("full payment must match settlement total using bill FX")
+
+    remaining_syp, remaining_usd = _resolve_purchase_bill_remaining_components(
+        status=status_norm,
+        method=method_norm,
+        total_syp=total_syp,
+        total_usd=total_usd,
+        actual_paid_syp=actual_paid_syp,
+        actual_paid_usd=actual_paid_usd,
+        fx_snapshot=fx_snapshot,
+    )
 
     if status_norm == "unpaid":
         paid_entry_syp = DEC0
@@ -344,6 +434,8 @@ def _resolve_creation_payment_plan(
         "actual_paid_usd": _q_money("USD", actual_paid_usd),
         "entry_paid_syp": _q_money("SYP", paid_entry_syp),
         "entry_paid_usd": _q_money("USD", paid_entry_usd),
+        "remaining_syp": _q_money("SYP", remaining_syp),
+        "remaining_usd": _q_money("USD", remaining_usd),
         "settlement_total": settlement_total,
         "settlement_paid": settlement_paid,
     }
@@ -929,8 +1021,8 @@ def create_bill(
     method_norm = str(payment_plan["method"])
     actual_paid_syp = _q_money("SYP", payment_plan["actual_paid_syp"])
     actual_paid_usd = _q_money("USD", payment_plan["actual_paid_usd"])
-    entry_paid_syp = _q_money("SYP", payment_plan["entry_paid_syp"])
-    entry_paid_usd = _q_money("USD", payment_plan["entry_paid_usd"])
+    remaining_syp = _q_money("SYP", payment_plan["remaining_syp"])
+    remaining_usd = _q_money("USD", payment_plan["remaining_usd"])
     settlement_total = _q_money(bill.settlement_currency, payment_plan["settlement_total"])
     settlement_paid = _q_money(bill.settlement_currency, payment_plan["settlement_paid"])
 
@@ -987,48 +1079,45 @@ def create_bill(
         return bill
 
     # -------------------------------
-    # Debts (per currency)
+    # Central debt (single obligation record)
     # -------------------------------
-
-    entry_syp = DebtSV.create_debtor_entry(
-        provider=provider,
-        total=bill.total_syp,
-        paid_amount=entry_paid_syp,
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-        currency_code="SYP",
-        doc_serial=bill.serial,
-    )
-
-    entry_usd = None
-    if bill.total_usd and bill.total_usd > DEC0:
-        entry_usd = DebtSV.create_debtor_entry(
-            provider=provider,
-            total=bill.total_usd,
-            paid_amount=entry_paid_usd,
+    debt_record = None
+    if remaining_syp > DEC0 or remaining_usd > DEC0:
+        debt_record = DebtSV.upsert_central_debt(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
             source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code="USD",
-            doc_serial=bill.serial,
+            other_party_type=OtherPartyType.PROVIDER,
+            other_party_id=str(provider.id),
+            provider=provider,
+            actor_username=(getattr(actor, "username", "") or ""),
+            total_syp=remaining_syp,
+            total_usd=remaining_usd,
+            remaining_syp=remaining_syp,
+            remaining_usd=remaining_usd,
+            note=f"Purchase bill #{bill.serial}",
         )
 
     # -------------------------------
-    # Financials (one canonical receipt)
+    # Financials (creation payment only)
     # -------------------------------
     cp = _ensure_provider_cp(provider=provider)
 
     has_cash_payment = (actual_paid_syp > DEC0) or (actual_paid_usd > DEC0)
     cash_container = None
-    if money_container_id:
-        required_feature = FEATURE_PURCHASE_BILLS if has_cash_payment else None
-        cash_container = FinSV.require_money_container_for_user(
-            user=actor,
-            container_id=money_container_id,
-            feature_code=required_feature,
-            for_update=True,
+    if has_cash_payment and money_container_id:
+        cash_container = (
+            MoneyContainer.objects
+            .select_for_update()
+            .filter(
+                id=money_container_id,
+                is_active=True,
+            )
+            .first()
         )
+        if cash_container is None:
+            raise ValueError("money container is not allowed for purchase bills")
     elif has_cash_payment:
         cash_container = _default_purchase_money_container(actor=actor)
 
@@ -1037,62 +1126,26 @@ def create_bill(
         bill.save(update_fields=["money_container"])
 
     fx_for_receipts = _q_fx(bill.fx_rate_usd_to_syp_used or bill.fx_usd_syp or FinSV.get_current_fx_syp_per_usd())
-    totals_by_code: Dict[str, Decimal] = {}
-    if bill.total_syp > DEC0:
-        totals_by_code["SYP"] = _q_money("SYP", bill.total_syp)
-    if bill.total_usd > DEC0:
-        totals_by_code["USD"] = _q_money("USD", bill.total_usd)
-
-    settled_counterparty_by_code: Dict[str, Decimal] = {}
-    if entry_paid_syp > DEC0:
-        settled_counterparty_by_code["SYP"] = _q_money("SYP", entry_paid_syp)
-    if entry_paid_usd > DEC0:
-        settled_counterparty_by_code["USD"] = _q_money("USD", entry_paid_usd)
-
-    container_paid_by_code: Dict[str, Decimal] = {}
-    if actual_paid_syp > DEC0:
-        container_paid_by_code["SYP"] = _q_money("SYP", actual_paid_syp)
-    if actual_paid_usd > DEC0:
-        container_paid_by_code["USD"] = _q_money("USD", actual_paid_usd)
-
-    primary_receipt = FinSV.post_counterparty_bill_action_with_fx(
-        actor=actor,
-        counterparty_id=cp.id,
-        totals_by_code=totals_by_code,
-        settled_counterparty_by_code=settled_counterparty_by_code,
-        container_paid_by_code=container_paid_by_code,
-        container_id=(cash_container.id if cash_container else None),
-        fx_syp_per_usd=fx_for_receipts,
-        action_key=f"billing:Bill:{bill.id}:create",
-        note=f"Purchase bill #{bill.serial}",
-        source_app="billing",
-        source_model="Bill",
-        source_id=str(bill.id),
-    )
-
-    receipts = [primary_receipt]
-
-    # Link creation payment history rows to the canonical bill receipt.
-    from debts.models import DebtorPayment
-
-    if entry_syp and entry_paid_syp > DEC0:
-        DebtorPayment.objects.create(
-            entry=entry_syp,
-            amount=_q_money("SYP", entry_paid_syp),
-            currency_code="SYP",
-            receipt=primary_receipt,
-            money_container=cash_container,
-            fx_syp_per_usd_used=fx_for_receipts,
-        )
-    if entry_usd and entry_paid_usd > DEC0:
-        DebtorPayment.objects.create(
-            entry=entry_usd,
-            amount=_q_money("USD", entry_paid_usd),
-            currency_code="USD",
-            receipt=primary_receipt,
-            money_container=cash_container,
-            fx_syp_per_usd_used=fx_for_receipts,
-        )
+    receipts: list[Receipt] = []
+    if has_cash_payment:
+        if not cash_container:
+            raise ValueError("money_container_id is required when payment exists")
+        for cur_code, cur_amount in (("SYP", actual_paid_syp), ("USD", actual_paid_usd)):
+            if cur_amount <= DEC0:
+                continue
+            receipt = FinSV.post_settlement_with_fx(
+                actor=actor,
+                container_id=cash_container.id,
+                counterparty_id=cp.id,
+                currency_code=cur_code,
+                cash_amount_signed=-_q_money(cur_code, cur_amount),
+                fx_syp_per_usd=fx_for_receipts,
+                note=f"Purchase bill #{bill.serial} creation payment",
+                source_app="billing",
+                source_model="Bill",
+                source_id=str(bill.id),
+            )
+            receipts.append(receipt)
 
     # -------------------------------
     # AUDIT    # -------------------------------
@@ -1118,9 +1171,15 @@ def create_bill(
                 "paid_amount": str(settlement_paid),
                 "paid_syp": str(actual_paid_syp),
                 "paid_usd": str(actual_paid_usd),
+                "remaining_syp": str(remaining_syp),
+                "remaining_usd": str(remaining_usd),
                 "settlement_currency": bill.settlement_currency,
                 "fx": str(bill.fx_usd_syp),
                 "items_count": len(items),
+            },
+            "debts": {
+                "central_debt_id": (debt_record.id if debt_record else None),
+                "central_debt_public_id": (debt_record.public_id if debt_record else ""),
             },
             "financials": {
                 "receipt_ids": [r.id for r in receipts],
@@ -1174,8 +1233,9 @@ def delete_bill(*, actor, bill_id: int) -> None:
         raise ValidationError("cannot delete a bill whose items were already sold/returned")
 
     # ==========================
-    # 2) Locate Debtor entries (per currency)
+    # 2) Locate debt state (central + legacy compatibility)
     # ==========================
+    central_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.id, for_update=True)
     entries = DebtSV.list_debtor_entries_for_source(
         source_app="billing",
         source_model="Bill",
@@ -1197,8 +1257,12 @@ def delete_bill(*, actor, bill_id: int) -> None:
         for_update=True,
     )
 
-    paid_syp = _q_money("SYP", entry_syp.paid_amount if entry_syp and entry_syp.paid_amount is not None else DEC0)
-    paid_usd = _q_money("USD", entry_usd.paid_amount if entry_usd and entry_usd.paid_amount is not None else DEC0)
+    if central_debt is not None:
+        paid_syp = _q_money("SYP", bill.creation_paid_syp or DEC0)
+        paid_usd = _q_money("USD", bill.creation_paid_usd or DEC0)
+    else:
+        paid_syp = _q_money("SYP", entry_syp.paid_amount if entry_syp and entry_syp.paid_amount is not None else DEC0)
+        paid_usd = _q_money("USD", entry_usd.paid_amount if entry_usd and entry_usd.paid_amount is not None else DEC0)
 
     total_syp = _q_money("SYP", getattr(bill, "total_syp", DEC0) or DEC0)
     total_usd = _q_money("USD", getattr(bill, "total_usd", DEC0) or DEC0)
@@ -1378,10 +1442,22 @@ def delete_bill(*, actor, bill_id: int) -> None:
         .exclude(receipt_id__isnull=True)
         .values_list("receipt_id", flat=True)
     )
+    central_settlement_receipt_ids = []
+    if central_debt is not None:
+        central_settlement_receipt_ids = list(
+            DebtSettlement.objects
+            .select_for_update()
+            .filter(debt=central_debt, receipt__status=ReceiptStatus.POSTED)
+            .exclude(receipt_id__isnull=True)
+            .values_list("receipt_id", flat=True)
+        )
     debt_payment_fin_qs = (
         Receipt.objects
         .select_for_update()
-        .filter(id__in=debt_payment_receipt_ids, status=ReceiptStatus.POSTED)
+        .filter(
+            id__in=(debt_payment_receipt_ids + central_settlement_receipt_ids),
+            status=ReceiptStatus.POSTED,
+        )
         .order_by("-id")
     )
 
@@ -1407,12 +1483,27 @@ def delete_bill(*, actor, bill_id: int) -> None:
     # ==========================
     # 6) Delete debt + payments
     # ==========================
+    if central_debt is not None:
+        DebtSettlement.objects.filter(debt=central_debt).delete()
+        central_debt.delete()
     if entries:
         DebtorPayment.objects.filter(entry__in=entries).delete()
         DebtorDebt.objects.filter(id__in=[e.id for e in entries]).delete()
 
     paid_amount_total = q3(paid_syp + paid_usd)
-    if (total_syp > DEC0 or total_usd > DEC0) and paid_syp >= total_syp and paid_usd >= total_usd:
+    if central_debt is not None:
+        if central_debt.status == "closed":
+            status_label = "paid"
+        elif (
+            paid_syp <= DEC0
+            and paid_usd <= DEC0
+            and _q_money("SYP", central_debt.remaining_syp or DEC0) == _q_money("SYP", central_debt.total_syp or DEC0)
+            and _q_money("USD", central_debt.remaining_usd or DEC0) == _q_money("USD", central_debt.total_usd or DEC0)
+        ):
+            status_label = "unpaid"
+        else:
+            status_label = "partial"
+    elif (total_syp > DEC0 or total_usd > DEC0) and paid_syp >= total_syp and paid_usd >= total_usd:
         status_label = "paid"
     elif paid_syp <= DEC0 and paid_usd <= DEC0:
         status_label = "unpaid"
@@ -1888,12 +1979,14 @@ def create_return(
     if has_any_collection:
         if not money_container_id:
             raise ValueError("money container is required for paid returns")
-        cash_container = FinSV.require_money_container_for_user(
-            user=actor,
-            container_id=money_container_id,
-            feature_code=FEATURE_PROVIDER_RETURNS,
-            for_update=True,
+        cash_container = (
+            MoneyContainer.objects
+            .select_for_update()
+            .filter(id=money_container_id, is_active=True)
+            .first()
         )
+        if cash_container is None:
+            raise ValueError("money container is not allowed for provider returns")
 
     fx_for_receipt = fx_for_plan
     totals_by_code: Dict[str, Decimal] = {}
@@ -2258,12 +2351,48 @@ def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, c
     bill = Bill.objects.select_for_update().get(pk=bill_id)
     cur = _normalize_supported_currency(currency_code)
 
-    entry = _resolve_or_create_bill_debtor_entry(bill=bill, currency_code=cur)
-
     if not money_container_id:
         money_container_id = bill.money_container_id
     if not money_container_id:
         raise ValueError("money_container_id is required")
+
+    central_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.id, for_update=True)
+    if central_debt is not None:
+        settled_debt, settlement = DebtSV.settle_central_debt(
+            actor=actor,
+            debt_id=central_debt.id,
+            full=True,
+            money_container_id=money_container_id,
+            currency_code=cur,
+            note=f"Pay full purchase bill #{bill.serial}",
+        )
+        log_update(
+            actor=actor,
+            target=bill,
+            title="Pay purchase bill",
+            message=f"Pay full for bill #{bill.serial} ({cur})",
+            meta={
+                "bill_id": bill.id,
+                "central_debt_id": settled_debt.id,
+                "settlement_id": settlement.id,
+                "mode": "full",
+                "currency": cur,
+            },
+        )
+        return bill
+
+    legacy_entries = DebtSV.list_debtor_entries_for_source(
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+        for_update=True,
+    )
+    if not legacy_entries:
+        raise ValueError("bill has no open debt")
+
+    entry = _resolve_or_create_bill_debtor_entry(bill=bill, currency_code=cur)
+    if _q_money(cur, entry.remaining) <= DEC0:
+        raise ValueError("bill has no open debt")
 
     DebtSV.pay_debt(
         actor=actor,
@@ -2271,7 +2400,6 @@ def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, c
         full=True,
         money_container_id=money_container_id,
         currency_code=cur,
-        required_feature_code=FEATURE_PURCHASE_BILLS,
     )
 
     log_update(
@@ -2279,7 +2407,7 @@ def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, c
         target=bill,
         title="Pay purchase bill",
         message=f"Pay full for bill #{bill.serial} ({cur})",
-        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "full", "currency": cur},
+        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "full", "currency": cur, "legacy": True},
     )
 
     return bill
@@ -2293,16 +2421,51 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Opt
     if amt <= 0:
         raise ValueError("amount must be positive")
 
-    entry = _resolve_or_create_bill_debtor_entry(bill=bill, currency_code=cur)
-
-    remaining = _q_money(cur, entry.remaining)
-    if amt > remaining:
-        raise ValueError(f"amount exceeds remaining ({remaining})")
-
     if not money_container_id:
         money_container_id = bill.money_container_id
     if not money_container_id:
         raise ValueError("money_container_id is required")
+
+    central_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.id, for_update=True)
+    if central_debt is not None:
+        settled_debt, settlement = DebtSV.settle_central_debt(
+            actor=actor,
+            debt_id=central_debt.id,
+            amount=amt,
+            full=False,
+            money_container_id=money_container_id,
+            currency_code=cur,
+            note=f"Pay partial purchase bill #{bill.serial}",
+        )
+        log_update(
+            actor=actor,
+            target=bill,
+            title="Pay purchase bill",
+            message=f"Pay partial for bill #{bill.serial} amount={amt} ({cur})",
+            meta={
+                "bill_id": bill.id,
+                "central_debt_id": settled_debt.id,
+                "settlement_id": settlement.id,
+                "mode": "partial",
+                "amount": str(amt),
+                "currency": cur,
+            },
+        )
+        return bill
+
+    legacy_entries = DebtSV.list_debtor_entries_for_source(
+        source_app="billing",
+        source_model="Bill",
+        source_id=str(bill.id),
+        for_update=True,
+    )
+    if not legacy_entries:
+        raise ValueError("bill has no open debt")
+
+    entry = _resolve_or_create_bill_debtor_entry(bill=bill, currency_code=cur)
+    remaining = _q_money(cur, entry.remaining)
+    if amt > remaining:
+        raise ValueError(f"amount exceeds remaining ({remaining})")
 
     DebtSV.pay_debt(
         actor=actor,
@@ -2311,7 +2474,6 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Opt
         full=False,
         money_container_id=money_container_id,
         currency_code=cur,
-        required_feature_code=FEATURE_PURCHASE_BILLS,
     )
 
     log_update(
@@ -2319,7 +2481,14 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Opt
         target=bill,
         title="Pay purchase bill",
         message=f"Pay partial for bill #{bill.serial} amount={amt} ({cur})",
-        meta={"bill_id": bill.id, "entry_id": entry.id, "mode": "partial", "amount": str(amt), "currency": cur},
+        meta={
+            "bill_id": bill.id,
+            "entry_id": entry.id,
+            "mode": "partial",
+            "amount": str(amt),
+            "currency": cur,
+            "legacy": True,
+        },
     )
 
     return bill
@@ -2343,7 +2512,6 @@ def collect_full(*, actor, return_id: int, money_container_id: Optional[int] = N
         full=True,
         money_container_id=money_container_id,
         currency_code=cur,
-        required_feature_code=FEATURE_PROVIDER_RETURNS,
     )
 
     log_update(
@@ -2382,7 +2550,6 @@ def collect_partial(*, actor, return_id: int, amount: Decimal, money_container_i
         full=False,
         money_container_id=money_container_id,
         currency_code=cur,
-        required_feature_code=FEATURE_PROVIDER_RETURNS,
     )
 
     log_update(

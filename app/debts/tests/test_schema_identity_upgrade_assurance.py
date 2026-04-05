@@ -383,6 +383,7 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             created_by=self.actor,
             balance_usd=Decimal("500.000"),
         )
+        cash.allowed_users.add(self.actor)
         syp = Currency.objects.get(code="SYP")
         usd = Currency.objects.get(code="USD")
         MoneyContainerCurrency.objects.get_or_create(container=cash, currency=syp, defaults={"is_enabled": True})

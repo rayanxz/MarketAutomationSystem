@@ -11,7 +11,8 @@ from accounts.models import AccountProfile
 from billing import services as BillingSV
 from billing.models import Bill, BillItem, Provider
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
-from debts.models import DebtorDebt, DebtorPayment, PartyType
+from debts.models import DebtorDebt, DebtorPayment, DebtSettlement, PartyType
+from debts.models import DebtRecord, DebtDirection, DebtCauseType
 from financials import services as FinSV
 from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, Receipt, ReceiptStatus
 from inventory.models import ProductMovement, DEC0, q3
@@ -89,6 +90,7 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
 
         cls.store = _ensure_store_container()
         cls.cash = _ensure_money_container(cls.actor)
+        cls.cash.allowed_users.add(cls.actor)
         _ensure_container_currency(cls.cash, "SYP")
         _ensure_container_currency(cls.cash, "USD")
 
@@ -245,16 +247,23 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
         mid_bal = FinSV.container_balance(container_id=self.cash.id)
         self.assertNotEqual(q3(mid_bal.get("SYP", DEC0)), q3(base_bal.get("SYP", DEC0)))
 
-        entries = DebtorDebt.objects.filter(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-        )
+        entries = DebtorDebt.objects.filter(source_app="billing", source_model="Bill", source_id=str(bill.id))
+        central = DebtRecord.objects.filter(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
+        ).first()
         debt_payment_receipt_ids = list(
-            DebtorPayment.objects
-            .filter(entry__in=entries, receipt__isnull=False)
-            .values_list("receipt_id", flat=True)
+            DebtorPayment.objects.filter(entry__in=entries, receipt__isnull=False).values_list("receipt_id", flat=True)
         )
+        if central is not None:
+            debt_payment_receipt_ids.extend(
+                list(
+                    DebtSettlement.objects
+                    .filter(debt=central, receipt__isnull=False)
+                    .values_list("receipt_id", flat=True)
+                )
+            )
         self.assertGreater(len(debt_payment_receipt_ids), 0)
         self.assertGreater(
             Receipt.objects.filter(id__in=debt_payment_receipt_ids, status=ReceiptStatus.POSTED).count(),
@@ -280,11 +289,10 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
 
         bill = self._create_bill(status="unpaid", paid_amount=Decimal("0"), currency="USD", qty="2", cost="10")
 
-        canonical = DebtorDebt.objects.get(
-            source_app="billing",
-            source_model="Bill",
-            source_id=str(bill.id),
-            currency_code="USD",
+        central = DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=str(bill.id),
         )
         legacy = DebtorDebt.objects.create(
             provider=self.provider,
@@ -309,9 +317,9 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
             currency_code="USD",
         )
 
-        canonical.refresh_from_db()
+        central.refresh_from_db()
         legacy.refresh_from_db()
-        self.assertEqual(q3(canonical.paid_amount), q3(Decimal("1.000")))
+        self.assertEqual(q3(central.remaining_usd), q3(Decimal("19.000")))
         self.assertEqual(q3(legacy.paid_amount), q3(Decimal("0.000")))
 
         BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)

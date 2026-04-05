@@ -9,18 +9,18 @@ A. Purchase Bill (bill_add)
  # no debt created
  # bill appears normally in bill_list & bill_view
 B. Provider Return
- create return with total = 0
- payment controls disabled
- save works
+ - create return with total = 0
+ - payment controls disabled
+ - save works
  result:
- no receipt
- no container movement
- no debt
+ - no receipt
+ - no container movement
+ - no debt
 C. Edge Case
- bill with:
-some items = 0
-total > 0
- payment works normally
+ - bill with:
+- some items = 0
+- total > 0
+ - payment works normally
 🟠 2. PAYMENT INTENT + FINANCIAL FLOW
 A. Purchase Bill — All Modes
 

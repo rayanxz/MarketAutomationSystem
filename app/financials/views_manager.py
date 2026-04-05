@@ -604,7 +604,16 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
 @login_required
 @role_required(AccountProfile.Role.MANAGER)
 def document_trace(request: HttpRequest) -> HttpResponse:
-    from debts.models import DebtorDebt, DebtorPayment, CreditorDebt, CreditorReceipt
+    from debts.models import (
+        DebtorDebt,
+        DebtorPayment,
+        CreditorDebt,
+        CreditorReceipt,
+        DebtRecord,
+        DebtSettlement,
+        DebtDirection,
+        DebtCauseType,
+    )
 
     source_app = (request.GET.get("source_app") or "").strip()
     source_model = (request.GET.get("source_model") or "").strip()
@@ -615,6 +624,8 @@ def document_trace(request: HttpRequest) -> HttpResponse:
     creditor_entries = CreditorDebt.objects.none()
     debtor_payments = DebtorPayment.objects.none()
     creditor_receipts = CreditorReceipt.objects.none()
+    central_debts = DebtRecord.objects.none()
+    central_settlements = DebtSettlement.objects.none()
     reversal_rows = Receipt.objects.none()
     source_document = None
     source_document_url = ""
@@ -648,6 +659,32 @@ def document_trace(request: HttpRequest) -> HttpResponse:
             .filter(entry__in=creditor_entries)
             .order_by("created_at", "id")
         )
+        app_code = source_app.lower()
+        cause_type = None
+        direction_filter = None
+        if app_code == "billing" and source_model == "Bill":
+            cause_type = DebtCauseType.PURCHASE_BILL
+            direction_filter = DebtDirection.PAYABLE
+        elif app_code == "billing" and source_model == "ProviderReturn":
+            cause_type = DebtCauseType.PROVIDER_RETURN
+            direction_filter = DebtDirection.RECEIVABLE
+        elif app_code == "pos" and source_model == "SalesBill":
+            cause_type = DebtCauseType.POS_BILL
+            direction_filter = DebtDirection.RECEIVABLE
+        if cause_type:
+            central_debts = DebtRecord.objects.filter(
+                cause_type=cause_type,
+                cause_id=source_id,
+            )
+            if direction_filter:
+                central_debts = central_debts.filter(direction=direction_filter)
+            central_debts = central_debts.order_by("id")
+            central_settlements = (
+                DebtSettlement.objects
+                .select_related("debt", "receipt", "money_container")
+                .filter(debt__in=central_debts)
+                .order_by("created_at", "id")
+            )
         reversal_rows = (
             Receipt.objects
             .filter(reverses_id__in=[r.id for r in receipts])
@@ -655,7 +692,6 @@ def document_trace(request: HttpRequest) -> HttpResponse:
             .order_by("created_at", "id")
         )
 
-        app_code = source_app.lower()
         try:
             sid_int = int(source_id.split(":", 1)[0])
         except (TypeError, ValueError):
@@ -705,6 +741,8 @@ def document_trace(request: HttpRequest) -> HttpResponse:
         "creditor_entries": creditor_entries,
         "debtor_payments": debtor_payments,
         "creditor_receipts": creditor_receipts,
+        "central_debts": central_debts,
+        "central_settlements": central_settlements,
         "reversal_rows": reversal_rows,
         "currency_totals": currency_totals,
     }
