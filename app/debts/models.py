@@ -1,8 +1,8 @@
 # app/debts/models.py
 from __future__ import annotations
+import re
 from decimal import Decimal
-from uuid import uuid4
-from django.db import models
+from django.db import IntegrityError, models, transaction
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
 from django.utils import timezone
@@ -14,8 +14,86 @@ class PartyType(models.TextChoices):
     CUSTOMER = "customer", "زبون"
     WORKER   = "worker",   "عامل"
 
+DEBT_PUBLIC_ID_PREFIX = "D-"
+DEBT_PUBLIC_ID_MIN_WIDTH = 3
+DEBT_PUBLIC_ID_SEQUENCE_KEY = "debt_record_public_id"
+DEBT_PUBLIC_ID_PATTERN = re.compile(r"^D-(\d+)$")
+
+
+def _format_debt_public_id(number: int) -> str:
+    return f"{DEBT_PUBLIC_ID_PREFIX}{int(number):0{DEBT_PUBLIC_ID_MIN_WIDTH}d}"
+
+
+def _extract_debt_public_id_number(value: str) -> int | None:
+    m = DEBT_PUBLIC_ID_PATTERN.match((value or "").strip())
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+class DebtPublicIdSequence(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    next_value = models.BigIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "debts_debtpublicidsequence"
+
+    def __str__(self) -> str:
+        return f"{self.key}:{self.next_value}"
+
+
+def _max_existing_sequential_public_id() -> int:
+    max_seen = 0
+    for public_id in DebtRecord.objects.values_list("public_id", flat=True).iterator():
+        num = _extract_debt_public_id_number(public_id)
+        if num is not None and num > max_seen:
+            max_seen = num
+    return max_seen
+
+
+def _lock_or_create_debt_public_sequence() -> tuple["DebtPublicIdSequence", bool]:
+    qs = DebtPublicIdSequence.objects.select_for_update()
+    seq = qs.filter(key=DEBT_PUBLIC_ID_SEQUENCE_KEY).first()
+    if seq is not None:
+        return seq, False
+    try:
+        seq = DebtPublicIdSequence.objects.create(
+            key=DEBT_PUBLIC_ID_SEQUENCE_KEY,
+            next_value=1,
+        )
+        return seq, True
+    except IntegrityError:
+        return qs.get(key=DEBT_PUBLIC_ID_SEQUENCE_KEY), False
+
+
+def _initialize_sequence_start_locked(*, sequence: "DebtPublicIdSequence") -> None:
+    current = int(sequence.next_value or 1)
+    if current > 1:
+        return
+    max_existing = _max_existing_sequential_public_id()
+    desired_next = max(1, max_existing + 1)
+    if desired_next != current:
+        sequence.next_value = desired_next
+        sequence.save(update_fields=["next_value", "updated_at"])
+
+
 def _debt_public_id_default() -> str:
-    return f"D-{uuid4().hex[:16].upper()}"
+    with transaction.atomic():
+        sequence, _ = _lock_or_create_debt_public_sequence()
+        _initialize_sequence_start_locked(sequence=sequence)
+
+        next_value = int(sequence.next_value or 1)
+        while True:
+            candidate = _format_debt_public_id(next_value)
+            next_value += 1
+            if not DebtRecord.objects.filter(public_id=candidate).exists():
+                sequence.next_value = next_value
+                sequence.save(update_fields=["next_value", "updated_at"])
+                return candidate
 
 
 class DebtDirection(models.TextChoices):
