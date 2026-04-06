@@ -2,7 +2,12 @@
 from __future__ import annotations
 from typing import Dict, Any
 
-from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry
+from debts.models import (
+    DebtorDebt as DebtorEntry,
+    CreditorDebt as CreditorEntry,
+    DebtRecord,
+    DebtDirection,
+)
 
 
 def _safe_int(x) -> int | None:
@@ -85,4 +90,44 @@ def creditor_row(c: CreditorEntry) -> Dict[str, Any]:
         "status": ui_status,
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "manual": (c.source_model == "ManualDebt"),
+    }
+
+
+def central_debt_row(d: DebtRecord) -> Dict[str, Any]:
+    direction = (d.direction or "").lower()
+    debt_type = "debtor" if direction == DebtDirection.PAYABLE else "creditor"
+
+    other_party_name = ""
+    if d.provider_id:
+        other_party_name = d.provider.name
+    elif d.customer_id:
+        other_party_name = d.customer.name
+    else:
+        other_party_name = (d.other_party_id or "").strip()
+
+    return {
+        "id": d.id,
+        "debt_id": d.public_id,
+        "debt_type": debt_type,
+        "direction": d.direction,
+        "status": d.status,
+        "cause_type": d.cause_type,
+        "cause_id": d.cause_id,
+        "other_party_type": d.other_party_type,
+        "other_party_id": d.other_party_id,
+        "other_party_name": other_party_name,
+        "provider": {
+            "id": d.provider_id,
+            "name": d.provider.name if d.provider_id else "",
+        },
+        "customer": {
+            "id": d.customer_id,
+            "name": d.customer.name if d.customer_id else "",
+        },
+        "total_syp": str(d.total_syp or 0),
+        "total_usd": str(d.total_usd or 0),
+        "remaining_syp": str(d.remaining_syp or 0),
+        "remaining_usd": str(d.remaining_usd or 0),
+        "actor_username": d.actor_username or "",
+        "created_at": d.created_at.isoformat() if d.created_at else None,
     }

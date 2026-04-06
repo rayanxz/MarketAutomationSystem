@@ -668,6 +668,71 @@ def create_creditor_entry(
 # MANUAL DEBTS (no commercial doc)
 # =======================================================================
 
+def _manual_other_party_type_from_entry(entry) -> str:
+    ptype = (getattr(entry, "party_type", "") or "").lower().strip()
+    if ptype == PartyType.PROVIDER:
+        return OtherPartyType.PROVIDER
+    if ptype == PartyType.CUSTOMER:
+        return OtherPartyType.CUSTOMER
+    return OtherPartyType.OTHER
+
+
+def _manual_other_party_id_from_entry(entry) -> str:
+    if getattr(entry, "provider_id", None):
+        return str(entry.provider_id)
+    if getattr(entry, "customer_id", None):
+        return str(entry.customer_id)
+    return (getattr(entry, "party_name", "") or "").strip()
+
+
+def _sync_manual_debtor_central_debt(*, entry: DebtorDebt, actor_username: str = "") -> None:
+    if (entry.source_app, entry.source_model) != ("debts", "ManualDebt"):
+        return
+    cur = (entry.currency_code or "SYP").upper()
+    total = _q_money(amount=entry.total or DEC0, currency_code=cur)
+    remaining = _q_money(amount=entry.remaining, currency_code=cur)
+    upsert_central_debt(
+        direction=DebtDirection.PAYABLE,
+        cause_type=DebtCauseType.MANUAL,
+        cause_id=str(entry.id),
+        source_app="debts",
+        other_party_type=_manual_other_party_type_from_entry(entry),
+        other_party_id=_manual_other_party_id_from_entry(entry),
+        provider=(entry.provider if entry.provider_id else None),
+        customer_id=getattr(entry, "customer_id", None),
+        actor_username=actor_username or "",
+        total_syp=(total if cur == "SYP" else DEC0),
+        total_usd=(total if cur == "USD" else DEC0),
+        remaining_syp=(remaining if cur == "SYP" else DEC0),
+        remaining_usd=(remaining if cur == "USD" else DEC0),
+        note=f"Manual debtor debt #{entry.id}",
+    )
+
+
+def _sync_manual_creditor_central_debt(*, entry: CreditorDebt, actor_username: str = "") -> None:
+    if (entry.source_app, entry.source_model) != ("debts", "ManualDebt"):
+        return
+    cur = (entry.currency_code or "SYP").upper()
+    total = _q_money(amount=entry.total or DEC0, currency_code=cur)
+    remaining = _q_money(amount=entry.remaining, currency_code=cur)
+    upsert_central_debt(
+        direction=DebtDirection.RECEIVABLE,
+        cause_type=DebtCauseType.MANUAL,
+        cause_id=str(entry.id),
+        source_app="debts",
+        other_party_type=_manual_other_party_type_from_entry(entry),
+        other_party_id=_manual_other_party_id_from_entry(entry),
+        provider=(entry.provider if entry.provider_id else None),
+        customer_id=getattr(entry, "customer_id", None),
+        actor_username=actor_username or "",
+        total_syp=(total if cur == "SYP" else DEC0),
+        total_usd=(total if cur == "USD" else DEC0),
+        remaining_syp=(remaining if cur == "SYP" else DEC0),
+        remaining_usd=(remaining if cur == "USD" else DEC0),
+        note=f"Manual creditor debt #{entry.id}",
+    )
+
+
 def _next_bill_serial_locked_local() -> int:
     from django.db.models import Max
     from billing.models import Bill
@@ -742,6 +807,10 @@ def create_manual_debt(
             currency_code=currency_code,
             due_date=due_date,
         )
+        _sync_manual_debtor_central_debt(
+            entry=entry,
+            actor_username=(getattr(actor, "username", "") or ""),
+        )
         if provider:
             cp = _ensure_provider_counterparty(provider=provider)
             fx = FinSV.get_current_fx_syp_per_usd()
@@ -759,7 +828,7 @@ def create_manual_debt(
         if initial_payment:
             if not money_container_id:
                 raise ValueError("money_container_id required for initial payment")
-            pay_debt(
+            entry = pay_debt(
                 actor=actor,
                 entry_id=entry.id,
                 amount=initial_payment,
@@ -784,6 +853,10 @@ def create_manual_debt(
         currency_code=currency_code,
         due_date=due_date,
     )
+    _sync_manual_creditor_central_debt(
+        entry=entry,
+        actor_username=(getattr(actor, "username", "") or ""),
+    )
     if provider:
         cp = _ensure_provider_counterparty(provider=provider)
         fx = FinSV.get_current_fx_syp_per_usd()
@@ -801,7 +874,7 @@ def create_manual_debt(
     if initial_payment:
         if not money_container_id:
             raise ValueError("money_container_id required for initial collection")
-        collect_debt(
+        entry = collect_debt(
             actor=actor,
             entry_id=entry.id,
             amount=initial_payment,
@@ -911,6 +984,11 @@ def pay_debt(
         },
     )
 
+    _sync_manual_debtor_central_debt(
+        entry=entry,
+        actor_username=(getattr(actor, "username", "") or ""),
+    )
+
     return entry
 
 def collect_debt(
@@ -1006,6 +1084,11 @@ def collect_debt(
             "receipt_id": receipt.id,
             "container_id": container.id,
         },
+    )
+
+    _sync_manual_creditor_central_debt(
+        entry=entry,
+        actor_username=(getattr(actor, "username", "") or ""),
     )
 
     return entry

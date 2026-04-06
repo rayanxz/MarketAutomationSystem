@@ -5,28 +5,46 @@ from decimal import Decimal
 from datetime import date as _date_cls
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
+from django.contrib.auth import get_user_model
 
 from accounts.models import AccountProfile
 from accounts.decorators import role_required
 
-from debts.models import DebtorDebt as DebtorEntry, CreditorDebt as CreditorEntry, DebtReminder
+from debts.models import (
+    DebtorDebt as DebtorEntry,
+    CreditorDebt as CreditorEntry,
+    DebtReminder,
+    DebtRecord,
+    DebtCauseType,
+    OtherPartyType,
+)
 from debts.source_identity import source_identity_base
 from financials.models import Receipt, ReceiptKind
 from financials import services as FinSV
 from . import selectors as S
-from .serializers import debtor_row, creditor_row
+from .serializers import debtor_row, creditor_row, central_debt_row
 from debts import services as SV
+from billing.models import Provider
+from pos.models import CustomerProfile
 
 # ---------- Pages ----------
 @role_required(AccountProfile.Role.MANAGER)
 def debts_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "debts/debts_list.html", {"money_containers": _allowed_containers(request.user)})
+    return render(
+        request,
+        "debts/debts_list.html",
+        {
+            "money_containers": _allowed_containers(request.user),
+            "cause_type_choices": list(DebtCauseType.choices),
+            "other_party_type_choices": list(OtherPartyType.choices),
+        },
+    )
 
 @role_required(AccountProfile.Role.MANAGER)
 def creditors_page(request: HttpRequest) -> HttpResponse:
-    return render(request, "debts/creditors_list.html", {"money_containers": _allowed_containers(request.user)})
+    return redirect("debts_page")
 
 @role_required(AccountProfile.Role.MANAGER)
 def add_debt(request: HttpRequest) -> HttpResponse:
@@ -318,6 +336,100 @@ def api_creditors_list(request: HttpRequest) -> JsonResponse:
     items = list(qs)
     nxt = items[-1].id if items else None
     return JsonResponse({"ok": True, "items": [creditor_row(c) for c in items], "next_cursor": nxt})
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_central_debts_list(request: HttpRequest) -> JsonResponse:
+    cursor_raw = request.GET.get("cursor")
+    try:
+        cursor = int(cursor_raw) if cursor_raw not in (None, "") else None
+    except ValueError:
+        cursor = None
+
+    try:
+        page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
+    except ValueError:
+        page_size = 30
+
+    status = (request.GET.get("status") or "").strip().lower()
+    debt_type = (request.GET.get("debt_type") or "").strip().lower()
+    cause_type = (request.GET.get("cause_type") or "").strip().lower()
+    cause_id = (request.GET.get("cause_id") or "").strip()
+    other_party_type = (request.GET.get("other_party_type") or "").strip().lower()
+    other_party_name = (request.GET.get("other_party_name") or "").strip()
+    other_party_id = (request.GET.get("other_party_id") or "").strip()
+    debt_id = (request.GET.get("debt_id") or "").strip()
+    date_from = _date(request.GET.get("date_from"))
+    date_to = _date(request.GET.get("date_to"))
+
+    qs = S.central_debts_list(
+        cursor=cursor,
+        page_size=page_size,
+        status=status,
+        debt_type=debt_type,
+        cause_type=cause_type,
+        cause_id=cause_id,
+        other_party_type=other_party_type,
+        other_party_name=other_party_name,
+        other_party_id=other_party_id,
+        debt_id=debt_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    items = list(qs)
+    nxt = items[-1].id if items else None
+    return JsonResponse({"ok": True, "items": [central_debt_row(d) for d in items], "next_cursor": nxt})
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_other_party_suggest(request: HttpRequest) -> JsonResponse:
+    ptype = (request.GET.get("other_party_type") or "").strip().lower()
+    q = (request.GET.get("q") or "").strip()
+    try:
+        limit = min(max(int(request.GET.get("limit", "8")), 1), 20)
+    except ValueError:
+        limit = 8
+
+    if not q:
+        return JsonResponse({"ok": True, "items": []})
+
+    if ptype == OtherPartyType.PROVIDER:
+        rows = list(
+            Provider.objects.filter(name__icontains=q)
+            .order_by("name")
+            .values("id", "name")[:limit]
+        )
+        return JsonResponse({"ok": True, "items": rows})
+
+    if ptype == OtherPartyType.CUSTOMER:
+        rows = list(
+            CustomerProfile.objects.filter(name__icontains=q)
+            .order_by("name")
+            .values("id", "name")[:limit]
+        )
+        return JsonResponse({"ok": True, "items": rows})
+
+    if ptype == OtherPartyType.SYSTEM_USER:
+        User = get_user_model()
+        rows = []
+        for u in User.objects.filter(username__icontains=q).order_by("username")[:limit]:
+            rows.append({"id": str(u.id), "name": u.username})
+        return JsonResponse({"ok": True, "items": rows})
+
+    if ptype == OtherPartyType.OTHER:
+        rows = []
+        for value in (
+            DebtRecord.objects.filter(other_party_type=OtherPartyType.OTHER, other_party_id__icontains=q)
+            .exclude(other_party_id="")
+            .values_list("other_party_id", flat=True)
+            .distinct()[:limit]
+        ):
+            rows.append({"id": value, "name": value})
+        return JsonResponse({"ok": True, "items": rows})
+
+    return JsonResponse({"ok": True, "items": []})
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)

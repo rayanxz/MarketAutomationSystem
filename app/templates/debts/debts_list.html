@@ -1,165 +1,289 @@
-{# app/templates/debts/debts_list.html #}
 {% extends "manager/base_manager.html" %}
 {% load static %}
 
-{% block title %}قائمة الديون  {% endblock %}
+{% block title %}قائمة الديون{% endblock %}
 
 {% block menu_secondary %}
   {% with name=request.resolver_match.url_name %}
   <div class="tabs-row">
     <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
     <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-    <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة المدين</a>
+    <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة الديون</a>
     <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
-    <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">قائمة الدائن</a>
     <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
     <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-
   </div>
   {% endwith %}
 {% endblock %}
 
-
 {% block extra_head %}
 <style>
-  .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
-  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
-  .field{ min-width:160px; flex:1 1 160px; }
-  .input, .select { width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
-  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
-  .btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
+  .viewport-center > .center-box{
+    max-width: 1560px;
+  }
+  .debts-panel{
+    direction: rtl;
+    width: 100%;
+    background: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: var(--card-shadow);
+  }
   .muted{ color:#6b7280; font-size:12px; }
-
-  .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
-  table{ width:100%; border-collapse:collapse; }
-  thead th{ position:sticky; top:0; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
-  th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
-
-  /* status highlighting */
-  tr.is-unpaid{ background:#fee2e2; }   /* light red */
-  tr.is-partial{ background:#f3e8ff; }  /* light purple */
-  tr.is-paid{ background:#dcfce7; }     /* light green */
-
-  /* Modal */
-  .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:2000; }
-  .modal.open{ display:flex; }
-  .modal .box{ background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:0 10px 30px rgba(0,0,0,.2); }
-  .modal header{ font-weight:700; margin-bottom:6px; }
-  .modal footer{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
-  .modal .input{ width:100%; }
-  .left{ text-align:left; }
-
+  .filters-card{
+    margin: 0 0 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 10px;
+    background: #fff;
+  }
+  .filters-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    align-items: end;
+  }
+  .field{
+    min-width: 0;
+    position: relative;
+  }
+  .field-wide{
+    grid-column: span 2;
+  }
+  .input, .select{
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .btn{
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    background: #f8fafc;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .btn.primary{
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+  }
+  .actions{
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .suggestions{
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    position: absolute;
+    inset-inline: 0;
+    z-index: 20;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(0,0,0,.08);
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .suggestions[hidden]{ display: none; }
+  .suggestions li{
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .suggestions li:last-child{ border-bottom: 0; }
+  .suggestions li:hover,
+  .suggestions li.active{
+    background: #eef2ff;
+  }
+  .table-wrap{
+    margin-top: 10px;
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+  }
+  table{
+    width: 100%;
+    min-width: 1500px;
+    border-collapse: collapse;
+  }
+  thead th{
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8fafc;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  th, td{
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    white-space: nowrap;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .status-pill{
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-open{
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .status-closed{
+    background: #dcfce7;
+    color: #166534;
+  }
+  .truncate{
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: bottom;
+  }
+  .left{ text-align: left; }
+  .pager{
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  @media (max-width: 1100px){
+    .field-wide{
+      grid-column: span 1;
+    }
+  }
 </style>
-<script defer src="{% static 'js/debts_debtors.js' %}?v=debts-20251103-1"></script>
+<script>
+  window.CENTRAL_DEBTS_CFG = {
+    listUrl: "{% url 'debts_api_central_list' %}",
+    suggestUrl: "{% url 'debts_api_other_party_suggest' %}"
+  };
+</script>
+<script defer src="{% static 'js/debts_central.js' %}?v=debts-central-20260406-1"></script>
 {% endblock %}
 
 {% block content %}
-<div class="card" dir="rtl">
-  <h2 style="margin:0 0 12px;">قائمة الديون</h2>
+<div class="debts-panel">
+  <h2 style="margin:0 0 12px;">قائمة الديون المركزية</h2>
 
-  <!-- Filters -->
-  
-
-  <div class="card" style="margin:0 0 12px;">
-    <div class="row">
+  <section class="filters-card">
+    <div class="filters-grid">
       <div class="field">
-        <label class="muted">اسم المورد</label>
-        <input id="fQ" class="input" placeholder="ابحث بالاسم">
+        <label class="muted">نوع الدين</label>
+        <select id="fDebtType" class="select">
+          <option value="">الكل</option>
+          <option value="debtor">مدين</option>
+          <option value="creditor">دائن</option>
+        </select>
       </div>
-      <div class="field" style="max-width:160px;">
-        <label class="muted">سيريال الفاتورة</label>
-        <input id="fSerial" class="input" placeholder="رقم السيريال">
+
+      <div class="field">
+        <label class="muted">نوع السبب</label>
+        <select id="fCauseType" class="select">
+          <option value="">الكل</option>
+          <option value="purchase_bill">فواتير شراء</option>
+          <option value="pos_bill">فواتير POS</option>
+          <option value="provider_return">مرتجعات موردين</option>
+          <option value="manual">ديون يدوية</option>
+        </select>
       </div>
-      <div class="field" style="max-width:180px;">
+
+      <div class="field">
+        <label class="muted">رقم السبب (اختياري)</label>
+        <input id="fCauseId" class="input" placeholder="cause_id">
+      </div>
+
+      <div class="field">
+        <label class="muted">نوع الطرف المقابل</label>
+        <select id="fOtherPartyType" class="select">
+          <option value="">الكل</option>
+          <option value="provider">مورد</option>
+          <option value="customer">زبون</option>
+          <option value="system_user">مستخدم نظام</option>
+          <option value="other">أخرى</option>
+        </select>
+      </div>
+
+      <div class="field field-wide">
+        <label class="muted">اسم الطرف المقابل</label>
+        <input id="fOtherPartyName" class="input" placeholder="ابحث بالاسم">
+        <input id="fOtherPartyId" type="hidden">
+        <ul id="partySuggest" class="suggestions" hidden></ul>
+      </div>
+
+      <div class="field">
+        <label class="muted">رقم الدين</label>
+        <input id="fDebtId" class="input" placeholder="D-... أو ID">
+      </div>
+
+      <div class="field">
+        <label class="muted">الحالة</label>
+        <select id="fStatus" class="select">
+          <option value="">الكل</option>
+          <option value="open">مفتوح</option>
+          <option value="closed">مغلق</option>
+        </select>
+      </div>
+
+      <div class="field">
         <label class="muted">من تاريخ</label>
         <input id="fFrom" type="date" class="input">
       </div>
-      <div class="field" style="max-width:180px;">
+
+      <div class="field">
         <label class="muted">إلى تاريخ</label>
         <input id="fTo" type="date" class="input">
       </div>
-      <div class="field" style="max-width:200px;">
-        <label class="muted">الحالة</label>
-        <select id="fStatus" class="select">
-          <option value="">الكل (الافتراضي: غير مدفوعة ← جزئية ← مدفوعة)</option>
-          <option value="unpaid">غير مدفوعة</option>
-          <option value="partial">مدفوعة جزئياً</option>
-          <option value="paid">مدفوعة</option>
-        </select>
-      </div>
-      <button id="btnSearch" class="btn" type="button">بحث</button>
-      <a id="btnReset" class="btn" href=".">إعادة تعيين</a>
-    </div>
-  </div>
 
-  <!-- Table -->
+      <div class="field field-wide">
+        <label class="muted">&nbsp;</label>
+        <div class="actions">
+          <button id="btnSearch" class="btn primary" type="button">بحث</button>
+          <a id="btnReset" class="btn" href=".">إعادة تعيين</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="table-wrap">
     <table>
-     <thead>
-      <tr>
-         <th style="width:120px;">سيريال</th>
-         <th style="width:140px;">نوع العميل</th>
-         <th>الاسم</th>
-         <th style="width:100px;">العملة</th>
-         <th style="width:160px;">الإجمالي</th>
-         <th style="width:160px;">المدفوع</th>
-         <th style="width:160px;">المتبقي</th>
-         <th style="width:160px;">الحالة</th>
-         <th style="width:260px;" class="left">إجراءات</th>
-       </tr>
+      <thead>
+        <tr>
+          <th style="width:140px;">رقم الدين</th>
+          <th style="width:110px;">نوع الدين</th>
+          <th style="width:140px;">السبب</th>
+          <th style="width:110px;">رقم السبب</th>
+          <th style="width:120px;">نوع الطرف</th>
+          <th style="width:210px;">اسم الطرف</th>
+          <th style="width:140px;">المتبقي SYP</th>
+          <th style="width:140px;">المتبقي USD</th>
+          <th style="width:220px;">الإجمالي عند الإنشاء</th>
+          <th style="width:110px;">الحالة</th>
+          <th style="width:140px;">المستخدم</th>
+          <th style="width:180px;">التاريخ</th>
+          <th style="width:170px;" class="left">إجراءات</th>
+        </tr>
       </thead>
-
       <tbody id="rows"></tbody>
     </table>
   </div>
 
-  <div style="display:flex; justify-content:center; gap:8px; margin-top:12px;">
+  <div class="pager">
     <button id="loadMore" class="btn">عرض المزيد</button>
     <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
-  </div>
-</div>
-
-<!-- Modal: Full pay -->
-<div id="modal-full" class="modal" aria-hidden="true">
-  <div class="box">
-    <header>تأكيد التسديد الكامل</header>
-    <div id="full-text">هل أنت متأكد من التسديد الكامل؟</div>
-    <div style="margin-top:8px;">
-      <select id="full-container" class="input">
-        <option value="">???? ??????? ???????</option>
-        {% for c in money_containers %}
-          <option value="{{ c.id }}">{{ c.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <footer>
-      <button class="btn" data-close>إلغاء</button>
-      <button class="btn primary" data-confirm>تأكيد</button>
-    </footer>
-  </div>
-</div>
-
-<!-- Modal: Batch pay -->
-<div id="modal-batch" class="modal" aria-hidden="true">
-  <div class="box">
-    <header>إدخال دفعة</header>
-    <div class="body">
-      <p id="batch-text" style="margin:0 0 8px;"></p>
-      <input id="batch-amount" class="input numeric-math" type="number" min="0" step="0.001" placeholder="0.000">
-      <small id="batch-hint" class="muted"></small>
-      <div style="margin-top:8px;">
-        <select id="batch-container" class="input">
-          <option value="">???? ??????? ???????</option>
-          {% for c in money_containers %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
-    <footer>
-      <button class="btn" data-close>إلغاء</button>
-      <button class="btn primary" data-confirm>تأكيد</button>
-    </footer>
   </div>
 </div>
 {% endblock %}
