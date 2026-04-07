@@ -127,8 +127,16 @@
     padding: 10px 12px;
     border-bottom: 1px solid #f1f5f9;
     white-space: nowrap;
-    text-align: right;
+    text-align: center;
     vertical-align: middle;
+  }
+  thead th,
+  tbody td{
+    border-inline-end: 1px solid #edf1f5;
+  }
+  thead th:last-child,
+  tbody td:last-child{
+    border-inline-end: 0;
   }
   .status-pill{
     display: inline-block;
@@ -153,7 +161,22 @@
     display: inline-block;
     vertical-align: bottom;
   }
-  .left{ text-align: left; }
+  .actions-group{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+  .actions-group .btn{
+    min-width: 0;
+    width: auto;
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    line-height: 1.2;
+  }
+  .left{ text-align: center; }
   .pager{
     display: flex;
     justify-content: center;
@@ -172,7 +195,7 @@
     suggestUrl: "{% url 'debts_api_other_party_suggest' %}"
   };
 </script>
-<script defer src="{% static 'js/debts_central.js' %}?v=debts-central-20260406-1"></script>
+<script defer src="{% static 'js/debts_central.js' %}?v=debts-central-20260406-2"></script>
 {% endblock %}
 
 {% block content %}
@@ -268,13 +291,12 @@
           <th style="width:110px;">رقم السبب</th>
           <th style="width:120px;">نوع الطرف</th>
           <th style="width:210px;">اسم الطرف</th>
-          <th style="width:140px;">المتبقي SYP</th>
-          <th style="width:140px;">المتبقي USD</th>
-          <th style="width:220px;">الإجمالي عند الإنشاء</th>
+          <th style="width:150px;">SYP عند الإنشاء</th>
+          <th style="width:150px;">USD عند الإنشاء</th>
           <th style="width:110px;">الحالة</th>
           <th style="width:140px;">المستخدم</th>
           <th style="width:180px;">التاريخ</th>
-          <th style="width:170px;" class="left">إجراءات</th>
+          <th style="width:180px;" class="left">إجراءات</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>

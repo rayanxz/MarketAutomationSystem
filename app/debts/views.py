@@ -6,6 +6,7 @@ from datetime import date as _date_cls
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.contrib.auth import get_user_model
 
@@ -17,6 +18,7 @@ from debts.models import (
     CreditorDebt as CreditorEntry,
     DebtReminder,
     DebtRecord,
+    DebtDirection,
     DebtCauseType,
     OtherPartyType,
 )
@@ -66,6 +68,42 @@ def view_debt(request: HttpRequest, direction: str, entry_id: int) -> HttpRespon
         },
     )
 
+
+@role_required(AccountProfile.Role.MANAGER)
+def view_central_debt(request: HttpRequest, debt_ref: str) -> HttpResponse:
+    ref = (debt_ref or "").strip()
+    qs = DebtRecord.objects.select_related("provider", "customer")
+
+    debt = None
+    if ref.isdigit():
+        debt = qs.filter(id=int(ref)).first()
+    if debt is None:
+        debt = qs.filter(public_id__iexact=ref).first()
+    if debt is None:
+        return render(request, "404.html", status=404)
+
+    source_url = _source_url_for_central_debt(debt)
+    view_direction, view_entry_id = _resolve_central_view_target(debt)
+    legacy_view_url = ""
+    if view_direction and view_entry_id:
+        legacy_view_url = f"/manager/debts/view/{view_direction}/{view_entry_id}/"
+
+    settlements = list(
+        debt.settlements.select_related("receipt", "money_container").order_by("-created_at")
+    )
+    return render(
+        request,
+        "debts/view_central_debt.html",
+        {
+            "debt": debt,
+            "source_url": source_url,
+            "legacy_view_url": legacy_view_url,
+            "settlements": settlements,
+            "money_containers": _allowed_containers(request.user),
+        },
+    )
+
+
 # ---------- Helpers ----------
 def _bad(msg: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"ok": False, "error": msg}, status=status)
@@ -99,6 +137,82 @@ def _allowed_containers(user):
     return list(
         FinSV.money_containers_for_user_qs(user=user).order_by("name")
     )
+
+
+def _source_url_for_central_debt(debt: DebtRecord) -> str:
+    cause_type = (debt.cause_type or "").strip().lower()
+    cause_id = str(debt.cause_id or "").strip()
+    if not cause_id.isdigit():
+        return ""
+    if cause_type == DebtCauseType.PURCHASE_BILL:
+        return reverse("billing_bill_view", kwargs={"bill_id": int(cause_id)})
+    if cause_type == DebtCauseType.PROVIDER_RETURN:
+        return reverse("billing_return_view", kwargs={"ret_id": int(cause_id)})
+    if cause_type == DebtCauseType.POS_BILL:
+        return reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": int(cause_id)})
+    return ""
+
+
+def _resolve_central_view_target(debt: DebtRecord) -> tuple[str, int] | tuple[None, None]:
+    direction = (debt.direction or "").strip().lower()
+    cause_type = (debt.cause_type or "").strip().lower()
+    cause_id = str(debt.cause_id or "").strip()
+
+    if not cause_id:
+        return None, None
+
+    if cause_type == DebtCauseType.MANUAL:
+        try:
+            entry_id = int(cause_id)
+        except Exception:
+            return None, None
+        if direction == DebtDirection.PAYABLE:
+            return "debtor", entry_id
+        if direction == DebtDirection.RECEIVABLE:
+            return "creditor", entry_id
+        return None, None
+
+    if direction == DebtDirection.PAYABLE:
+        entry = None
+        if cause_type == DebtCauseType.PURCHASE_BILL:
+            entry = SV.resolve_debtor_entry_for_source(
+                source_app="billing",
+                source_model="Bill",
+                source_id=cause_id,
+            )
+        elif cause_type == DebtCauseType.POS_BILL:
+            entry = SV.resolve_debtor_entry_for_source(
+                source_app="pos",
+                source_model="SalesBill",
+                source_id=cause_id,
+            )
+        if entry:
+            return "debtor", int(entry.id)
+        return None, None
+
+    if direction == DebtDirection.RECEIVABLE:
+        entry = None
+        if cause_type == DebtCauseType.PROVIDER_RETURN:
+            entry = SV.resolve_creditor_entry_for_source(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=cause_id,
+            )
+        if entry:
+            return "creditor", int(entry.id)
+        return None, None
+
+    return None, None
+
+
+def _central_row_with_links(debt: DebtRecord) -> dict:
+    row = central_debt_row(debt)
+    view_direction, view_entry_id = _resolve_central_view_target(debt)
+    row["view_direction"] = view_direction or ""
+    row["view_entry_id"] = view_entry_id
+    row["legacy_view_url"] = f"/manager/debts/view/{view_direction}/{view_entry_id}/" if (view_direction and view_entry_id) else ""
+    row["debt_view_url"] = f"/manager/debts/view/record/{debt.public_id}/"
+    return row
 
 
 def _entry_details(direction: str, entry_id: int) -> dict:
@@ -379,7 +493,7 @@ def api_central_debts_list(request: HttpRequest) -> JsonResponse:
     )
     items = list(qs)
     nxt = items[-1].id if items else None
-    return JsonResponse({"ok": True, "items": [central_debt_row(d) for d in items], "next_cursor": nxt})
+    return JsonResponse({"ok": True, "items": [_central_row_with_links(d) for d in items], "next_cursor": nxt})
 
 
 @require_GET

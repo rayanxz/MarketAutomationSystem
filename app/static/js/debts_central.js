@@ -34,9 +34,21 @@
   let suggestIdx = -1;
   let suggestAbort = null;
 
-  function nf(x) {
+  function nf(x, maxFractionDigits = 3) {
     const n = Number(x);
-    return Number.isFinite(n) ? new Intl.NumberFormat().format(n) : (x ?? "");
+    if (!Number.isFinite(n)) return (x ?? "");
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: maxFractionDigits,
+    }).format(n);
+  }
+
+  function fmtSyp(x) {
+    return nf(x, 3);
+  }
+
+  function fmtUsd(x) {
+    return nf(x, 2);
   }
 
   function eh(s) {
@@ -77,47 +89,43 @@
 
   function arDebtType(v) {
     const x = String(v || "").toLowerCase();
-    if (x === "debtor") return "مدين";
-    if (x === "creditor") return "دائن";
-    return "—";
+    if (x === "debtor") return "\u0645\u062f\u064a\u0646";
+    if (x === "creditor") return "\u062f\u0627\u0626\u0646";
+    return "\u2014";
   }
 
   function arCauseType(v) {
     const x = String(v || "").toLowerCase();
-    if (x === "purchase_bill") return "فاتورة شراء";
-    if (x === "pos_bill") return "فاتورة POS";
-    if (x === "provider_return") return "مرتجع مورد";
-    if (x === "manual") return "دين يدوي";
-    return "—";
+    if (x === "purchase_bill") return "\u0641\u0627\u062a\u0648\u0631\u0629 \u0634\u0631\u0627\u0621";
+    if (x === "pos_bill") return "\u0641\u0627\u062a\u0648\u0631\u0629 POS";
+    if (x === "provider_return") return "\u0645\u0631\u062a\u062c\u0639 \u0645\u0648\u0631\u062f";
+    if (x === "manual") return "\u062f\u064a\u0646 \u064a\u062f\u0648\u064a";
+    return "\u2014";
   }
 
   function arPartyType(v) {
     const x = String(v || "").toLowerCase();
-    if (x === "provider") return "مورد";
-    if (x === "customer") return "زبون";
-    if (x === "system_user") return "مستخدم نظام";
-    if (x === "other") return "أخرى";
-    return "—";
+    if (x === "provider") return "\u0645\u0648\u0631\u062f";
+    if (x === "customer") return "\u0632\u0628\u0648\u0646";
+    if (x === "system_user") return "\u0645\u0633\u062a\u062e\u062f\u0645 \u0646\u0638\u0627\u0645";
+    if (x === "other") return "\u0623\u062e\u0631\u0649";
+    return "\u2014";
   }
 
   function arStatus(v) {
-    return (String(v || "").toLowerCase() === "closed") ? "مغلق" : "مفتوح";
+    return (String(v || "").toLowerCase() === "closed")
+      ? "\u0645\u063a\u0644\u0642"
+      : "\u0645\u0641\u062a\u0648\u062d";
   }
 
   function statusClass(v) {
     return (String(v || "").toLowerCase() === "closed") ? "status-closed" : "status-open";
   }
 
-  function fmtTotal(item) {
-    const syp = Number(item.total_syp || 0);
-    const usd = Number(item.total_usd || 0);
-    return `SYP ${nf(syp)} | USD ${nf(usd)}`;
-  }
-
   function fmtDate(isoValue) {
-    if (!isoValue) return "—";
+    if (!isoValue) return "\u2014";
     const d = new Date(isoValue);
-    if (Number.isNaN(d.getTime())) return "—";
+    if (Number.isNaN(d.getTime())) return "\u2014";
     return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
   }
 
@@ -132,14 +140,20 @@
   }
 
   function rowHtml(item) {
-    const remSyp = Number(item.remaining_syp || 0);
-    const remUsd = Number(item.remaining_usd || 0);
-    const totalText = fmtTotal(item);
+    const totalSyp = Number(item.total_syp || 0);
+    const totalUsd = Number(item.total_usd || 0);
+    const totalSypText = fmtSyp(totalSyp);
+    const totalUsdText = fmtUsd(totalUsd);
     const otherPartyName = item.other_party_name || item.other_party_id || "";
+    const debtViewHref = String(item.debt_view_url || "").trim();
     const sourceHref = sourceUrl(item);
+    const viewAction = debtViewHref
+      ? `<a class="btn primary" href="${eh(debtViewHref)}">\u0639\u0631\u0636</a>`
+      : `<button class="btn primary" type="button" disabled title="\u0644\u0627 \u064A\u0648\u062C\u062F \u0635\u0641\u062D\u0629 \u0639\u0631\u0636 \u0645\u062A\u0627\u062D\u0629">\u0639\u0631\u0636</button>`;
     const sourceAction = sourceHref
-      ? `<a class="btn" href="${eh(sourceHref)}">عرض المصدر</a>`
-      : `<span class="muted">—</span>`;
+      ? `<a class="btn" href="${eh(sourceHref)}">\u0627\u0644\u0645\u0635\u062F\u0631</a>`
+      : `<button class="btn" type="button" disabled title="\u0644\u0627 \u064A\u0648\u062C\u062F \u0645\u0635\u062F\u0631 \u0645\u0631\u0628\u0648\u0637">\u0627\u0644\u0645\u0635\u062F\u0631</button>`;
+    const actionsHtml = `<span class="actions-group">${viewAction}${sourceAction}</span>`;
 
     return `
       <tr data-id="${eh(item.debt_id || item.id || "")}">
@@ -149,13 +163,12 @@
         <td><span class="truncate" title="${eh(item.cause_id || "")}">${eh(item.cause_id || "")}</span></td>
         <td>${eh(arPartyType(item.other_party_type))}</td>
         <td><span class="truncate" title="${eh(otherPartyName)}">${eh(otherPartyName)}</span></td>
-        <td>${nf(remSyp)}</td>
-        <td>${nf(remUsd)}</td>
-        <td><span class="truncate" title="${eh(totalText)}">${eh(totalText)}</span></td>
+        <td><span class="truncate" title="${eh(totalSypText)}">${eh(totalSypText)}</span></td>
+        <td><span class="truncate" title="${eh(totalUsdText)}">${eh(totalUsdText)}</span></td>
         <td><span class="status-pill ${statusClass(item.status)}">${eh(arStatus(item.status))}</span></td>
-        <td><span class="truncate" title="${eh(item.actor_username || "")}">${eh(item.actor_username || "—")}</span></td>
+        <td><span class="truncate" title="${eh(item.actor_username || "")}">${eh(item.actor_username || "\u2014")}</span></td>
         <td>${eh(fmtDate(item.created_at))}</td>
-        <td class="left">${sourceAction}</td>
+        <td class="left">${actionsHtml}</td>
       </tr>
     `;
   }
@@ -177,12 +190,12 @@
       const res = await fetch(url, { headers: { Accept: "application/json" } });
       if (!res.ok) {
         const txt = await res.text().catch(() => "(no body)");
-        alert(`فشل التحميل\nHTTP ${res.status}\n${txt.slice(0, 300)}`);
+        alert(`\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u0645\u064a\u0644\nHTTP ${res.status}\n${txt.slice(0, 300)}`);
         return;
       }
       const data = await res.json();
       if (!data.ok) {
-        alert(`فشل التحميل\n${data.error || "unknown error"}`);
+        alert(`\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u0645\u064a\u0644\n${data.error || "unknown error"}`);
         return;
       }
 
@@ -199,7 +212,7 @@
       loadMore.style.display = done ? "none" : "inline-flex";
       if (done && rows.children.length) endMsg.hidden = false;
     } catch (e) {
-      alert(`فشل التحميل\n${e?.message || e}`);
+      alert(`\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u0645\u064a\u0644\n${e?.message || e}`);
     } finally {
       busy = false;
       loadMore.disabled = false;

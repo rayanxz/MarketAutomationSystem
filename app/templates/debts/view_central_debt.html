@@ -1,0 +1,101 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+
+{% block title %}تفاصيل الدين{% endblock %}
+
+{% block menu_secondary %}
+  {% with name=request.resolver_match.url_name %}
+  <div class="tabs-row">
+    <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec{% if name == 'debts_page' or name == 'debts_view_central_debt' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة الديون</a>
+    <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+    <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+  </div>
+  {% endwith %}
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .card{ background:#fff; border-radius:12px; padding:14px; box-shadow:var(--card-shadow); }
+  .muted{ color:#6b7280; font-size:12px; }
+  .grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:10px; }
+  .info{ border:1px solid #eef2f7; border-radius:10px; padding:10px; background:#fff; }
+  .label{ font-size:12px; color:#6b7280; margin-bottom:4px; }
+  .val{ font-weight:600; }
+  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  .btn{ padding:8px 12px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; color:inherit; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+  .btn[disabled]{ opacity:.6; cursor:not-allowed; pointer-events:none; }
+  .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
+  table{ width:100%; border-collapse:collapse; }
+  th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
+  thead th{ background:#f8fafc; position:sticky; top:0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card" dir="rtl">
+  <h2 style="margin:0 0 12px;">تفاصيل الدين {{ debt.public_id }}</h2>
+
+  <div class="grid">
+    <div class="info"><div class="label">نوع الدين</div><div class="val">{% if debt.direction == 'payable' %}مدين{% else %}دائن{% endif %}</div></div>
+    <div class="info"><div class="label">الحالة</div><div class="val">{% if debt.status == 'closed' %}مغلق{% else %}مفتوح{% endif %}</div></div>
+    <div class="info"><div class="label">نوع السبب</div><div class="val">{{ debt.cause_type }}</div></div>
+    <div class="info"><div class="label">رقم السبب</div><div class="val">{{ debt.cause_id }}</div></div>
+    <div class="info"><div class="label">نوع الطرف المقابل</div><div class="val">{{ debt.other_party_type }}</div></div>
+    <div class="info"><div class="label">اسم الطرف المقابل</div><div class="val">{% if debt.provider_id %}{{ debt.provider.name }}{% elif debt.customer_id %}{{ debt.customer.name }}{% else %}{{ debt.other_party_id|default:"—" }}{% endif %}</div></div>
+    <div class="info"><div class="label">إجمالي SYP عند الإنشاء</div><div class="val">{{ debt.total_syp|floatformat:3 }}</div></div>
+    <div class="info"><div class="label">إجمالي USD عند الإنشاء</div><div class="val">{{ debt.total_usd|floatformat:3 }}</div></div>
+    <div class="info"><div class="label">المتبقي SYP</div><div class="val">{{ debt.remaining_syp|floatformat:3 }}</div></div>
+    <div class="info"><div class="label">المتبقي USD</div><div class="val">{{ debt.remaining_usd|floatformat:3 }}</div></div>
+    <div class="info"><div class="label">المستخدم</div><div class="val">{{ debt.actor_username|default:"—" }}</div></div>
+    <div class="info"><div class="label">تاريخ الإنشاء</div><div class="val">{{ debt.created_at|date:"Y-m-d H:i:s" }}</div></div>
+  </div>
+
+  <div class="row">
+    {% if source_url %}
+      <a class="btn" href="{{ source_url }}">المصدر</a>
+    {% else %}
+      <button class="btn" type="button" disabled>المصدر</button>
+    {% endif %}
+    {% if legacy_view_url %}
+      <a class="btn" href="{{ legacy_view_url }}">عرض التفاصيل التشغيلية</a>
+    {% endif %}
+    <a class="btn" href="{% url 'debts_page' %}">رجوع للقائمة</a>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>التاريخ</th>
+          <th>دفعة SYP</th>
+          <th>دفعة USD</th>
+          <th>تطبيق SYP</th>
+          <th>تطبيق USD</th>
+          <th>الحافظة</th>
+          <th>الإيصال</th>
+          <th>المستخدم</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in settlements %}
+          <tr>
+            <td>{{ s.created_at|date:"Y-m-d H:i:s" }}</td>
+            <td>{{ s.payment_syp|floatformat:3 }}</td>
+            <td>{{ s.payment_usd|floatformat:3 }}</td>
+            <td>{{ s.applied_syp|floatformat:3 }}</td>
+            <td>{{ s.applied_usd|floatformat:3 }}</td>
+            <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}—{% endif %}</td>
+            <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}—{% endif %}</td>
+            <td>{{ s.actor_username|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="muted">لا توجد عمليات تسديد بعد.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

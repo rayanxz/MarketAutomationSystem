@@ -120,6 +120,9 @@ class CentralDebtsListApiTests(TestCase):
             "actor_username",
             "created_at",
             "status",
+            "view_direction",
+            "view_entry_id",
+            "debt_view_url",
         ):
             self.assertIn(key, row)
         self.assertNotIn("currency_code", row)
@@ -214,3 +217,49 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(central.total_usd, Decimal("0.000"))
         self.assertEqual(central.remaining_usd, Decimal("0.000"))
         self.assertEqual(central.other_party_type, OtherPartyType.OTHER)
+
+    def test_view_link_is_resolved_for_manual_debt(self):
+        entry = DebtSV.create_manual_debt(
+            actor=self.manager,
+            direction="debtor",
+            party_type="worker",
+            provider_id=None,
+            party_name="Manual View Link",
+            amount=Decimal("50"),
+            currency_code="SYP",
+            initial_payment=None,
+            money_container_id=None,
+        )
+        central = DebtRecord.objects.get(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id=str(entry.id),
+        )
+
+        resp = self._get("/manager/debts/api/records/", debt_id=central.public_id)
+        self.assertEqual(resp.status_code, 200)
+        items = resp.json()["items"]
+        self.assertEqual(len(items), 1)
+        row = items[0]
+        self.assertEqual(row["view_direction"], "debtor")
+        self.assertEqual(row["view_entry_id"], entry.id)
+        self.assertEqual(row["debt_view_url"], f"/manager/debts/view/record/{central.public_id}/")
+
+    def test_view_link_is_empty_when_legacy_entry_not_resolved(self):
+        resp = self._get("/manager/debts/api/records/", debt_id=self.debt_pos.public_id)
+        self.assertEqual(resp.status_code, 200)
+        items = resp.json()["items"]
+        self.assertEqual(len(items), 1)
+        row = items[0]
+        self.assertEqual(row["debt_id"], self.debt_pos.public_id)
+        self.assertEqual(row["view_direction"], "")
+        self.assertIsNone(row["view_entry_id"])
+        self.assertEqual(row["debt_view_url"], f"/manager/debts/view/record/{self.debt_pos.public_id}/")
+
+    def test_central_view_page_opens_by_public_id(self):
+        resp = self.client.get(f"/manager/debts/view/record/{self.debt_purchase.public_id}/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_central_view_page_opens_pos_debt_without_legacy_entry(self):
+        resp = self.client.get(f"/manager/debts/view/record/{self.debt_pos.public_id}/")
+        self.assertEqual(resp.status_code, 200)

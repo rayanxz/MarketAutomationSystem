@@ -8,6 +8,7 @@ urlpatterns = [
     path("add/", v.add_debt, name="debts_add"),
 
     path("view/<str:direction>/<int:entry_id>/", v.view_debt, name="debts_view_debt"),
+    path("view/record/<str:debt_ref>/", v.view_central_debt, name="debts_view_central_debt"),
 
     # APIs (lists)
     path("api/debts/", v.api_debts_list, name="debts_api_debts_list"),

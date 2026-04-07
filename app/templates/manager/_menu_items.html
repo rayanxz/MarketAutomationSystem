@@ -3,7 +3,7 @@
   <a href="{% url 'manager_collections' %}"
      class="{% if name == 'manager_collections' or name == 'manager_product_new' or name == 'manager_product_edit' %}active{% endif %}">ادارة المنتجات</a>
   <a href="{% url 'billing_home' %}"
-     class="{% if name == 'billing_home' or name == 'billing_add' or name == 'billing_list' or name == 'billing_bill_view' or name == 'billing_bill_return_wizard' or name == 'billing_providers' or name == 'billing_returns_list' or name == 'billing_return_view' or name == 'debts_page' or name == 'debts_add' or name == 'creditors_page' or name == 'debts_view_debt' %}active{% endif %}">ادارة الفواتير</a>
+     class="{% if name == 'billing_home' or name == 'billing_add' or name == 'billing_list' or name == 'billing_bill_view' or name == 'billing_bill_return_wizard' or name == 'billing_providers' or name == 'billing_returns_list' or name == 'billing_return_view' or name == 'debts_page' or name == 'debts_add' or name == 'creditors_page' or name == 'debts_view_debt' or name == 'debts_view_central_debt' %}active{% endif %}">ادارة الفواتير</a>
   <a href="{% url 'financials:container_list' %}" data-hardnav="1"
      class="{% if name == 'container_list' or name == 'container_create' or name == 'container_edit' or name == 'container_movements' or name == 'container_manual_events' or name == 'fx_settings' or name == 'receipt_explorer' or name == 'document_trace' or name == 'reconciliation_dashboard' %}active{% endif %}">ادراة حاويات المال</a>
   <a class="btn-sec{% if name == 'products_import' or name == 'products_import_analyze' or name == 'products_import_map' or name == 'products_import_stage' or name == 'products_import_update_row' or name == 'products_import_commit' %} active{% endif %}"
@@ -15,4 +15,3 @@
   <a href="{% url 'pos:pos_manager_overview' %}"
      class="{% if name == 'pos_manager_overview' or name == 'pos_manager_overview_timeline' or name == 'pos_manager_bill_detail' or name == 'pos_manager_sale_return_wizard' or name == 'pos_manager_sale_return_settle' or name == 'pos_manager_sale_return_post' or name == 'pos_manager_customers' or name == 'pos_manager_customer_debts' %}active{% endif %}">POS</a>
 {% endwith %}
-
