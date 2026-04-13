@@ -8,9 +8,8 @@
     <div class="tabs-row">
       <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
       <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
-      <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة المدين</a>
+      <a class="btn-sec{% if name == 'debts_page' or name == 'debts_view_central_debt' or name == 'debts_view_debt' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة الديون</a>
       <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
-      <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">قائمة الدائن</a>
       <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
       <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
     </div>
@@ -667,4 +666,3 @@
   </script>
   <script src="{% static 'js/billing_add_bill.js' %}" defer></script>
 {% endblock %}
-

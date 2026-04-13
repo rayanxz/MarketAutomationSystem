@@ -149,9 +149,8 @@
       });
       const data = await res.json();
     if (data.ok){
-        const debtsUrl     = document.getElementById("debtsUrl")?.value || "/manager/debts/";
-        const creditorsUrl = document.getElementById("creditorsUrl")?.value || "/manager/debts/creditors/";
-        location.href = (dir.value === "debtor") ? debtsUrl : creditorsUrl;
+        const debtsUrl = document.getElementById("debtsUrl")?.value || "/manager/debts/";
+        location.href = debtsUrl;
       }else{
         saveErr.textContent = data.error || "فشل الحفظ.";
       }

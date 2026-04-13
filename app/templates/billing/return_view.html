@@ -7,9 +7,8 @@
   <div class="tabs-row">
     <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">Ø¥Ø¶Ø§ÙØ© ÙØ§ØªÙˆØ±Ø©</a>
     <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„ÙÙˆØ§ØªÙŠØ±</a>
-    <a class="btn-sec{% if name == 'debts_page' %} active{% endif %}" href="{% url 'debts_page' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø¯ÙŠÙ†</a>
+    <a class="btn-sec{% if name == 'debts_page' or name == 'debts_view_central_debt' or name == 'debts_view_debt' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة الديون</a>
     <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">Ø¥Ø¶Ø§ÙØ© Ø¯ÙŠÙ†</a>
-    <a class="btn-sec{% if name == 'creditors_page' %} active{% endif %}" href="{% url 'creditors_page' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¯Ø§Ø¦Ù†</a>
     <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</a>
     <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">Ù‚Ø§Ø¦Ù…Ø© Ù…Ø±ØªØ¬Ø¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†</a>
   </div>
@@ -533,5 +532,4 @@
   })();
 </script>
 {% endblock %}
-
 
