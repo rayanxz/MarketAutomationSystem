@@ -11,6 +11,7 @@ from django.db.models.functions import Lower
 from catalog.models import Product
 from financials.models import MoneyContainer
 from core.currency import CURRENCY_CHOICES, SYP as CURRENCY_SYP, USD as CURRENCY_USD
+from core.public_ids import allocate_next_public_id
 
 from debts.models import (
     DebtorDebt as DebtorEntry,
@@ -23,6 +24,27 @@ from django.conf import settings
 
 DEC0 = Decimal("0.000")
 _CENTRAL_DEBT_MISSING = object()
+
+BILL_PUBLIC_ID_PREFIX = "PB-"
+BILL_PUBLIC_ID_SEQUENCE_KEY = "billing_bill_public_id"
+PROVIDER_RETURN_PUBLIC_ID_PREFIX = "PR-"
+PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY = "billing_provider_return_public_id"
+
+
+def _bill_public_id_default() -> str:
+    return allocate_next_public_id(
+        sequence_key=BILL_PUBLIC_ID_SEQUENCE_KEY,
+        prefix=BILL_PUBLIC_ID_PREFIX,
+        model=Bill,
+    )
+
+
+def _provider_return_public_id_default() -> str:
+    return allocate_next_public_id(
+        sequence_key=PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
+        prefix=PROVIDER_RETURN_PUBLIC_ID_PREFIX,
+        model=ProviderReturn,
+    )
 
 
 def _debt_entry_identity_priority(entry, *, base_source_id: str) -> tuple[int, int]:
@@ -98,6 +120,7 @@ class Bill(models.Model):
         MIXED = "mixed", "مختلط"
 
     # NOTE: Debt state (paid/remaining/status) lives in DebtorEntry now.
+    public_id = models.CharField(max_length=24, unique=True, default=_bill_public_id_default, editable=False, db_index=True)
     serial   = models.PositiveIntegerField(unique=True, db_index=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="bills")
 
@@ -223,12 +246,17 @@ class Bill(models.Model):
         cached = getattr(self, "_central_debt_cached", _CENTRAL_DEBT_MISSING)
         if cached is not _CENTRAL_DEBT_MISSING:
             return cached
+        cause_refs: list[str] = []
+        public_ref = (self.public_id or "").strip()
+        if public_ref:
+            cause_refs.append(public_ref)
+        cause_refs.append(str(self.id))
         debt = (
             DebtRecord.objects
             .filter(
                 direction=DebtDirection.PAYABLE,
                 cause_type=DebtCauseType.PURCHASE_BILL,
-                cause_id=str(self.id),
+                cause_id__in=cause_refs,
             )
             .order_by("id")
             .first()
@@ -429,9 +457,9 @@ class Bill(models.Model):
         return Bill.Status.UNPAID
 
     def __str__(self) -> str:
-        s = f"{self.serial or self.pk:03d}"
+        s = (self.public_id or "").strip() or f"{self.serial or self.pk:03d}"
         prov_name = getattr(self.provider, "name", "") or "—"
-        return f"Bill #{s} — {prov_name}"
+        return f"Bill {s} — {prov_name}"
 
     # --------- Race-safe serial assignment ---------
     def _assign_serial_locked(self) -> None:
@@ -496,7 +524,12 @@ class BillItem(models.Model):
 
     def __str__(self) -> str:
         name = (self.product_name_at_txn or "").strip() or getattr(self.product, "name", "")
-        return f"{name} x {self.qty_primary} (#{self.bill.serial or self.bill_id})"
+        doc_ref = (
+            getattr(self.bill, "public_id", "") or
+            getattr(self.bill, "serial", None) or
+            "—"
+        )
+        return f"{name} x {self.qty_primary} ({doc_ref})"
 
     def clean(self):
         super().clean()
@@ -515,6 +548,7 @@ class BillItem(models.Model):
 
 class ProviderReturn(models.Model):
     # NOTE: Debt state (collected/remaining/status) lives in CreditorEntry now.
+    public_id = models.CharField(max_length=24, unique=True, default=_provider_return_public_id_default, editable=False, db_index=True)
     serial   = models.PositiveIntegerField(unique=True, db_index=True, null=True, blank=True)
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="returns")
 
@@ -532,6 +566,7 @@ class ProviderReturn(models.Model):
         db_index=True,
         help_text="سيريال فاتورة الشراء الأصلية إن وجد.",
     )
+    source_bill_public_id = models.CharField(max_length=24, blank=True, default="", db_index=True)
 
     total          = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
                                          validators=[MinValueValidator(0)])
@@ -688,9 +723,9 @@ class ProviderReturn(models.Model):
         return ProviderReturn.Status.UNPAID
 
     def __str__(self) -> str:
-        s = f"{self.serial or self.pk:03d}"
+        s = (self.public_id or "").strip() or f"{self.serial or self.pk:03d}"
         prov_name = getattr(self.provider, "name", "") or "—"
-        return f"Return #{s} — {prov_name}"
+        return f"Return {s} — {prov_name}"
 
     # --------- Race-safe serial assignment ---------
     def _assign_serial_locked(self) -> None:
@@ -748,5 +783,13 @@ class ProviderReturnItem(models.Model):
 
     def __str__(self) -> str:
         name = (self.product_name_at_txn or "").strip() or getattr(self.product, "name", "")
-        return f"{name} x {self.qty_primary} (#{self.ret.serial or self.ret_id})"
+        doc_ref = (
+            getattr(self.ret, "public_id", "") or
+            getattr(self.ret, "serial", None) or
+            "—"
+        )
+        return f"{name} x {self.qty_primary} ({doc_ref})"
+
+
+
 

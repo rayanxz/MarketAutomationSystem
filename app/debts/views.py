@@ -57,7 +57,7 @@ def view_debt(request: HttpRequest, direction: str, entry_id: int) -> HttpRespon
     """Read-only details page for a single debt (debtor|creditor)."""
     direction = (direction or "").lower().strip()
     if direction not in {"debtor", "creditor"}:
-        return render(request, "404.html", status=404)
+        return HttpResponse(status=404)
     return render(
         request,
         "debts/view_debt.html",
@@ -74,13 +74,9 @@ def view_central_debt(request: HttpRequest, debt_ref: str) -> HttpResponse:
     ref = (debt_ref or "").strip()
     qs = DebtRecord.objects.select_related("provider", "customer")
 
-    debt = None
-    if ref.isdigit():
-        debt = qs.filter(id=int(ref)).first()
+    debt = qs.filter(public_id__iexact=ref).first()
     if debt is None:
-        debt = qs.filter(public_id__iexact=ref).first()
-    if debt is None:
-        return render(request, "404.html", status=404)
+        return HttpResponse(status=404)
 
     source_url = _source_url_for_central_debt(debt)
     view_direction, view_entry_id = _resolve_central_view_target(debt)
@@ -142,14 +138,14 @@ def _allowed_containers(user):
 def _source_url_for_central_debt(debt: DebtRecord) -> str:
     cause_type = (debt.cause_type or "").strip().lower()
     cause_id = str(debt.cause_id or "").strip()
-    if not cause_id.isdigit():
+    if not cause_id:
         return ""
     if cause_type == DebtCauseType.PURCHASE_BILL:
-        return reverse("billing_bill_view", kwargs={"bill_id": int(cause_id)})
+        return reverse("billing_bill_view", kwargs={"bill_id": cause_id})
     if cause_type == DebtCauseType.PROVIDER_RETURN:
-        return reverse("billing_return_view", kwargs={"ret_id": int(cause_id)})
+        return reverse("billing_return_view", kwargs={"ret_id": cause_id})
     if cause_type == DebtCauseType.POS_BILL:
-        return reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": int(cause_id)})
+        return reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": cause_id})
     return ""
 
 

@@ -1086,7 +1086,7 @@ def create_bill(
         debt_record = DebtSV.upsert_central_debt(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=(bill.public_id or str(bill.id)),
             source_app="billing",
             other_party_type=OtherPartyType.PROVIDER,
             other_party_id=str(provider.id),
@@ -1235,7 +1235,10 @@ def delete_bill(*, actor, bill_id: int) -> None:
     # ==========================
     # 2) Locate debt state (central + legacy compatibility)
     # ==========================
-    central_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.id, for_update=True)
+    central_debt = DebtSV.resolve_purchase_bill_debt(
+        bill_id=(bill.public_id or str(bill.id)),
+        for_update=True,
+    )
     entries = DebtSV.list_debtor_entries_for_source(
         source_app="billing",
         source_model="Bill",
@@ -1586,6 +1589,7 @@ def create_return(
     items: Iterable[Dict[str, Any]],
     container: ProductContainer | None = None,   
     source_bill_serial: int | None = None,
+    source_bill_public_id: str | None = None,
     money_container_id: int | None = None,
     currency_code: str = "SYP",
     valuation_mode: str = "HISTORICAL",
@@ -1626,6 +1630,11 @@ def create_return(
     if settlement_currency not in ("SYP", "USD"):
         raise ValueError("Invalid settlement currency")
 
+    source_bill_public_ref = (source_bill_public_id or "").strip()
+    if not source_bill_public_ref and source_bill_serial:
+        src_bill = Bill.objects.filter(serial=source_bill_serial).only("public_id").first()
+        source_bill_public_ref = (getattr(src_bill, "public_id", "") or "").strip()
+
     valuation_mode_norm = (valuation_mode or "HISTORICAL").upper().strip()
     if valuation_mode_norm not in ("HISTORICAL", "CURRENT_FX"):
         raise ValueError("Invalid valuation mode")
@@ -1644,13 +1653,14 @@ def create_return(
         settlement_currency=settlement_currency,
         valuation_mode=valuation_mode_norm,
         source_bill_serial=source_bill_serial,
+        source_bill_public_id=source_bill_public_ref,
         created_by=actor,
     )
     pret.save()
 
     pret.initial_paid = intended_paid
     pret.initial_status = (status or "unpaid").lower()
-    pret.save(update_fields=["initial_paid", "initial_status", "source_bill_serial"])
+    pret.save(update_fields=["initial_paid", "initial_status", "source_bill_serial", "source_bill_public_id"])
 
     # ----- Collect container codes (wizard mode) -----
     all_codes: set[str] = set()
@@ -2356,7 +2366,10 @@ def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, c
     if not money_container_id:
         raise ValueError("money_container_id is required")
 
-    central_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.id, for_update=True)
+    central_debt = DebtSV.resolve_purchase_bill_debt(
+        bill_id=(bill.public_id or str(bill.id)),
+        for_update=True,
+    )
     if central_debt is not None:
         settled_debt, settlement = DebtSV.settle_central_debt(
             actor=actor,
@@ -2426,7 +2439,10 @@ def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Opt
     if not money_container_id:
         raise ValueError("money_container_id is required")
 
-    central_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.id, for_update=True)
+    central_debt = DebtSV.resolve_purchase_bill_debt(
+        bill_id=(bill.public_id or str(bill.id)),
+        for_update=True,
+    )
     if central_debt is not None:
         settled_debt, settlement = DebtSV.settle_central_debt(
             actor=actor,

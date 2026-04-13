@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta, time as dt_time
 from decimal import Decimal
+import re
 
 from django.contrib.auth import get_user_model
 from django.db.models import Sum, Count, Q, Max, F
@@ -18,7 +19,15 @@ from django.template.loader import render_to_string
 
 from accounts.decorators import role_required
 from accounts.models import AccountProfile
-from .models import PosDay, PosShift, PosLoginSession, SalesBill, CustomerProfile, SalesReturn
+from .models import (
+    PosDay,
+    PosShift,
+    PosLoginSession,
+    SalesBill,
+    CustomerProfile,
+    SalesReturn,
+    SALES_BILL_PUBLIC_ID_PREFIX,
+)
 from debts.models import DebtorDebt, PartyType
 
 from inventory.models import ProductMovement , DEC0 , q3 , q4
@@ -26,6 +35,28 @@ from financials.models import MoneyContainerCurrency
 from financials import services as FinSV
 
 User = get_user_model()
+
+
+def _normalize_bill_ref(ref: str | int | None) -> str:
+    return str(ref or "").strip()
+
+
+def _is_valid_sales_bill_public_ref(token: str) -> bool:
+    normalized = str(token or "").strip().upper()
+    if not normalized:
+        return False
+    pattern = rf"^{re.escape(SALES_BILL_PUBLIC_ID_PREFIX)}\d+$"
+    return bool(re.fullmatch(pattern, normalized))
+
+
+def _resolve_sales_bill_from_ref(*, ref: str | int, for_update: bool = False):
+    token = _normalize_bill_ref(ref)
+    if not _is_valid_sales_bill_public_ref(token):
+        return None
+    qs = SalesBill.objects
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.filter(public_id__iexact=token).first()
 
 # ============================================================
 # Helper: build timeline events for a given day + filters
@@ -505,12 +536,15 @@ def pos_manager_overview_timeline(request: HttpRequest):
 
 
 @role_required(AccountProfile.Role.MANAGER)
-def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
+def pos_manager_bill_detail(request: HttpRequest, bill_id: str) -> HttpResponse:
+    bill_ref = _resolve_sales_bill_from_ref(ref=bill_id)
+    if bill_ref is None:
+        return HttpResponse(status=404)
     bill = get_object_or_404(
         SalesBill.objects
         .select_related("cashier", "shift", "login_session", "work_day", "customer")
         .prefetch_related("rows"),
-        pk=bill_id,
+        pk=bill_ref.id,
     )
 
     created_dt = timezone.localtime(bill.created_at) if bill.created_at else None
@@ -723,7 +757,9 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: int) -> HttpResponse:
                     item_id = int(layer.source_id)
                     bill_item = BillItem.objects.select_related("bill").get(id=item_id)
                     pb_id = bill_item.bill_id
-                    pb_url = reverse("billing_bill_view", args=[pb_id])
+                    pb_ref = (getattr(bill_item.bill, "public_id", "") or "").strip()
+                    if pb_ref:
+                        pb_url = reverse("billing_bill_view", args=[pb_ref])
                 except Exception:
                     pass
 

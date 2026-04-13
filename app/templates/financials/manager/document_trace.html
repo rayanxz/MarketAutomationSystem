@@ -18,7 +18,7 @@
       </div>
       <div>
         <label>رقم المصدر</label>
-        <input class="input" name="source_id" value="{{ source_id }}" placeholder="مثال: 125">
+        <input class="input" name="source_id" value="{{ source_id }}" placeholder="مثال: PB-001 / PR-001 / PS-001 / D-001">
       </div>
       <div style="display:flex;align-items:end;gap:10px;">
         <button class="btn" type="submit">تتبع</button>
@@ -32,7 +32,7 @@
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between;">
         <div>
           <div style="font-weight:700;">مرجع التتبع</div>
-          <div class="muted" style="margin-top:4px;">{{ source_app }}/{{ source_model }}/{{ source_id }}</div>
+          <div class="muted" style="margin-top:4px;">{{ source_app }}/{{ source_model }}/{{ source_ref_display|default:source_id }}</div>
           {% if source_document_label %}
             <div style="margin-top:6px;">{{ source_document_label }}</div>
           {% endif %}

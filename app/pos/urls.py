@@ -34,8 +34,8 @@ urlpatterns = [
     path("manager/overview/", views.pos_manager_overview, name="pos_manager_overview"),
     path("manager/overview/timeline/", views.pos_manager_overview_timeline, name="pos_manager_overview_timeline"),
 
-    path("manager/bill/<int:bill_id>/", views.pos_manager_bill_detail, name="pos_manager_bill_detail"),
-    path("manager/bill/<int:bill_id>/return-wizard/", returns_views.pos_manager_sale_return_wizard, name="pos_manager_sale_return_wizard"),
+    path("manager/bill/<str:bill_id>/", views.pos_manager_bill_detail, name="pos_manager_bill_detail"),
+    path("manager/bill/<str:bill_id>/return-wizard/", returns_views.pos_manager_sale_return_wizard, name="pos_manager_sale_return_wizard"),
     path("manager/returns/<int:return_id>/settle/", returns_views.pos_manager_sale_return_settle, name="pos_manager_sale_return_settle"),
     path("manager/returns/<int:return_id>/post/", returns_views.pos_manager_sale_return_post, name="pos_manager_sale_return_post"),
     path("manager/customers/", views.pos_manager_customers, name="pos_manager_customers"),
@@ -51,8 +51,8 @@ urlpatterns = [
     # bills APIs (POS only, not full billing app)
     path("api/bill/save/", api_bill_save, name="api_bill_save"),
     path("api/bills/today/", api_bills_today, name="api_bills_today"),
-    path("api/bill/<int:bill_id>/", api_bill_detail, name="api_bill_detail"),
-    path("api/bill/<int:pk>/delete/", api_bill_delete, name="api_bill_delete"),
+    path("api/bill/<str:bill_id>/", api_bill_detail, name="api_bill_detail"),
+    path("api/bill/<str:bill_id>/delete/", api_bill_delete, name="api_bill_delete"),
 
     # customers autocomplete
     path("api/customers/search/", api_customers_search, name="api_customers_search"),

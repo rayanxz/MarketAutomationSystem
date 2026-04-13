@@ -18,6 +18,7 @@ from financials.models import MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
 from inventory.models import q3, q4, DEC0
 from . import services as POSSV
+from .views import _resolve_sales_bill_from_ref
 from accounts.decorators import role_required_api
 from accounts.models import AccountProfile
 from accounts.utils import has_role
@@ -250,7 +251,7 @@ def api_bill_save(request: HttpRequest):
         return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
     with transaction.atomic():
-        bill_id = payload.get("id")
+        bill_id = str(payload.get("id") or "").strip()
         parked = bool(payload.get("parked"))
         pay_status = payload.get("pay_status") or SalesBill.PAY_FULL
         total_amount = _parse_decimal(payload.get("total_amount"))
@@ -450,9 +451,8 @@ def api_bill_save(request: HttpRequest):
         # Existing vs new bill
         # =====================
         if bill_id:
-            try:
-                bill = SalesBill.objects.select_for_update().get(pk=bill_id)
-            except SalesBill.DoesNotExist:
+            bill = _resolve_sales_bill_from_ref(ref=bill_id, for_update=True)
+            if bill is None:
                 return JsonResponse(
                     {"ok": False, "error": "BILL_NOT_FOUND"},
                     status=404,
@@ -677,7 +677,8 @@ def api_bill_save(request: HttpRequest):
         return JsonResponse({
             "ok": True,
             "bill": {
-                "id": bill.id,
+                "id": (bill.public_id or ""),
+                "public_id": (bill.public_id or ""),
                 "parked": bill.parked,
             }
         })
@@ -712,7 +713,8 @@ def api_bills_today(request: HttpRequest):
     for b in qs.select_related("customer").order_by("-created_at"):
         dt = timezone.localtime(b.created_at)
         bills.append({
-            "id": b.id,
+            "id": (b.public_id or ""),
+            "public_id": (b.public_id or ""),
             "created_at": dt.isoformat(),
             "time": dt.strftime("%H:%M"),
             "customer_name": b.customer_name,
@@ -731,7 +733,7 @@ def api_bills_today(request: HttpRequest):
 
 @role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_GET
-def api_bill_detail(request: HttpRequest, bill_id: int):
+def api_bill_detail(request: HttpRequest, bill_id: str):
     """
     Single bill detail for loading into middle section when left item is clicked.
     URL: /pos/api/bill/<bill_id>/
@@ -740,9 +742,8 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
       - superuser → can view any bill
       - normal user → can view only their own bills
     """
-    try:
-        bill = SalesBill.objects.select_related("customer").get(pk=bill_id)
-    except SalesBill.DoesNotExist:
+    bill = _resolve_sales_bill_from_ref(ref=bill_id)
+    if bill is None:
         return JsonResponse({"ok": False, "error": "Bill not found"}, status=404)
 
     # permissions:
@@ -774,7 +775,8 @@ def api_bill_detail(request: HttpRequest, bill_id: int):
 
     dt = timezone.localtime(bill.created_at)
     data = {
-        "id": bill.id,
+        "id": (bill.public_id or ""),
+        "public_id": (bill.public_id or ""),
         "created_at": dt.isoformat(),
         "customer_name": bill.customer_name,
         "customer_id": bill.customer_id,
@@ -821,7 +823,7 @@ def api_customers_search(request: HttpRequest):
 
 @role_required_api(AccountProfile.Role.CASHIER, AccountProfile.Role.MANAGER)
 @require_POST
-def api_bill_delete(request, pk: int):
+def api_bill_delete(request, bill_id: str):
     """
     Delete a parked POS bill (used by Ctrl+Backspace on parked bills).
     Finalized bills are NOT deletable from POS.
@@ -830,9 +832,8 @@ def api_bill_delete(request, pk: int):
       - cashier can delete only their own parked bills
       - superuser can delete any parked bill
     """
-    try:
-        bill = SalesBill.objects.get(pk=pk)
-    except SalesBill.DoesNotExist:
+    bill = _resolve_sales_bill_from_ref(ref=bill_id)
+    if bill is None:
         return JsonResponse({"ok": False, "error": "NOT_FOUND"}, status=404)
 
     # only parked bills can be deleted

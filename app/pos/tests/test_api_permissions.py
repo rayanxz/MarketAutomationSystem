@@ -52,6 +52,18 @@ class PosApiPermissionsTests(TestCase):
         resp = self.client.get(reverse("pos:pos_manager_overview"))
         self.assertEqual(resp.status_code, 200)
 
+    def test_manager_bill_detail_page_accepts_public_id(self):
+        bill = SalesBill.objects.create(
+            cashier=self.cashier_a,
+            customer_name="Visible Customer",
+            parked=False,
+            finalized=True,
+            is_deleted=False,
+        )
+        self._login("perm_manager")
+        resp = self.client.get(reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": bill.public_id}))
+        self.assertEqual(resp.status_code, 200)
+
     def test_owner_can_access_manager_overview(self):
         self._login("perm_owner")
         resp = self.client.get(reverse("pos:pos_manager_overview"))
@@ -67,14 +79,52 @@ class PosApiPermissionsTests(TestCase):
         )
 
         self._login("perm_cashier_b")
-        resp_cashier = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.id}))
-        self.assertEqual(resp_cashier.status_code, 403)
+        resp_cashier_numeric = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.id}))
+        self.assertEqual(resp_cashier_numeric.status_code, 404)
+        resp_cashier_public = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.public_id}))
+        self.assertEqual(resp_cashier_public.status_code, 403)
         self.client.logout()
 
         self._login("perm_manager")
-        resp_manager = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.id}))
-        self.assertEqual(resp_manager.status_code, 200)
-        self.assertTrue(resp_manager.json().get("ok"))
+        resp_manager_numeric = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.id}))
+        self.assertEqual(resp_manager_numeric.status_code, 404)
+        resp_manager_public = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.public_id}))
+        self.assertEqual(resp_manager_public.status_code, 200)
+        self.assertTrue(resp_manager_public.json().get("ok"))
+
+    def test_api_bill_detail_payload_uses_public_id_as_id(self):
+        bill = SalesBill.objects.create(
+            cashier=self.cashier_a,
+            customer_name="Payload Customer",
+            parked=True,
+            finalized=False,
+            is_deleted=False,
+        )
+        self._login("perm_manager")
+        resp = self.client.get(reverse("pos:api_bill_detail", kwargs={"bill_id": bill.public_id}))
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data.get("ok"), data)
+        self.assertEqual(data["bill"]["id"], bill.public_id)
+        self.assertEqual(data["bill"]["public_id"], bill.public_id)
+
+    def test_api_bills_today_payload_uses_public_id_as_id(self):
+        bill = SalesBill.objects.create(
+            cashier=self.cashier_a,
+            customer_name="Today Customer",
+            parked=True,
+            finalized=False,
+            is_deleted=False,
+        )
+        self._login("perm_manager")
+        resp = self.client.get(reverse("pos:api_bills_today"))
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data.get("ok"), data)
+        row = next((r for r in data.get("bills", []) if r.get("public_id") == bill.public_id), None)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["id"], bill.public_id)
+        self.assertNotEqual(row["id"], str(bill.id))
 
     def test_shift_end_is_owner_or_manager_scope_not_any_cashier(self):
         now = timezone.now()

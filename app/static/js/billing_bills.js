@@ -2,8 +2,9 @@
 (() => {
   const API_LIST = window.__BILLING__?.billsListUrl;
   const DELETE_TPL = window.__BILLING__?.billDeleteUrlTemplate;
+  const VIEW_TPL = window.__BILLING__?.billViewUrlTemplate;
 
-  if (!API_LIST || !DELETE_TPL) {
+  if (!API_LIST || !DELETE_TPL || !VIEW_TPL) {
     console.error("Missing __BILLING__ URLs; ensure template injected them.");
     return;
   }
@@ -22,7 +23,7 @@
   let cursor = null;
   let loading = false;
   let done = false;
-  let pendingDeleteId = null;
+  let pendingDeleteId = "";
   let debounceTimer = null;
 
   // ---------- Helpers ----------
@@ -84,14 +85,15 @@
 
   function row(b) {
     const dt = b.created_at ? new Date(b.created_at).toLocaleString() : "—";
-    const viewUrl = `${window.__BILLING__.billViewBase}${b.id}/`;
+    const docId = asText(b.id, "—");
+    const viewUrl = VIEW_TPL.replace("PB-REF", encodeURIComponent(docId));
 
     const creator =
       b.created_by_name ||
       (b.created_by && b.created_by.name) ||
       "—";
 
-    const deleteLabel = asText(b.serial ?? b.id, "—");
+    const deleteLabel = asText(docId, "—");
     const safeDeleteLabel = escHtml(deleteLabel);
 
     let deleteBtn = "";
@@ -103,7 +105,7 @@
 
     return `
       <tr data-id="${b.id}">
-        <td>${ellipsisCell(b.serial, "—")}</td>
+        <td>${ellipsisCell(docId, "—")}</td>
         <td>${ellipsisCell(b.provider?.name, "—")}</td>
         <td>${ellipsisCell(creator, "—")}</td>
         <td>${ellipsisCell(nfmt(b.total_syp), "0")}</td>
@@ -230,7 +232,7 @@
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-del]");
     if (!btn) return;
-    pendingDeleteId = parseInt(btn.dataset.del, 10);
+    pendingDeleteId = String(btn.dataset.del || "").trim();
     delLabel.textContent = `#${btn.dataset.label}`;
     modal.classList.add("open");
   });
@@ -251,14 +253,14 @@
     if (!pendingDeleteId) return;
     btnConfirm.disabled = true;
     try {
-      const url = DELETE_TPL.replace("123456", String(pendingDeleteId));
+      const url = DELETE_TPL.replace("PB-REF", encodeURIComponent(String(pendingDeleteId)));
       const res = await fetch(url, { method: "POST", headers: { "X-CSRFToken": getCsrf() } });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "delete failed");
-      const tr = rowsEl.querySelector(`tr[data-id="${pendingDeleteId}"]`);
+      const tr = rowsEl.querySelector(`tr[data-id="${String(pendingDeleteId)}"]`);
       if (tr) tr.remove();
       modal.classList.remove("open");
-      pendingDeleteId = null;
+      pendingDeleteId = "";
     } catch (e) {
       console.error(e);
       alert("فشل الحذف");

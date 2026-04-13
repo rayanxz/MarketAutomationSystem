@@ -1,4 +1,4 @@
-{# app/templates/pos/manager_sale_return_settle.html #}
+﻿{# app/templates/pos/manager_sale_return_settle.html #}
 {% extends "manager/base_manager.html" %}
 {% load l10n formatting %}
 
@@ -14,7 +14,7 @@
 
   <div class="meta-grid" style="margin-bottom: 12px;">
     <div class="meta-card">
-      <div><b>Bill:</b> #{{ bill.id }}</div>
+      <div><b>Bill:</b> #{{ bill.public_id }}</div>
       <div><b>Customer:</b> {{ bill.customer_name|default:"-" }}</div>
       <div><b>Stock container:</b> {{ ret.stock_container.name }}</div>
     </div>
@@ -80,8 +80,9 @@
 
     <div style="margin-top: 12px;">
       <button class="btn-sec" type="submit">Post Return</button>
-      <a class="btn-mini" href="{% url 'pos:pos_manager_bill_detail' bill.id %}">Back to Bill</a>
+      <a class="btn-mini" href="{% url 'pos:pos_manager_bill_detail' bill.public_id %}">Back to Bill</a>
     </div>
   </form>
 </div>
 {% endblock %}
+

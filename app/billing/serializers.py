@@ -38,7 +38,8 @@ def bill_row(b: Bill) -> Dict[str, Any]:
         created_by_name = fn or (getattr(u, "username", "") or str(getattr(u, "id", "")))
 
     return {
-        "id": b.id,
+        "id": b.public_id,
+        "public_id": b.public_id,
         "serial": b.serial,
         "provider": {"id": b.provider_id, "name": b.provider.name if b.provider_id else ""},
         "total": str(b.total),
@@ -63,7 +64,8 @@ def return_row(r: ProviderReturn) -> Dict[str, Any]:
         created_by_name = fn or (getattr(u, "username", "") or str(getattr(u, "id", "")))
 
     return {
-        "id": r.id,
+        "id": r.public_id,
+        "public_id": r.public_id,
         "serial": r.serial,
         "provider": {"id": r.provider_id, "name": r.provider.name},
         "total": str(r.total),
@@ -76,6 +78,7 @@ def return_row(r: ProviderReturn) -> Dict[str, Any]:
         "status": r.status,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "source_bill_serial": r.source_bill_serial,
+        "source_bill_id": (getattr(r, "source_bill_public_id", "") or ""),
 
         "created_by": {"id": u.id, "name": created_by_name} if u else None,
         "created_by_name": created_by_name or None,

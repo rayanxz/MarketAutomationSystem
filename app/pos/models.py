@@ -10,9 +10,21 @@ from django.db.models import Max
 from django.core.validators import MinValueValidator
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
+from core.public_ids import allocate_next_public_id
 from financials.models import MoneyContainer
 from catalog.models import Product
 from stock.models import ProductContainer
+
+SALES_BILL_PUBLIC_ID_PREFIX = "PS-"
+SALES_BILL_PUBLIC_ID_SEQUENCE_KEY = "pos_sales_bill_public_id"
+
+
+def _sales_bill_public_id_default() -> str:
+    return allocate_next_public_id(
+        sequence_key=SALES_BILL_PUBLIC_ID_SEQUENCE_KEY,
+        prefix=SALES_BILL_PUBLIC_ID_PREFIX,
+        model=SalesBill,
+    )
 
 
 class CustomerProfile(models.Model):
@@ -156,6 +168,8 @@ class SalesBill(models.Model):
         (SETTLE_ALL_USD, "All in USD"),
     ]
 
+    public_id = models.CharField(max_length=24, unique=True, default=_sales_bill_public_id_default, editable=False, db_index=True)
+
     # NEW: container links
     work_day = models.ForeignKey(
         PosDay,
@@ -282,7 +296,8 @@ class SalesBill(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self) -> str:
-        return f"POS Bill #{self.pk or 'New'} — {self.customer_name or 'No customer'}"
+        ref = (self.public_id or "").strip() or f"#{self.pk or 'New'}"
+        return f"POS Bill {ref} — {self.customer_name or 'No customer'}"
 
     @property
     def left_amount(self) -> Decimal:

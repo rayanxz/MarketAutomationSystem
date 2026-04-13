@@ -1,7 +1,8 @@
 // static/js/billing_returns_list.js
 (() => {
   const API_LIST = window.__RETURNS__?.listUrl;
-  if (!API_LIST) { console.error("Missing __RETURNS__.listUrl"); return; }
+  const VIEW_TPL = window.__RETURNS__?.viewUrlTemplate;
+  if (!API_LIST || !VIEW_TPL) { console.error("Missing __RETURNS__ URLs"); return; }
 
   const form = document.getElementById('filters');
   const rowsEl = document.getElementById('rows');
@@ -27,11 +28,12 @@
   };
   const row = (r) => {
   const dt = r.created_at ? new Date(r.created_at).toLocaleString() : "";
-  const viewUrl = `${(window.__RETURNS__?.viewBase || "").replace(/\/?$/, "/")}${r.id}/`;
+  const retId = String(r.id || "").trim();
+  const viewUrl = VIEW_TPL.replace("PR-REF", encodeURIComponent(retId));
   return `
       <tr data-id="${r.id}">
-        <td>${r.serial ?? ""}</td>
-        <td>${r.source_bill_serial ?? ""}</td>
+        <td>${retId}</td>
+        <td>${r.source_bill_id ?? ""}</td>
         <td>${r.provider?.name ?? ""}</td>
         <td>${nfmt(r.total_syp)}</td>
         <td>${nfmt(r.total_usd)}</td>
@@ -51,8 +53,6 @@
     const fd = new FormData(form);
     const obj = {};
     for (const [k,v] of fd.entries()) if (v) obj[k]=v;
-    // map "id" to backend's "rid" param
-    if (obj.id) { obj.rid = obj.id; delete obj.id; }
     obj.page_size = 30;
     if (includeCursor && cursor) obj.cursor = cursor;
     return obj;
@@ -69,8 +69,7 @@
     const params = new URLSearchParams(location.search);
     let changed = false;
     for (const [k,v] of params.entries()){
-      const name = (k === "rid") ? "id" : k;
-      if (form.elements[name]) { form.elements[name].value = v; changed = true; }
+      if (form.elements[k]) { form.elements[k].value = v; changed = true; }
     }
     return changed;
   }

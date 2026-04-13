@@ -1,4 +1,4 @@
-{# app/templates/pos/manager_sale_return_wizard.html #}
+﻿{# app/templates/pos/manager_sale_return_wizard.html #}
 {% extends "manager/base_manager.html" %}
 {% load l10n formatting %}
 
@@ -6,7 +6,7 @@
 
 {% block content %}
 <div class="center-box" style="max-width: 1200px;">
-  <h2 style="margin-bottom: 8px;">Customer Return - Bill #{{ bill.id }}</h2>
+  <h2 style="margin-bottom: 8px;">Customer Return - Bill #{{ bill.public_id }}</h2>
 
   {% if error_msg %}
     <div class="warn" style="margin-bottom: 10px;">{{ error_msg }}</div>
@@ -94,8 +94,9 @@
 
     <div style="margin-top: 12px;">
       <button class="btn-sec" type="submit">Continue to Settlement</button>
-      <a class="btn-mini" href="{% url 'pos:pos_manager_bill_detail' bill.id %}">Back</a>
+      <a class="btn-mini" href="{% url 'pos:pos_manager_bill_detail' bill.public_id %}">Back</a>
     </div>
   </form>
 </div>
 {% endblock %}
+

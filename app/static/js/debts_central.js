@@ -132,10 +132,11 @@
   function sourceUrl(item) {
     const causeType = String(item.cause_type || "").toLowerCase();
     const causeId = String(item.cause_id || "").trim();
-    if (!/^\d+$/.test(causeId)) return "";
-    if (causeType === "purchase_bill") return `/manager/billing/bills/${causeId}/`;
-    if (causeType === "provider_return") return `/manager/billing/returns/${causeId}/`;
-    if (causeType === "pos_bill") return `/pos/manager/bill/${causeId}/`;
+    if (!causeId) return "";
+    const encoded = encodeURIComponent(causeId);
+    if (causeType === "purchase_bill") return `/manager/billing/bills/${encoded}/`;
+    if (causeType === "provider_return") return `/manager/billing/returns/${encoded}/`;
+    if (causeType === "pos_bill") return `/pos/manager/bill/${encoded}/`;
     return "";
   }
 

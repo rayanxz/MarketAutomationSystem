@@ -251,7 +251,7 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
         central = DebtRecord.objects.filter(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         ).first()
         debt_payment_receipt_ids = list(
             DebtorPayment.objects.filter(entry__in=entries, receipt__isnull=False).values_list("receipt_id", flat=True)
@@ -292,7 +292,7 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
         central = DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         )
         legacy = DebtorDebt.objects.create(
             provider=self.provider,

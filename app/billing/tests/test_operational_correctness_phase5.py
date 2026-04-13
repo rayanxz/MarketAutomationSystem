@@ -10,7 +10,7 @@ from django.urls import reverse
 
 from accounts.models import AccountProfile
 from billing import services as BillingSV
-from billing.models import Provider
+from billing.models import Provider, ProviderReturn
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials import services as FinSV
 from financials.models import ContainerFeature, Currency, MoneyContainer, MoneyContainerCurrency
@@ -89,9 +89,9 @@ class BillingOperationalCorrectnessPhase5Tests(TestCase):
         ok = self.client.login(username="mgr_phase5_ops", password="pw12345")
         self.assertTrue(ok)
 
-    def _create_bill(self, *, status: str) -> None:
+    def _create_bill(self, *, status: str):
         paid = Decimal("100") if status == "paid" else Decimal("0")
-        BillingSV.create_bill(
+        return BillingSV.create_bill(
             actor=self.manager,
             provider_id=self.provider.id,
             status=status,
@@ -109,6 +109,46 @@ class BillingOperationalCorrectnessPhase5Tests(TestCase):
             money_container_id=self.cash.id,
             settlement_currency="SYP",
         )
+
+    def test_bills_list_id_filter_accepts_public_id_only(self):
+        bill = self._create_bill(status="paid")
+        url = reverse("billing_api_bills_list")
+
+        resp_public = self.client.get(url, {"bill_id": bill.public_id, "page_size": "20"})
+        self.assertEqual(resp_public.status_code, 200, resp_public.content.decode("utf-8"))
+        data_public = resp_public.json()
+        self.assertTrue(data_public.get("ok"), data_public)
+        self.assertEqual(len(data_public.get("items", [])), 1)
+        self.assertEqual(data_public["items"][0]["id"], bill.public_id)
+
+        resp_numeric = self.client.get(url, {"bill_id": str(bill.id), "page_size": "20"})
+        self.assertEqual(resp_numeric.status_code, 200, resp_numeric.content.decode("utf-8"))
+        data_numeric = resp_numeric.json()
+        self.assertTrue(data_numeric.get("ok"), data_numeric)
+        self.assertEqual(len(data_numeric.get("items", [])), 0)
+
+    def test_provider_returns_list_id_filter_accepts_public_id_only(self):
+        ret = ProviderReturn.objects.create(
+            provider=self.provider,
+            total=Decimal("100"),
+            total_syp=Decimal("100"),
+            total_usd=Decimal("0"),
+            settlement_currency="SYP",
+        )
+        url = reverse("billing_api_returns_list")
+
+        resp_public = self.client.get(url, {"return_id": ret.public_id, "page_size": "20"})
+        self.assertEqual(resp_public.status_code, 200, resp_public.content.decode("utf-8"))
+        data_public = resp_public.json()
+        self.assertTrue(data_public.get("ok"), data_public)
+        self.assertEqual(len(data_public.get("items", [])), 1)
+        self.assertEqual(data_public["items"][0]["id"], ret.public_id)
+
+        resp_numeric = self.client.get(url, {"return_id": str(ret.id), "page_size": "20"})
+        self.assertEqual(resp_numeric.status_code, 200, resp_numeric.content.decode("utf-8"))
+        data_numeric = resp_numeric.json()
+        self.assertTrue(data_numeric.get("ok"), data_numeric)
+        self.assertEqual(len(data_numeric.get("items", [])), 0)
 
     def test_bills_status_filter_fills_page_before_cursor_cut(self):
         for _ in range(3):

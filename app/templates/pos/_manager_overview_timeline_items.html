@@ -95,7 +95,7 @@
         {% elif ev.type == "bill" %}
           {% with b=ev.bill %}
             <div class="bill-row">
-              <span class="bill-id">#{{ b.id }}</span>
+              <span class="bill-id">#{{ b.public_id }}</span>
               <span class="bill-time">{{ ev.time|date:"H:i" }}</span>
 
               <span class="bill-col">
@@ -126,7 +126,7 @@
                 {% endif %}
               </span>
 
-              <a class="bill-actions" href="{% url 'pos:pos_manager_bill_detail' b.id %}">عرض</a>
+              <a class="bill-actions" href="{% url 'pos:pos_manager_bill_detail' b.public_id %}">عرض</a>
             </div>
           {% endwith %}
 
@@ -140,3 +140,4 @@
   {% endif %}
 
 {% endfor %}
+

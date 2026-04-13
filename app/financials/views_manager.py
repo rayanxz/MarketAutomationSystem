@@ -1,8 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from decimal import Decimal
 import logging
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -107,9 +108,9 @@ def fx_settings(request: HttpRequest) -> HttpResponse:
         if form.is_valid():
             rate = form.cleaned_data["rate_syp_per_usd"]
             FSV.set_current_fx(actor=request.user, rate_syp_per_usd=rate)
-            messages.success(request, "تم تحديث سعر الصرف وسيتم تطبيقه على كل الحركات القادمة.")
+            messages.success(request, "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù ÙˆØ³ÙŠØªÙ… ØªØ·Ø¨ÙŠÙ‚Ù‡ Ø¹Ù„Ù‰ ÙƒÙ„ Ø§Ù„Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©.")
             return redirect("financials:fx_settings")
-        messages.error(request, "في خطأ بقيمة سعر الصرف.")
+        messages.error(request, "ÙÙŠ Ø®Ø·Ø£ Ø¨Ù‚ÙŠÙ…Ø© Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù.")
     else:
         form = FxSettingsForm(instance=current)
 
@@ -156,7 +157,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
             ok = ok and f.is_valid()
 
         if not ok:
-            messages.error(request, "في أخطاء بالنموذج. راجع القيم وحاول مرة ثانية.")
+            messages.error(request, "ÙÙŠ Ø£Ø®Ø·Ø§Ø¡ Ø¨Ø§Ù„Ù†Ù…ÙˆØ°Ø¬. Ø±Ø§Ø¬Ø¹ Ø§Ù„Ù‚ÙŠÙ… ÙˆØ­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø«Ø§Ù†ÙŠØ©.")
             account_columns = _allowed_users_columns(form)
             return render(
                 request,
@@ -216,7 +217,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
             amt = Decimal(f.cleaned_data.get("amount") or 0)
             raw_amounts[code] = amt
 
-            # ✅ extra safety: ignore unchecked currency amounts
+            # âœ… extra safety: ignore unchecked currency amounts
             if code not in selected_codes:
                 amt = Decimal("0")
 
@@ -243,10 +244,10 @@ def container_create(request: HttpRequest) -> HttpResponse:
                 actor=request.user,
                 container_id=container.id,
                 amounts_by_code=amounts,
-                note="رصيد افتتاحي",
+                note="Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ",
             )
 
-        messages.success(request, "تم إنشاء الحاوية بنجاح.")
+        messages.success(request, "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø§ÙˆÙŠØ© Ø¨Ù†Ø¬Ø§Ø­.")
         return redirect("financials:container_list")
 
     # ===== GET =====
@@ -293,12 +294,12 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
     if request.method == "POST":
         form = MoneyContainerForm(request.POST, instance=container)
 
-        # ✅ MUST be before is_valid()
+        # âœ… MUST be before is_valid()
         form.fields["ref_code"].disabled = True
         form.fields["container_type"].disabled = True
 
         if form.is_valid():
-            # ✅ safer: preserve ref + type even if something slips through
+            # âœ… safer: preserve ref + type even if something slips through
             obj: MoneyContainer = form.save(commit=False)
             obj.ref_code = container.ref_code
             obj.container_type = container.container_type
@@ -314,10 +315,10 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
             MoneyContainerCurrency.objects.filter(container=obj).update(is_enabled=False)
             MoneyContainerCurrency.objects.filter(container=obj, currency_id__in=selected_ids).update(is_enabled=True)
 
-            messages.success(request, "تم تعديل الحاوية بنجاح.")
+            messages.success(request, "ØªÙ… ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø­Ø§ÙˆÙŠØ© Ø¨Ù†Ø¬Ø§Ø­.")
             return redirect("financials:container_list")
 
-        messages.error(request, "في أخطاء بالنموذج.")
+        messages.error(request, "ÙÙŠ Ø£Ø®Ø·Ø§Ø¡ Ø¨Ø§Ù„Ù†Ù…ÙˆØ°Ø¬.")
 
     else:
         enabled_ids = list(
@@ -328,7 +329,7 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
 
         form = MoneyContainerForm(instance=container, initial={
             "currencies": enabled_ids,
-            # ✅ these 2 lines are the fix:
+            # âœ… these 2 lines are the fix:
             "features": list(container.features.values_list("id", flat=True)),
             "allowed_users": list(container.allowed_users.values_list("id", flat=True)),
         })
@@ -467,23 +468,186 @@ def _source_document_url(*, source_app: str, source_model: str, source_id: str) 
     sid = (source_id or "").strip()
     if not sid:
         return ""
-    try:
-        sid_int = int(sid.split(":", 1)[0])
-    except (TypeError, ValueError):
-        return ""
-
+    targeted_public_ref = _resolve_target_public_source_id(
+        source_app=source_app,
+        source_model=source_model,
+        source_id=sid,
+    )
     try:
         if app_code == "billing" and model_code == "Bill":
-            return reverse("billing_bill_view", kwargs={"bill_id": sid_int})
+            if not targeted_public_ref:
+                return ""
+            return reverse("billing_bill_view", kwargs={"bill_id": targeted_public_ref})
         if app_code == "billing" and model_code == "ProviderReturn":
-            return reverse("billing_return_view", kwargs={"ret_id": sid_int})
+            if not targeted_public_ref:
+                return ""
+            return reverse("billing_return_view", kwargs={"ret_id": targeted_public_ref})
         if app_code == "pos" and model_code == "SalesBill":
-            return reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": sid_int})
+            if not targeted_public_ref:
+                return ""
+            return reverse("pos:pos_manager_bill_detail", kwargs={"bill_id": targeted_public_ref})
         if app_code == "pos" and model_code == "SalesReturn":
+            sid_int = int(sid.split(":", 1)[0])
             return reverse("pos:pos_manager_sale_return_settle", kwargs={"return_id": sid_int})
     except Exception:
         return ""
     return ""
+
+
+def _targeted_public_id_prefix(*, source_app: str, source_model: str) -> str:
+    app_code = (source_app or "").strip().lower()
+    model_code = (source_model or "").strip()
+    if app_code == "billing" and model_code == "Bill":
+        return "PB-"
+    if app_code == "billing" and model_code == "ProviderReturn":
+        return "PR-"
+    if app_code == "pos" and model_code == "SalesBill":
+        return "PS-"
+    return ""
+
+
+def _targeted_model_class(*, source_app: str, source_model: str):
+    app_code = (source_app or "").strip().lower()
+    model_code = (source_model or "").strip()
+    if app_code == "billing" and model_code == "Bill":
+        from billing.models import Bill
+
+        return Bill
+    if app_code == "billing" and model_code == "ProviderReturn":
+        from billing.models import ProviderReturn
+
+        return ProviderReturn
+    if app_code == "pos" and model_code == "SalesBill":
+        from pos.models import SalesBill
+
+        return SalesBill
+    return None
+
+
+def _resolve_target_public_source_id(*, source_app: str, source_model: str, source_id: str) -> str:
+    token = str(source_id or "").strip()
+    prefix = _targeted_public_id_prefix(source_app=source_app, source_model=source_model)
+    if not token or not prefix:
+        return ""
+
+    base = token.split(":", 1)[0].strip()
+    if not base:
+        return ""
+
+    if base.upper().startswith(prefix):
+        return base.upper()
+
+    if not base.isdigit():
+        return ""
+
+    model_cls = _targeted_model_class(source_app=source_app, source_model=source_model)
+    if model_cls is None:
+        return ""
+    obj = model_cls.objects.filter(pk=int(base)).only("public_id").first()
+    if obj is None:
+        return ""
+    return str(getattr(obj, "public_id", "") or "").strip().upper()
+
+
+def _resolve_target_internal_source_id(*, source_app: str, source_model: str, source_id: str) -> str:
+    token = str(source_id or "").strip()
+    prefix = _targeted_public_id_prefix(source_app=source_app, source_model=source_model)
+    if not token or not prefix:
+        return ""
+
+    base = token.split(":", 1)[0].strip()
+    if not base:
+        return ""
+
+    if base.isdigit():
+        return str(int(base))
+
+    if not base.upper().startswith(prefix):
+        return ""
+
+    model_cls = _targeted_model_class(source_app=source_app, source_model=source_model)
+    if model_cls is None:
+        return ""
+    obj = model_cls.objects.filter(public_id__iexact=base).only("id").first()
+    if obj is None:
+        return ""
+    return str(int(getattr(obj, "id", 0) or 0))
+
+
+def _source_lookup_variants(
+    *,
+    source_app: str,
+    source_model: str,
+    source_id: str,
+    allow_numeric_targeted: bool,
+) -> list[str]:
+    token = str(source_id or "").strip()
+    if not token:
+        return []
+
+    prefix = _targeted_public_id_prefix(source_app=source_app, source_model=source_model)
+    if not prefix:
+        return [token]
+
+    base = token.split(":", 1)[0].strip()
+    if base.isdigit() and not allow_numeric_targeted:
+        return []
+
+    values: set[str] = set()
+    public_ref = _resolve_target_public_source_id(
+        source_app=source_app,
+        source_model=source_model,
+        source_id=token,
+    )
+    if public_ref:
+        values.add(public_ref)
+
+    internal_ref = _resolve_target_internal_source_id(
+        source_app=source_app,
+        source_model=source_model,
+        source_id=token,
+    )
+    if internal_ref:
+        values.add(internal_ref)
+
+    return sorted(values)
+
+
+def _source_identity_lookup_q_for_values(*, source_field: str, values: list[str]) -> Q:
+    q = Q(pk__in=[])
+    for raw in values:
+        v = str(raw or "").strip()
+        if not v:
+            continue
+        q |= Q(**{source_field: v})
+        q |= Q(**{f"{source_field}__startswith": f"{v}:"})
+    return q
+
+
+def _preferred_source_ref_for_ui(*, source_app: str, source_model: str, source_id: str) -> str:
+    raw = str(source_id or "").strip()
+    if not raw:
+        return ""
+
+    prefix = _targeted_public_id_prefix(source_app=source_app, source_model=source_model)
+    if not prefix:
+        return raw
+
+    if ":" in raw:
+        base, suffix = raw.split(":", 1)
+        mapped = _resolve_target_public_source_id(
+            source_app=source_app,
+            source_model=source_model,
+            source_id=base,
+        ) or base.strip()
+        return f"{mapped}:{suffix}"
+
+    mapped = _resolve_target_public_source_id(
+        source_app=source_app,
+        source_model=source_model,
+        source_id=raw,
+    )
+    return mapped or raw
 
 
 @login_required
@@ -513,7 +677,31 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
     if source_model:
         qs = qs.filter(source_model=source_model)
     if source_id:
-        qs = qs.filter(source_id=source_id)
+        if source_model:
+            targeted_prefix = _targeted_public_id_prefix(
+                source_app=source_app,
+                source_model=source_model,
+            )
+            if targeted_prefix:
+                lookup_values = _source_lookup_variants(
+                    source_app=source_app,
+                    source_model=source_model,
+                    source_id=source_id,
+                    allow_numeric_targeted=False,
+                )
+                if not lookup_values:
+                    qs = qs.none()
+                else:
+                    qs = qs.filter(
+                        _source_identity_lookup_q_for_values(
+                            source_field="source_id",
+                            values=lookup_values,
+                        )
+                    )
+            else:
+                qs = qs.filter(source_id=source_id)
+        else:
+            qs = qs.filter(source_id=source_id)
     if kind:
         qs = qs.filter(kind=kind)
     if action_key:
@@ -539,15 +727,15 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
         line_rows = []
         for ln in lines:
             if ln.target_type == PostingTargetType.CONTAINER:
-                target_label = f"حاوية: {getattr(ln.container, 'name', '—')}"
+                target_label = f"Ø­Ø§ÙˆÙŠØ©: {getattr(ln.container, 'name', 'â€”')}"
             else:
-                cp_name = getattr(ln.counterparty, "name", "—")
+                cp_name = getattr(ln.counterparty, "name", "â€”")
                 cp_type = getattr(ln.counterparty, "type", "")
-                target_label = f"طرف مقابل: {cp_name} ({cp_type})"
+                target_label = f"Ø·Ø±Ù Ù…Ù‚Ø§Ø¨Ù„: {cp_name} ({cp_type})"
             line_rows.append(
                 {
                     "target_label": target_label,
-                    "currency": getattr(ln.currency, "code", "—"),
+                    "currency": getattr(ln.currency, "code", "â€”"),
                     "amount": ln.amount,
                 }
             )
@@ -557,9 +745,14 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
             source_model=r.source_model,
             source_id=r.source_id,
         )
+        source_ref_display = _preferred_source_ref_for_ui(
+            source_app=r.source_app,
+            source_model=r.source_model,
+            source_id=r.source_id,
+        ) or str(r.source_id or "").strip()
         trace_url = (
-            f"{reverse('financials:document_trace')}?source_app={r.source_app}&source_model={r.source_model}&source_id={r.source_id}"
-            if r.source_app and r.source_model and r.source_id
+            f"{reverse('financials:document_trace')}?{urlencode({'source_app': r.source_app, 'source_model': r.source_model, 'source_id': source_ref_display})}"
+            if r.source_app and r.source_model and source_ref_display
             else ""
         )
         rows.append(
@@ -568,6 +761,7 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
                 "line_rows": line_rows,
                 "doc_url": doc_url,
                 "trace_url": trace_url,
+                "source_ref_display": source_ref_display,
             }
         )
 
@@ -618,6 +812,7 @@ def document_trace(request: HttpRequest) -> HttpResponse:
     source_app = (request.GET.get("source_app") or "").strip()
     source_model = (request.GET.get("source_model") or "").strip()
     source_id = (request.GET.get("source_id") or "").strip()
+    source_ref_display = source_id
 
     receipts = Receipt.objects.none()
     debtor_entries = DebtorDebt.objects.none()
@@ -632,33 +827,66 @@ def document_trace(request: HttpRequest) -> HttpResponse:
     source_document_label = ""
 
     if source_app and source_model and source_id:
-        receipts = (
-            Receipt.objects
-            .select_related("actor")
-            .prefetch_related("lines", "lines__currency", "lines__container", "lines__counterparty")
-            .filter(source_app=source_app, source_model=source_model, source_id=source_id)
-            .order_by("created_at", "id")
-        )
-        debtor_entries = DebtorDebt.objects.filter(
+        source_ref_display = _preferred_source_ref_for_ui(
             source_app=source_app,
             source_model=source_model,
-        ).filter(Q(source_id=source_id) | Q(source_id__startswith=f"{source_id}:")).order_by("id")
-        creditor_entries = CreditorDebt.objects.filter(
+            source_id=source_id,
+        ) or source_id
+        lookup_values = _source_lookup_variants(
             source_app=source_app,
             source_model=source_model,
-        ).filter(Q(source_id=source_id) | Q(source_id__startswith=f"{source_id}:")).order_by("id")
-        debtor_payments = (
-            DebtorPayment.objects
-            .select_related("receipt", "money_container", "entry")
-            .filter(entry__in=debtor_entries)
-            .order_by("created_at", "id")
+            source_id=source_id,
+            allow_numeric_targeted=False,
         )
-        creditor_receipts = (
-            CreditorReceipt.objects
-            .select_related("receipt", "money_container", "entry")
-            .filter(entry__in=creditor_entries)
-            .order_by("created_at", "id")
-        )
+
+        if lookup_values:
+            receipts = (
+                Receipt.objects
+                .select_related("actor")
+                .prefetch_related("lines", "lines__currency", "lines__container", "lines__counterparty")
+                .filter(source_app=source_app, source_model=source_model)
+                .filter(
+                    _source_identity_lookup_q_for_values(
+                        source_field="source_id",
+                        values=lookup_values,
+                    )
+                )
+                .order_by("created_at", "id")
+            )
+            debt_lookup_q = Q(pk__in=[])
+            for value in lookup_values:
+                v = str(value or "").strip()
+                if not v:
+                    continue
+                debt_lookup_q |= Q(source_id=v)
+                debt_lookup_q |= Q(source_id__startswith=f"{v}:")
+                debt_lookup_q |= Q(legacy_source_id=v)
+                debt_lookup_q |= Q(legacy_source_id__startswith=f"{v}:")
+
+            debtor_entries = (
+                DebtorDebt.objects
+                .filter(source_app=source_app, source_model=source_model)
+                .filter(debt_lookup_q)
+                .order_by("id")
+            )
+            creditor_entries = (
+                CreditorDebt.objects
+                .filter(source_app=source_app, source_model=source_model)
+                .filter(debt_lookup_q)
+                .order_by("id")
+            )
+            debtor_payments = (
+                DebtorPayment.objects
+                .select_related("receipt", "money_container", "entry")
+                .filter(entry__in=debtor_entries)
+                .order_by("created_at", "id")
+            )
+            creditor_receipts = (
+                CreditorReceipt.objects
+                .select_related("receipt", "money_container", "entry")
+                .filter(entry__in=creditor_entries)
+                .order_by("created_at", "id")
+            )
         app_code = source_app.lower()
         cause_type = None
         direction_filter = None
@@ -672,9 +900,18 @@ def document_trace(request: HttpRequest) -> HttpResponse:
             cause_type = DebtCauseType.POS_BILL
             direction_filter = DebtDirection.RECEIVABLE
         if cause_type:
+            cause_refs = [str(v or "").strip() for v in lookup_values if str(v or "").strip()]
+            source_ref_norm = str(source_ref_display or "").strip()
+            targeted_prefix = _targeted_public_id_prefix(
+                source_app=source_app,
+                source_model=source_model,
+            )
+            allow_direct_ref = bool(cause_refs) or not bool(targeted_prefix)
+            if allow_direct_ref and source_ref_norm and source_ref_norm not in cause_refs:
+                cause_refs.insert(0, source_ref_norm)
             central_debts = DebtRecord.objects.filter(
                 cause_type=cause_type,
-                cause_id=source_id,
+                cause_id__in=cause_refs,
             )
             if direction_filter:
                 central_debts = central_debts.filter(direction=direction_filter)
@@ -693,35 +930,58 @@ def document_trace(request: HttpRequest) -> HttpResponse:
         )
 
         try:
-            sid_int = int(source_id.split(":", 1)[0])
-        except (TypeError, ValueError):
-            sid_int = 0
-        if sid_int > 0:
-            try:
-                if app_code == "billing" and source_model == "Bill":
-                    from billing.models import Bill
-                    source_document = Bill.objects.select_related("provider").get(pk=sid_int)
-                    source_document_label = f"فاتورة شراء #{source_document.serial}"
-                elif app_code == "billing" and source_model == "ProviderReturn":
-                    from billing.models import ProviderReturn
-                    source_document = ProviderReturn.objects.select_related("provider").get(pk=sid_int)
-                    source_document_label = f"مرتجع مورد #{source_document.serial}"
-                elif app_code == "pos" and source_model == "SalesBill":
-                    from pos.models import SalesBill
-                    source_document = SalesBill.objects.select_related("customer").get(pk=sid_int)
-                    source_document_label = f"فاتورة مبيعات POS #{source_document.id}"
-                elif app_code == "pos" and source_model == "SalesReturn":
-                    from pos.models import SalesReturn
-                    source_document = SalesReturn.objects.select_related("sale_bill").get(pk=sid_int)
-                    source_document_label = f"مرتجع مبيعات POS #{source_document.serial or source_document.id}"
-            except Exception:
-                source_document = None
-            source_document_url = _source_document_url(
-                source_app=source_app,
-                source_model=source_model,
-                source_id=source_id,
-            )
+            if app_code == "billing" and source_model == "Bill":
+                from billing.models import Bill
 
+                source_document = (
+                    Bill.objects
+                    .select_related("provider")
+                    .filter(public_id__iexact=source_ref_display)
+                    .first()
+                )
+                if source_document is not None:
+                    source_document_label = f"Purchase Bill #{source_document.public_id}"
+            elif app_code == "billing" and source_model == "ProviderReturn":
+                from billing.models import ProviderReturn
+
+                source_document = (
+                    ProviderReturn.objects
+                    .select_related("provider")
+                    .filter(public_id__iexact=source_ref_display)
+                    .first()
+                )
+                if source_document is not None:
+                    source_document_label = f"Provider Return #{source_document.public_id}"
+            elif app_code == "pos" and source_model == "SalesBill":
+                from pos.models import SalesBill
+
+                source_document = (
+                    SalesBill.objects
+                    .select_related("customer")
+                    .filter(public_id__iexact=source_ref_display)
+                    .first()
+                )
+                if source_document is not None:
+                    source_document_label = f"POS Sale Bill #{source_document.public_id}"
+            elif app_code == "pos" and source_model == "SalesReturn":
+                from pos.models import SalesReturn
+
+                sid_int = int(source_id.split(":", 1)[0])
+                source_document = (
+                    SalesReturn.objects
+                    .select_related("sale_bill")
+                    .filter(pk=sid_int)
+                    .first()
+                )
+                if source_document is not None:
+                    source_document_label = f"POS Return #{source_document.serial or source_document.id}"
+        except Exception:
+            source_document = None
+        source_document_url = _source_document_url(
+            source_app=source_app,
+            source_model=source_model,
+            source_id=source_ref_display,
+        )
     currency_totals: dict[str, Decimal] = {}
     for r in receipts:
         for ln in r.lines.all():
@@ -733,6 +993,7 @@ def document_trace(request: HttpRequest) -> HttpResponse:
         "source_app": source_app,
         "source_model": source_model,
         "source_id": source_id,
+        "source_ref_display": source_ref_display,
         "source_document": source_document,
         "source_document_url": source_document_url,
         "source_document_label": source_document_label,
@@ -755,24 +1016,46 @@ def reconciliation_dashboard(request: HttpRequest) -> HttpResponse:
     from billing.models import Bill, ProviderReturn
     from pos.models import SalesBill, SalesReturn
 
+    def _receipt_target_internal_id(*, source_app: str, source_model: str, source_id: str) -> Optional[int]:
+        values = _source_lookup_variants(
+            source_app=source_app,
+            source_model=source_model,
+            source_id=str(source_id or "").strip(),
+            allow_numeric_targeted=True,
+        )
+        for value in values:
+            value = str(value or "").strip()
+            if value.isdigit():
+                return int(value)
+        return None
+
     bill_receipt_ids = set()
     for sid in Receipt.objects.filter(source_app="billing", source_model="Bill").values_list("source_id", flat=True):
-        try:
-            bill_receipt_ids.add(int(str(sid).split(":", 1)[0]))
-        except Exception:
-            continue
+        internal_id = _receipt_target_internal_id(
+            source_app="billing",
+            source_model="Bill",
+            source_id=str(sid or ""),
+        )
+        if internal_id is not None:
+            bill_receipt_ids.add(internal_id)
     return_receipt_ids = set()
     for sid in Receipt.objects.filter(source_app="billing", source_model="ProviderReturn").values_list("source_id", flat=True):
-        try:
-            return_receipt_ids.add(int(str(sid).split(":", 1)[0]))
-        except Exception:
-            continue
+        internal_id = _receipt_target_internal_id(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(sid or ""),
+        )
+        if internal_id is not None:
+            return_receipt_ids.add(internal_id)
     pos_bill_receipt_ids = set()
     for sid in Receipt.objects.filter(source_app="pos", source_model="SalesBill").values_list("source_id", flat=True):
-        try:
-            pos_bill_receipt_ids.add(int(str(sid).split(":", 1)[0]))
-        except Exception:
-            continue
+        internal_id = _receipt_target_internal_id(
+            source_app="pos",
+            source_model="SalesBill",
+            source_id=str(sid or ""),
+        )
+        if internal_id is not None:
+            pos_bill_receipt_ids.add(internal_id)
     pos_return_receipt_ids = set()
     for sid in Receipt.objects.filter(source_app="pos", source_model="SalesReturn").values_list("source_id", flat=True):
         try:
@@ -833,6 +1116,17 @@ def reconciliation_dashboard(request: HttpRequest) -> HttpResponse:
         .filter(Q(fx_syp_per_usd__isnull=True) | Q(fx_syp_per_usd__lte=0))
         .order_by("-id")[:100]
     )
+    fx_anomaly_rows = [
+        {
+            "receipt": r,
+            "source_ref_display": _preferred_source_ref_for_ui(
+                source_app=r.source_app,
+                source_model=r.source_model,
+                source_id=r.source_id,
+            ) or (r.source_id or ""),
+        }
+        for r in fx_anomalies
+    ]
 
     container_currency_mismatches = []
     rows = (
@@ -858,7 +1152,8 @@ def reconciliation_dashboard(request: HttpRequest) -> HttpResponse:
         "missing_pos_return_receipts": missing_pos_return_receipts,
         "orphan_receipts": orphan_receipts,
         "duplicate_action_keys": duplicate_action_keys,
-        "fx_anomalies": fx_anomalies,
+        "fx_anomaly_rows": fx_anomaly_rows,
         "container_currency_mismatches": container_currency_mismatches[:100],
     }
     return render(request, "financials/manager/reconciliation_dashboard.html", ctx)
+

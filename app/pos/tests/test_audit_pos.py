@@ -155,13 +155,13 @@ class PosAuditTests(TransactionTestCase):
         }
 
         out = self._post_json(self.url_bill_save, payload)
-        bill_id = out["bill"]["id"]
+        bill_ref = str(out["bill"]["id"])
 
-        url_delete = reverse("pos:api_bill_delete", kwargs={"pk": bill_id})
+        url_delete = reverse("pos:api_bill_delete", kwargs={"bill_id": bill_ref})
         resp = self.client.post(url_delete, content_type="application/json")
         self.assertEqual(resp.status_code, 200)
 
-        bill = SalesBill.objects.get(pk=bill_id)
+        bill = SalesBill.objects.get(public_id=bill_ref)
         self.assertTrue(bill.is_deleted)
 
         self._assert_audit_kind("pos.sale_bill_deleted")
@@ -187,3 +187,4 @@ class PosAuditTests(TransactionTestCase):
         self.assertIsNotNone(shift.ended_at)
 
         self._assert_audit_kind("pos.shift_ended")
+

@@ -116,6 +116,11 @@ class PosMultiCurrencySalesTests(TestCase):
             content_type="application/json",
         )
 
+    def _saved_bill_from_response(self, data: dict) -> SalesBill:
+        bill_ref = str(((data or {}).get("bill") or {}).get("id") or "").strip()
+        self.assertTrue(bill_ref, data)
+        return SalesBill.objects.get(public_id=bill_ref)
+
     def test_totals_split_for_mixed_currency(self):
         p_syp = self._create_product(
             name="SYP Only",
@@ -169,7 +174,7 @@ class PosMultiCurrencySalesTests(TestCase):
         data = resp.json()
         self.assertTrue(data.get("ok"))
 
-        bill = SalesBill.objects.get(pk=data["bill"]["id"])
+        bill = self._saved_bill_from_response(data)
         self.assertEqual(bill.total_syp, Decimal("1000"))
         self.assertEqual(bill.total_usd, Decimal("10"))
 
@@ -233,8 +238,9 @@ class PosMultiCurrencySalesTests(TestCase):
         self.assertEqual(self.cash.balance_syp, Decimal("1000"))
         self.assertEqual(self.cash.balance_usd, Decimal("10"))
 
+        bill = self._saved_bill_from_response(data)
         self.assertTrue(
-            Receipt.objects.filter(source_app="pos", source_model="SalesBill", source_id=str(data["bill"]["id"])).exists()
+            Receipt.objects.filter(source_app="pos", source_model="SalesBill", source_id=str(bill.id)).exists()
         )
 
     def test_currency_validation_blocks_usd(self):
@@ -338,7 +344,7 @@ class PosMultiCurrencySalesTests(TestCase):
         }
         resp = self._post_pos_bill(payload)
         self.assertEqual(resp.status_code, 200, resp.content.decode())
-        bill = SalesBill.objects.get(pk=resp.json()["bill"]["id"])
+        bill = self._saved_bill_from_response(resp.json())
         self.assertEqual(bill.total_usd, Decimal("2"))
 
     def test_product_payload_defaults(self):
@@ -396,11 +402,12 @@ class PosMultiCurrencySalesTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode())
         data = resp.json()
         self.assertTrue(data.get("ok"))
+        bill = self._saved_bill_from_response(data)
 
         entry = DebtorDebt.objects.get(
             source_app="pos",
             source_model="SalesBill",
-            source_id=str(data["bill"]["id"]),
+            source_id=str(bill.id),
             party_type=PartyType.CUSTOMER,
             currency_code="SYP",
         )
@@ -422,12 +429,12 @@ class PosMultiCurrencySalesTests(TestCase):
             Receipt.objects.filter(
                 source_app="pos",
                 source_model="SalesBill",
-                source_id=str(data["bill"]["id"]),
+                source_id=str(bill.id),
             )
         )
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts[0].kind, ReceiptKind.COUNTERPARTY_SETTLE)
-        self.assertEqual(receipts[0].action_key, f"pos:SalesBill:{data['bill']['id']}:create")
+        self.assertEqual(receipts[0].action_key, f"pos:SalesBill:{bill.id}:create")
 
     def test_duplicate_name_customers_use_distinct_counterparties_in_pos_debt_flow(self):
         p_syp = self._create_product(
@@ -465,11 +472,11 @@ class PosMultiCurrencySalesTests(TestCase):
 
         resp1 = self._post_pos_bill(base_payload)
         self.assertEqual(resp1.status_code, 200, resp1.content.decode())
-        bill1_id = resp1.json()["bill"]["id"]
+        bill1_id = self._saved_bill_from_response(resp1.json()).id
 
         resp2 = self._post_pos_bill(base_payload)
         self.assertEqual(resp2.status_code, 200, resp2.content.decode())
-        bill2_id = resp2.json()["bill"]["id"]
+        bill2_id = self._saved_bill_from_response(resp2.json()).id
 
         entry1 = DebtorDebt.objects.get(
             source_app="pos",
@@ -609,7 +616,7 @@ class PosMultiCurrencySalesTests(TestCase):
         }
         resp = self._post_pos_bill(payload)
         self.assertEqual(resp.status_code, 200, resp.content.decode())
-        bid = resp.json()["bill"]["id"]
+        bid = self._saved_bill_from_response(resp.json()).id
 
         syp_entry = DebtorDebt.objects.get(
             source_app="pos",
@@ -712,12 +719,13 @@ class PosMultiCurrencySalesTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode())
         data = resp.json()
         self.assertTrue(data.get("ok"))
+        bill = self._saved_bill_from_response(data)
 
         self.assertTrue(
             DebtorDebt.objects.filter(
                 source_app="pos",
                 source_model="SalesBill",
-                source_id=str(data["bill"]["id"]),
+                source_id=str(bill.id),
                 party_type=PartyType.CUSTOMER,
                 currency_code="SYP",
             ).exists()
@@ -726,7 +734,7 @@ class PosMultiCurrencySalesTests(TestCase):
         entry = DebtorDebt.objects.get(
             source_app="pos",
             source_model="SalesBill",
-            source_id=str(data["bill"]["id"]),
+            source_id=str(bill.id),
             party_type=PartyType.CUSTOMER,
             currency_code="SYP",
         )
@@ -741,7 +749,7 @@ class PosMultiCurrencySalesTests(TestCase):
             Receipt.objects.filter(
                 source_app="pos",
                 source_model="SalesBill",
-                source_id=str(data["bill"]["id"]),
+                source_id=str(bill.id),
                 kind=ReceiptKind.COUNTERPARTY_INC,
             ).exists()
         )
@@ -782,6 +790,7 @@ class PosMultiCurrencySalesTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode())
         data = resp.json()
         self.assertTrue(data.get("ok"))
+        bill = self._saved_bill_from_response(data)
 
         self.cash.refresh_from_db()
         self.assertEqual(self.cash.balance_syp, Decimal("500"))
@@ -790,7 +799,7 @@ class PosMultiCurrencySalesTests(TestCase):
             Receipt.objects.filter(
                 source_app="pos",
                 source_model="SalesBill",
-                source_id=str(data["bill"]["id"]),
+                source_id=str(bill.id),
                 kind=ReceiptKind.COUNTERPARTY_INC,
             ).exists()
         )
@@ -842,11 +851,12 @@ class PosMultiCurrencySalesTests(TestCase):
         }
         resp = self._post_pos_bill(payload)
         self.assertEqual(resp.status_code, 200, resp.content.decode())
-        bill = SalesBill.objects.get(pk=resp.json()["bill"]["id"])
+        bill = self._saved_bill_from_response(resp.json())
 
         self.assertEqual(bill.total_usd, Decimal("1.01"))
         self.cash.refresh_from_db()
         self.assertEqual(self.cash.balance_usd, Decimal("1.01"))
+
 
 
 

@@ -26,12 +26,12 @@
         <tbody>
           {% for b in missing_bill_receipts %}
             <tr>
-              <td style="padding:10px;">{{ b.id }}</td>
+              <td style="padding:10px;">{{ b.public_id }}</td>
               <td style="padding:10px;">{{ b.serial }}</td>
               <td style="padding:10px;">{{ b.provider.name|default:"—" }}</td>
               <td style="padding:10px;">{{ b.total_syp|human_number }}</td>
               <td style="padding:10px;">{{ b.total_usd|human_number }}</td>
-              <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_bill_view' b.id %}">فتح</a></td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_bill_view' b.public_id %}">فتح</a></td>
             </tr>
           {% empty %}
             <tr><td colspan="6" style="padding:14px;">لا توجد حالات.</td></tr>
@@ -56,12 +56,12 @@
         <tbody>
           {% for r in missing_provider_return_receipts %}
             <tr>
-              <td style="padding:10px;">{{ r.id }}</td>
+              <td style="padding:10px;">{{ r.public_id }}</td>
               <td style="padding:10px;">{{ r.serial }}</td>
               <td style="padding:10px;">{{ r.provider.name|default:"—" }}</td>
               <td style="padding:10px;">{{ r.total_syp|human_number }}</td>
               <td style="padding:10px;">{{ r.total_usd|human_number }}</td>
-              <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_return_view' r.id %}">فتح</a></td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_return_view' r.public_id %}">فتح</a></td>
             </tr>
           {% empty %}
             <tr><td colspan="6" style="padding:14px;">لا توجد حالات.</td></tr>
@@ -85,11 +85,11 @@
         <tbody>
           {% for b in missing_pos_bill_receipts %}
             <tr>
-              <td style="padding:10px;">{{ b.id }}</td>
+              <td style="padding:10px;">{{ b.public_id }}</td>
               <td style="padding:10px;">{{ b.customer_name|default:"—" }}</td>
               <td style="padding:10px;">{{ b.total_syp|human_number }}</td>
               <td style="padding:10px;">{{ b.total_usd|human_number }}</td>
-              <td style="padding:10px;"><a class="btn-soft" href="{% url 'pos:pos_manager_bill_detail' b.id %}">فتح</a></td>
+              <td style="padding:10px;"><a class="btn-soft" href="{% url 'pos:pos_manager_bill_detail' b.public_id %}">فتح</a></td>
             </tr>
           {% empty %}
             <tr><td colspan="5" style="padding:14px;">لا توجد حالات.</td></tr>
@@ -187,11 +187,11 @@
           </tr>
         </thead>
         <tbody>
-          {% for r in fx_anomalies %}
+          {% for row in fx_anomaly_rows %}
             <tr>
-              <td style="padding:10px;">{{ r.serial }}</td>
-              <td style="padding:10px;">{{ r.source_app }}/{{ r.source_model }}/{{ r.source_id }}</td>
-              <td style="padding:10px;">{{ r.fx_syp_per_usd|default:"—" }}</td>
+              <td style="padding:10px;">{{ row.receipt.serial }}</td>
+              <td style="padding:10px;">{{ row.receipt.source_app }}/{{ row.receipt.source_model }}/{{ row.source_ref_display }}</td>
+              <td style="padding:10px;">{{ row.receipt.fx_syp_per_usd|default:"—" }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="3" style="padding:14px;">لا توجد حالات.</td></tr>

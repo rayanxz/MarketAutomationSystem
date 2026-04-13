@@ -603,7 +603,7 @@
       nextOffset = data.next_offset || (nextOffset + 200);
       hasMore = !!data.has_more;
     } catch (e) {
-      // don’t spam requests if network fails
+      // don't spam requests if network fails
       hasMore = false;
     } finally {
       isLoading = false;
@@ -666,7 +666,8 @@
   function renderBill(bill) {
     if (!bill) return;
 
-    if (titleBox) titleBox.textContent = `فاتورة #${bill.id}`;
+    const publicRef = (bill.public_id || "");
+    if (titleBox) titleBox.textContent = `فاتورة #${publicRef}`;
 
     const cust = bill.customer_name ? bill.customer_name : "بدون عميل";
     const status = bill.parked ? "معلقة" : "مغلقة";
@@ -743,3 +744,4 @@
 </script>
 
 {% endblock %}
+

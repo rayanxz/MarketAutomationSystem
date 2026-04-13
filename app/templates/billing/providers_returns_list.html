@@ -44,7 +44,7 @@
 <script>
   window.__RETURNS__ = {
     listUrl: "{% url 'billing_api_returns_list' %}",
-    viewBase: "{% url 'billing_return_view' 999999 %}".replace(/999999\/?$/,"")
+    viewUrlTemplate: "{% url 'billing_return_view' 'PR-REF' %}"
 };
 </script>
 <script defer src="{% static 'js/billing_returns_list.js' %}"></script>
@@ -62,16 +62,12 @@
         <input class="input" name="q" id="fQ" placeholder="ابحث بالاسم">
       </div>
       <div class="field" style="max-width:160px;">
-        <label class="muted">سيريال المرتجع</label>
-        <input class="input" name="serial" id="fSerial" inputmode="numeric" placeholder="مثال: 1024">
-      </div>
-      <div class="field" style="max-width:160px;">
-        <label class="muted">سيريال فاتورة الشراء</label>
-        <input class="input" name="bill_serial" id="fBillSerial" inputmode="numeric" placeholder="مثال: 2048">
-      </div>
-      <div class="field" style="max-width:160px;">
         <label class="muted">ID المرتجع</label>
-        <input class="input" name="id" id="fId" inputmode="numeric" placeholder="مثال: 321">
+        <input class="input" name="return_id" id="fReturnId" placeholder="مثال: PR-001">
+      </div>
+      <div class="field" style="max-width:160px;">
+        <label class="muted">ID فاتورة الشراء</label>
+        <input class="input" name="bill_id" id="fBillId" placeholder="مثال: PB-001">
       </div>
       <div class="field" style="max-width:180px;">
         <label class="muted">من تاريخ</label>
@@ -100,8 +96,8 @@
     <table>
       <thead>
         <tr>
-          <th style="width:120px;">Serial</th>
-          <th style="width:120px;">Bill serial</th>
+          <th style="width:140px;">ID</th>
+          <th style="width:140px;">Source Bill ID</th>
           <th>Provider</th>
           <th style="width:160px;">Total SYP</th>
           <th style="width:160px;">Total USD</th>

@@ -229,7 +229,7 @@ class MultiCurrencyPurchaseBillTests(TestCase):
         debt = DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         )
         self.assertEqual(debt.remaining_syp, Decimal("5"))
         self.assertEqual(debt.remaining_usd, Decimal("0"))

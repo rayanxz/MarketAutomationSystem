@@ -28,7 +28,7 @@
       </div>
       <div>
         <label>رقم المصدر</label>
-        <input class="input" name="source_id" value="{{ filters.source_id }}" placeholder="مثال: 125">
+        <input class="input" name="source_id" value="{{ filters.source_id }}" placeholder="مثال: PB-001 / PR-001 / PS-001 / D-001">
       </div>
       <div>
         <label>نوع السند</label>
@@ -120,7 +120,7 @@
               <small>{{ row.receipt.get_status_display }}</small>
             </td>
             <td style="padding:10px;white-space:nowrap;">
-              {{ row.receipt.source_app }}/{{ row.receipt.source_model }}/{{ row.receipt.source_id }}
+              {{ row.receipt.source_app }}/{{ row.receipt.source_model }}/{{ row.source_ref_display }}
             </td>
             <td style="padding:10px;white-space:nowrap;">{{ row.receipt.action_key|default:"—" }}</td>
             <td style="padding:10px;white-space:nowrap;">{{ row.receipt.fx_syp_per_usd|default:"—"|human_number }}</td>

@@ -124,11 +124,15 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             fx_usd_syp=Decimal("15000"),
         )
 
-    def _debt_for_bill(self, bill_id: int) -> DebtRecord:
+    def _debt_for_bill(self, bill) -> DebtRecord:
+        cause_refs = [str(bill.id)]
+        bill_public_ref = (getattr(bill, "public_id", "") or "").strip()
+        if bill_public_ref:
+            cause_refs.insert(0, bill_public_ref)
         return DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill_id),
+            cause_id__in=cause_refs,
         )
 
     def test_partial_rejects_equal_full_settlement(self):
@@ -153,8 +157,8 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
 
     def test_not_paid_creates_one_open_central_debt_and_no_receipt(self):
         bill = self._create_bill(status="unpaid", items=self._mixed_items(), payment_method="none", paid_syp=Decimal("0"), paid_usd=Decimal("0"))
-        debt = self._debt_for_bill(bill.id)
-        self.assertEqual(DebtRecord.objects.filter(cause_type=DebtCauseType.PURCHASE_BILL, cause_id=str(bill.id)).count(), 1)
+        debt = self._debt_for_bill(bill)
+        self.assertEqual(DebtRecord.objects.filter(cause_type=DebtCauseType.PURCHASE_BILL, cause_id=bill.public_id).count(), 1)
         self.assertEqual(debt.remaining_syp, Decimal("1000"))
         self.assertEqual(debt.remaining_usd, Decimal("2"))
         self.assertEqual(debt.status, DebtStatus.OPEN)
@@ -171,7 +175,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             paid_syp=Decimal("1000"),
             paid_usd=Decimal("0"),
         )
-        debt = self._debt_for_bill(bill.id)
+        debt = self._debt_for_bill(bill)
         self.assertEqual(debt.remaining_syp, Decimal("0"))
         self.assertEqual(debt.remaining_usd, Decimal("2"))
         self.assertEqual(
@@ -187,7 +191,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             paid_syp=Decimal("16000"),
             paid_usd=Decimal("0"),
         )
-        debt = self._debt_for_bill(bill.id)
+        debt = self._debt_for_bill(bill)
         self.assertEqual(debt.remaining_syp, Decimal("15000"))
         self.assertEqual(debt.remaining_usd, Decimal("0"))
 
@@ -200,7 +204,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             paid_usd=Decimal("1"),
             settlement_currency="USD",
         )
-        debt = self._debt_for_bill(bill.id)
+        debt = self._debt_for_bill(bill)
         self.assertEqual(debt.remaining_syp, Decimal("1000"))
         self.assertEqual(debt.remaining_usd, Decimal("1"))
 
@@ -213,7 +217,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             paid_usd=Decimal("2.05"),
             settlement_currency="USD",
         )
-        debt = self._debt_for_bill(bill.id)
+        debt = self._debt_for_bill(bill)
         self.assertEqual(debt.remaining_syp, Decimal("250"))
         self.assertEqual(debt.remaining_usd, Decimal("0"))
 
@@ -225,7 +229,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             paid_syp=Decimal("700"),
             paid_usd=Decimal("1.5"),
         )
-        debt = self._debt_for_bill(bill.id)
+        debt = self._debt_for_bill(bill)
         self.assertEqual(debt.remaining_syp, Decimal("300"))
         self.assertEqual(debt.remaining_usd, Decimal("0.5"))
 
@@ -261,26 +265,26 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             Receipt.objects.filter(source_app="billing", source_model="Bill", source_id=str(bill.id), status=ReceiptStatus.POSTED).count(),
             2,
         )
-        self.assertEqual(DebtSettlement.objects.filter(debt__cause_id=str(bill.id)).count(), 0)
+        self.assertEqual(DebtSettlement.objects.filter(debt__cause_id=bill.public_id).count(), 0)
         self.assertEqual(
             DebtRecord.objects.filter(
                 direction=DebtDirection.PAYABLE,
                 cause_type=DebtCauseType.PURCHASE_BILL,
-                cause_id=str(bill.id),
+                cause_id=bill.public_id,
             ).count(),
             1,
         )
 
     def test_debt_has_independent_identity_from_bill_reference(self):
         bill = self._create_bill(status="unpaid", items=self._mixed_items(), payment_method="none", paid_syp=Decimal("0"), paid_usd=Decimal("0"))
-        debt = self._debt_for_bill(bill.id)
-        self.assertEqual(debt.cause_id, str(bill.id))
+        debt = self._debt_for_bill(bill)
+        self.assertEqual(debt.cause_id, bill.public_id)
         self.assertTrue(debt.public_id.startswith("D-"))
         self.assertNotEqual(debt.public_id, str(bill.id))
 
     def test_covering_central_debt_closes_and_overpayment_is_blocked(self):
         bill = self._create_bill(status="unpaid", items=self._syp_items(), payment_method="none", paid_syp=Decimal("0"), paid_usd=Decimal("0"))
-        debt = self._debt_for_bill(bill.id)
+        debt = self._debt_for_bill(bill)
 
         with self.assertRaises(ValueError):
             BillingSV.pay_partial(

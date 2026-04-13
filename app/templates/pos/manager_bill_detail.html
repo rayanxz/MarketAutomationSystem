@@ -1,13 +1,13 @@
-{# app/templates/pos/manager_bill_detail.html #}
+﻿{# app/templates/pos/manager_bill_detail.html #}
 {% extends "manager/base_manager.html" %}
 {% load l10n formatting %}
 
-{% block title %}تفاصيل فاتورة بيع #{{ bill.id }}{% endblock %}
+{% block title %}ØªÙØ§ØµÙŠÙ„ ÙØ§ØªÙˆØ±Ø© Ø¨ÙŠØ¹ #{{ bill.public_id }}{% endblock %}
 
 {% block menu_secondary %}
   <div class="tabs-row">
-    <a class="btn-sec" href="{% url 'pos:pos_manager_overview' %}">رجوع لسجلات POS</a>
-    <span class="tab-current">فاتورة #{{ bill.id }}</span>
+    <a class="btn-sec" href="{% url 'pos:pos_manager_overview' %}">Ø±Ø¬ÙˆØ¹ Ù„Ø³Ø¬Ù„Ø§Øª POS</a>
+    <span class="tab-current">ÙØ§ØªÙˆØ±Ø© #{{ bill.public_id }}</span>
   </div>
 {% endblock %}
 
@@ -182,45 +182,45 @@
 {% block content %}
 <div class="bill-page">
   <div class="bill-head">
-    <h2 class="bill-title">تفاصيل فاتورة بيع #{{ bill.id }}</h2>
+    <h2 class="bill-title">ØªÙØ§ØµÙŠÙ„ ÙØ§ØªÙˆØ±Ø© Ø¨ÙŠØ¹ #{{ bill.public_id }}</h2>
     <div>
       {% if bill.parked %}
-        <span class="pill">الحالة: معلّقة</span>
+        <span class="pill">Ø§Ù„Ø­Ø§Ù„Ø©: Ù…Ø¹Ù„Ù‘Ù‚Ø©</span>
       {% else %}
-        <span class="pill">الحالة: نهائية</span>
+        <span class="pill">Ø§Ù„Ø­Ø§Ù„Ø©: Ù†Ù‡Ø§Ø¦ÙŠØ©</span>
       {% endif %}
-      <span class="pill">الدفع: {{ pay_label }}</span>
+      <span class="pill">Ø§Ù„Ø¯ÙØ¹: {{ pay_label }}</span>
     </div>
   </div>
   <div style="margin-bottom: 10px;">
     {% if bill.finalized and not bill.parked %}
-      <a class="btn-sec" href="{% url 'pos:pos_manager_sale_return_wizard' bill.id %}">????? (Customer Return)</a>
+      <a class="btn-sec" href="{% url 'pos:pos_manager_sale_return_wizard' bill.public_id %}">????? (Customer Return)</a>
     {% endif %}
   </div>
 
   <div class="meta-grid">
     <div class="meta-card">
-      <div><b>تاريخ الإنشاء:</b> {% if created_dt %}{{ created_dt|date:"Y-m-d" }}{% else %}—{% endif %}</div>
-      <div><b>الوقت:</b> {% if created_dt %}{{ created_dt|date:"H:i:s" }}{% else %}—{% endif %}</div>
-      <div><b>آخر تعديل:</b> {% if updated_dt %}{{ updated_dt|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</div>
+      <div><b>ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡:</b> {% if created_dt %}{{ created_dt|date:"Y-m-d" }}{% else %}â€”{% endif %}</div>
+      <div><b>Ø§Ù„ÙˆÙ‚Øª:</b> {% if created_dt %}{{ created_dt|date:"H:i:s" }}{% else %}â€”{% endif %}</div>
+      <div><b>Ø¢Ø®Ø± ØªØ¹Ø¯ÙŠÙ„:</b> {% if updated_dt %}{{ updated_dt|date:"Y-m-d H:i:s" }}{% else %}â€”{% endif %}</div>
     </div>
 
     <div class="meta-card">
-      <div><b>الكاشير:</b> {{ cashier_name }}</div>
-      <div><b>اليوم:</b> {% if day_date %}{{ day_date }}{% else %}—{% endif %}</div>
-      <div><b>جلسة الدخول:</b> {% if session_id %}#{{ session_id }}{% else %}—{% endif %}</div>
-      <div><b>الوردية:</b> {% if shift_id %}#{{ shift_id }}{% else %}—{% endif %}</div>
+      <div><b>Ø§Ù„ÙƒØ§Ø´ÙŠØ±:</b> {{ cashier_name }}</div>
+      <div><b>Ø§Ù„ÙŠÙˆÙ…:</b> {% if day_date %}{{ day_date }}{% else %}â€”{% endif %}</div>
+      <div><b>Ø¬Ù„Ø³Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„:</b> {% if session_id %}#{{ session_id }}{% else %}â€”{% endif %}</div>
+      <div><b>Ø§Ù„ÙˆØ±Ø¯ÙŠØ©:</b> {% if shift_id %}#{{ shift_id }}{% else %}â€”{% endif %}</div>
     </div>
 
     <div class="meta-card">
-      <div><b>العميل:</b> {% if bill.customer_name %}{{ bill.customer_name }}{% else %}بدون عميل{% endif %}</div>
-      <div><b>ID العميل:</b> {% if bill.customer_id %}{{ bill.customer_id }}{% else %}—{% endif %}</div>
+      <div><b>Ø§Ù„Ø¹Ù…ÙŠÙ„:</b> {% if bill.customer_name %}{{ bill.customer_name }}{% else %}Ø¨Ø¯ÙˆÙ† Ø¹Ù…ÙŠÙ„{% endif %}</div>
+      <div><b>ID Ø§Ù„Ø¹Ù…ÙŠÙ„:</b> {% if bill.customer_id %}{{ bill.customer_id }}{% else %}â€”{% endif %}</div>
     </div>
   </div>
 
   {% if not has_cost_movements and not bill.parked and bill.finalized %}
     <div class="warn">
-      ملاحظة: لم يتم العثور على تفاصيل تكلفة (FIFO) لهذه الفاتورة.
+      Ù…Ù„Ø§Ø­Ø¸Ø©: Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ ØªÙØ§ØµÙŠÙ„ ØªÙƒÙ„ÙØ© (FIFO) Ù„Ù‡Ø°Ù‡ Ø§Ù„ÙØ§ØªÙˆØ±Ø©.
     </div>
   {% endif %}
 
@@ -230,17 +230,17 @@
         <thead>
           <tr>
             <th style="width: 44px;">#</th>
-            <th style="width: 220px;">المادة</th>
-            <th style="width: 80px;">الكمية</th>
-            <th style="width: 80px;">الوحدة</th>
-            <th style="width: 105px;">سعر البيع</th>
-            <th style="width: 95px;">خصم</th>
-            <th style="width: 115px;">إجمالي السعر</th>
-            <th style="width: 160px;">ملاحظات</th>
-            <th style="width: 105px;">تكلفة الوحدة</th>
-            <th style="width: 110px;">إجمالي التكلفة</th>
-            <th style="width: 115px;">الربح</th>
-            <th style="width: 80px;">إجراءات</th>
+            <th style="width: 220px;">Ø§Ù„Ù…Ø§Ø¯Ø©</th>
+            <th style="width: 80px;">Ø§Ù„ÙƒÙ…ÙŠØ©</th>
+            <th style="width: 80px;">Ø§Ù„ÙˆØ­Ø¯Ø©</th>
+            <th style="width: 105px;">Ø³Ø¹Ø± Ø§Ù„Ø¨ÙŠØ¹</th>
+            <th style="width: 95px;">Ø®ØµÙ…</th>
+            <th style="width: 115px;">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø³Ø¹Ø±</th>
+            <th style="width: 160px;">Ù…Ù„Ø§Ø­Ø¸Ø§Øª</th>
+            <th style="width: 105px;">ØªÙƒÙ„ÙØ© Ø§Ù„ÙˆØ­Ø¯Ø©</th>
+            <th style="width: 110px;">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ØªÙƒÙ„ÙØ©</th>
+            <th style="width: 115px;">Ø§Ù„Ø±Ø¨Ø­</th>
+            <th style="width: 80px;">Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th>
           </tr>
         </thead>
 
@@ -268,7 +268,7 @@
                 {% if r.unit_cost is not None %}
                   {{ r.unit_cost|human_number }}
                 {% else %}
-                  —
+                  â€”
                 {% endif %}
               </td>
 
@@ -276,7 +276,7 @@
                 {% if r.total_cost is not None %}
                   {{ r.total_cost|human_number }}
                 {% else %}
-                  —
+                  â€”
                 {% endif %}
               </td>
 
@@ -284,17 +284,17 @@
                 {% if r.profit is not None %}
                   {% if r.profit_is_pos %}
                     <span class="profit pos" title="profit">
-                      <span class="arrow">▲</span>
+                      <span class="arrow">â–²</span>
                       +{{ r.profit|human_number }}
                     </span>
                   {% else %}
                     <span class="profit neg" title="loss">
-                      <span class="arrow">▼</span>
+                      <span class="arrow">â–¼</span>
                       {{ r.profit|human_number }}
                     </span>
                   {% endif %}
                 {% else %}
-                  —
+                  â€”
                 {% endif %}
               </td>
 
@@ -303,18 +303,18 @@
                     <a
                     href="{{ r.purchase_bill_url }}"
                     class="btn-mini"
-                    title="عرض فاتورة الشراء"
+                    title="Ø¹Ø±Ø¶ ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø´Ø±Ø§Ø¡"
                     >
-                    عرض فاتورةالشراء
+                    Ø¹Ø±Ø¶ ÙØ§ØªÙˆØ±Ø©Ø§Ù„Ø´Ø±Ø§Ø¡
                     </a>
                 {% else %}
-                    —
+                    â€”
                 {% endif %}
                 </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="12">لا يوجد مواد داخل هذه الفاتورة.</td>
+              <td colspan="12">Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…ÙˆØ§Ø¯ Ø¯Ø§Ø®Ù„ Ù‡Ø°Ù‡ Ø§Ù„ÙØ§ØªÙˆØ±Ø©.</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -325,21 +325,21 @@
   <!-- Totals section below the table -->
   <div class="totals">
     <div class="t-item">
-      <b>الإجمالي</b>
+      <b>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</b>
       <span class="t-val">{{ total_amount|human_number }}</span>
     </div>
     <div class="t-item">
-      <b>المدفوع</b>
+      <b>Ø§Ù„Ù…Ø¯ÙÙˆØ¹</b>
       <span class="t-val">{{ paid_amount|human_number }}</span>
     </div>
     <div class="t-item">
-      <b>المتبقي</b>
+      <b>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ</b>
       <span class="t-val">{{ left_amount|human_number }}</span>
     </div>
   </div>
 
   <div class="note">
-    إذا تم استهلاك المادة من أكثر من دفعة FIFO، ستظهر المادة على أكثر من سطر (سطر لكل دفعة) حتى يبقى الجدول مرتب.
+    Ø¥Ø°Ø§ ØªÙ… Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ Ø§Ù„Ù…Ø§Ø¯Ø© Ù…Ù† Ø£ÙƒØ«Ø± Ù…Ù† Ø¯ÙØ¹Ø© FIFOØŒ Ø³ØªØ¸Ù‡Ø± Ø§Ù„Ù…Ø§Ø¯Ø© Ø¹Ù„Ù‰ Ø£ÙƒØ«Ø± Ù…Ù† Ø³Ø·Ø± (Ø³Ø·Ø± Ù„ÙƒÙ„ Ø¯ÙØ¹Ø©) Ø­ØªÙ‰ ÙŠØ¨Ù‚Ù‰ Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ù…Ø±ØªØ¨.
   </div>
 
   {% if sale_returns %}
@@ -374,3 +374,4 @@
   {% endif %}
 </div>
 {% endblock %}
+

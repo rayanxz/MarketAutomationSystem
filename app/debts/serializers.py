@@ -106,7 +106,6 @@ def central_debt_row(d: DebtRecord) -> Dict[str, Any]:
         other_party_name = (d.other_party_id or "").strip()
 
     return {
-        "id": d.id,
         "debt_id": d.public_id,
         "debt_type": debt_type,
         "direction": d.direction,
@@ -117,11 +116,9 @@ def central_debt_row(d: DebtRecord) -> Dict[str, Any]:
         "other_party_id": d.other_party_id,
         "other_party_name": other_party_name,
         "provider": {
-            "id": d.provider_id,
             "name": d.provider.name if d.provider_id else "",
         },
         "customer": {
-            "id": d.customer_id,
             "name": d.customer.name if d.customer_id else "",
         },
         "total_syp": str(d.total_syp or 0),

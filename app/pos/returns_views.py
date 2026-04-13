@@ -19,6 +19,7 @@ from financials import services as FinSV
 
 from .models import SalesBill, SalesReturn
 from . import services_returns as SV
+from .views import _resolve_sales_bill_from_ref
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +87,13 @@ def _build_return_rows(*, bill: SalesBill, products: dict[int, Product]) -> list
 
 
 @role_required(AccountProfile.Role.MANAGER)
-def pos_manager_sale_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
+def pos_manager_sale_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
+    bill_ref = _resolve_sales_bill_from_ref(ref=bill_id)
+    if bill_ref is None:
+        return HttpResponse(status=404)
     bill = get_object_or_404(
         SalesBill.objects.select_related("cashier", "customer").prefetch_related("rows"),
-        pk=bill_id,
+        pk=bill_ref.id,
     )
 
     if bill.parked or not bill.finalized:
@@ -203,7 +207,10 @@ def pos_manager_sale_return_settle(request: HttpRequest, return_id: int) -> Http
     )
 
     if ret.status != SalesReturn.Status.DRAFT:
-        return redirect("pos:pos_manager_bill_detail", bill_id=ret.sale_bill_id)
+        bill_ref = (getattr(ret.sale_bill, "public_id", "") or "").strip()
+        if not bill_ref:
+            return HttpResponse(status=404)
+        return redirect("pos:pos_manager_bill_detail", bill_id=bill_ref)
 
     ctx = _build_settle_context(ret, user=request.user)
     return render(request, "pos/manager_sale_return_settle.html", ctx)
@@ -227,8 +234,10 @@ def pos_manager_sale_return_post(request: HttpRequest, return_id: int) -> HttpRe
             settle_mode=settle_mode,
             money_container_id=money_container_id,
         )
-        from .views import pos_manager_bill_detail
-        return pos_manager_bill_detail(request, bill_id=ret.sale_bill_id)
+        bill_ref = (getattr(ret.sale_bill, "public_id", "") or "").strip()
+        if not bill_ref:
+            return HttpResponse(status=404)
+        return redirect("pos:pos_manager_bill_detail", bill_id=bill_ref)
     except (ValueError, ValidationError) as e:
         return HttpResponseBadRequest(str(e))
     except Exception:

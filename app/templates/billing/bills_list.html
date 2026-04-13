@@ -239,8 +239,8 @@
 <script>
   window.__BILLING__ = {
     billsListUrl: "{% url 'billing_api_bills_list' %}",
-    billDeleteUrlTemplate: "{% url 'billing_api_bill_delete' 123456 %}",
-    billViewBase: "{% url 'billing_bill_view' 0 %}".replace(/0\/?$/,"")
+    billDeleteUrlTemplate: "{% url 'billing_api_bill_delete' 'PB-REF' %}",
+    billViewUrlTemplate: "{% url 'billing_bill_view' 'PB-REF' %}"
   };
 </script>
 <script defer src="{% static 'js/billing_bills.js' %}"></script>
@@ -258,8 +258,8 @@
         <input class="input" name="q" id="fQ" placeholder="ابحث بالاسم">
       </div>
       <div class="field">
-        <label class="muted">سيريال الفاتورة</label>
-        <input class="input" name="serial" id="fSerial" inputmode="numeric" placeholder="مثال: 1024">
+        <label class="muted">ID الفاتورة</label>
+        <input class="input" name="bill_id" id="fBillId" placeholder="مثال: PB-001">
       </div>
       <div class="field">
         <label class="muted">من تاريخ</label>
@@ -303,7 +303,7 @@
       </colgroup>
       <thead>
         <tr>
-          <th>سيريال</th>
+          <th>ID</th>
           <th>المورد</th>
           <th>أنشئت بواسطة</th>
           <th>الاجمالي (SYP)</th>

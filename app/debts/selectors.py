@@ -155,12 +155,7 @@ def central_debts_list(
 
     debt_id_norm = (debt_id or "").strip()
     if debt_id_norm:
-        q_id = Q(public_id__iexact=debt_id_norm)
-        try:
-            q_id |= Q(id=int(debt_id_norm))
-        except Exception:
-            pass
-        qs = qs.filter(q_id)
+        qs = qs.filter(public_id__iexact=debt_id_norm)
 
     if date_from:
         qs = qs.filter(created_at__date__gte=date_from)

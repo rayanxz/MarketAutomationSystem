@@ -16,7 +16,7 @@ from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, 
 from inventory import services as InvSV
 from stock.models import ProductContainer, StockEntry
 
-from pos.models import SalesBillRow
+from pos.models import SalesBill, SalesBillRow
 from pos import services_returns as ReturnSV
 
 
@@ -119,6 +119,12 @@ class PosSalesReturnTests(TestCase):
             content_type="application/json",
         )
 
+    def _bill_id_from_save_response(self, resp) -> int:
+        data = resp.json()
+        bill_ref = str(((data or {}).get("bill") or {}).get("id") or "").strip()
+        self.assertTrue(bill_ref, data)
+        return SalesBill.objects.only("id").get(public_id=bill_ref).id
+
     def _get_debtor_entry(self, bill_id: int, currency_code: str = "SYP") -> DebtorDebt | None:
         cur = (currency_code or "SYP").upper()
         src = str(bill_id)
@@ -168,7 +174,7 @@ class PosSalesReturnTests(TestCase):
         print("STATUS:", resp.status_code)
         print("BODY:", resp.content.decode())
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_id = self._bill_id_from_save_response(resp)
 
         row = SalesBillRow.objects.get(bill_id=bill_id)
 
@@ -219,7 +225,7 @@ class PosSalesReturnTests(TestCase):
         print("STATUS:", resp.status_code)
         print("BODY:", resp.content.decode())
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_id = self._bill_id_from_save_response(resp)
         row = SalesBillRow.objects.get(bill_id=bill_id)
 
         debt_before = self._get_debtor_entry(bill_id, "SYP")
@@ -310,7 +316,7 @@ class PosSalesReturnTests(TestCase):
 
         resp = self._post_pos_bill(payload)
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_id = self._bill_id_from_save_response(resp)
         rows = list(SalesBillRow.objects.filter(bill_id=bill_id).order_by("id"))
 
         ret = ReturnSV.create_sales_return_draft(
@@ -375,7 +381,7 @@ class PosSalesReturnTests(TestCase):
 
         resp = self._post_pos_bill(payload)
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_id = self._bill_id_from_save_response(resp)
         row = SalesBillRow.objects.get(bill_id=bill_id)
 
         ret = ReturnSV.create_sales_return_draft(
@@ -398,5 +404,6 @@ class PosSalesReturnTests(TestCase):
         self.assertTrue(
             AuditLog.objects.filter(meta_json__icontains="pos.sale_return_posted").exists()
         )
+
 
 

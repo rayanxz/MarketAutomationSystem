@@ -659,8 +659,8 @@
 
 <script>
   window.__BILLING__ = {
-    billId: {{ bill.id }},
-    wizardUrl: "{% url 'billing_bill_return_wizard' bill.id %}",
+    billId: "{{ bill.public_id|escapejs }}",
+    wizardUrl: "{% url 'billing_bill_return_wizard' bill.public_id %}",
     selectedItems: "{{ selected_items|join:',' }}",
     panel: {
       totalSyp: "{{ bill.total_syp|unlocalize }}",
@@ -693,7 +693,7 @@
     <div class="audit-grid">
       <div class="audit-item">
         <span class="audit-label">رمز الفاتورة (آلي):</span>
-        <span class="audit-value pname" title="{{ bill.serial|human_number }}"><span class="pname-text">{{ bill.serial|human_number }}</span></span>
+        <span class="audit-value pname" title="{{ bill.public_id }}"><span class="pname-text">{{ bill.public_id }}</span></span>
       </div>
 
       <div class="audit-item">
@@ -944,7 +944,7 @@
                 <button
                   type="button"
                   class="btn-mini btn-show-return"
-                  data-returns-url="{% url 'billing_returns_list' %}?bill_serial={{ bill.serial }}"
+                  data-returns-url="{% url 'billing_returns_list' %}?bill_id={{ bill.public_id|urlencode }}"
                   title="عرض المرتجعات"
                 >
                   عرض المرتجعات
@@ -1020,9 +1020,9 @@
       <div class="foot-right">
         <a class="btn-sec" href="{% url 'billing_list' %}">رجوع</a>
         {% if has_debt_now %}
-          <a class="btn-sec" href="{% url 'debts_page' %}?serial={{ bill.serial }}">معلومات الدين</a>
+          <a class="btn-sec" href="{% url 'debts_page' %}?cause_type=purchase_bill&cause_id={{ bill.public_id|urlencode }}">معلومات الدين</a>
         {% endif %}
-        <a class="btn-sec" href="{% url 'financials:document_trace' %}?source_app=billing&source_model=Bill&source_id={{ bill.id }}">الأثر المالي</a>
+        <a class="btn-sec" href="{% url 'financials:document_trace' %}?source_app=billing&source_model=Bill&source_id={{ bill.public_id|urlencode }}">الأثر المالي</a>
 
         {% if can_return %}
           <button type="button" class="btn" id="btnStartReturn">إضافة مرتجع</button>

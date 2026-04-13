@@ -121,6 +121,11 @@ class PosSystemPathNumericIntegrityTests(TestCase):
         self.assertTrue(body.get("ok"), body)
         return body
 
+    def _bill_id_from_save_payload(self, data: dict) -> int:
+        bill_ref = str(((data or {}).get("bill") or {}).get("id") or "").strip()
+        self.assertTrue(bill_ref, data)
+        return SalesBill.objects.only("id").get(public_id=bill_ref).id
+
     def test_full_split_sale_then_cash_return_restores_stock_and_container_balances(self):
         p_syp = self._product(
             name="POS Path SYP",
@@ -178,7 +183,7 @@ class PosSystemPathNumericIntegrityTests(TestCase):
                 ],
             }
         )
-        bill_id = bill_data["bill"]["id"]
+        bill_id = self._bill_id_from_save_payload(bill_data)
         bill = SalesBill.objects.get(pk=bill_id)
         self.assertEqual(bill.total_syp, Decimal("1000"))
         self.assertEqual(bill.total_usd, Decimal("10"))
@@ -262,7 +267,7 @@ class PosSystemPathNumericIntegrityTests(TestCase):
                 ],
             }
         )
-        bill_id = bill_data["bill"]["id"]
+        bill_id = self._bill_id_from_save_payload(bill_data)
         bill = SalesBill.objects.get(pk=bill_id)
 
         debtor = DebtorDebt.objects.get(
@@ -316,3 +321,4 @@ class PosSystemPathNumericIntegrityTests(TestCase):
 
         stock_after = StockEntry.objects.get(product=product, container=self.store).qty_primary
         self.assertEqual(q3(stock_after), q3(stock_before))
+

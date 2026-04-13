@@ -121,6 +121,11 @@ class PosSequencePathNumericIntegrityTests(TestCase):
         self.assertTrue(body.get("ok"), body)
         return body
 
+    def _bill_id_from_save_payload(self, data: dict) -> int:
+        bill_ref = str(((data or {}).get("bill") or {}).get("id") or "").strip()
+        self.assertTrue(bill_ref, data)
+        return SalesBill.objects.only("id").get(public_id=bill_ref).id
+
     def test_partial_sale_cash_return_reduces_debt_then_refunds_remaining_cash(self):
         product = self._product(
             name="POS Seq Partial Sale Product",
@@ -159,7 +164,7 @@ class PosSequencePathNumericIntegrityTests(TestCase):
                 ],
             }
         )
-        bill_id = bill_data["bill"]["id"]
+        bill_id = self._bill_id_from_save_payload(bill_data)
         bill = SalesBill.objects.get(pk=bill_id)
         debtor = DebtorDebt.objects.get(
             source_app="pos",
@@ -273,7 +278,7 @@ class PosSequencePathNumericIntegrityTests(TestCase):
                 ],
             }
         )
-        bill_id = bill_data["bill"]["id"]
+        bill_id = self._bill_id_from_save_payload(bill_data)
         bill = SalesBill.objects.get(pk=bill_id)
         self.assertEqual(bill.total_syp, Decimal("1000"))
         self.assertEqual(bill.total_usd, Decimal("10"))
@@ -337,3 +342,4 @@ class PosSequencePathNumericIntegrityTests(TestCase):
         stock_after_usd = StockEntry.objects.get(product=p_usd, container=self.store).qty_primary
         self.assertEqual(q3(stock_after_syp), q3(stock_before_syp))
         self.assertEqual(q3(stock_after_usd), q3(stock_before_usd))
+

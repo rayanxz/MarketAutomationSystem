@@ -377,12 +377,38 @@ def resolve_central_debt_for_cause(
 
 
 def resolve_purchase_bill_debt(*, bill_id: int | str, for_update: bool = False) -> Optional[DebtRecord]:
-    return resolve_central_debt_for_cause(
+    token = str(bill_id or "").strip()
+    if not token:
+        return None
+
+    cause_refs: list[str] = [token]
+    if token.isdigit():
+        try:
+            from billing.models import Bill
+
+            bill = Bill.objects.filter(pk=int(token)).only("public_id").first()
+            if bill and (bill.public_id or "").strip():
+                cause_refs.insert(0, bill.public_id.strip())
+        except Exception:
+            pass
+    elif token.upper().startswith("PB-"):
+        try:
+            from billing.models import Bill
+
+            bill = Bill.objects.filter(public_id__iexact=token).only("id").first()
+            if bill:
+                cause_refs.append(str(bill.id))
+        except Exception:
+            pass
+
+    qs = DebtRecord.objects.filter(
         direction=DebtDirection.PAYABLE,
         cause_type=DebtCauseType.PURCHASE_BILL,
-        cause_id=str(bill_id),
-        for_update=for_update,
+        cause_id__in=cause_refs,
     )
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.order_by("id").first()
 
 
 def _ensure_debt_counterparty(*, debt: DebtRecord) -> Counterparty:

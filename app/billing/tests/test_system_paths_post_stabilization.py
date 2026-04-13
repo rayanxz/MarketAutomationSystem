@@ -115,7 +115,7 @@ class PostStabilizationSystemPathTests(TestCase):
         return DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         )
 
     def _entries_for_return(self, ret: ProviderReturn) -> list[CreditorDebt]:
@@ -182,7 +182,7 @@ class PostStabilizationSystemPathTests(TestCase):
             DebtRecord.objects.filter(
                 direction=DebtDirection.PAYABLE,
                 cause_type=DebtCauseType.PURCHASE_BILL,
-                cause_id=str(bill.id),
+                cause_id=bill.public_id,
             ).exists()
         )
 

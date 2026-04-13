@@ -163,8 +163,8 @@
     <h4 style="margin:0 0 8px;">مرتجع فاتورة شراء</h4>
     <div class="row">
       <div class="field">
-        <label class="muted">سيريل الفاتورة</label>
-        <div class="badge">{{ bill.serial|human_number }}</div>
+        <label class="muted">ID الفاتورة</label>
+        <div class="badge">{{ bill.public_id }}</div>
       </div>
       <div class="field">
         <label class="muted">المورد</label>
@@ -379,7 +379,7 @@
 
       <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">حفظ المرتجع</button>
-        <a class="btn" href="{% url 'billing_bill_view' bill.id %}?items={{ items_ids }}">
+        <a class="btn" href="{% url 'billing_bill_view' bill.public_id %}?items={{ items_ids }}">
           رجوع إلى الفاتورة
         </a>
       </div>

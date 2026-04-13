@@ -161,7 +161,7 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(len(data_customer["items"]), 1)
         self.assertEqual(data_customer["items"][0]["debt_id"], self.debt_pos.public_id)
 
-    def test_filter_by_debt_id_accepts_public_or_numeric_id(self):
+    def test_filter_by_debt_id_accepts_public_id_only(self):
         resp_public = self._get("/manager/debts/api/records/", debt_id=self.debt_purchase.public_id)
         self.assertEqual(resp_public.status_code, 200)
         items_public = resp_public.json()["items"]
@@ -171,8 +171,7 @@ class CentralDebtsListApiTests(TestCase):
         resp_numeric = self._get("/manager/debts/api/records/", debt_id=str(self.debt_return.id))
         self.assertEqual(resp_numeric.status_code, 200)
         items_numeric = resp_numeric.json()["items"]
-        self.assertEqual(len(items_numeric), 1)
-        self.assertEqual(items_numeric[0]["debt_id"], self.debt_return.public_id)
+        self.assertEqual(len(items_numeric), 0)
 
     def test_other_party_suggest_endpoint(self):
         resp_provider = self._get(
@@ -259,6 +258,10 @@ class CentralDebtsListApiTests(TestCase):
     def test_central_view_page_opens_by_public_id(self):
         resp = self.client.get(f"/manager/debts/view/record/{self.debt_purchase.public_id}/")
         self.assertEqual(resp.status_code, 200)
+
+    def test_central_view_page_rejects_internal_numeric_id(self):
+        resp = self.client.get(f"/manager/debts/view/record/{self.debt_purchase.id}/")
+        self.assertEqual(resp.status_code, 404)
 
     def test_central_view_page_opens_pos_debt_without_legacy_entry(self):
         resp = self.client.get(f"/manager/debts/view/record/{self.debt_pos.public_id}/")

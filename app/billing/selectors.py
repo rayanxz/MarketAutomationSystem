@@ -134,7 +134,7 @@ def bills_base():
         Bill.objects
         .select_related("provider", "created_by")
         .only(
-            "id", "serial", "total", "total_syp", "total_usd", "created_at",
+            "id", "public_id", "serial", "total", "total_syp", "total_usd", "created_at",
             "provider__id", "provider__name",
             "created_by__id",
             "created_by__username",
@@ -144,14 +144,13 @@ def bills_base():
         )
     )
 
-def bills_list_filters(qs, q, serial, status, date_from, date_to, cursor, page_size):
+def bills_list_filters(qs, q, bill_public_id, status, date_from, date_to, cursor, page_size):
     if q:
         qs = qs.filter(provider__name__icontains=q)
-    if serial not in (None, ""):
-        try:
-            qs = qs.filter(serial=int(serial))
-        except ValueError:
-            return qs.none()
+    if bill_public_id not in (None, ""):
+        ref = str(bill_public_id or "").strip()
+        if ref:
+            qs = qs.filter(public_id__iexact=ref)
     # status is filtered at the view level using Bill.status property (Python), to avoid complex subqueries
     if date_from:
         qs = qs.filter(created_at__date__gte=date_from)
@@ -169,16 +168,21 @@ def bills_list_filters(qs, q, serial, status, date_from, date_to, cursor, page_s
 def returns_base():
     return ProviderReturn.objects.select_related("provider")
 
-def returns_list_filters(q, serial, rid, bill_serial, status, date_from, date_to, cursor, page_size):
+def returns_list_filters(q, return_public_id, source_bill_public_id, status, date_from, date_to, cursor, page_size):
     qs = returns_base()
     if q:
         qs = qs.filter(provider__name__icontains=q)
-    if serial:
-        qs = qs.filter(serial=serial)
-    if rid:
-        qs = qs.filter(id=rid)
-    if bill_serial:
-        qs = qs.filter(source_bill_serial=bill_serial)
+    if return_public_id:
+        qs = qs.filter(public_id__iexact=str(return_public_id).strip())
+    if source_bill_public_id:
+        bill_ref = str(source_bill_public_id).strip()
+        bill_serials = list(
+            Bill.objects.filter(public_id__iexact=bill_ref).values_list("serial", flat=True)
+        )
+        source_q = Q(source_bill_public_id__iexact=bill_ref)
+        if bill_serials:
+            source_q |= Q(source_bill_serial__in=bill_serials)
+        qs = qs.filter(source_q)
     # status is a property now; filter in the view at Python level
     if date_from:
         qs = qs.filter(created_at__date__gte=date_from)

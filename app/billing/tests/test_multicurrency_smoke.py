@@ -231,7 +231,7 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         debt = DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         )
         self.assertEqual(q3(debt.total_syp), q3(bill.total_syp))
         self.assertEqual(q3(debt.total_usd), q3(bill.total_usd))
@@ -311,7 +311,7 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         debt = DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         )
         self.assertEqual(debt.total_syp, Decimal("1"))
         self.assertEqual(debt.total_usd, Decimal("0"))
@@ -355,7 +355,7 @@ class MultiCurrencyPurchaseBillSmokeTests(TestCase):
         debt = DebtRecord.objects.get(
             direction=DebtDirection.PAYABLE,
             cause_type=DebtCauseType.PURCHASE_BILL,
-            cause_id=str(bill.id),
+            cause_id=bill.public_id,
         )
         self.assertEqual(debt.total_syp, Decimal("0"))
         self.assertEqual(debt.total_usd, Decimal("2.68"))

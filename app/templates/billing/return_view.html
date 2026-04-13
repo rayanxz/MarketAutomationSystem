@@ -250,8 +250,8 @@
     <h2 style="margin:0 0 10px;">ØªÙØ§ØµÙŠÙ„ Ù…Ø±ØªØ¬Ø¹ Ø§Ù„Ù…ÙˆØ±Ø¯</h2>
     <div class="row">
       <div class="field">
-        <div class="muted">Ø§Ù„Ø³ÙŠØ±ÙŠØ§Ù„</div>
-        <div class="badge">{{ pret.serial|default:"â€”"|human_number }}</div>
+        <div class="muted">ID المرتجع</div>
+        <div class="badge">{{ pret.public_id }}</div>
       </div>
       <div class="field">
         <div class="muted">Ø§Ù„Ù…ÙˆØ±Ø¯</div>
@@ -265,9 +265,9 @@
 
     {% if source_bill %}
       <div class="source-bill-box">
-        Ù‡Ø°Ø§ Ø§Ù„Ù…Ø±ØªØ¬Ø¹ Ù†Ø§ØªØ¬ Ø¹Ù† ÙØ§ØªÙˆØ±Ø© Ø´Ø±Ø§Ø¡ Ø±Ù‚Ù…
-        <a href="{% url 'billing_bill_view' source_bill.id %}">
-          {{ source_bill.serial|human_number }}
+        Ù‡Ø°Ø§ Ø§Ù„Ù…Ø±ØªØ¬Ø¹ Ù†Ø§ØªØ¬ Ø¹Ù† ÙØ§ØªÙˆØ±Ø© Ø´Ø±Ø§Ø¡ Ø¨Ø§Ù„Ù…Ø¹Ø±Ù
+        <a href="{% url 'billing_bill_view' source_bill.public_id %}">
+          {{ source_bill.public_id }}
         </a>
       </div>
     {% endif %}
@@ -429,11 +429,11 @@
     </span>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       {% if source_bill %}
-        <a href="{% url 'billing_bill_view' source_bill.id %}" class="btn-action primary">
+        <a href="{% url 'billing_bill_view' source_bill.public_id %}" class="btn-action primary">
           Ø¹Ø±Ø¶ ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ø´Ø±Ø§Ø¡ Ø§Ù„Ø£ØµÙ„ÙŠØ©
         </a>
       {% endif %}
-      <a href="{% url 'financials:document_trace' %}?source_app=billing&source_model=ProviderReturn&source_id={{ pret.id }}" class="btn-action">الأثر المالي</a>
+      <a href="{% url 'financials:document_trace' %}?source_app=billing&source_model=ProviderReturn&source_id={{ pret.public_id|urlencode }}" class="btn-action">الأثر المالي</a>
       <a href="{% url 'billing_returns_list' %}" class="btn-action">
         Ø±Ø¬ÙˆØ¹ Ø¥Ù„Ù‰ Ù‚Ø§Ø¦Ù…Ø© Ù…Ø±ØªØ¬Ø¹Ø§Øª Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†
       </a>

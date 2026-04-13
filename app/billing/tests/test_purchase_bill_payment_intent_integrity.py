@@ -157,7 +157,7 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
         self.assertTrue(resp.json().get("ok"))
 
-        bill = Bill.objects.get(pk=resp.json()["bill"]["id"])
+        bill = Bill.objects.get(public_id=resp.json()["bill"]["id"])
         self.assertEqual(bill.creation_payment_status, "paid")
         self.assertEqual(bill.creation_payment_method, "syp_only")
         self.assertEqual(bill.creation_paid_syp, Decimal("31000"))
@@ -185,7 +185,7 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
-        bill = Bill.objects.get(pk=resp.json()["bill"]["id"])
+        bill = Bill.objects.get(public_id=resp.json()["bill"]["id"])
 
         receipts = list(
             Receipt.objects.filter(
@@ -260,11 +260,11 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
         item.unit_1_label_at_txn = ""
         item.save(update_fields=["product_name_at_txn", "unit_1_label_at_txn"])
 
-        resp = self.client.get(reverse("billing_bill_view", args=[bill.id]))
+        resp = self.client.get(reverse("billing_bill_view", args=[bill.public_id]))
         self.assertEqual(resp.status_code, 200)
         row = resp.context["items_rows"][0]
-        self.assertEqual(row["product_name"], "—")
-        self.assertEqual(row["unit1_label"], "—")
+        self.assertEqual(row["product_name"], "\u2014")
+        self.assertEqual(row["unit1_label"], "\u2014")
 
     def test_zero_total_bill_is_non_financial_without_receipt_or_debt(self):
         bill = BillingSV.create_bill(
@@ -301,7 +301,7 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
             DebtRecord.objects.filter(
                 direction=DebtDirection.PAYABLE,
                 cause_type=DebtCauseType.PURCHASE_BILL,
-                cause_id=str(bill.id),
+                cause_id=bill.public_id,
             ).exists()
         )
 
@@ -356,7 +356,7 @@ class PurchaseBillPaymentIntentIntegrityTests(TestCase):
             ]
         )
 
-        resp = self.client.get(reverse("billing_bill_view", args=[bill.id]))
+        resp = self.client.get(reverse("billing_bill_view", args=[bill.public_id]))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.context["created_payment_status_code"], "unknown")
         self.assertEqual(resp.context["created_payment_method_code"], "UNKNOWN")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
@@ -19,6 +20,7 @@ from inventory.models import DEC0 , q3 , ProductMovement , q4
 from financials.models import Currency, MoneyContainer
 
 from financials import services as FinSV
+from core.public_ids import peek_next_public_id
 
 
 DEC2 = Decimal("0.01")
@@ -50,7 +52,14 @@ from accounts.models import AccountProfile
 from accounts.decorators import role_required
 from catalog.models import Product
 
-from billing.models import Provider, Bill, ProviderReturn
+from billing.models import (
+    Provider,
+    Bill,
+    ProviderReturn,
+    BILL_PUBLIC_ID_PREFIX,
+    PROVIDER_RETURN_PUBLIC_ID_PREFIX,
+    BILL_PUBLIC_ID_SEQUENCE_KEY,
+)
 from debts.models import (
     DebtorDebt as DebtorEntry,
     CreditorDebt as CreditorEntry,
@@ -97,6 +106,39 @@ def _resolve_purchase_money_container_for_user(*, user, container_id: int):
         feature_code=PURCHASE_BILLS_FEATURE_CODE,
     )
 
+
+def _normalize_public_ref(value: str | int | None) -> str:
+    return str(value or "").strip()
+
+
+def _is_valid_public_ref_for_prefix(*, token: str, prefix: str) -> bool:
+    normalized = str(token or "").strip().upper()
+    normalized_prefix = str(prefix or "").strip().upper()
+    if not normalized or not normalized_prefix:
+        return False
+    pattern = rf"^{re.escape(normalized_prefix)}\d+$"
+    return bool(re.fullmatch(pattern, normalized))
+
+
+def _resolve_bill_from_ref(*, ref: str | int, for_update: bool = False):
+    token = _normalize_public_ref(ref)
+    if not _is_valid_public_ref_for_prefix(token=token, prefix=BILL_PUBLIC_ID_PREFIX):
+        return None
+    qs = Bill.objects
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.filter(public_id__iexact=token).first()
+
+
+def _resolve_provider_return_from_ref(*, ref: str | int, for_update: bool = False):
+    token = _normalize_public_ref(ref)
+    if not _is_valid_public_ref_for_prefix(token=token, prefix=PROVIDER_RETURN_PUBLIC_ID_PREFIX):
+        return None
+    qs = ProviderReturn.objects
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.filter(public_id__iexact=token).first()
+
 @role_required(AccountProfile.Role.MANAGER)
 def billing_home(request: HttpRequest) -> HttpResponse:
     return redirect("billing_list")
@@ -135,7 +177,7 @@ def providers_list(request: HttpRequest) -> HttpResponse:
 
 
 @role_required(AccountProfile.Role.MANAGER)
-def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
+def return_view(request: HttpRequest, ret_id: str) -> HttpResponse:
     """
     تفاصيل مرتجع مورد:
     - بيانات الهيدر (المورد، السيريال، التاريخ)
@@ -145,11 +187,14 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
     from collections import defaultdict
 
     # ----- حمل المرتجع مع العناصر والمورد -----
+    pret_ref = _resolve_provider_return_from_ref(ref=ret_id)
+    if pret_ref is None:
+        return HttpResponse(status=404)
     pret = (
         ProviderReturn.objects
         .select_related("provider")
         .prefetch_related("items__product")
-        .get(pk=ret_id)
+        .get(pk=pret_ref.id)
     )
 
     created_status = pret.initial_status
@@ -157,7 +202,15 @@ def return_view(request: HttpRequest, ret_id: int) -> HttpResponse:
 
     # ----- حاول ربط المرتجع بفاتورة الشراء الأصلية (إن وجدت) -----
     source_bill = None
-    if pret.source_bill_serial:
+    source_bill_ref = (getattr(pret, "source_bill_public_id", "") or "").strip()
+    if source_bill_ref:
+        source_bill = (
+            Bill.objects
+            .select_related("provider")
+            .filter(public_id__iexact=source_bill_ref)
+            .first()
+        )
+    if source_bill is None and pret.source_bill_serial:
         source_bill = (
             Bill.objects
             .select_related("provider")
@@ -533,7 +586,19 @@ def api_bill_next_serial(request: HttpRequest) -> JsonResponse:
     from django.db.models import Max
     m_bill = Bill.objects.aggregate(m=Max("serial"))["m"] or 0
     m_debt = DebtorEntry.objects.aggregate(m=Max("doc_serial"))["m"] or 0
-    return JsonResponse({"ok": True, "next_serial": int(max(int(m_bill or 0), int(m_debt or 0))) + 1})
+    next_serial = int(max(int(m_bill or 0), int(m_debt or 0))) + 1
+    next_public_id = peek_next_public_id(
+        sequence_key=BILL_PUBLIC_ID_SEQUENCE_KEY,
+        prefix=BILL_PUBLIC_ID_PREFIX,
+        model=Bill,
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "next_serial": next_serial,  # legacy compatibility only
+            "next_public_id": next_public_id,
+        }
+    )
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
@@ -726,7 +791,11 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_bills_list(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
-    serial = request.GET.get("serial")
+    bill_public_id = (
+        request.GET.get("bill_id")
+        or request.GET.get("public_id")
+        or ""
+    ).strip()
 
     raw_from = (request.GET.get("date_from") or "").strip()
     raw_to   = (request.GET.get("date_to") or "").strip()
@@ -776,7 +845,7 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
             batch_qs = S.bills_list_filters(
                 S.bills_base(),
                 q,
-                serial,
+                bill_public_id,
                 status_filter,
                 date_from,
                 date_to,
@@ -799,7 +868,7 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
         qs = S.bills_list_filters(
             S.bills_base(),
             q,
-            serial,
+            bill_public_id,
             status_filter,
             date_from,
             date_to,
@@ -839,9 +908,12 @@ def api_bills_list(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
+def api_bill_delete(request: HttpRequest, bill_id: str) -> JsonResponse:
+    bill = _resolve_bill_from_ref(ref=bill_id, for_update=True)
+    if bill is None:
+        return _bad("not found", 404)
     try:
-        SV.delete_bill(actor=request.user, bill_id=bill_id)
+        SV.delete_bill(actor=request.user, bill_id=bill.id)
         return JsonResponse({"ok": True})
     except Bill.DoesNotExist:
         return _bad("not found", 404)
@@ -856,7 +928,10 @@ def api_bill_delete(request: HttpRequest, bill_id: int) -> JsonResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 @login_required
-def bill_view(request, bill_id: int):
+def bill_view(request, bill_id: str):
+    bill_ref = _resolve_bill_from_ref(ref=bill_id)
+    if bill_ref is None:
+        return HttpResponse(status=404)
     bill = get_object_or_404(
         Bill.objects.prefetch_related(
             "items__product",
@@ -864,7 +939,7 @@ def bill_view(request, bill_id: int):
             "items__product__barcodes",
             "items__product__unit_ids",
         ),
-        pk=bill_id,
+        pk=bill_ref.id,
     )
 
     # ===== FIFO: left quantity per BillItem + per-container breakdown =====
@@ -1168,10 +1243,14 @@ def bill_view(request, bill_id: int):
                 source_model="Bill",
                 source_id=str(bill.id),
             ).exists()
+            cause_refs: list[str] = [str(bill.id)]
+            bill_public_ref = (getattr(bill, "public_id", "") or "").strip()
+            if bill_public_ref:
+                cause_refs.insert(0, bill_public_ref)
             has_central_debt = DebtRecord.objects.filter(
                 direction=DebtDirection.PAYABLE,
                 cause_type=DebtCauseType.PURCHASE_BILL,
-                cause_id=str(bill.id),
+                cause_id__in=cause_refs,
                 status=DebtStatus.OPEN,
             ).exists()
             has_debt_now = has_legacy_debt or has_central_debt
@@ -1281,14 +1360,17 @@ def bill_view(request, bill_id: int):
 
 @role_required(AccountProfile.Role.MANAGER)
 @login_required
-def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
+def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
     """
     Second page: choose per-container returned qty + cost for selected items
     from a purchase bill.
     """
+    bill_ref = _resolve_bill_from_ref(ref=bill_id)
+    if bill_ref is None:
+        return HttpResponse(status=404)
     bill = get_object_or_404(
         Bill.objects.prefetch_related("items__product", "provider"),
-        pk=bill_id,
+        pk=bill_ref.id,
     )
 
     money_containers = (
@@ -1378,7 +1460,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
     is_closed = (total_left_now <= DEC0)
     if is_closed:
         # nothing to return, go back
-        return redirect("billing_bill_view", bill_id=bill.id)
+        return redirect("billing_bill_view", bill_id=bill.public_id)
 
     # parse selected items (GET or POST)
     if request.method == "POST":
@@ -1401,7 +1483,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
     items_by_id = {it.id: it for it in item_qs}
 
     if not item_qs:
-        return redirect("billing_bill_view", bill_id=bill.id)
+        return redirect("billing_bill_view", bill_id=bill.public_id)
 
     # ===== build simple rows =====
     rows = []
@@ -1640,6 +1722,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
                 items=items_payload,
                 container=None,  # using per-item container_splits
                 source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
                 money_container_id=(
                     int(money_container_id_raw)
                     if (money_container_id_raw and paid_amount > DEC0)
@@ -1687,13 +1770,16 @@ def bill_return_wizard(request: HttpRequest, bill_id: int) -> HttpResponse:
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def pay_debt_full(request: HttpRequest, bill_id: int) -> JsonResponse:
+def pay_debt_full(request: HttpRequest, bill_id: str) -> JsonResponse:
+    bill = _resolve_bill_from_ref(ref=bill_id, for_update=True)
+    if bill is None:
+        return _bad("not found", 404)
     try:
         money_container_id = request.POST.get("money_container_id")
         currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
         SV.pay_full(
             actor=request.user,
-            bill_id=bill_id,
+            bill_id=bill.id,
             money_container_id=int(money_container_id) if money_container_id else None,
             currency_code=currency_code,
         )
@@ -1706,7 +1792,7 @@ def pay_debt_full(request: HttpRequest, bill_id: int) -> JsonResponse:
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
+def pay_debt_batch(request: HttpRequest, bill_id: str) -> JsonResponse:
     amount_raw = (request.POST.get("amount") or "").strip()
     try:
         amount = Decimal(amount_raw)
@@ -1714,17 +1800,20 @@ def pay_debt_batch(request: HttpRequest, bill_id: int) -> JsonResponse:
         return _bad("Enter a positive amount.")
     if amount <= 0:
         return _bad("Enter a positive amount.")
+    bill = _resolve_bill_from_ref(ref=bill_id, for_update=True)
+    if bill is None:
+        return _bad("not found", 404)
     try:
         money_container_id = request.POST.get("money_container_id")
         currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
-        bill = SV.pay_partial(
+        bill_obj = SV.pay_partial(
             actor=request.user,
-            bill_id=bill_id,
+            bill_id=bill.id,
             amount=amount,
             money_container_id=int(money_container_id) if money_container_id else None,
             currency_code=currency_code,
         )
-        return JsonResponse({"ok": True, "remaining": str(bill.remaining)})
+        return JsonResponse({"ok": True, "remaining": str(bill_obj.remaining)})
     except ValueError as ve:
         return _bad(str(ve))
     except Bill.DoesNotExist:
@@ -1742,9 +1831,18 @@ def providers_returns_list_page(request: HttpRequest) -> HttpResponse:
 @role_required(AccountProfile.Role.MANAGER)
 def api_returns_list(request: HttpRequest) -> JsonResponse:
     q = (request.GET.get("q") or "").strip()
-    serial = request.GET.get("serial")
-    rid = request.GET.get("id")
-    bill_serial = request.GET.get("bill_serial")
+    return_public_id = (
+        request.GET.get("return_id")
+        or request.GET.get("id")
+        or request.GET.get("rid")
+        or ""
+    ).strip()
+    source_bill_public_id = (
+        request.GET.get("bill_id")
+        or request.GET.get("source_bill_id")
+        or request.GET.get("bill_public_id")
+        or ""
+    ).strip()
     raw_from = (request.GET.get("date_from") or "").strip()
     raw_to   = (request.GET.get("date_to") or "").strip()
     date_from = _date(raw_from)
@@ -1792,9 +1890,8 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
             batch = list(
                 S.returns_list_filters(
                     q,
-                    serial,
-                    rid,
-                    bill_serial,
+                    return_public_id,
+                    source_bill_public_id,
                     status_filter,
                     date_from,
                     date_to,
@@ -1817,9 +1914,8 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
         items = list(
             S.returns_list_filters(
                 q,
-                serial,
-                rid,
-                bill_serial,
+                return_public_id,
+                source_bill_public_id,
                 status_filter,
                 date_from,
                 date_to,
@@ -1837,13 +1933,16 @@ def api_returns_list(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
+def collect_return_full(request: HttpRequest, ret_id: str) -> JsonResponse:
+    pret = _resolve_provider_return_from_ref(ref=ret_id, for_update=True)
+    if pret is None:
+        return _bad("not found", 404)
     try:
         money_container_id = request.POST.get("money_container_id")
         currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
         SV.collect_full(
             actor=request.user,
-            return_id=ret_id,
+            return_id=pret.id,
             money_container_id=int(money_container_id) if money_container_id else None,
             currency_code=currency_code,
         )
@@ -1856,7 +1955,7 @@ def collect_return_full(request: HttpRequest, ret_id: int) -> JsonResponse:
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
+def collect_return_batch(request: HttpRequest, ret_id: str) -> JsonResponse:
     amount_raw = (request.POST.get("amount") or "").strip()
     try:
         amount = Decimal(amount_raw)
@@ -1864,12 +1963,15 @@ def collect_return_batch(request: HttpRequest, ret_id: int) -> JsonResponse:
         return _bad("Enter a positive amount.")
     if amount <= 0:
         return _bad("Enter a positive amount.")
+    pret_ref = _resolve_provider_return_from_ref(ref=ret_id, for_update=True)
+    if pret_ref is None:
+        return _bad("not found", 404)
     try:
         money_container_id = request.POST.get("money_container_id")
         currency_code = (request.POST.get("currency_code") or "SYP").strip().upper()
         pret = SV.collect_partial(
             actor=request.user,
-            return_id=ret_id,
+            return_id=pret_ref.id,
             amount=amount,
             money_container_id=int(money_container_id) if money_container_id else None,
             currency_code=currency_code,

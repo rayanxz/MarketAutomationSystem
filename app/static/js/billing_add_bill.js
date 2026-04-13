@@ -9,7 +9,7 @@
   const provIdEl  = document.getElementById("provId");
   const provErr   = document.getElementById("provErr");
 
-  // Bill serial / errors
+  // Bill public ID preview / errors
  
   const saveErr   = document.getElementById("saveErr");
   const autoSerialBadge = document.getElementById("billAutoSerial");
@@ -234,17 +234,22 @@
     }
     return out;
   }
-  async function refreshAutoSerial(){
+async function refreshAutoSerial(){
   if (!autoSerialBadge) return;
   try{
     const r = await fetch(BILLING.nextSerialUrl || "/manager/billing/api/bill/next-serial/", {
       headers: { "Accept": "application/json" }
     });
     const d = await r.json();
-    if (d?.ok && d.next_serial != null){
-      const n = String(d.next_serial).padStart(3, "0");
-      autoSerialBadge.textContent = n;
-      autoSerialBadge.setAttribute("data-serial", String(d.next_serial));
+    if (d?.ok){
+      const nextPublic = String(d.next_public_id || "").trim();
+      if (nextPublic) {
+        autoSerialBadge.textContent = nextPublic;
+        autoSerialBadge.setAttribute("data-public-id", nextPublic);
+      } else if (d.next_serial != null) {
+        const n = String(d.next_serial).padStart(3, "0");
+        autoSerialBadge.textContent = `PB-${n}`;
+      }
     }
   }catch{/* silent */}
 }
