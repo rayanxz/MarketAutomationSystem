@@ -85,6 +85,15 @@
     gap: 8px;
     flex-wrap: wrap;
   }
+  .field-actions{
+    width: max-content;
+    justify-self: start;
+    min-width: fit-content;
+  }
+  .field-actions .actions{
+    margin-inline-start: clamp(30px, 3vw, 40px);
+    align-items: center;
+  }
   .suggestions{
     list-style: none;
     margin: 6px 0 0;
@@ -192,6 +201,14 @@
     .field-wide{
       grid-column: span 1;
     }
+    .field-actions{
+      width: 100%;
+      min-width: 0;
+      justify-self: stretch;
+    }
+    .field-actions .actions{
+      margin-inline-start: 0;
+    }
   }
 </style>
 <script>
@@ -277,7 +294,7 @@
         <input id="fTo" type="date" class="input" data-date-filter="true">
       </div>
 
-      <div class="field field-wide">
+      <div class="field field-actions">
         <label class="muted">&nbsp;</label>
         <div class="actions">
           <button id="btnSearch" class="btn primary" type="button">بحث</button>
