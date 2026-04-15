@@ -150,6 +150,36 @@ class BillingOperationalCorrectnessPhase5Tests(TestCase):
         self.assertTrue(data_numeric.get("ok"), data_numeric)
         self.assertEqual(len(data_numeric.get("items", [])), 0)
 
+    def test_bills_list_date_filters_accept_dd_mm_yyyy(self):
+        bill = self._create_bill(status="paid")
+        bill_day = bill.created_at.date().strftime("%d/%m/%Y")
+        url = reverse("billing_api_bills_list")
+
+        resp = self.client.get(url, {"date_from": bill_day, "date_to": bill_day, "page_size": "20"})
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        data = resp.json()
+        self.assertTrue(data.get("ok"), data)
+        self.assertEqual(len(data.get("items", [])), 1)
+        self.assertEqual(data["items"][0]["id"], bill.public_id)
+
+    def test_provider_returns_date_filters_accept_dd_mm_yyyy(self):
+        ret = ProviderReturn.objects.create(
+            provider=self.provider,
+            total=Decimal("100"),
+            total_syp=Decimal("100"),
+            total_usd=Decimal("0"),
+            settlement_currency="SYP",
+        )
+        ret_day = ret.created_at.date().strftime("%d/%m/%Y")
+        url = reverse("billing_api_returns_list")
+
+        resp = self.client.get(url, {"date_from": ret_day, "date_to": ret_day, "page_size": "20"})
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        data = resp.json()
+        self.assertTrue(data.get("ok"), data)
+        self.assertEqual(len(data.get("items", [])), 1)
+        self.assertEqual(data["items"][0]["id"], ret.public_id)
+
     def test_bills_status_filter_fills_page_before_cursor_cut(self):
         for _ in range(3):
             self._create_bill(status="paid")

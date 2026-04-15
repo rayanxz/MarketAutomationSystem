@@ -6,6 +6,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>{% block title %}نقطة البيع{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'pos.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/flatpickr/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/date_filter_flatpickr.css' %}?v=2026-04-14-1">
+  <script defer src="{% static 'vendor/flatpickr/flatpickr.min.js' %}"></script>
+  <script defer src="{% static 'vendor/flatpickr/l10n/ar.js' %}"></script>
+  <script defer src="{% static 'js/date_filter_flatpickr.js' %}?v=2026-04-14-3"></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body class="pos-kiosk">

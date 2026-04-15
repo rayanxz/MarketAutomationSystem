@@ -22,9 +22,11 @@ from debts.models import (
     DebtCauseType,
     OtherPartyType,
 )
+from debts.cause_refs import cause_ref_for_ui
 from debts.source_identity import source_identity_base
 from financials.models import Receipt, ReceiptKind
 from financials import services as FinSV
+from core.date_filters import parse_filter_date
 from . import selectors as S
 from .serializers import debtor_row, creditor_row, central_debt_row
 from debts import services as SV
@@ -111,14 +113,7 @@ def _dec(val, default="0") -> Decimal:
         return Decimal(default)
 
 def _date(val):
-    from datetime import date
-    s = (val or "").strip()
-    if not s:
-        return None
-    try:
-        return date.fromisoformat(s[:10])
-    except Exception:
-        return None
+    return parse_filter_date(val)
     
     
 def _int_or_none(s):
@@ -137,7 +132,10 @@ def _allowed_containers(user):
 
 def _source_url_for_central_debt(debt: DebtRecord) -> str:
     cause_type = (debt.cause_type or "").strip().lower()
-    cause_id = str(debt.cause_id or "").strip()
+    cause_id = cause_ref_for_ui(
+        cause_type=debt.cause_type,
+        cause_id=debt.cause_id,
+    )
     if not cause_id:
         return ""
     if cause_type == DebtCauseType.PURCHASE_BILL:

@@ -46,6 +46,7 @@
     viewUrlTemplate: "{% url 'billing_return_view' 'PR-REF' %}"
 };
 </script>
+<script defer src="{% static 'js/id_prefix_lock.js' %}"></script>
 <script defer src="{% static 'js/billing_returns_list.js' %}"></script>
 {% endblock %}
 
@@ -70,11 +71,11 @@
       </div>
       <div class="field" style="max-width:180px;">
         <label class="muted">من تاريخ</label>
-        <input class="input" type="date" name="date_from" id="fFrom">
+        <input class="input" type="date" name="date_from" id="fFrom" data-date-filter="true">
       </div>
       <div class="field" style="max-width:180px;">
         <label class="muted">إلى تاريخ</label>
-        <input class="input" type="date" name="date_to" id="fTo">
+        <input class="input" type="date" name="date_to" id="fTo" data-date-filter="true">
       </div>
       <div class="field" style="max-width:220px;">
         <label class="muted">الحالة</label>

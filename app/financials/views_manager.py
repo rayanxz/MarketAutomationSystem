@@ -34,6 +34,7 @@ from financials.forms import MoneyContainerForm, build_opening_formset, FxSettin
 from financials.models import MoneyContainerCurrency 
 
 from django.db import IntegrityError
+from core.date_filters import parse_filter_date
 
 
 logger = logging.getLogger(__name__)
@@ -357,8 +358,10 @@ def container_movements(request: HttpRequest) -> HttpResponse:
     kind = request.GET.get("kind") or ""
     status = request.GET.get("status") or ""
     actor = request.GET.get("actor") or ""
-    date_from = request.GET.get("from") or ""
-    date_to = request.GET.get("to") or ""
+    raw_date_from = (request.GET.get("from") or "").strip()
+    raw_date_to = (request.GET.get("to") or "").strip()
+    date_from = parse_filter_date(raw_date_from)
+    date_to = parse_filter_date(raw_date_to)
     target_type = request.GET.get("target") or ""  # container/counterparty or empty
 
     qs = (
@@ -412,8 +415,8 @@ def container_movements(request: HttpRequest) -> HttpResponse:
             "kind": kind,
             "status": status,
             "actor": actor,
-            "from": date_from,
-            "to": date_to,
+            "from": raw_date_from,
+            "to": raw_date_to,
             "target": target_type,
         },
     }
@@ -662,8 +665,10 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
     currency_code = (request.GET.get("currency") or "").strip().upper()
     container_id = (request.GET.get("container_id") or "").strip()
     counterparty_id = (request.GET.get("counterparty_id") or "").strip()
-    date_from = (request.GET.get("date_from") or "").strip()
-    date_to = (request.GET.get("date_to") or "").strip()
+    raw_date_from = (request.GET.get("date_from") or "").strip()
+    raw_date_to = (request.GET.get("date_to") or "").strip()
+    date_from = parse_filter_date(raw_date_from)
+    date_to = parse_filter_date(raw_date_to)
 
     qs = (
         Receipt.objects
@@ -778,8 +783,8 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
             "currency": currency_code,
             "container_id": container_id,
             "counterparty_id": counterparty_id,
-            "date_from": date_from,
-            "date_to": date_to,
+            "date_from": raw_date_from,
+            "date_to": raw_date_to,
         },
         "containers": MoneyContainer.objects.filter(is_active=True).order_by("name"),
         "counterparties": Counterparty.objects.filter(is_active=True).order_by("type", "name")[:500],

@@ -1,0 +1,28 @@
+/* Shared Flatpickr styling for filter inputs (RTL-friendly). */
+.date-filter-calendar {
+  z-index: 6000;
+  font-family: inherit;
+}
+
+html[dir="rtl"] .date-filter-calendar {
+  direction: rtl;
+}
+
+html[dir="rtl"] .date-filter-calendar .flatpickr-prev-month {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
+html[dir="rtl"] .date-filter-calendar .flatpickr-next-month {
+  inset-inline-end: auto;
+  inset-inline-start: 0;
+}
+
+input[data-date-filter="true"] {
+  direction: ltr;
+  text-align: center;
+}
+
+input[data-date-filter="true"]::placeholder {
+  direction: ltr;
+}

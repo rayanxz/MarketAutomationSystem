@@ -10,6 +10,7 @@ from django.db.models.functions import TruncDate
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from core.date_filters import parse_filter_date
 
 from .models import AuditLog, AuditAction, AuditEntrypoint
 
@@ -523,8 +524,8 @@ def _parse_dt_range(request) -> Tuple[timezone.datetime, timezone.datetime]:
     tz = timezone.get_current_timezone()
     today = timezone.localdate()
 
-    d_from = parse_date(request.GET.get("from", "") or "")
-    d_to = parse_date(request.GET.get("to", "") or "")
+    d_from = parse_filter_date(request.GET.get("from", "") or "")
+    d_to = parse_filter_date(request.GET.get("to", "") or "")
 
     if not d_to:
         d_to = today

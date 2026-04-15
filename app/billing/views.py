@@ -21,6 +21,7 @@ from financials.models import Currency, MoneyContainer
 
 from financials import services as FinSV
 from core.public_ids import peek_next_public_id
+from core.date_filters import parse_filter_date
 
 
 DEC2 = Decimal("0.01")
@@ -322,14 +323,7 @@ def _q_fx(value: Decimal) -> Decimal:
 
 
 def _date(val) -> "date | None":
-    s = (val or "").strip()
-    if not s:
-        return None
-    try:
-        # accept YYYY-MM-DD
-        return date.fromisoformat(s[:10])
-    except Exception:
-        return None
+    return parse_filter_date(val)
 
 
 

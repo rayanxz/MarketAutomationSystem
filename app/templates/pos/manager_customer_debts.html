@@ -52,11 +52,11 @@
     </div>
     <div class="field" style="max-width:160px;">
       <label class="muted">From</label>
-      <input class="input" type="date" name="date_from" value="{% if date_from %}{{ date_from|date:'Y-m-d' }}{% endif %}">
+      <input class="input" type="date" name="date_from" value="{% if date_from %}{{ date_from|date:'Y-m-d' }}{% endif %}" data-date-filter="true">
     </div>
     <div class="field" style="max-width:160px;">
       <label class="muted">To</label>
-      <input class="input" type="date" name="date_to" value="{% if date_to %}{{ date_to|date:'Y-m-d' }}{% endif %}">
+      <input class="input" type="date" name="date_to" value="{% if date_to %}{{ date_to|date:'Y-m-d' }}{% endif %}" data-date-filter="true">
     </div>
     {% if customer_id %}
       <input type="hidden" name="customer_id" value="{{ customer_id }}">

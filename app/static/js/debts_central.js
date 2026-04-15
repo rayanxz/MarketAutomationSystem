@@ -34,6 +34,15 @@
   let suggestIdx = -1;
   let suggestAbort = null;
 
+  const causePrefixByType = {
+    purchase_bill: "PB-",
+    provider_return: "PR-",
+    pos_bill: "PS-",
+  };
+
+  const debtIdLock = window.IdPrefixLock?.attach(fDebtId, { prefix: "D-" }) || null;
+  const causeIdLock = window.IdPrefixLock?.attach(fCauseId, { prefix: "" }) || null;
+
   function nf(x, maxFractionDigits = 3) {
     const n = Number(x);
     if (!Number.isFinite(n)) return (x ?? "");
@@ -70,15 +79,21 @@
 
   function params(reset = false) {
     const causeType = (fCauseType?.value || "").trim();
+    const causeIdValue = causeIdLock
+      ? causeIdLock.getValue({ emptyIfNoDigits: true })
+      : (fCauseId?.value || "").trim();
+    const debtIdValue = debtIdLock
+      ? debtIdLock.getValue({ emptyIfNoDigits: true })
+      : (fDebtId?.value || "").trim();
     const p = {
       page_size: 30,
       debt_type: (fDebtType?.value || "").trim(),
       cause_type: causeType,
-      cause_id: causeType ? (fCauseId?.value || "").trim() : "",
+      cause_id: (causeType === "manual" ? "" : causeIdValue),
       other_party_type: (fOtherPartyType?.value || "").trim(),
       other_party_name: (fOtherPartyName?.value || "").trim(),
       other_party_id: (fOtherPartyId?.value || "").trim(),
-      debt_id: (fDebtId?.value || "").trim(),
+      debt_id: debtIdValue,
       status: (fStatus?.value || "").trim(),
       date_from: fFrom?.value || "",
       date_to: fTo?.value || "",
@@ -298,7 +313,7 @@
   }
 
   btnSearch?.addEventListener("click", () => load(true));
-  [fDebtType, fCauseType, fStatus, fFrom, fTo].forEach((el) => {
+  [fDebtType, fStatus, fFrom, fTo].forEach((el) => {
     el?.addEventListener("change", () => load(true));
   });
   loadMore?.addEventListener("click", () => load(false));
@@ -312,8 +327,37 @@
     });
   });
 
+  function applyCauseIdLockFromType() {
+    if (!causeIdLock) return;
+    const t = String(fCauseType?.value || "").trim().toLowerCase();
+
+    if (t === "manual") {
+      causeIdLock.setPrefix("", { preserveNumeric: false, keepRawWhenUnlock: false });
+      if (fCauseId) {
+        fCauseId.value = "";
+        fCauseId.disabled = true;
+        fCauseId.title = "غير متاح مع الديون اليدوية";
+      }
+      return;
+    }
+
+    if (fCauseId) {
+      fCauseId.disabled = false;
+      fCauseId.title = "";
+    }
+
+    const nextPrefix = causePrefixByType[t] || "";
+    if (nextPrefix) {
+      causeIdLock.setPrefix(nextPrefix, { preserveNumeric: true });
+      causeIdLock.ensurePrefix();
+      return;
+    }
+    causeIdLock.setPrefix("", { preserveNumeric: false, keepRawWhenUnlock: false });
+  }
+
   fCauseType?.addEventListener("change", () => {
-    if (!fCauseType.value && fCauseId) fCauseId.value = "";
+    applyCauseIdLockFromType();
+    load(true);
   });
 
   fOtherPartyType?.addEventListener("change", () => {
@@ -341,6 +385,9 @@
     pickSuggest(li);
     load(true);
   });
+
+  applyCauseIdLockFromType();
+  debtIdLock?.ensurePrefix();
 
   load(true);
 })();

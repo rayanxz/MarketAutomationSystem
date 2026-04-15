@@ -57,6 +57,11 @@
     border-radius: 10px;
     background: #fff;
   }
+  .input:disabled{
+    background:#f3f4f6;
+    color:#9ca3af;
+    cursor:not-allowed;
+  }
   .btn{
     padding: 10px 14px;
     border-radius: 10px;
@@ -195,7 +200,8 @@
     suggestUrl: "{% url 'debts_api_other_party_suggest' %}"
   };
 </script>
-<script defer src="{% static 'js/debts_central.js' %}?v=debts-central-20260406-2"></script>
+<script defer src="{% static 'js/id_prefix_lock.js' %}"></script>
+<script defer src="{% static 'js/debts_central.js' %}?v=debts-central-20260413-1"></script>
 {% endblock %}
 
 {% block content %}
@@ -263,12 +269,12 @@
 
       <div class="field">
         <label class="muted">من تاريخ</label>
-        <input id="fFrom" type="date" class="input">
+        <input id="fFrom" type="date" class="input" data-date-filter="true">
       </div>
 
       <div class="field">
         <label class="muted">إلى تاريخ</label>
-        <input id="fTo" type="date" class="input">
+        <input id="fTo" type="date" class="input" data-date-filter="true">
       </div>
 
       <div class="field field-wide">

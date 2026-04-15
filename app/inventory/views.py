@@ -14,20 +14,16 @@ from catalog.models import ProductCollection, ProductSet, Product
 from billing.models import Bill, ProviderReturn , BillItem
 from inventory.models import ProductMovement
 from stock.models import ProductContainer   # <- NEW
+from core.date_filters import parse_filter_date
 
 
 PAGE_SIZE = 50
 
 
 def _parse_date(s: str):
-    if not s:
-        return None
-    s = s.strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
+    d = parse_filter_date(s)
+    if d is not None:
+        return datetime(d.year, d.month, d.day)
     return None
 
 

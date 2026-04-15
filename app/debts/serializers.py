@@ -8,6 +8,7 @@ from debts.models import (
     DebtRecord,
     DebtDirection,
 )
+from debts.cause_refs import cause_ref_for_ui
 
 
 def _safe_int(x) -> int | None:
@@ -105,13 +106,18 @@ def central_debt_row(d: DebtRecord) -> Dict[str, Any]:
     else:
         other_party_name = (d.other_party_id or "").strip()
 
+    cause_ref = cause_ref_for_ui(
+        cause_type=d.cause_type,
+        cause_id=d.cause_id,
+    )
+
     return {
         "debt_id": d.public_id,
         "debt_type": debt_type,
         "direction": d.direction,
         "status": d.status,
         "cause_type": d.cause_type,
-        "cause_id": d.cause_id,
+        "cause_id": cause_ref,
         "other_party_type": d.other_party_type,
         "other_party_id": d.other_party_id,
         "other_party_name": other_party_name,

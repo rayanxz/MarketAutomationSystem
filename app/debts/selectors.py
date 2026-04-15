@@ -10,6 +10,29 @@ from debts.models import (
     DebtCauseType,
     OtherPartyType,
 )
+from debts.cause_refs import (
+    cause_filter_variants,
+    infer_cause_type_from_public_ref,
+    normalize_cause_type,
+)
+
+
+_SUPPORTED_CAUSE_TYPES = {
+    DebtCauseType.PURCHASE_BILL,
+    DebtCauseType.POS_BILL,
+    DebtCauseType.PROVIDER_RETURN,
+    DebtCauseType.MANUAL,
+}
+
+
+def _q_iexact_any(*, field: str, values: list[str]) -> Q:
+    cleaned = [str(v or "").strip() for v in values if str(v or "").strip()]
+    if not cleaned:
+        return Q(pk__in=[])
+    q = Q(pk__in=[])
+    for value in cleaned:
+        q |= Q(**{f"{field}__iexact": value})
+    return q
 
 def debtors_list(
     *,
@@ -103,17 +126,31 @@ def central_debts_list(
     elif debt_type_norm == "creditor":
         qs = qs.filter(direction=DebtDirection.RECEIVABLE)
 
-    cause_type_norm = (cause_type or "").strip().lower()
-    if cause_type_norm in {
-        DebtCauseType.PURCHASE_BILL,
-        DebtCauseType.POS_BILL,
-        DebtCauseType.PROVIDER_RETURN,
-        DebtCauseType.MANUAL,
-    }:
+    cause_type_norm = normalize_cause_type(cause_type)
+    cause_id_norm = (cause_id or "").strip()
+    if cause_type_norm in _SUPPORTED_CAUSE_TYPES:
         qs = qs.filter(cause_type=cause_type_norm)
-        cause_id_norm = (cause_id or "").strip()
-        if cause_id_norm:
-            qs = qs.filter(cause_id=cause_id_norm)
+
+    if cause_id_norm:
+        effective_cause_type = cause_type_norm
+        if effective_cause_type not in _SUPPORTED_CAUSE_TYPES:
+            effective_cause_type = infer_cause_type_from_public_ref(cause_id_norm)
+            if effective_cause_type:
+                qs = qs.filter(cause_type=effective_cause_type)
+
+        if effective_cause_type in _SUPPORTED_CAUSE_TYPES:
+            if effective_cause_type == DebtCauseType.MANUAL:
+                # Manual debts do not have a public cause reference filter path.
+                # Frontend disables cause_id for this type; backend ignores it too.
+                pass
+            else:
+                variants = cause_filter_variants(
+                    cause_type=effective_cause_type,
+                    cause_ref=cause_id_norm,
+                )
+                qs = qs.filter(_q_iexact_any(field="cause_id", values=variants))
+        else:
+            qs = qs.filter(cause_id__iexact=cause_id_norm)
 
     party_type_norm = (other_party_type or "").strip().lower()
     if party_type_norm in {

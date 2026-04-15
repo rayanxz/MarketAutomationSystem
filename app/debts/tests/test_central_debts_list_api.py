@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from accounts.models import AccountProfile
 from billing.models import Provider
@@ -92,6 +94,10 @@ class CentralDebtsListApiTests(TestCase):
             status=DebtStatus.OPEN,
         )
 
+        now = timezone.now()
+        DebtRecord.objects.filter(pk=cls.debt_purchase.pk).update(created_at=now - timedelta(days=10))
+        DebtRecord.objects.filter(pk=cls.debt_return.pk).update(created_at=now - timedelta(days=5))
+
     def setUp(self):
         self.client.force_login(self.manager)
 
@@ -140,6 +146,49 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(len(data["items"]), 1)
         self.assertEqual(data["items"][0]["debt_id"], self.debt_purchase.public_id)
 
+    def test_filter_by_cause_id_accepts_prefixed_public_ref_for_specific_type(self):
+        resp = self._get(
+            "/manager/debts/api/records/",
+            cause_type="purchase_bill",
+            cause_id="PB-101",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(len(data["items"]), 1)
+        self.assertEqual(data["items"][0]["debt_id"], self.debt_purchase.public_id)
+
+    def test_filter_by_cause_id_accepts_prefixed_public_ref_in_all_mode(self):
+        resp_purchase = self._get("/manager/debts/api/records/", cause_id="PB-101")
+        self.assertEqual(resp_purchase.status_code, 200)
+        items_purchase = resp_purchase.json()["items"]
+        self.assertEqual(len(items_purchase), 1)
+        self.assertEqual(items_purchase[0]["debt_id"], self.debt_purchase.public_id)
+
+        resp_return = self._get("/manager/debts/api/records/", cause_id="PR-202")
+        self.assertEqual(resp_return.status_code, 200)
+        items_return = resp_return.json()["items"]
+        self.assertEqual(len(items_return), 1)
+        self.assertEqual(items_return[0]["debt_id"], self.debt_return.public_id)
+
+        resp_pos = self._get("/manager/debts/api/records/", cause_id="PS-303")
+        self.assertEqual(resp_pos.status_code, 200)
+        items_pos = resp_pos.json()["items"]
+        self.assertEqual(len(items_pos), 1)
+        self.assertEqual(items_pos[0]["debt_id"], self.debt_pos.public_id)
+
+    def test_manual_cause_type_ignores_cause_id_filter_value(self):
+        resp = self._get(
+            "/manager/debts/api/records/",
+            cause_type="manual",
+            cause_id="PB-101",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(len(data["items"]), 1)
+        self.assertEqual(data["items"][0]["debt_id"], self.debt_manual_other.public_id)
+
     def test_filter_by_other_party_type_and_name(self):
         resp_provider = self._get(
             "/manager/debts/api/records/",
@@ -172,6 +221,27 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(resp_numeric.status_code, 200)
         items_numeric = resp_numeric.json()["items"]
         self.assertEqual(len(items_numeric), 0)
+
+    def test_date_filters_accept_dd_mm_yyyy(self):
+        target_day = (timezone.now() - timedelta(days=5)).date().strftime("%d/%m/%Y")
+        resp = self._get("/manager/debts/api/records/", date_from=target_day, date_to=target_day)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        ids = {row["debt_id"] for row in data["items"]}
+        self.assertIn(self.debt_return.public_id, ids)
+        self.assertNotIn(self.debt_purchase.public_id, ids)
+
+    def test_cause_id_in_rows_is_displayed_as_public_ref(self):
+        resp = self._get("/manager/debts/api/records/", page_size=50)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+
+        by_debt_id = {row["debt_id"]: row for row in data["items"]}
+        self.assertEqual(by_debt_id[self.debt_purchase.public_id]["cause_id"], "PB-101")
+        self.assertEqual(by_debt_id[self.debt_return.public_id]["cause_id"], "PR-202")
+        self.assertEqual(by_debt_id[self.debt_pos.public_id]["cause_id"], "PS-303")
 
     def test_other_party_suggest_endpoint(self):
         resp_provider = self._get(

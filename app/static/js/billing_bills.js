@@ -10,6 +10,7 @@
   }
 
   const form = document.getElementById("filters");
+  const fBillId = document.getElementById("fBillId");
   const rowsEl = document.getElementById("rows");
   const loadMoreBtn = document.getElementById("loadMore");
   const endMsg = document.getElementById("endMsg");
@@ -25,6 +26,7 @@
   let done = false;
   let pendingDeleteId = "";
   let debounceTimer = null;
+  const billIdLock = window.IdPrefixLock?.attach(fBillId, { prefix: "PB-" }) || null;
 
   // ---------- Helpers ----------
   function qs(obj) {
@@ -126,6 +128,11 @@
     const fd = new FormData(form);
     const obj = {};
     for (const [k, v] of fd.entries()) {
+      if (k === "bill_id" && billIdLock) {
+        const value = billIdLock.getValue();
+        if (value) obj[k] = value;
+        continue;
+      }
       if (v) obj[k] = v;
     }
     obj.page_size = 30;
@@ -275,5 +282,6 @@
   }
 
   prefillFromUrl();
+  billIdLock?.ensurePrefix();
   load(true);
 })();

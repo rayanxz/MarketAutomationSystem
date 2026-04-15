@@ -5,6 +5,8 @@
   if (!API_LIST || !VIEW_TPL) { console.error("Missing __RETURNS__ URLs"); return; }
 
   const form = document.getElementById('filters');
+  const fReturnId = document.getElementById("fReturnId");
+  const fBillId = document.getElementById("fBillId");
   const rowsEl = document.getElementById('rows');
   const loadMoreBtn = document.getElementById('loadMore');
   const endMsg = document.getElementById('endMsg');
@@ -12,6 +14,8 @@
 
   let cursor = null, loading = false, done = false;
   let debounceTimer = null;
+  const returnIdLock = window.IdPrefixLock?.attach(fReturnId, { prefix: "PR-" }) || null;
+  const billIdLock = window.IdPrefixLock?.attach(fBillId, { prefix: "PB-" }) || null;
 
   // helpers
   const qs = (obj)=> new URLSearchParams(obj).toString();
@@ -52,7 +56,19 @@
   function readFilters(includeCursor=true){
     const fd = new FormData(form);
     const obj = {};
-    for (const [k,v] of fd.entries()) if (v) obj[k]=v;
+    for (const [k,v] of fd.entries()) {
+      if (k === "return_id" && returnIdLock) {
+        const value = returnIdLock.getValue();
+        if (value) obj[k] = value;
+        continue;
+      }
+      if (k === "bill_id" && billIdLock) {
+        const value = billIdLock.getValue();
+        if (value) obj[k] = value;
+        continue;
+      }
+      if (v) obj[k]=v;
+    }
     obj.page_size = 30;
     if (includeCursor && cursor) obj.cursor = cursor;
     return obj;
@@ -130,5 +146,7 @@
   }
 
   prefillFromUrl();
+  returnIdLock?.ensurePrefix();
+  billIdLock?.ensurePrefix();
   load(true);
 })();

@@ -1,6 +1,6 @@
 {# app/templates/pos/manager_overview.html #}
 {% extends "manager/base_manager.html" %}
-{% load l10n %}
+{% load static l10n %}
 
 {% block title %}إدارة نقاط البيع — السجلات{% endblock %}
 
@@ -85,6 +85,7 @@
 
   .pos-mgr-filters input[type="date"],
   .pos-mgr-filters input[type="time"],
+  .pos-mgr-filters input[type="text"],
   .pos-mgr-filters select {
     padding: 3px 5px;
     border-radius: 6px;
@@ -384,11 +385,11 @@
       <form method="get" class="pos-mgr-filters">
         <label>
           من:
-          <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}">
+          <input type="date" name="from" value="{{ date_from|date:'Y-m-d' }}" data-date-filter="true">
         </label>
         <label>
           إلى:
-          <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}">
+          <input type="date" name="to" value="{{ date_to|date:'Y-m-d' }}" data-date-filter="true">
         </label>
 
         {# preserve selected day when updating range (optional) #}
@@ -467,6 +468,11 @@
                   {% endwith %}
                 {% endfor %}
               </select>
+            </label>
+
+            <label>
+              ID فاتورة POS:
+              <input type="text" name="bill_id" id="fPosBillId" value="{{ selected_bill_public_id|default:'' }}" placeholder="PS-001">
             </label>
 
             <label>
@@ -553,6 +559,7 @@
 </div>
 
 
+<script src="{% static 'js/id_prefix_lock.js' %}"></script>
 <script>
 (function () {
   const scrollBox = document.getElementById("timelineScroll");
@@ -633,6 +640,9 @@
   const rowsBox = document.getElementById("billRows");
   const errBox = document.getElementById("billModalError");
   const titleBox = document.getElementById("billModalTitle");
+  const fPosBillId = document.getElementById("fPosBillId");
+  const posBillIdLock = window.IdPrefixLock?.attach(fPosBillId, { prefix: "PS-" }) || null;
+  posBillIdLock?.ensurePrefix();
 
   function openModal() {
     if (!backdrop) return;

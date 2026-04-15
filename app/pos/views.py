@@ -33,6 +33,7 @@ from debts.models import DebtorDebt, PartyType
 from inventory.models import ProductMovement , DEC0 , q3 , q4
 from financials.models import MoneyContainerCurrency
 from financials import services as FinSV
+from core.date_filters import parse_filter_date
 
 User = get_user_model()
 
@@ -85,11 +86,14 @@ def build_timeline_events_for_day(
         time_from = None
         time_to = None
         selected_actor_id = ""
+        selected_bill_public_id = ""
     else:
         show_logins = "show_logins" in request.GET
         show_shifts = "show_shifts" in request.GET
         show_bills = "show_bills" in request.GET
         selected_actor_id = (request.GET.get("actor") or "").strip()
+        raw_bill_public_id = (request.GET.get("bill_id") or "").strip()
+        selected_bill_public_id = raw_bill_public_id if _is_valid_sales_bill_public_ref(raw_bill_public_id) else ""
 
         def _parse_time(s: str) -> dt_time | None:
             try:
@@ -150,6 +154,11 @@ def build_timeline_events_for_day(
             return False
         return True
 
+    def match_bill_id(ref: str | None) -> bool:
+        if not selected_bill_public_id:
+            return True
+        return (str(ref or "").strip().upper() == selected_bill_public_id.upper())
+
     # -----------------------
     # Collect events
     # -----------------------
@@ -193,6 +202,8 @@ def build_timeline_events_for_day(
                 continue
             if not in_time_range(b.created_at):
                 continue
+            if not match_bill_id(getattr(b, "public_id", None)):
+                continue
             events.append({"type": "bill", "time": b.created_at, "user": b.cashier, "bill": b})
 
     events.sort(key=lambda e: e["time"])
@@ -211,6 +222,7 @@ def build_timeline_events_for_day(
 
     state = {
         "selected_actor_id": selected_actor_id,
+        "selected_bill_public_id": selected_bill_public_id,
         "show_logins": show_logins,
         "show_shifts": show_shifts,
         "show_bills": show_bills,
@@ -274,10 +286,8 @@ def pos_manager_overview(request: HttpRequest) -> HttpResponse:
     def parse_date(s, default):
         if not s:
             return default
-        try:
-            return date.fromisoformat(str(s))
-        except Exception:
-            return default
+        parsed = parse_filter_date(str(s))
+        return parsed or default
 
     date_from = parse_date(request.GET.get("from"), today - timedelta(days=6))
     date_to = parse_date(request.GET.get("to"), today)
@@ -429,10 +439,7 @@ def pos_manager_customer_debts(request: HttpRequest) -> HttpResponse:
     customer_id = request.GET.get("customer_id")
 
     def _parse_date(s):
-        try:
-            return date.fromisoformat(s) if s else None
-        except Exception:
-            return None
+        return parse_filter_date(s)
 
     date_from = _parse_date(request.GET.get("date_from") or "")
     date_to = _parse_date(request.GET.get("date_to") or "")
