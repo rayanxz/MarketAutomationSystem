@@ -20,50 +20,337 @@
 <style>
   .card{ background:#fff; border-radius:12px; padding:14px; box-shadow:var(--card-shadow); }
   .muted{ color:#6b7280; font-size:12px; }
-  .grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:10px; }
-  .info{ border:1px solid #eef2f7; border-radius:10px; padding:10px; background:#fff; }
-  .label{ font-size:12px; color:#6b7280; margin-bottom:4px; }
-  .val{ font-weight:600; }
-  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-  .btn{ padding:8px 12px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; color:inherit; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
-  .btn[disabled]{ opacity:.6; cursor:not-allowed; pointer-events:none; }
+  .page-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:12px;
+  }
+  .page-title{
+    margin:0;
+  }
+  .btn-back{
+    white-space:nowrap;
+  }
+
+  .panels{
+    display:grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap:6px;
+    align-items:stretch;
+  }
+  .panel{
+    border:1px solid #e6ebf2;
+    border-radius:10px;
+    padding:12px 14px;
+    background:#fbfcfe;
+  }
+  .panel-title{
+    margin:0 0 12px;
+    padding-bottom:8px;
+    border-bottom:2px solid #d9e2ec;
+    font-size:19px;
+    font-weight:800;
+    color:#111827;
+  }
+  .panel-list{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .line{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-height:28px;
+    flex-wrap:wrap;
+  }
+  .line-label{
+    color:#6b7280;
+    font-size:14px;
+  }
+  .line-value{
+    color:#111827;
+    font-size:16px;
+    font-weight:700;
+  }
+  .line-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:4px 10px;
+    border-radius:999px;
+    border:1px solid transparent;
+    line-height:1.25;
+  }
+  .pill-icon{
+    font-size:14px;
+    line-height:1;
+  }
+  .line-pill.is-debtor,
+  .line-pill.is-closed{
+    background:rgba(220, 38, 38, .10);
+    border-color:rgba(220, 38, 38, .20);
+    color:#8d2525;
+  }
+  .line-pill.is-creditor,
+  .line-pill.is-open{
+    background:rgba(22, 163, 74, .10);
+    border-color:rgba(22, 163, 74, .20);
+    color:#1f6b3d;
+  }
+  .panel:not(.panel-totals) .line{
+    gap:7px;
+    min-height:32px;
+  }
+  .panel:not(.panel-totals) .line-label{
+    font-size:15px;
+    line-height:1.35;
+  }
+  .panel:not(.panel-totals) .line-value{
+    font-size:18px;
+    line-height:1.35;
+  }
+  .cause-id-wrap{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+  .panel-totals .panel-list{
+    gap:0;
+  }
+  .totals-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+  }
+  .total-box-mini{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    padding:10px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .total-label{
+    color:#6b7280;
+    font-size:13px;
+    line-height:1.3;
+  }
+  .total-value-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    direction:ltr; /* keeps currency chip visually left of number */
+  }
+  .total-value{
+    flex:1 1 auto;
+    min-width:0;
+    text-align:right;
+    color:#0f172a;
+    font-size:20px;
+    font-weight:800;
+    line-height:1.2;
+  }
+  .total-currency-chip{
+    flex:0 0 auto;
+    border:1px solid #b8e0bf;
+    border-radius:8px;
+    background:#ecf8ef;
+    color:#1f6b3d;
+    font-size:11px;
+    font-weight:700;
+    line-height:1;
+    padding:4px 6px;
+    min-width:38px;
+    text-align:center;
+  }
+  .totals-divider{
+    height:2px;
+    background:#d9e2ec;
+    margin:11px 0;
+    opacity:1;
+  }
+
+  .actions-row{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
+    margin-top:10px;
+  }
+
+  .btn{
+    padding:8px 12px;
+    border-radius:10px;
+    border:1px solid #e5e7eb;
+    background:#f8fafc;
+    color:inherit;
+    text-decoration:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+  }
   .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
   table{ width:100%; border-collapse:collapse; }
   th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
   thead th{ background:#f8fafc; position:sticky; top:0; }
+
+  @media (max-width: 980px){
+    .panels{
+      grid-template-columns: 1fr;
+      gap:8px;
+    }
+  }
+  @media (max-width: 640px){
+    .page-head{
+      flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="card" dir="rtl">
-  <h2 style="margin:0 0 12px;">تفاصيل الدين {{ debt.public_id }}</h2>
-
-  <div class="grid">
-    <div class="info"><div class="label">نوع الدين</div><div class="val">{% if debt.direction == 'payable' %}مدين{% else %}دائن{% endif %}</div></div>
-    <div class="info"><div class="label">الحالة</div><div class="val">{% if debt.status == 'closed' %}مغلق{% else %}مفتوح{% endif %}</div></div>
-    <div class="info"><div class="label">نوع السبب</div><div class="val">{{ debt.cause_type }}</div></div>
-    <div class="info"><div class="label">رقم السبب</div><div class="val">{{ debt.cause_id }}</div></div>
-    <div class="info"><div class="label">نوع الطرف المقابل</div><div class="val">{{ debt.other_party_type }}</div></div>
-    <div class="info"><div class="label">اسم الطرف المقابل</div><div class="val">{% if debt.provider_id %}{{ debt.provider.name }}{% elif debt.customer_id %}{{ debt.customer.name }}{% else %}{{ debt.other_party_id|default:"—" }}{% endif %}</div></div>
-    <div class="info"><div class="label">إجمالي SYP عند الإنشاء</div><div class="val">{{ debt.total_syp|floatformat:3 }}</div></div>
-    <div class="info"><div class="label">إجمالي USD عند الإنشاء</div><div class="val">{{ debt.total_usd|floatformat:3 }}</div></div>
-    <div class="info"><div class="label">المتبقي SYP</div><div class="val">{{ debt.remaining_syp|floatformat:3 }}</div></div>
-    <div class="info"><div class="label">المتبقي USD</div><div class="val">{{ debt.remaining_usd|floatformat:3 }}</div></div>
-    <div class="info"><div class="label">المستخدم</div><div class="val">{{ debt.actor_username|default:"—" }}</div></div>
-    <div class="info"><div class="label">تاريخ الإنشاء</div><div class="val">{{ debt.created_at|date:"Y-m-d H:i:s" }}</div></div>
+  <div class="page-head">
+    <h2 class="page-title">تفاصيل الدين {{ debt.public_id }}</h2>
+    <a class="btn btn-back" href="{% url 'debts_page' %}">رجوع للقائمة</a>
   </div>
 
-  <div class="row">
-    {% if source_url %}
-      <a class="btn" href="{{ source_url }}">المصدر</a>
-    {% else %}
-      <button class="btn" type="button" disabled>المصدر</button>
-    {% endif %}
-    {% if legacy_view_url %}
+  <div class="panels">
+    <section class="panel">
+      <h3 class="panel-title">معلومات عامة</h3>
+      <div class="panel-list">
+        <div class="line">
+          <span class="line-label">نوع الدين:</span>
+          <span class="line-value line-pill {% if debt.direction == 'payable' %}is-debtor{% else %}is-creditor{% endif %}">
+            {% if debt.direction == 'payable' %}
+              <span class="pill-icon" aria-hidden="true">↓</span>
+              <span>مدين</span>
+            {% else %}
+              <span class="pill-icon" aria-hidden="true">↑</span>
+              <span>دائن</span>
+            {% endif %}
+          </span>
+        </div>
+        <div class="line">
+          <span class="line-label">الحالة:</span>
+          <span class="line-value line-pill {% if debt.status == 'closed' %}is-closed{% else %}is-open{% endif %}">
+            {% if debt.status == 'closed' %}مغلق{% else %}مفتوح{% endif %}
+          </span>
+        </div>
+        <div class="line">
+          <span class="line-label">تاريخ الإنشاء:</span>
+          <span class="line-value">{{ debt.created_at|date:"Y-m-d H:i:s"|default:"-" }}</span>
+        </div>
+        <div class="line">
+          <span class="line-label">المستخدم:</span>
+          <span class="line-value">{{ debt.actor_username|default:"-" }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3 class="panel-title">معلومات السبب</h3>
+      <div class="panel-list">
+        <div class="line">
+          <span class="line-label">نوع السبب:</span>
+          <span class="line-value">
+            {% if debt.cause_type == 'purchase_bill' %}فاتورة شراء
+            {% elif debt.cause_type == 'provider_return' %}مرتجع مورد
+            {% elif debt.cause_type == 'pos_bill' %}فاتورة POS
+            {% elif debt.cause_type == 'manual' %}دين يدوي
+            {% else %}-
+            {% endif %}
+          </span>
+        </div>
+        <div class="line">
+          <span class="line-label">نوع الطرف المقابل:</span>
+          <span class="line-value">
+            {% if debt.other_party_type == 'provider' %}مورد
+            {% elif debt.other_party_type == 'customer' %}عميل
+            {% elif debt.other_party_type == 'system_user' %}مستخدم نظام
+            {% elif debt.other_party_type == 'other' %}أخرى
+            {% else %}-
+            {% endif %}
+          </span>
+        </div>
+        <div class="line">
+          <span class="line-label">اسم الطرف المقابل:</span>
+          <span class="line-value">
+            {% if debt.provider_id %}{{ debt.provider.name }}
+            {% elif debt.customer_id %}{{ debt.customer.name }}
+            {% elif debt.other_party_id %}{{ debt.other_party_id }}
+            {% else %}-
+            {% endif %}
+          </span>
+        </div>
+        <div class="line">
+          <span class="line-label">رقم السبب:</span>
+          <span class="line-value">
+            {% if debt.cause_type == 'manual' or not debt.cause_id %}
+              -
+            {% else %}
+              <span class="cause-id-wrap">
+                <span>{{ debt.cause_id }}</span>
+                {% if source_url %}
+                  <a class="btn" href="{{ source_url }}">عرض</a>
+                {% endif %}
+              </span>
+            {% endif %}
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-totals">
+      <h3 class="panel-title">الإجماليات</h3>
+      <div class="panel-list">
+        <div class="totals-grid">
+          <div class="total-box-mini">
+            <div class="total-label">إجمالي SYP عند الإنشاء</div>
+            <div class="total-value-row">
+              <span class="total-currency-chip">SYP</span>
+              <span class="total-value">{{ debt.total_syp|floatformat:3|default:"-" }}</span>
+            </div>
+          </div>
+          <div class="total-box-mini">
+            <div class="total-label">إجمالي USD عند الإنشاء</div>
+            <div class="total-value-row">
+              <span class="total-currency-chip">USD</span>
+              <span class="total-value">{{ debt.total_usd|floatformat:3|default:"-" }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="totals-divider" aria-hidden="true"></div>
+        <div class="totals-grid">
+          <div class="total-box-mini">
+            <div class="total-label">المتبقي SYP</div>
+            <div class="total-value-row">
+              <span class="total-currency-chip">SYP</span>
+              <span class="total-value">{{ debt.remaining_syp|floatformat:3|default:"-" }}</span>
+            </div>
+          </div>
+          <div class="total-box-mini">
+            <div class="total-label">المتبقي USD</div>
+            <div class="total-value-row">
+              <span class="total-currency-chip">USD</span>
+              <span class="total-value">{{ debt.remaining_usd|floatformat:3|default:"-" }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  {% if legacy_view_url %}
+    <div class="actions-row">
       <a class="btn" href="{{ legacy_view_url }}">عرض التفاصيل التشغيلية</a>
-    {% endif %}
-    <a class="btn" href="{% url 'debts_page' %}">رجوع للقائمة</a>
-  </div>
+    </div>
+  {% endif %}
 
   <div class="table-wrap">
     <table>
@@ -87,9 +374,9 @@
             <td>{{ s.payment_usd|floatformat:3 }}</td>
             <td>{{ s.applied_syp|floatformat:3 }}</td>
             <td>{{ s.applied_usd|floatformat:3 }}</td>
-            <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}—{% endif %}</td>
-            <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}—{% endif %}</td>
-            <td>{{ s.actor_username|default:"—" }}</td>
+            <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}-{% endif %}</td>
+            <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}-{% endif %}</td>
+            <td>{{ s.actor_username|default:"-" }}</td>
           </tr>
         {% empty %}
           <tr><td colspan="8" class="muted">لا توجد عمليات تسديد بعد.</td></tr>
