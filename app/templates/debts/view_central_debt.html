@@ -173,6 +173,65 @@
     margin:11px 0;
     opacity:1;
   }
+  .remaining-focus{
+    border:1px solid #c3d6ee;
+    border-radius:12px;
+    background:linear-gradient(180deg, #eef4ff 0%, #e5efff 100%);
+    padding:11px;
+    display:flex;
+    flex-direction:column;
+    gap:9px;
+  }
+  .remaining-focus-title{
+    color:#3b4a61;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:.1px;
+  }
+  .remaining-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+  }
+  .remaining-card{
+    border:1px solid #cfdced;
+    border-radius:10px;
+    background:#ffffff;
+    padding:10px 11px;
+    display:flex;
+    flex-direction:column;
+    gap:7px;
+  }
+  .remaining-label{
+    color:#5a6a82;
+    font-size:13px;
+    font-weight:700;
+    line-height:1.3;
+  }
+  .remaining-value-row{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    direction:ltr; /* keeps currency chip visually left of number */
+  }
+  .remaining-value{
+    flex:1 1 auto;
+    min-width:0;
+    text-align:right;
+    color:#0b1f38;
+    font-size:26px;
+    font-weight:900;
+    line-height:1.15;
+    letter-spacing:.2px;
+  }
+  .remaining-chip{
+    border-color:#a9d6b1;
+    background:#e6f5ea;
+    color:#1d6a3b;
+    font-size:12px;
+    padding:5px 7px;
+    min-width:42px;
+  }
 
   .actions-row{
     display:flex;
@@ -326,19 +385,22 @@
           </div>
         </div>
         <div class="totals-divider" aria-hidden="true"></div>
-        <div class="totals-grid">
-          <div class="total-box-mini">
-            <div class="total-label">المتبقي SYP</div>
-            <div class="total-value-row">
-              <span class="total-currency-chip">SYP</span>
-              <span class="total-value">{{ debt.remaining_syp|floatformat:3|default:"-" }}</span>
+        <div class="remaining-focus">
+          <div class="remaining-focus-title">الرصيد المتبقي الحالي</div>
+          <div class="remaining-grid">
+            <div class="remaining-card">
+              <div class="remaining-label">المتبقي SYP</div>
+              <div class="remaining-value-row">
+                <span class="total-currency-chip remaining-chip">SYP</span>
+                <span class="remaining-value">{{ debt.remaining_syp|floatformat:3|default:"-" }}</span>
+              </div>
             </div>
-          </div>
-          <div class="total-box-mini">
-            <div class="total-label">المتبقي USD</div>
-            <div class="total-value-row">
-              <span class="total-currency-chip">USD</span>
-              <span class="total-value">{{ debt.remaining_usd|floatformat:3|default:"-" }}</span>
+            <div class="remaining-card">
+              <div class="remaining-label">المتبقي USD</div>
+              <div class="remaining-value-row">
+                <span class="total-currency-chip remaining-chip">USD</span>
+                <span class="remaining-value">{{ debt.remaining_usd|floatformat:3|default:"-" }}</span>
+              </div>
             </div>
           </div>
         </div>
