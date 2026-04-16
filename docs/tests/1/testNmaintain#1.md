@@ -37,9 +37,6 @@
 
 - logging in and out has a *bad visual bug* , and that's successful login or logout messages don't disappear , a good solution is to give them a disappearing timer , 4 seconds seems enough  
 
-
-
-
 ===============================================================================================
 
 /\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\
@@ -128,7 +125,6 @@
 - test reusing names , id , codes , barcodes , 
 
 ### 2. billing
- 
  
 ### 3. financials
 

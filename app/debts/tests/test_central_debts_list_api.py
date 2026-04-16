@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -17,6 +17,7 @@ from debts.models import (
     DebtStatus,
     OtherPartyType,
 )
+from financials import services as FinSV
 from pos.models import CustomerProfile
 
 
@@ -33,6 +34,7 @@ class CentralDebtsListApiTests(TestCase):
         cls.provider_alpha = Provider.objects.create(name="Provider Alpha")
         cls.provider_beta = Provider.objects.create(name="Provider Beta")
         cls.customer_john = CustomerProfile.objects.create(name="John Customer")
+        FinSV.set_current_fx(actor=cls.manager, rate_syp_per_usd=Decimal("21000"))
 
         cls.debt_purchase = DebtRecord.objects.create(
             direction=DebtDirection.PAYABLE,
@@ -285,7 +287,42 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(central.remaining_syp, Decimal("321.000"))
         self.assertEqual(central.total_usd, Decimal("0.000"))
         self.assertEqual(central.remaining_usd, Decimal("0.000"))
+        self.assertEqual(central.fx_syp_per_usd_at_creation, Decimal("21000.000000"))
         self.assertEqual(central.other_party_type, OtherPartyType.OTHER)
+
+    def test_central_debt_creation_fx_snapshot_stays_fixed_after_updates(self):
+        debt = DebtSV.upsert_central_debt(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="fx-lock-1",
+            source_app="debts",
+            other_party_type=OtherPartyType.OTHER,
+            other_party_id="FX Snapshot Party",
+            actor_username="debts_api_mgr",
+            total_syp=Decimal("100.000"),
+            total_usd=Decimal("0.000"),
+            remaining_syp=Decimal("100.000"),
+            remaining_usd=Decimal("0.000"),
+            note="fx lock test",
+        )
+        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("21000.000000"))
+
+        FinSV.set_current_fx(actor=self.manager, rate_syp_per_usd=Decimal("27500"))
+        debt = DebtSV.upsert_central_debt(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="fx-lock-1",
+            source_app="debts",
+            other_party_type=OtherPartyType.OTHER,
+            other_party_id="FX Snapshot Party",
+            actor_username="debts_api_mgr",
+            total_syp=Decimal("125.000"),
+            total_usd=Decimal("0.000"),
+            remaining_syp=Decimal("125.000"),
+            remaining_usd=Decimal("0.000"),
+            note="fx lock update",
+        )
+        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("21000.000000"))
 
     def test_view_link_is_resolved_for_manual_debt(self):
         entry = DebtSV.create_manual_debt(
@@ -336,3 +373,69 @@ class CentralDebtsListApiTests(TestCase):
     def test_central_view_page_opens_pos_debt_without_legacy_entry(self):
         resp = self.client.get(f"/manager/debts/view/record/{self.debt_pos.public_id}/")
         self.assertEqual(resp.status_code, 200)
+
+    def test_central_view_context_uses_global_2dp_ui_values(self):
+        debt = DebtRecord.objects.create(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="fmt-901",
+            source_app="debts",
+            other_party_type=OtherPartyType.OTHER,
+            other_party_id="Fmt Party",
+            actor_username="debts_api_mgr",
+            total_syp=Decimal("123.459"),
+            total_usd=Decimal("4.129"),
+            remaining_syp=Decimal("11.999"),
+            remaining_usd=Decimal("0.567"),
+            fx_syp_per_usd_at_creation=Decimal("19750.987654"),
+            status=DebtStatus.OPEN,
+        )
+        resp = self.client.get(f"/manager/debts/view/record/{debt.public_id}/")
+        self.assertEqual(resp.status_code, 200)
+
+        ui = resp.context["debt_ui"]
+        self.assertEqual(ui["total_syp"], Decimal("123.45"))
+        self.assertEqual(ui["total_usd"], Decimal("4.12"))
+        self.assertEqual(ui["remaining_syp"], Decimal("11.99"))
+        self.assertEqual(ui["remaining_usd"], Decimal("0.56"))
+        self.assertEqual(ui["fx_syp_per_usd_at_creation"], Decimal("19750.98"))
+
+        settlement_ui = resp.context["settlement_ui"]
+        q2 = Decimal("0.01")
+        expected_syp = (Decimal("11.999") + (Decimal("0.567") * Decimal("19750.987654"))).quantize(
+            q2,
+            rounding=ROUND_DOWN,
+        )
+        expected_usd = (Decimal("0.567") + (Decimal("11.999") / Decimal("19750.987654"))).quantize(
+            q2,
+            rounding=ROUND_DOWN,
+        )
+        self.assertEqual(settlement_ui["total_syp"], expected_syp)
+        self.assertEqual(settlement_ui["total_usd"], expected_usd)
+        self.assertEqual(settlement_ui["default_currency"], "SYP")
+        self.assertEqual(settlement_ui["currency_options"], ["SYP", "USD"])
+
+    def test_central_view_context_settlement_ui_handles_old_debt_without_fx(self):
+        debt = DebtRecord.objects.create(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="fmt-old-001",
+            source_app="debts",
+            other_party_type=OtherPartyType.OTHER,
+            other_party_id="Legacy Party",
+            actor_username="debts_api_mgr",
+            total_syp=Decimal("300.000"),
+            total_usd=Decimal("2.000"),
+            remaining_syp=Decimal("100.000"),
+            remaining_usd=Decimal("2.000"),
+            fx_syp_per_usd_at_creation=None,
+            status=DebtStatus.OPEN,
+        )
+        resp = self.client.get(f"/manager/debts/view/record/{debt.public_id}/")
+        self.assertEqual(resp.status_code, 200)
+
+        settlement_ui = resp.context["settlement_ui"]
+        self.assertIsNone(settlement_ui["total_syp"])
+        self.assertIsNone(settlement_ui["total_usd"])
+        self.assertEqual(settlement_ui["default_currency"], "SYP")
+        self.assertEqual(settlement_ui["currency_options"], ["SYP", "USD"])

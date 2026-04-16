@@ -161,6 +161,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
         self.assertEqual(DebtRecord.objects.filter(cause_type=DebtCauseType.PURCHASE_BILL, cause_id=bill.public_id).count(), 1)
         self.assertEqual(debt.remaining_syp, Decimal("1000"))
         self.assertEqual(debt.remaining_usd, Decimal("2"))
+        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("15000.000000"))
         self.assertEqual(debt.status, DebtStatus.OPEN)
         self.assertEqual(
             Receipt.objects.filter(source_app="billing", source_model="Bill", source_id=str(bill.id), status=ReceiptStatus.POSTED).count(),

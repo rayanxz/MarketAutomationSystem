@@ -1096,6 +1096,7 @@ def create_bill(
             total_usd=remaining_usd,
             remaining_syp=remaining_syp,
             remaining_usd=remaining_usd,
+            fx_syp_per_usd_at_creation=(bill.fx_rate_usd_to_syp_used or bill.fx_usd_syp or fx_snapshot),
             note=f"Purchase bill #{bill.serial}",
         )
 

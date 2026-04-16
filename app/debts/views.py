@@ -1,7 +1,7 @@
 # app/debts/views.py
 from __future__ import annotations
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from datetime import date as _date_cls
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
@@ -32,6 +32,83 @@ from .serializers import debtor_row, creditor_row, central_debt_row
 from debts import services as SV
 from billing.models import Provider
 from pos.models import CustomerProfile
+
+DEC0 = Decimal("0")
+DEC2 = Decimal("0.01")
+
+
+def _ui_2dp(x: Decimal | None) -> Decimal:
+    """
+    Display-only clip to max 2 decimals (toward zero).
+    Keep DB precision unchanged.
+    """
+    try:
+        d = Decimal(str(x if x is not None else DEC0))
+    except (InvalidOperation, TypeError, ValueError):
+        return DEC0
+    return d.quantize(DEC2, rounding=ROUND_DOWN)
+
+
+def _dec_or_zero(x: Decimal | None) -> Decimal:
+    try:
+        return Decimal(str(x if x is not None else DEC0))
+    except (InvalidOperation, TypeError, ValueError):
+        return DEC0
+
+
+def _positive_fx_or_none(x: Decimal | None) -> Decimal | None:
+    try:
+        d = Decimal(str(x))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if d <= DEC0:
+        return None
+    return d
+
+
+def _build_settlement_ui(*, debt: DebtRecord) -> dict[str, object]:
+    rem_syp = _dec_or_zero(debt.remaining_syp)
+    rem_usd = _dec_or_zero(debt.remaining_usd)
+    fx = _positive_fx_or_none(getattr(debt, "fx_syp_per_usd_at_creation", None))
+
+    total_syp: Decimal | None
+    total_usd: Decimal | None
+
+    if rem_usd > DEC0 and fx is None:
+        total_syp = None
+    else:
+        total_syp = rem_syp + (rem_usd * fx if rem_usd > DEC0 else DEC0)
+
+    if rem_syp > DEC0 and fx is None:
+        total_usd = None
+    else:
+        total_usd = rem_usd + ((rem_syp / fx) if rem_syp > DEC0 else DEC0)
+
+    if rem_syp > DEC0 and rem_usd <= DEC0:
+        default_currency = "SYP"
+    elif rem_usd > DEC0 and rem_syp <= DEC0:
+        default_currency = "USD"
+    else:
+        default_currency = "SYP"
+
+    has_syp = rem_syp > DEC0
+    has_usd = rem_usd > DEC0
+    if has_syp and not has_usd:
+        currency_options = ["SYP"]
+    elif has_usd and not has_syp:
+        currency_options = ["USD"]
+    else:
+        currency_options = ["SYP", "USD"]
+
+    if default_currency not in currency_options:
+        default_currency = currency_options[0]
+
+    return {
+        "default_currency": default_currency,
+        "currency_options": currency_options,
+        "total_syp": (_ui_2dp(total_syp) if total_syp is not None else None),
+        "total_usd": (_ui_2dp(total_usd) if total_usd is not None else None),
+    }
 
 # ---------- Pages ----------
 @role_required(AccountProfile.Role.MANAGER)
@@ -89,11 +166,24 @@ def view_central_debt(request: HttpRequest, debt_ref: str) -> HttpResponse:
     settlements = list(
         debt.settlements.select_related("receipt", "money_container").order_by("-created_at")
     )
+    settlement_ui = _build_settlement_ui(debt=debt)
     return render(
         request,
         "debts/view_central_debt.html",
         {
             "debt": debt,
+            "debt_ui": {
+                "total_syp": _ui_2dp(debt.total_syp),
+                "total_usd": _ui_2dp(debt.total_usd),
+                "remaining_syp": _ui_2dp(debt.remaining_syp),
+                "remaining_usd": _ui_2dp(debt.remaining_usd),
+                "fx_syp_per_usd_at_creation": (
+                    _ui_2dp(debt.fx_syp_per_usd_at_creation)
+                    if debt.fx_syp_per_usd_at_creation is not None
+                    else None
+                ),
+            },
+            "settlement_ui": settlement_ui,
             "source_url": source_url,
             "legacy_view_url": legacy_view_url,
             "settlements": settlements,

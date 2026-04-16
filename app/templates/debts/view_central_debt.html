@@ -1,5 +1,5 @@
 {% extends "manager/base_manager.html" %}
-{% load static %}
+{% load static formatting %}
 
 {% block title %}تفاصيل الدين{% endblock %}
 
@@ -18,7 +18,56 @@
 
 {% block extra_head %}
 <style>
+  .viewport-center > .center-box{
+    max-width:1560px;
+  }
+
+  .debt-wrap{
+    display:grid;
+    grid-template-columns:minmax(0,82%) minmax(240px,18%);
+    gap:12px;
+    align-items:stretch;
+    max-width:1560px;
+    margin-inline:auto;
+    width:100%;
+  }
+  .debt-main{
+    display:grid;
+    grid-template-rows:auto minmax(260px,1fr);
+    gap:12px;
+    min-width:0;
+  }
+  .debt-side{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    min-width:0;
+    min-height:100%;
+    align-self:stretch;
+  }
+  .debt-side-panel{
+    flex:1 1 auto;
+    display:flex;
+    flex-direction:column;
+    height:100%;
+    min-height:100%;
+    box-sizing:border-box;
+    position:sticky;
+    top:12px;
+  }
+  .debt-side-heading{
+    margin:0;
+    padding-bottom:8px;
+    border-bottom:2px solid #d9e2ec;
+    font-size:19px;
+    font-weight:800;
+    color:#111827;
+  }
+
   .card{ background:#fff; border-radius:12px; padding:14px; box-shadow:var(--card-shadow); }
+  .card.debt-side-panel{
+    padding:0 0 14px 0; /* full-bleed top/sides, keep bottom spacing */
+  }
   .muted{ color:#6b7280; font-size:12px; }
   .page-head{
     display:flex;
@@ -167,26 +216,52 @@
     min-width:38px;
     text-align:center;
   }
+  .fx-chip{
+    border-color:#c9d7ea;
+    background:#f2f6fc;
+    color:#3f536e;
+  }
+  .fx-box{
+    border-color:#d9e3f0;
+    background:#f8fafd;
+    padding:8px 10px;
+  }
+  .fx-box .total-label{
+    color:#5f738e;
+    font-size:12px;
+    font-weight:600;
+  }
+  .fx-box .total-value{
+    color:#334155;
+    font-size:17px;
+    font-weight:700;
+  }
+  .fx-box .total-value-row{
+    gap:7px;
+  }
   .totals-divider{
     height:2px;
     background:#d9e2ec;
     margin:11px 0;
     opacity:1;
   }
-  .remaining-focus{
-    border:1px solid #c3d6ee;
-    border-radius:12px;
-    background:linear-gradient(180deg, #eef4ff 0%, #e5efff 100%);
-    padding:11px;
+  .left-settlement-zone{
+    width:100%;
+    margin:0;
+    box-sizing:border-box;
+    border-radius:12px 12px 10px 10px;
+    padding:12px;
     display:flex;
     flex-direction:column;
-    gap:9px;
+    gap:10px;
   }
-  .remaining-focus-title{
-    color:#3b4a61;
-    font-size:12px;
-    font-weight:700;
-    letter-spacing:.1px;
+  .left-settlement-zone.is-open{
+    background:rgba(220, 38, 38, .08);
+    border:1px solid rgba(220, 38, 38, .18);
+  }
+  .left-settlement-zone.is-closed{
+    background:rgba(22, 163, 74, .08);
+    border:1px solid rgba(22, 163, 74, .18);
   }
   .remaining-grid{
     display:grid;
@@ -194,7 +269,7 @@
     gap:8px;
   }
   .remaining-card{
-    border:1px solid #cfdced;
+    border:1px solid #d7dee9;
     border-radius:10px;
     background:#ffffff;
     padding:10px 11px;
@@ -215,14 +290,7 @@
     direction:ltr; /* keeps currency chip visually left of number */
   }
   .remaining-value{
-    flex:1 1 auto;
-    min-width:0;
-    text-align:right;
     color:#0b1f38;
-    font-size:26px;
-    font-weight:900;
-    line-height:1.15;
-    letter-spacing:.2px;
   }
   .remaining-chip{
     border-color:#a9d6b1;
@@ -231,6 +299,52 @@
     font-size:12px;
     padding:5px 7px;
     min-width:42px;
+  }
+  .settlement-total-box{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    border:1px solid #d7dee9;
+    border-radius:10px;
+    background:#f8fafc;
+    padding:10px 12px;
+  }
+  .settlement-total-label{
+    color:#5e6c80;
+    font-size:13px;
+    font-weight:600;
+    line-height:1.3;
+  }
+  .settlement-total-value{
+    color:#0b1f38;
+    font-size:24px;
+    font-weight:900;
+    line-height:1.1;
+    direction:ltr;
+    text-align:left;
+    white-space:nowrap;
+  }
+  .settlement-currency-field{
+    display:grid;
+    gap:6px;
+  }
+  .settlement-currency-label{
+    color:#6b7280;
+    font-size:12px;
+  }
+  .settlement-currency-select{
+    width:100%;
+    padding:10px 12px;
+    border:1px solid #d7dee9;
+    border-radius:10px;
+    background:#fff;
+  }
+  .left-section-divider{
+    height:3px;
+    border-radius:999px;
+    background:#c3cfde;
+    margin-top:4px;
   }
 
   .actions-row{
@@ -252,11 +366,57 @@
     align-items:center;
     justify-content:center;
   }
-  .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
+  .debt-items{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+    display:flex;
+    flex-direction:column;
+  }
+  .debt-items-scroll{
+    height:clamp(52vh, calc(46vh + 6.5rem), 62vh);
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  @media (min-width: 1101px){
+    .debt-items-scroll{
+      /* Reduce desktop panel height by ~4cm (about 140px) in a controlled way. */
+      height:clamp(
+        calc(52vh - 140px),
+        calc(46vh + 6.5rem - 140px),
+        calc(62vh - 140px)
+      );
+    }
+  }
+  .table-wrap{
+    margin-top:0;
+    overflow:auto;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    flex:1 1 auto;
+    min-height:0;
+  }
   table{ width:100%; border-collapse:collapse; }
   th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
   thead th{ background:#f8fafc; position:sticky; top:0; }
 
+  @media (max-width: 1100px){
+    .debt-wrap{
+      grid-template-columns:1fr;
+    }
+    .debt-main{
+      grid-template-rows:auto minmax(260px,auto);
+    }
+    .debt-side{
+      min-height:0;
+    }
+    .debt-side-panel{
+      min-height:0;
+      position:static;
+      top:auto;
+    }
+  }
   @media (max-width: 980px){
     .panels{
       grid-template-columns: 1fr;
@@ -273,7 +433,9 @@
 {% endblock %}
 
 {% block content %}
-<div class="card" dir="rtl">
+<div class="debt-wrap" dir="rtl">
+  <div class="debt-main">
+    <div class="card" dir="rtl">
   <div class="page-head">
     <h2 class="page-title">تفاصيل الدين {{ debt.public_id }}</h2>
     <a class="btn btn-back" href="{% url 'debts_page' %}">رجوع للقائمة</a>
@@ -373,34 +535,30 @@
             <div class="total-label">إجمالي SYP عند الإنشاء</div>
             <div class="total-value-row">
               <span class="total-currency-chip">SYP</span>
-              <span class="total-value">{{ debt.total_syp|floatformat:3|default:"-" }}</span>
+              <span class="total-value">{{ debt_ui.total_syp|human_number }}</span>
             </div>
           </div>
           <div class="total-box-mini">
             <div class="total-label">إجمالي USD عند الإنشاء</div>
             <div class="total-value-row">
               <span class="total-currency-chip">USD</span>
-              <span class="total-value">{{ debt.total_usd|floatformat:3|default:"-" }}</span>
+              <span class="total-value">{{ debt_ui.total_usd|human_number }}</span>
             </div>
           </div>
         </div>
         <div class="totals-divider" aria-hidden="true"></div>
-        <div class="remaining-focus">
-          <div class="remaining-focus-title">الرصيد المتبقي الحالي</div>
-          <div class="remaining-grid">
-            <div class="remaining-card">
-              <div class="remaining-label">المتبقي SYP</div>
-              <div class="remaining-value-row">
-                <span class="total-currency-chip remaining-chip">SYP</span>
-                <span class="remaining-value">{{ debt.remaining_syp|floatformat:3|default:"-" }}</span>
-              </div>
-            </div>
-            <div class="remaining-card">
-              <div class="remaining-label">المتبقي USD</div>
-              <div class="remaining-value-row">
-                <span class="total-currency-chip remaining-chip">USD</span>
-                <span class="remaining-value">{{ debt.remaining_usd|floatformat:3|default:"-" }}</span>
-              </div>
+        <div class="totals-grid">
+          <div class="total-box-mini fx-box">
+            <div class="total-label">سعر الصرف عند إنشاء الدين</div>
+            <div class="total-value-row">
+              <span class="total-currency-chip fx-chip">FX</span>
+              <span class="total-value">
+                {% if debt_ui.fx_syp_per_usd_at_creation is not None %}
+                  {{ debt_ui.fx_syp_per_usd_at_creation|human_number }}
+                {% else %}
+                  -
+                {% endif %}
+              </span>
             </div>
           </div>
         </div>
@@ -414,37 +572,114 @@
     </div>
   {% endif %}
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>التاريخ</th>
-          <th>دفعة SYP</th>
-          <th>دفعة USD</th>
-          <th>تطبيق SYP</th>
-          <th>تطبيق USD</th>
-          <th>الحافظة</th>
-          <th>الإيصال</th>
-          <th>المستخدم</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in settlements %}
+    </div>
+
+  <section class="debt-items debt-items-scroll" dir="rtl">
+    <div class="table-wrap">
+      <table>
+        <thead>
           <tr>
-            <td>{{ s.created_at|date:"Y-m-d H:i:s" }}</td>
-            <td>{{ s.payment_syp|floatformat:3 }}</td>
-            <td>{{ s.payment_usd|floatformat:3 }}</td>
-            <td>{{ s.applied_syp|floatformat:3 }}</td>
-            <td>{{ s.applied_usd|floatformat:3 }}</td>
-            <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}-{% endif %}</td>
-            <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}-{% endif %}</td>
-            <td>{{ s.actor_username|default:"-" }}</td>
+            <th>التاريخ</th>
+            <th>دفعة SYP</th>
+            <th>دفعة USD</th>
+            <th>تطبيق SYP</th>
+            <th>تطبيق USD</th>
+            <th>الحافظة</th>
+            <th>الإيصال</th>
+            <th>المستخدم</th>
           </tr>
-        {% empty %}
-          <tr><td colspan="8" class="muted">لا توجد عمليات تسديد بعد.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+        </thead>
+        <tbody>
+          {% for s in settlements %}
+            <tr>
+              <td>{{ s.created_at|date:"Y-m-d H:i:s" }}</td>
+              <td>{{ s.payment_syp|floatformat:3 }}</td>
+              <td>{{ s.payment_usd|floatformat:3 }}</td>
+              <td>{{ s.applied_syp|floatformat:3 }}</td>
+              <td>{{ s.applied_usd|floatformat:3 }}</td>
+              <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}-{% endif %}</td>
+              <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}-{% endif %}</td>
+              <td>{{ s.actor_username|default:"-" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="8" class="muted">لا توجد عمليات تسديد بعد.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
+  <aside class="debt-side">
+    <section class="card debt-side-panel">
+      <div class="left-settlement-zone {% if debt.status == 'closed' %}is-closed{% else %}is-open{% endif %}">
+        <h3 class="debt-side-heading">المتبقي الحالي</h3>
+        <div class="remaining-grid">
+          <div class="remaining-card">
+            <div class="remaining-label">المتبقي SYP</div>
+            <div class="remaining-value-row">
+              <span class="total-currency-chip remaining-chip">SYP</span>
+              <span class="remaining-value total-value">{{ debt_ui.remaining_syp|human_number }}</span>
+            </div>
+          </div>
+          <div class="remaining-card">
+            <div class="remaining-label">المتبقي USD</div>
+            <div class="remaining-value-row">
+              <span class="total-currency-chip remaining-chip">USD</span>
+              <span class="remaining-value total-value">{{ debt_ui.remaining_usd|human_number }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="settlement-total-box">
+          <div class="settlement-total-label">الإجمالي بعد التسوية (<span id="debtSettleCurLabel">{{ settlement_ui.default_currency }}</span>)</div>
+          <div
+            id="debtSettleTotal"
+            class="settlement-total-value"
+            data-total-syp="{% if settlement_ui.total_syp is not None %}{{ settlement_ui.total_syp|human_number }}{% endif %}"
+            data-total-usd="{% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd|human_number }}{% endif %}"
+          >
+            {% if settlement_ui.default_currency == 'USD' %}
+              {% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd|human_number }}{% else %}-{% endif %}
+            {% else %}
+              {% if settlement_ui.total_syp is not None %}{{ settlement_ui.total_syp|human_number }}{% else %}-{% endif %}
+            {% endif %}
+          </div>
+        </div>
+        <div class="settlement-currency-field">
+          <label class="settlement-currency-label" for="debtSettlementCurrency">عملة التسوية</label>
+          <select id="debtSettlementCurrency" class="input settlement-currency-select" {% if settlement_ui.currency_options|length <= 1 %}disabled{% endif %}>
+            {% for cur in settlement_ui.currency_options %}
+              <option value="{{ cur }}" {% if cur == settlement_ui.default_currency %}selected{% endif %}>{{ cur }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="left-section-divider" aria-hidden="true"></div>
+      </div>
+    </section>
+  </aside>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    const selectEl = document.getElementById("debtSettlementCurrency");
+    const totalEl = document.getElementById("debtSettleTotal");
+    const labelEl = document.getElementById("debtSettleCurLabel");
+    if (!selectEl || !totalEl || !labelEl) return;
+
+    const valueFor = (currency) => {
+      const raw = currency === "USD" ? totalEl.dataset.totalUsd : totalEl.dataset.totalSyp;
+      return raw && raw.trim() ? raw : "-";
+    };
+
+    const syncSettlementDisplay = () => {
+      const cur = (selectEl.value || "SYP").toUpperCase();
+      labelEl.textContent = cur;
+      totalEl.textContent = valueFor(cur);
+    };
+
+    selectEl.addEventListener("change", syncSettlementDisplay);
+    syncSettlementDisplay();
+  })();
+</script>
 {% endblock %}

@@ -131,6 +131,11 @@ def central_debt_row(d: DebtRecord) -> Dict[str, Any]:
         "total_usd": str(d.total_usd or 0),
         "remaining_syp": str(d.remaining_syp or 0),
         "remaining_usd": str(d.remaining_usd or 0),
+        "fx_syp_per_usd_at_creation": (
+            str(d.fx_syp_per_usd_at_creation)
+            if d.fx_syp_per_usd_at_creation is not None
+            else None
+        ),
         "actor_username": d.actor_username or "",
         "created_at": d.created_at.isoformat() if d.created_at else None,
     }

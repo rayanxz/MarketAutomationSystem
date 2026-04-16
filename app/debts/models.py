@@ -139,6 +139,7 @@ class DebtRecord(models.Model):
     total_usd = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
     remaining_syp = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
     remaining_usd = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    fx_syp_per_usd_at_creation = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     status = models.CharField(max_length=8, choices=DebtStatus.choices, default=DebtStatus.OPEN, db_index=True)
 
     note = models.TextField(blank=True, default="")

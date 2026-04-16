@@ -4,7 +4,7 @@ from decimal import Decimal
 from datetime import date
 from typing import Optional, Any
 import logging
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -324,6 +324,7 @@ def upsert_central_debt(
     total_usd: Decimal = DEC0,
     remaining_syp: Decimal = DEC0,
     remaining_usd: Decimal = DEC0,
+    fx_syp_per_usd_at_creation: Decimal | None = None,
     note: str = "",
 ) -> DebtRecord:
     total_syp_q = _q_syp(total_syp or DEC0)
@@ -350,12 +351,48 @@ def upsert_central_debt(
         "status": status,
         "note": note or "",
     }
-    debt, _ = DebtRecord.objects.update_or_create(
-        direction=direction,
-        cause_type=cause_type,
-        cause_id=str(cause_id),
-        defaults=defaults,
+    lookup = {
+        "direction": direction,
+        "cause_type": cause_type,
+        "cause_id": str(cause_id),
+    }
+    debt = (
+        DebtRecord.objects
+        .select_for_update()
+        .filter(**lookup)
+        .order_by("id")
+        .first()
     )
+    if debt is None:
+        create_fx = fx_syp_per_usd_at_creation
+        if create_fx is None:
+            try:
+                create_fx = FinSV.get_current_fx_syp_per_usd()
+            except Exception:
+                create_fx = None
+        if create_fx is not None:
+            create_fx = _q_fx(create_fx)
+            if create_fx <= DEC0:
+                raise ValueError("fx_syp_per_usd_at_creation must be > 0")
+        create_payload = dict(defaults)
+        create_payload.update(lookup)
+        create_payload["fx_syp_per_usd_at_creation"] = create_fx
+        try:
+            return DebtRecord.objects.create(**create_payload)
+        except IntegrityError:
+            debt = (
+                DebtRecord.objects
+                .select_for_update()
+                .filter(**lookup)
+                .order_by("id")
+                .first()
+            )
+            if debt is None:
+                raise
+
+    for field, value in defaults.items():
+        setattr(debt, field, value)
+    debt.save(update_fields=list(defaults.keys()))
     return debt
 
 
