@@ -915,17 +915,6 @@ refreshAutoSerial();
       if (!(amountSyp > EPS) || !(amountUsd > EPS)) {
         return "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر.";
       }
-      if ((amountSyp - totals.totalSyp) > 0.0001) {
-        return "مبلغ الليرة لا يمكن أن يتجاوز إجمالي قسم الليرة في الفاتورة.";
-      }
-      if ((amountUsd - totals.totalUsd) > 0.0001) {
-        return "مبلغ الدولار لا يمكن أن يتجاوز إجمالي قسم الدولار في الفاتورة.";
-      }
-      const fullSyp = Math.abs(amountSyp - totals.totalSyp) <= 0.0001;
-      const fullUsd = Math.abs(amountUsd - totals.totalUsd) <= 0.0001;
-      if (fullSyp && fullUsd) {
-        return "يمكنك اختيار خيار (دفع كامل)";
-      }
     }
 
     const paidSettlement = toSettlementAmount(amountSyp, amountUsd);
@@ -1128,17 +1117,6 @@ refreshAutoSerial();
         }
         if (!(amountSyp > EPS) || !(amountUsd > EPS)) {
           return { ok: false, error: "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر." };
-        }
-        if ((amountSyp - totals.totalSyp) > 0.0001) {
-          return { ok: false, error: "مبلغ الليرة لا يمكن أن يتجاوز إجمالي قسم الليرة." };
-        }
-        if ((amountUsd - totals.totalUsd) > 0.0001) {
-          return { ok: false, error: "مبلغ الدولار لا يمكن أن يتجاوز إجمالي قسم الدولار." };
-        }
-        const fullSyp = Math.abs(amountSyp - totals.totalSyp) <= 0.0001;
-        const fullUsd = Math.abs(amountUsd - totals.totalUsd) <= 0.0001;
-        if (fullSyp && fullUsd) {
-          return { ok: false, error: "يمكنك اختيار خيار (دفع كامل)" };
         }
       }
       if (!(paidSettlement > EPS)) {

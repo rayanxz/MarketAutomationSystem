@@ -228,43 +228,23 @@ def _resolve_purchase_bill_remaining_components(
     paid_usd = _q_money("USD", actual_paid_usd or DEC0)
 
     status_norm = (status or "").lower().strip()
-    method_norm = (method or "").lower().strip()
 
     if status_norm == "paid":
         return DEC0, DEC0
     if status_norm == "unpaid":
         return total_syp, total_usd
 
-    if method_norm == "mixed":
-        rem_syp = total_syp - paid_syp
-        rem_usd = total_usd - paid_usd
-    elif method_norm == "syp_only":
-        if paid_syp <= total_syp:
-            rem_syp = total_syp - paid_syp
-            rem_usd = total_usd
-        else:
-            rem_syp = (total_syp + (total_usd * fx_snapshot)) - paid_syp
-            rem_usd = DEC0
-    elif method_norm == "usd_only":
-        if paid_usd <= total_usd:
-            rem_syp = total_syp
-            rem_usd = total_usd - paid_usd
-        else:
-            rem_syp = (total_syp + (total_usd * fx_snapshot)) - (paid_usd * fx_snapshot)
-            rem_usd = DEC0
-    elif method_norm == "separate":
-        rem_syp = DEC0
-        rem_usd = DEC0
-    else:
-        paid_entry_syp, paid_entry_usd = _allocate_paid_to_debt_buckets(
-            total_syp=total_syp,
-            total_usd=total_usd,
-            actual_paid_syp=paid_syp,
-            actual_paid_usd=paid_usd,
-            fx_snapshot=fx_snapshot,
-        )
-        rem_syp = total_syp - paid_entry_syp
-        rem_usd = total_usd - paid_entry_usd
+    # Partial purchase-bill payment always reduces factual debt legs using one
+    # allocator, regardless of payment method labels.
+    paid_entry_syp, paid_entry_usd = _allocate_paid_to_debt_buckets(
+        total_syp=total_syp,
+        total_usd=total_usd,
+        actual_paid_syp=paid_syp,
+        actual_paid_usd=paid_usd,
+        fx_snapshot=fx_snapshot,
+    )
+    rem_syp = total_syp - paid_entry_syp
+    rem_usd = total_usd - paid_entry_usd
 
     rem_syp_q = _q_money("SYP", rem_syp if rem_syp > DEC0 else DEC0)
     rem_usd_q = _q_money("USD", rem_usd if rem_usd > DEC0 else DEC0)
@@ -395,12 +375,6 @@ def _resolve_creation_payment_plan(
                 raise ValidationError("mixed partial payment requires bill totals in both currencies")
             if actual_paid_syp <= DEC0 or actual_paid_usd <= DEC0:
                 raise ValidationError("mixed partial payment requires both SYP and USD amounts")
-            if actual_paid_syp > total_syp:
-                raise ValidationError("SYP amount cannot exceed the SYP bill total in mixed partial mode")
-            if actual_paid_usd > total_usd:
-                raise ValidationError("USD amount cannot exceed the USD bill total in mixed partial mode")
-            if actual_paid_syp == total_syp and actual_paid_usd == total_usd:
-                raise ValidationError("mixed partial payment cannot equal full bill totals")
     elif status_norm == "paid":
         if abs(settlement_paid - settlement_total) > settlement_quantum:
             raise ValidationError("full payment must match settlement total using bill FX")

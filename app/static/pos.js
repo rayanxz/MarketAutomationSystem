@@ -2639,6 +2639,8 @@ async function handleSaveBill() {
 
     alert("تم حفظ الفاتورة بنجاح.");
 
+
+
     // ✅ نبدأ فاتورة جديدة مباشرة
     deleteWholeBill();  // يمسح الصفوف + يرجّع الحالة لبيل جديدة
     setTimeout(() => document.getElementById("barcode")?.focus(), 0);

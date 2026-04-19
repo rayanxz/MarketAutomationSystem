@@ -159,6 +159,8 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
         bill = self._create_bill(status="unpaid", items=self._mixed_items(), payment_method="none", paid_syp=Decimal("0"), paid_usd=Decimal("0"))
         debt = self._debt_for_bill(bill)
         self.assertEqual(DebtRecord.objects.filter(cause_type=DebtCauseType.PURCHASE_BILL, cause_id=bill.public_id).count(), 1)
+        self.assertEqual(debt.total_syp, Decimal("1000"))
+        self.assertEqual(debt.total_usd, Decimal("2"))
         self.assertEqual(debt.remaining_syp, Decimal("1000"))
         self.assertEqual(debt.remaining_usd, Decimal("2"))
         self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("15000.000000"))
@@ -168,7 +170,40 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             0,
         )
 
-    def test_syp_only_partial_mixed_bill_when_paid_syp_within_syp_leg(self):
+    def test_full_paid_creates_no_central_debt(self):
+        bill = self._create_bill(
+            status="paid",
+            items=self._mixed_items(),
+            payment_method="syp_only",
+            paid_syp=Decimal("31000"),
+            paid_usd=Decimal("0"),
+        )
+        self.assertEqual(
+            DebtRecord.objects.filter(
+                direction=DebtDirection.PAYABLE,
+                cause_type=DebtCauseType.PURCHASE_BILL,
+                cause_id=bill.public_id,
+            ).count(),
+            0,
+        )
+        self.assertEqual(
+            Receipt.objects.filter(source_app="billing", source_model="Bill", source_id=str(bill.id), status=ReceiptStatus.POSTED).count(),
+            1,
+        )
+
+    def test_syp_only_partial_mixed_bill_when_paid_syp_below_syp_leg(self):
+        bill = self._create_bill(
+            status="partial",
+            items=self._mixed_items(),
+            payment_method="syp_only",
+            paid_syp=Decimal("400"),
+            paid_usd=Decimal("0"),
+        )
+        debt = self._debt_for_bill(bill)
+        self.assertEqual(debt.remaining_syp, Decimal("600"))
+        self.assertEqual(debt.remaining_usd, Decimal("2"))
+
+    def test_syp_only_partial_mixed_bill_when_paid_syp_equals_syp_leg(self):
         bill = self._create_bill(
             status="partial",
             items=self._mixed_items(),
@@ -184,7 +219,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             1,
         )
 
-    def test_syp_only_partial_mixed_bill_when_paid_syp_over_syp_leg(self):
+    def test_syp_only_partial_mixed_bill_when_paid_syp_overflows_into_usd(self):
         bill = self._create_bill(
             status="partial",
             items=self._mixed_items(),
@@ -193,10 +228,12 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
             paid_usd=Decimal("0"),
         )
         debt = self._debt_for_bill(bill)
-        self.assertEqual(debt.remaining_syp, Decimal("15000"))
-        self.assertEqual(debt.remaining_usd, Decimal("0"))
+        self.assertEqual(debt.total_syp, Decimal("0"))
+        self.assertEqual(debt.total_usd, Decimal("1"))
+        self.assertEqual(debt.remaining_syp, Decimal("0"))
+        self.assertEqual(debt.remaining_usd, Decimal("1"))
 
-    def test_usd_only_partial_mixed_bill_when_paid_usd_within_usd_leg(self):
+    def test_usd_only_partial_mixed_bill_when_paid_usd_below_usd_leg(self):
         bill = self._create_bill(
             status="partial",
             items=self._mixed_items(),
@@ -209,7 +246,20 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
         self.assertEqual(debt.remaining_syp, Decimal("1000"))
         self.assertEqual(debt.remaining_usd, Decimal("1"))
 
-    def test_usd_only_partial_mixed_bill_when_paid_usd_over_usd_leg(self):
+    def test_usd_only_partial_mixed_bill_when_paid_usd_equals_usd_leg(self):
+        bill = self._create_bill(
+            status="partial",
+            items=self._mixed_items(),
+            payment_method="usd_only",
+            paid_syp=Decimal("0"),
+            paid_usd=Decimal("2"),
+            settlement_currency="USD",
+        )
+        debt = self._debt_for_bill(bill)
+        self.assertEqual(debt.remaining_syp, Decimal("1000"))
+        self.assertEqual(debt.remaining_usd, Decimal("0"))
+
+    def test_usd_only_partial_mixed_bill_when_paid_usd_overflows_into_syp(self):
         bill = self._create_bill(
             status="partial",
             items=self._mixed_items(),
@@ -222,7 +272,7 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
         self.assertEqual(debt.remaining_syp, Decimal("250"))
         self.assertEqual(debt.remaining_usd, Decimal("0"))
 
-    def test_mixed_partial_keeps_currency_leg_limits_and_remaining(self):
+    def test_mixed_partial_reduces_both_legs_directly_when_under_limits(self):
         bill = self._create_bill(
             status="partial",
             items=self._mixed_items(),
@@ -234,15 +284,33 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
         self.assertEqual(debt.remaining_syp, Decimal("300"))
         self.assertEqual(debt.remaining_usd, Decimal("0.5"))
 
-    def test_mixed_partial_rejects_when_amount_exceeds_currency_leg(self):
-        with self.assertRaises(ValidationError):
-            self._create_bill(
-                status="partial",
-                items=self._mixed_items(),
-                payment_method="mixed",
-                paid_syp=Decimal("1001"),
-                paid_usd=Decimal("1"),
-            )
+    def test_mixed_partial_allows_one_side_overflow_and_reduces_opposite_leg_with_fx(self):
+        bill = self._create_bill(
+            status="partial",
+            items=self._mixed_items(),
+            payment_method="mixed",
+            paid_syp=Decimal("16000"),
+            paid_usd=Decimal("0.5"),
+        )
+        debt = self._debt_for_bill(bill)
+        self.assertEqual(debt.total_syp, Decimal("0"))
+        self.assertEqual(debt.total_usd, Decimal("0.5"))
+        self.assertEqual(debt.remaining_syp, Decimal("0"))
+        self.assertEqual(debt.remaining_usd, Decimal("0.5"))
+
+    def test_mixed_partial_allows_usd_overflow_into_syp(self):
+        bill = self._create_bill(
+            status="partial",
+            items=self._mixed_items(),
+            payment_method="mixed",
+            paid_syp=Decimal("100"),
+            paid_usd=Decimal("2.02"),
+        )
+        debt = self._debt_for_bill(bill)
+        self.assertEqual(debt.total_syp, Decimal("600"))
+        self.assertEqual(debt.total_usd, Decimal("0"))
+        self.assertEqual(debt.remaining_syp, Decimal("600"))
+        self.assertEqual(debt.remaining_usd, Decimal("0"))
 
     def test_mixed_partial_rejects_when_both_legs_are_fully_paid(self):
         with self.assertRaises(ValidationError):
@@ -253,6 +321,35 @@ class PurchaseBillCentralDebtLogicTests(TestCase):
                 paid_syp=Decimal("1000"),
                 paid_usd=Decimal("2"),
             )
+
+    def test_creation_partial_matches_later_central_debt_reduction_for_same_payment(self):
+        created_partial_bill = self._create_bill(
+            status="partial",
+            items=self._mixed_items(),
+            payment_method="syp_only",
+            paid_syp=Decimal("16000"),
+            paid_usd=Decimal("0"),
+        )
+        created_partial_debt = self._debt_for_bill(created_partial_bill)
+
+        unpaid_bill = self._create_bill(
+            status="unpaid",
+            items=self._mixed_items(),
+            payment_method="none",
+            paid_syp=Decimal("0"),
+            paid_usd=Decimal("0"),
+        )
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=unpaid_bill.id,
+            amount=Decimal("16000"),
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+        )
+        later_debt = self._debt_for_bill(unpaid_bill)
+
+        self.assertEqual(later_debt.remaining_syp, created_partial_debt.remaining_syp)
+        self.assertEqual(later_debt.remaining_usd, created_partial_debt.remaining_usd)
 
     def test_partial_creation_has_receipt_and_one_central_debt(self):
         bill = self._create_bill(
