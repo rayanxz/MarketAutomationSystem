@@ -14,10 +14,12 @@ urlpatterns = [
     path("api/debts/", v.api_debts_list, name="debts_api_debts_list"),
     path("api/creditors/", v.api_creditors_list, name="debts_api_creditors_list"),
     path("api/records/", v.api_central_debts_list, name="debts_api_central_list"),
+    path("api/record/<str:debt_ref>/settle/", v.api_central_debt_settle, name="debts_api_central_settle"),
     path("api/other-party-suggest/", v.api_other_party_suggest, name="debts_api_other_party_suggest"),
     path("api/debts", v.api_debts_list),            # alias (no slash)
     path("api/creditors", v.api_creditors_list),    # alias (no slash)
     path("api/records", v.api_central_debts_list),  # alias (no slash)
+    path("api/record/<str:debt_ref>/settle", v.api_central_debt_settle),  # alias (no slash)
 
     # APIs (manual debts create / pay / collect)
     path("api/manual/save/", v.api_manual_debt_save, name="debts_api_manual_debt_save"),

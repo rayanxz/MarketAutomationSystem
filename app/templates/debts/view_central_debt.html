@@ -1,4 +1,4 @@
-{% extends "manager/base_manager.html" %}
+﻿{% extends "manager/base_manager.html" %}
 {% load static formatting %}
 
 {% block title %}تفاصيل الدين{% endblock %}
@@ -346,6 +346,79 @@
     background:#c3cfde;
     margin-top:4px;
   }
+  .batch-enable-row{
+    display:flex;
+    justify-content:flex-start;
+  }
+  .batch-form{
+    border:1px solid #d7dee9;
+    border-radius:10px;
+    background:#ffffff;
+    padding:10px;
+    display:grid;
+    gap:10px;
+  }
+  .batch-form.is-disabled{
+    opacity:.55;
+    pointer-events:none;
+  }
+  .batch-field{
+    display:grid;
+    gap:6px;
+  }
+  .batch-label{
+    color:#5e6c80;
+    font-size:13px;
+    font-weight:700;
+  }
+  .batch-radio-grid{
+    display:grid;
+    gap:6px;
+  }
+  .batch-radio-item{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:13px;
+    color:#0f172a;
+  }
+  .batch-radio-item.is-disabled{
+    color:#94a3b8;
+  }
+  .batch-method-panel{
+    display:none;
+  }
+  .batch-method-panel.active{
+    display:block;
+  }
+  .batch-input{
+    width:100%;
+    padding:9px 10px;
+    border:1px solid #d7dee9;
+    border-radius:9px;
+    background:#fff;
+  }
+  .batch-hint{
+    color:#64748b;
+    font-size:12px;
+    line-height:1.35;
+  }
+  .batch-error{
+    min-height:18px;
+    color:#b91c1c;
+    font-size:12px;
+    font-weight:700;
+  }
+  .batch-actions{
+    display:flex;
+    gap:8px;
+    justify-content:flex-start;
+  }
+  .btn-danger-soft{
+    background:#fff6f6;
+    border-color:#f3d0d0;
+    color:#8d2525;
+  }
 
   .actions-row{
     display:flex;
@@ -459,8 +532,8 @@
         </div>
         <div class="line">
           <span class="line-label">الحالة:</span>
-          <span class="line-value line-pill {% if debt.status == 'closed' %}is-closed{% else %}is-open{% endif %}">
-            {% if debt.status == 'closed' %}مغلق{% else %}مفتوح{% endif %}
+                    <span id="debtStatusBadge" class="line-value line-pill {% if debt.status == 'closed' %}is-closed{% else %}is-open{% endif %}">
+            <span id="debtStatusText">{% if debt.status == 'closed' %}مغلق{% else %}مفتوح{% endif %}</span>
           </span>
         </div>
         <div class="line">
@@ -589,7 +662,7 @@
             <th>المستخدم</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="centralSettlementRows">
           {% for s in settlements %}
             <tr>
               <td>{{ s.created_at|date:"Y-m-d H:i:s" }}</td>
@@ -602,7 +675,7 @@
               <td>{{ s.actor_username|default:"-" }}</td>
             </tr>
           {% empty %}
-            <tr><td colspan="8" class="muted">لا توجد عمليات تسديد بعد.</td></tr>
+            <tr id="centralSettlementEmptyRow"><td colspan="8" class="muted">لا توجد عمليات تسديد بعد.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -611,21 +684,21 @@
 </div>
   <aside class="debt-side">
     <section class="card debt-side-panel">
-      <div class="left-settlement-zone {% if debt.status == 'closed' %}is-closed{% else %}is-open{% endif %}">
+      <div id="leftSettlementZone" class="left-settlement-zone {% if debt.status == 'closed' %}is-closed{% else %}is-open{% endif %}">
         <h3 class="debt-side-heading">المتبقي الحالي</h3>
         <div class="remaining-grid">
           <div class="remaining-card">
             <div class="remaining-label">المتبقي SYP</div>
             <div class="remaining-value-row">
               <span class="total-currency-chip remaining-chip">SYP</span>
-              <span class="remaining-value total-value">{{ debt_ui.remaining_syp|human_number }}</span>
+              <span id="debtRemainingSypValue" class="remaining-value total-value">{{ debt_ui.remaining_syp|human_number }}</span>
             </div>
           </div>
           <div class="remaining-card">
             <div class="remaining-label">المتبقي USD</div>
             <div class="remaining-value-row">
               <span class="total-currency-chip remaining-chip">USD</span>
-              <span class="remaining-value total-value">{{ debt_ui.remaining_usd|human_number }}</span>
+              <span id="debtRemainingUsdValue" class="remaining-value total-value">{{ debt_ui.remaining_usd|human_number }}</span>
             </div>
           </div>
         </div>
@@ -634,8 +707,8 @@
           <div
             id="debtSettleTotal"
             class="settlement-total-value"
-            data-total-syp="{% if settlement_ui.total_syp is not None %}{{ settlement_ui.total_syp|human_number }}{% endif %}"
-            data-total-usd="{% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd|human_number }}{% endif %}"
+            data-total-syp="{% if settlement_ui.total_syp is not None %}{{ settlement_ui.total_syp }}{% endif %}"
+            data-total-usd="{% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd }}{% endif %}"
           >
             {% if settlement_ui.default_currency == 'USD' %}
               {% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd|human_number }}{% else %}-{% endif %}
@@ -646,13 +719,87 @@
         </div>
         <div class="settlement-currency-field">
           <label class="settlement-currency-label" for="debtSettlementCurrency">عملة التسوية</label>
-          <select id="debtSettlementCurrency" class="input settlement-currency-select" {% if settlement_ui.currency_options|length <= 1 %}disabled{% endif %}>
+          <select id="debtSettlementCurrency" class="input settlement-currency-select">
             {% for cur in settlement_ui.currency_options %}
               <option value="{{ cur }}" {% if cur == settlement_ui.default_currency %}selected{% endif %}>{{ cur }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="left-section-divider" aria-hidden="true"></div>
+        <div class="batch-enable-row">
+          <button id="debtBatchStartBtn" class="btn primary" type="button">اضافة دفعة</button>
+        </div>
+        <section id="debtBatchForm" class="batch-form is-disabled" aria-disabled="true">
+          <div class="batch-field">
+            <label class="batch-label" for="debtBatchContainer">الحافظة</label>
+            <select id="debtBatchContainer" class="batch-input">
+              <option value="">اختر الحافظة</option>
+              {% for c in money_containers %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="batch-field">
+            <div class="batch-label">نوع التغطية</div>
+            <div class="batch-radio-grid">
+              <label class="batch-radio-item">
+                <input type="radio" name="debtBatchCoverType" value="full" checked>
+                <span>تغطية كاملة للفاتورة</span>
+              </label>
+              <label class="batch-radio-item">
+                <input type="radio" name="debtBatchCoverType" value="partial">
+                <span>اضافة دفعة جزئية</span>
+              </label>
+            </div>
+          </div>
+          <div class="batch-field">
+            <div class="batch-label">طريقة الدفع</div>
+            <div class="batch-radio-grid">
+              <label class="batch-radio-item">
+                <input type="radio" name="debtBatchPaymentMethod" value="syp_only" checked>
+                <span>SYP only</span>
+              </label>
+              <label class="batch-radio-item">
+                <input type="radio" name="debtBatchPaymentMethod" value="usd_only">
+                <span>USD only</span>
+              </label>
+              <label class="batch-radio-item">
+                <input type="radio" name="debtBatchPaymentMethod" value="mixed">
+                <span>mixed</span>
+              </label>
+              <label id="debtBatchSeparateLabel" class="batch-radio-item">
+                <input id="debtBatchMethodSeparate" type="radio" name="debtBatchPaymentMethod" value="separate">
+                <span>separate</span>
+              </label>
+            </div>
+          </div>
+          <div class="batch-field batch-method-panel active" data-method-panel="syp_only">
+            <label class="batch-label" for="debtBatchSypOnly">مبلغ SYP</label>
+            <input id="debtBatchSypOnly" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+          </div>
+          <div class="batch-field batch-method-panel" data-method-panel="usd_only">
+            <label class="batch-label" for="debtBatchUsdOnly">مبلغ USD</label>
+            <input id="debtBatchUsdOnly" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+          </div>
+          <div class="batch-field batch-method-panel" data-method-panel="mixed">
+            <label class="batch-label" for="debtBatchMixedSyp">مبلغ SYP</label>
+            <input id="debtBatchMixedSyp" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+            <label class="batch-label" for="debtBatchMixedUsd">مبلغ USD</label>
+            <input id="debtBatchMixedUsd" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+          </div>
+          <div class="batch-field batch-method-panel" data-method-panel="separate">
+            <label class="batch-label" for="debtBatchSeparateSyp">مبلغ SYP</label>
+            <input id="debtBatchSeparateSyp" class="batch-input" type="number" min="0" step="0.001" placeholder="0" readonly>
+            <label class="batch-label" for="debtBatchSeparateUsd">مبلغ USD</label>
+            <input id="debtBatchSeparateUsd" class="batch-input" type="number" min="0" step="0.001" placeholder="0" readonly>
+          </div>
+          <div id="debtBatchHint" class="batch-hint"></div>
+          <div id="debtBatchError" class="batch-error"></div>
+          <div class="batch-actions">
+            <button id="debtBatchSubmitBtn" class="btn primary" type="button">اضافة</button>
+            <button id="debtBatchCancelBtn" class="btn btn-danger-soft" type="button">الغاء</button>
+          </div>
+        </section>
       </div>
     </section>
   </aside>
@@ -661,25 +808,17 @@
 
 {% block extra_scripts %}
 <script>
-  (function () {
-    const selectEl = document.getElementById("debtSettlementCurrency");
-    const totalEl = document.getElementById("debtSettleTotal");
-    const labelEl = document.getElementById("debtSettleCurLabel");
-    if (!selectEl || !totalEl || !labelEl) return;
-
-    const valueFor = (currency) => {
-      const raw = currency === "USD" ? totalEl.dataset.totalUsd : totalEl.dataset.totalSyp;
-      return raw && raw.trim() ? raw : "-";
-    };
-
-    const syncSettlementDisplay = () => {
-      const cur = (selectEl.value || "SYP").toUpperCase();
-      labelEl.textContent = cur;
-      totalEl.textContent = valueFor(cur);
-    };
-
-    selectEl.addEventListener("change", syncSettlementDisplay);
-    syncSettlementDisplay();
-  })();
+  window.CENTRAL_DEBT_VIEW_CFG = {
+    settleUrl: "{% url 'debts_api_central_settle' debt.public_id %}",
+    debtStatus: "{{ debt.status }}",
+    remainingSyp: "{{ debt.remaining_syp }}",
+    remainingUsd: "{{ debt.remaining_usd }}",
+    fxCurrent: "{% if settlement_ui.fx_syp_per_usd_current is not None %}{{ settlement_ui.fx_syp_per_usd_current }}{% endif %}",
+    defaultDisplayCurrency: "{{ settlement_ui.default_currency|default:'SYP' }}",
+  };
 </script>
+<script defer src="{% static 'js/debts_view_central_debt.js' %}?v=debt-settle-20260420-1"></script>
 {% endblock %}
+
+
+

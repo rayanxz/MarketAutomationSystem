@@ -402,11 +402,11 @@ class CentralDebtsListApiTests(TestCase):
 
         settlement_ui = resp.context["settlement_ui"]
         q2 = Decimal("0.01")
-        expected_syp = (Decimal("11.999") + (Decimal("0.567") * Decimal("19750.987654"))).quantize(
+        expected_syp = (Decimal("11.999") + (Decimal("0.567") * Decimal("21000"))).quantize(
             q2,
             rounding=ROUND_DOWN,
         )
-        expected_usd = (Decimal("0.567") + (Decimal("11.999") / Decimal("19750.987654"))).quantize(
+        expected_usd = (Decimal("0.567") + (Decimal("11.999") / Decimal("21000"))).quantize(
             q2,
             rounding=ROUND_DOWN,
         )
@@ -414,6 +414,7 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(settlement_ui["total_usd"], expected_usd)
         self.assertEqual(settlement_ui["default_currency"], "SYP")
         self.assertEqual(settlement_ui["currency_options"], ["SYP", "USD"])
+        self.assertEqual(settlement_ui["fx_syp_per_usd_current"], Decimal("21000.00"))
 
     def test_central_view_context_settlement_ui_handles_old_debt_without_fx(self):
         debt = DebtRecord.objects.create(
@@ -435,7 +436,8 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
         settlement_ui = resp.context["settlement_ui"]
-        self.assertIsNone(settlement_ui["total_syp"])
-        self.assertIsNone(settlement_ui["total_usd"])
+        self.assertEqual(settlement_ui["total_syp"], Decimal("42100.00"))
+        self.assertEqual(settlement_ui["total_usd"], Decimal("2.00"))
         self.assertEqual(settlement_ui["default_currency"], "SYP")
         self.assertEqual(settlement_ui["currency_options"], ["SYP", "USD"])
+        self.assertEqual(settlement_ui["fx_syp_per_usd_current"], Decimal("21000.00"))

@@ -500,6 +500,57 @@ def _apply_payment_to_central_remaining(
     return rem_syp_after, rem_usd_after, applied_syp, applied_usd
 
 
+def _resolve_component_payment_for_settlement(
+    *,
+    full: bool,
+    payment_method: str | None,
+    rem_syp: Decimal,
+    rem_usd: Decimal,
+    fx_syp_per_usd: Decimal,
+    payment_syp: Decimal | None,
+    payment_usd: Decimal | None,
+) -> tuple[Decimal, Decimal, str]:
+    method = (payment_method or "").strip().lower()
+    if method and method not in {"syp_only", "usd_only", "mixed", "separate"}:
+        raise ValueError("invalid payment method")
+
+    pay_syp = _q_syp(payment_syp or DEC0)
+    pay_usd = _q_usd(payment_usd or DEC0)
+
+    if pay_syp < DEC0 or pay_usd < DEC0:
+        raise ValueError("payment amounts cannot be negative")
+
+    if full:
+        if method == "syp_only":
+            pay_syp = _q_syp(rem_syp + (rem_usd * fx_syp_per_usd))
+            pay_usd = DEC0
+        elif method == "usd_only":
+            pay_syp = DEC0
+            pay_usd = _q_usd(rem_usd + (rem_syp / fx_syp_per_usd))
+        elif method == "separate":
+            pay_syp = rem_syp
+            pay_usd = rem_usd
+        elif pay_syp <= DEC0 and pay_usd <= DEC0:
+            # Mixed full (or unspecified method): if UI did not send values,
+            # use exact remaining legs by default.
+            pay_syp = rem_syp
+            pay_usd = rem_usd
+    else:
+        if method == "separate":
+            raise ValueError("separate payment mode is only allowed for full settlement")
+        if method == "syp_only" and pay_usd > DEC0:
+            raise ValueError("USD amount must be 0 for SYP-only payment mode")
+        if method == "usd_only" and pay_syp > DEC0:
+            raise ValueError("SYP amount must be 0 for USD-only payment mode")
+        if method == "mixed" and (pay_syp <= DEC0 or pay_usd <= DEC0):
+            raise ValueError("mixed partial payment requires both SYP and USD amounts")
+
+    if pay_syp <= DEC0 and pay_usd <= DEC0:
+        raise ValueError("payment amount must be positive")
+
+    return pay_syp, pay_usd, method
+
+
 @transaction.atomic
 def settle_central_debt(
     *,
@@ -508,14 +559,14 @@ def settle_central_debt(
     amount: Optional[Decimal] = None,
     full: bool = False,
     money_container_id: int,
-    currency_code: str,
+    currency_code: str | None = None,
+    payment_syp: Optional[Decimal] = None,
+    payment_usd: Optional[Decimal] = None,
+    payment_method: str | None = None,
     required_feature_code: Any = None,
     note: str = "",
 ) -> tuple[DebtRecord, DebtSettlement]:
     debt = DebtRecord.objects.select_for_update().get(pk=debt_id)
-    cur = (currency_code or "SYP").upper().strip()
-    if cur not in {"SYP", "USD"}:
-        raise ValueError("invalid currency")
     if debt.direction not in {DebtDirection.PAYABLE, DebtDirection.RECEIVABLE}:
         raise ValueError("invalid debt direction")
 
@@ -530,30 +581,57 @@ def settle_central_debt(
         remaining_usd=rem_usd_before,
         fx_syp_per_usd=fx,
     )
+    uses_component_payload = (payment_syp is not None) or (payment_usd is not None)
+    if uses_component_payload:
+        pay_syp, pay_usd, _ = _resolve_component_payment_for_settlement(
+            full=full,
+            payment_method=payment_method,
+            rem_syp=rem_syp_before,
+            rem_usd=rem_usd_before,
+            fx_syp_per_usd=fx,
+            payment_syp=payment_syp,
+            payment_usd=payment_usd,
+        )
+    else:
+        cur = (currency_code or "SYP").upper().strip()
+        if cur not in {"SYP", "USD"}:
+            raise ValueError("invalid currency")
+        if full:
+            pay_syp = _q_syp(rem_syp_before + (rem_usd_before * fx)) if cur == "SYP" else DEC0
+            pay_usd = _q_usd(rem_usd_before + (rem_syp_before / fx)) if cur == "USD" else DEC0
+        else:
+            amt = _q_money(amount=amount or DEC0, currency_code=cur)
+            if amt <= DEC0:
+                raise ValueError("amount must be positive")
+            pay_syp = amt if cur == "SYP" else DEC0
+            pay_usd = amt if cur == "USD" else DEC0
+
+    pay_settlement_syp = _q_syp(pay_syp + (pay_usd * fx))
+    if pay_settlement_syp <= DEC0:
+        raise ValueError("payment amount must be positive")
+
+    if pay_settlement_syp > rem_settlement_syp:
+        raise ValueError("amount exceeds remaining")
+    if (not full) and (pay_settlement_syp == rem_settlement_syp):
+        raise ValueError("partial settlement cannot equal full remaining")
+
+    rem_syp_after, rem_usd_after, applied_syp, applied_usd = _apply_payment_to_central_remaining(
+        remaining_syp=rem_syp_before,
+        remaining_usd=rem_usd_before,
+        pay_syp=pay_syp,
+        pay_usd=pay_usd,
+        fx_syp_per_usd=fx,
+    )
 
     if full:
-        pay_syp = _q_syp(rem_syp_before + (rem_usd_before * fx)) if cur == "SYP" else DEC0
-        pay_usd = _q_usd(rem_usd_before + (rem_syp_before / fx)) if cur == "USD" else DEC0
+        if rem_syp_after > DEC0 or rem_usd_after > DEC0:
+            raise ValueError("full settlement must clear remaining")
         rem_syp_after = DEC0
         rem_usd_after = DEC0
         applied_syp = rem_syp_before
         applied_usd = rem_usd_before
-    else:
-        amt = _q_money(amount=amount or DEC0, currency_code=cur)
-        if amt <= DEC0:
-            raise ValueError("amount must be positive")
-        pay_syp = amt if cur == "SYP" else DEC0
-        pay_usd = amt if cur == "USD" else DEC0
-        pay_settlement_syp = _q_syp(pay_syp + (pay_usd * fx))
-        if pay_settlement_syp > rem_settlement_syp:
-            raise ValueError("amount exceeds remaining")
-        rem_syp_after, rem_usd_after, applied_syp, applied_usd = _apply_payment_to_central_remaining(
-            remaining_syp=rem_syp_before,
-            remaining_usd=rem_usd_before,
-            pay_syp=pay_syp,
-            pay_usd=pay_usd,
-            fx_syp_per_usd=fx,
-        )
+    elif rem_syp_after <= DEC0 and rem_usd_after <= DEC0:
+        raise ValueError("partial settlement cannot equal full remaining")
 
     if money_container_id is None:
         raise ValueError("money_container_id is required")
@@ -563,19 +641,32 @@ def settle_central_debt(
         container=container,
         required_feature_code=required_feature_code,
     )
-    if not MoneyContainerCurrency.objects.filter(container_id=container.id, currency__code=cur, is_enabled=True).exists():
-        raise ValueError(f"Currency {cur} is disabled for this container")
+    if pay_syp > DEC0 and not MoneyContainerCurrency.objects.filter(
+        container_id=container.id,
+        currency__code="SYP",
+        is_enabled=True,
+    ).exists():
+        raise ValueError("Currency SYP is disabled for this container")
+    if pay_usd > DEC0 and not MoneyContainerCurrency.objects.filter(
+        container_id=container.id,
+        currency__code="USD",
+        is_enabled=True,
+    ).exists():
+        raise ValueError("Currency USD is disabled for this container")
 
     cp = _ensure_debt_counterparty(debt=debt)
-    cash_amount = _q_money(amount=(pay_syp if cur == "SYP" else pay_usd), currency_code=cur)
-    cash_signed = -cash_amount if debt.direction == DebtDirection.PAYABLE else +cash_amount
+    sign = -1 if debt.direction == DebtDirection.PAYABLE else 1
+    cash_by_code_signed: dict[str, Decimal] = {}
+    if pay_syp > DEC0:
+        cash_by_code_signed["SYP"] = _q_syp(Decimal(sign) * pay_syp)
+    if pay_usd > DEC0:
+        cash_by_code_signed["USD"] = _q_usd(Decimal(sign) * pay_usd)
 
-    receipt = FinSV.post_settlement_with_fx(
+    receipt = FinSV.post_settlement_components_with_fx(
         actor=actor,
         container_id=container.id,
         counterparty_id=cp.id,
-        currency_code=cur,
-        cash_amount_signed=cash_signed,
+        cash_by_code_signed=cash_by_code_signed,
         fx_syp_per_usd=fx,
         note=(note or f"Central debt settlement {debt.public_id}"),
         source_app="debts",

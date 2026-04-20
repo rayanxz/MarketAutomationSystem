@@ -22,7 +22,7 @@ from .models import (
     PostingLine,
     PostingTargetType,
     MoneyContainerCurrency,
-    FxSettings,          # âœ… new
+    FxSettings,          # new
 )
 import json
 from accounts.models import AccountProfile
@@ -347,7 +347,7 @@ def _add_line_counterparty(*, receipt: Receipt, counterparty: Counterparty, curr
 
 
 @transaction.atomic
-def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str, Decimal], note: str = "Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ") -> Receipt:
+def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str, Decimal], note: str = "رصيد افتتاحي") -> Receipt:
     try:
         fx = get_current_fx_syp_per_usd()
     except ValueError:
@@ -620,6 +620,83 @@ def post_settlement_with_fx(
     _add_line_counterparty(receipt=r, counterparty=cp, currency=currency, amount=-cash_amt)
     _post_receipt(r)
     _apply_container_balance_delta(container=container, currency_code=currency_code, amount=cash_amt)
+    return r
+
+
+@transaction.atomic
+def post_settlement_components_with_fx(
+    *,
+    actor,
+    container_id: int,
+    counterparty_id: int,
+    cash_by_code_signed: Dict[str, Decimal],
+    fx_syp_per_usd: Decimal | None,
+    note: str = "",
+    **source,
+) -> Receipt:
+    """
+    Post one settlement receipt that can include multiple currencies.
+
+    `cash_by_code_signed` values represent container deltas:
+    - negative: cash out of container
+    - positive: cash into container
+    """
+    fx = q_fx(fx_syp_per_usd) if fx_syp_per_usd is not None else get_current_fx_syp_per_usd()
+    if fx <= 0:
+        raise ValueError("FX is required for receipts.")
+
+    container = MoneyContainer.objects.select_for_update().get(pk=container_id)
+    _assert_container_usable(container)
+    cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
+
+    cleaned: Dict[str, tuple[Currency, Decimal]] = {}
+    for code_raw, raw_amount in (cash_by_code_signed or {}).items():
+        code = (code_raw or "").upper().strip()
+        if not code:
+            raise ValueError("cash_by_code_signed contains an empty currency code")
+        currency = Currency.objects.get(code=code)
+        if not _container_currency_enabled(container_id=container.id, currency_code=code):
+            raise ValueError(f"Currency {code} is disabled for this container")
+        amt = q_currency(Decimal(raw_amount or DEC0), currency=currency)
+        if amt == 0:
+            continue
+        cleaned[code] = (currency, amt)
+
+    if not cleaned:
+        raise ValueError("Settlement cash amounts cannot all be 0")
+
+    r = _mk_receipt(
+        actor=actor,
+        kind=ReceiptKind.COUNTERPARTY_SETTLE,
+        note=note,
+        fx_syp_per_usd=fx,
+        **source,
+    )
+
+    for code in sorted(cleaned.keys()):
+        currency, amt = cleaned[code]
+        _add_line_container(
+            receipt=r,
+            container=container,
+            currency=currency,
+            amount=amt,
+        )
+        _add_line_counterparty(
+            receipt=r,
+            counterparty=cp,
+            currency=currency,
+            amount=-amt,
+        )
+
+    _post_receipt(r)
+
+    for code in sorted(cleaned.keys()):
+        _, amt = cleaned[code]
+        _apply_container_balance_delta(
+            container=container,
+            currency_code=code,
+            amount=amt,
+        )
     return r
 
 
@@ -1006,7 +1083,7 @@ def reverse_receipt(*, actor, receipt_id: int, reason_note: str = "") -> Receipt
     if orig.reversed_by.exists():
         raise ValueError("Receipt is already reversed")
 
-    # âœ… reversal copies FX snapshot from original
+    # reversal copies FX snapshot from original
     if orig.fx_syp_per_usd is None or Decimal(orig.fx_syp_per_usd) <= 0:
         raise ValueError("Original receipt has no FX; cannot reverse safely.")
 

@@ -109,9 +109,9 @@ def fx_settings(request: HttpRequest) -> HttpResponse:
         if form.is_valid():
             rate = form.cleaned_data["rate_syp_per_usd"]
             FSV.set_current_fx(actor=request.user, rate_syp_per_usd=rate)
-            messages.success(request, "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù ÙˆØ³ÙŠØªÙ… ØªØ·Ø¨ÙŠÙ‚Ù‡ Ø¹Ù„Ù‰ ÙƒÙ„ Ø§Ù„Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©.")
+            messages.success(request, "تم تحديث سعر الصرف وسيتم تطبيقه على كل الحركات القادمة.")
             return redirect("financials:fx_settings")
-        messages.error(request, "ÙÙŠ Ø®Ø·Ø£ Ø¨Ù‚ÙŠÙ…Ø© Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù.")
+        messages.error(request, "في خطأ بقيمة سعر الصرف.")
     else:
         form = FxSettingsForm(instance=current)
 
@@ -158,7 +158,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
             ok = ok and f.is_valid()
 
         if not ok:
-            messages.error(request, "ÙÙŠ Ø£Ø®Ø·Ø§Ø¡ Ø¨Ø§Ù„Ù†Ù…ÙˆØ°Ø¬. Ø±Ø§Ø¬Ø¹ Ø§Ù„Ù‚ÙŠÙ… ÙˆØ­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø«Ø§Ù†ÙŠØ©.")
+            messages.error(request, "في أخطاء بالنموذج. راجع القيم وحاول مرة ثانية.")
             account_columns = _allowed_users_columns(form)
             return render(
                 request,
@@ -218,7 +218,7 @@ def container_create(request: HttpRequest) -> HttpResponse:
             amt = Decimal(f.cleaned_data.get("amount") or 0)
             raw_amounts[code] = amt
 
-            # âœ… extra safety: ignore unchecked currency amounts
+            # extra safety: ignore unchecked currency amounts
             if code not in selected_codes:
                 amt = Decimal("0")
 
@@ -245,10 +245,10 @@ def container_create(request: HttpRequest) -> HttpResponse:
                 actor=request.user,
                 container_id=container.id,
                 amounts_by_code=amounts,
-                note="Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ",
+                note="رصيد افتتاحي",
             )
 
-        messages.success(request, "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø§ÙˆÙŠØ© Ø¨Ù†Ø¬Ø§Ø­.")
+        messages.success(request, "تم إنشاء الحاوية بنجاح.")
         return redirect("financials:container_list")
 
     # ===== GET =====
@@ -295,12 +295,12 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
     if request.method == "POST":
         form = MoneyContainerForm(request.POST, instance=container)
 
-        # âœ… MUST be before is_valid()
+        # MUST be before is_valid()
         form.fields["ref_code"].disabled = True
         form.fields["container_type"].disabled = True
 
         if form.is_valid():
-            # âœ… safer: preserve ref + type even if something slips through
+            # safer: preserve ref + type even if something slips through
             obj: MoneyContainer = form.save(commit=False)
             obj.ref_code = container.ref_code
             obj.container_type = container.container_type
@@ -316,10 +316,10 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
             MoneyContainerCurrency.objects.filter(container=obj).update(is_enabled=False)
             MoneyContainerCurrency.objects.filter(container=obj, currency_id__in=selected_ids).update(is_enabled=True)
 
-            messages.success(request, "ØªÙ… ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø­Ø§ÙˆÙŠØ© Ø¨Ù†Ø¬Ø§Ø­.")
+            messages.success(request, "تم تعديل الحاوية بنجاح.")
             return redirect("financials:container_list")
 
-        messages.error(request, "ÙÙŠ Ø£Ø®Ø·Ø§Ø¡ Ø¨Ø§Ù„Ù†Ù…ÙˆØ°Ø¬.")
+        messages.error(request, "في أخطاء بالنموذج.")
 
     else:
         enabled_ids = list(
@@ -330,7 +330,7 @@ def container_edit(request: HttpRequest, container_id: int) -> HttpResponse:
 
         form = MoneyContainerForm(instance=container, initial={
             "currencies": enabled_ids,
-            # âœ… these 2 lines are the fix:
+            # these 2 lines are the fix:
             "features": list(container.features.values_list("id", flat=True)),
             "allowed_users": list(container.allowed_users.values_list("id", flat=True)),
         })
@@ -732,15 +732,15 @@ def receipt_explorer(request: HttpRequest) -> HttpResponse:
         line_rows = []
         for ln in lines:
             if ln.target_type == PostingTargetType.CONTAINER:
-                target_label = f"Ø­Ø§ÙˆÙŠØ©: {getattr(ln.container, 'name', 'â€”')}"
+                target_label = f"حاوية: {getattr(ln.container, 'name', '—')}"
             else:
-                cp_name = getattr(ln.counterparty, "name", "â€”")
+                cp_name = getattr(ln.counterparty, "name", "—")
                 cp_type = getattr(ln.counterparty, "type", "")
-                target_label = f"Ø·Ø±Ù Ù…Ù‚Ø§Ø¨Ù„: {cp_name} ({cp_type})"
+                target_label = f"طرف مقابل: {cp_name} ({cp_type})"
             line_rows.append(
                 {
                     "target_label": target_label,
-                    "currency": getattr(ln.currency, "code", "â€”"),
+                    "currency": getattr(ln.currency, "code", "—"),
                     "amount": ln.amount,
                 }
             )

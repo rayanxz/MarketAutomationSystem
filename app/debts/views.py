@@ -20,11 +20,12 @@ from debts.models import (
     DebtRecord,
     DebtDirection,
     DebtCauseType,
+    DebtStatus,
     OtherPartyType,
 )
 from debts.cause_refs import cause_ref_for_ui
 from debts.source_identity import source_identity_base
-from financials.models import Receipt, ReceiptKind
+from financials.models import Receipt, ReceiptKind, MoneyContainer
 from financials import services as FinSV
 from core.date_filters import parse_filter_date
 from . import selectors as S
@@ -69,20 +70,20 @@ def _positive_fx_or_none(x: Decimal | None) -> Decimal | None:
 def _build_settlement_ui(*, debt: DebtRecord) -> dict[str, object]:
     rem_syp = _dec_or_zero(debt.remaining_syp)
     rem_usd = _dec_or_zero(debt.remaining_usd)
-    fx = _positive_fx_or_none(getattr(debt, "fx_syp_per_usd_at_creation", None))
+    try:
+        fx = _positive_fx_or_none(FinSV.get_current_fx_syp_per_usd())
+    except Exception:
+        fx = None
 
     total_syp: Decimal | None
     total_usd: Decimal | None
 
-    if rem_usd > DEC0 and fx is None:
-        total_syp = None
+    if fx is None:
+        total_syp = rem_syp if rem_usd <= DEC0 else None
+        total_usd = rem_usd if rem_syp <= DEC0 else None
     else:
-        total_syp = rem_syp + (rem_usd * fx if rem_usd > DEC0 else DEC0)
-
-    if rem_syp > DEC0 and fx is None:
-        total_usd = None
-    else:
-        total_usd = rem_usd + ((rem_syp / fx) if rem_syp > DEC0 else DEC0)
+        total_syp = rem_syp + (rem_usd * fx)
+        total_usd = rem_usd + (rem_syp / fx)
 
     if rem_syp > DEC0 and rem_usd <= DEC0:
         default_currency = "SYP"
@@ -91,14 +92,7 @@ def _build_settlement_ui(*, debt: DebtRecord) -> dict[str, object]:
     else:
         default_currency = "SYP"
 
-    has_syp = rem_syp > DEC0
-    has_usd = rem_usd > DEC0
-    if has_syp and not has_usd:
-        currency_options = ["SYP"]
-    elif has_usd and not has_syp:
-        currency_options = ["USD"]
-    else:
-        currency_options = ["SYP", "USD"]
+    currency_options = ["SYP", "USD"]
 
     if default_currency not in currency_options:
         default_currency = currency_options[0]
@@ -108,6 +102,26 @@ def _build_settlement_ui(*, debt: DebtRecord) -> dict[str, object]:
         "currency_options": currency_options,
         "total_syp": (_ui_2dp(total_syp) if total_syp is not None else None),
         "total_usd": (_ui_2dp(total_usd) if total_usd is not None else None),
+        "fx_syp_per_usd_current": (_ui_2dp(fx) if fx is not None else None),
+    }
+
+
+def _dec_to_str(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    return format(value, "f")
+
+
+def _central_settlement_row_payload(settlement) -> dict[str, object]:
+    return {
+        "created_at": settlement.created_at.isoformat() if settlement.created_at else None,
+        "payment_syp": _dec_to_str(settlement.payment_syp),
+        "payment_usd": _dec_to_str(settlement.payment_usd),
+        "applied_syp": _dec_to_str(settlement.applied_syp),
+        "applied_usd": _dec_to_str(settlement.applied_usd),
+        "money_container_name": settlement.money_container.name if settlement.money_container_id else "",
+        "receipt_serial": settlement.receipt.serial if settlement.receipt_id else "",
+        "actor_username": settlement.actor_username or "",
     }
 
 # ---------- Pages ----------
@@ -628,6 +642,86 @@ def api_other_party_suggest(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": True, "items": rows})
 
     return JsonResponse({"ok": True, "items": []})
+
+
+@require_POST
+@role_required(AccountProfile.Role.MANAGER)
+def api_central_debt_settle(request: HttpRequest, debt_ref: str) -> JsonResponse:
+    ref = (debt_ref or "").strip()
+    debt = (
+        DebtRecord.objects
+        .select_related("provider", "customer")
+        .filter(public_id__iexact=ref)
+        .first()
+    )
+    if debt is None:
+        return _bad("not found", 404)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _bad("bad json")
+
+    cover_type = (payload.get("cover_type") or "").strip().lower()
+    payment_method = (payload.get("payment_method") or "").strip().lower()
+    if cover_type not in {"full", "partial"}:
+        return _bad("invalid cover type")
+    if payment_method not in {"syp_only", "usd_only", "mixed", "separate"}:
+        return _bad("invalid payment method")
+    if cover_type == "partial" and payment_method == "separate":
+        return _bad("separate payment mode is only allowed for full settlement")
+
+    money_container_id = _int_or_none(payload.get("money_container_id"))
+    if money_container_id is None:
+        return _bad("money_container_id is required")
+
+    paid_syp = _dec(payload.get("paid_syp"), "0")
+    paid_usd = _dec(payload.get("paid_usd"), "0")
+    if paid_syp < DEC0 or paid_usd < DEC0:
+        return _bad("payment amounts cannot be negative")
+
+    if debt.status == DebtStatus.CLOSED:
+        return _bad("debt is already closed")
+
+    try:
+        debt, settlement = SV.settle_central_debt(
+            actor=request.user,
+            debt_id=debt.id,
+            full=(cover_type == "full"),
+            money_container_id=money_container_id,
+            payment_syp=paid_syp,
+            payment_usd=paid_usd,
+            payment_method=payment_method,
+            note=(payload.get("note") or f"Central debt settlement {debt.public_id}"),
+        )
+    except ValueError as e:
+        return _bad(str(e), 400)
+    except MoneyContainer.DoesNotExist:
+        return _bad("invalid money container", 400)
+    except Exception:
+        return _bad("server error", 500)
+
+    settlement_ui = _build_settlement_ui(debt=debt)
+    return JsonResponse(
+        {
+            "ok": True,
+            "debt": {
+                "public_id": debt.public_id,
+                "status": debt.status,
+                "remaining_syp": _dec_to_str(debt.remaining_syp),
+                "remaining_usd": _dec_to_str(debt.remaining_usd),
+            },
+            "settlement_ui": {
+                "default_currency": settlement_ui["default_currency"],
+                "currency_options": settlement_ui["currency_options"],
+                "total_syp": _dec_to_str(settlement_ui["total_syp"]),
+                "total_usd": _dec_to_str(settlement_ui["total_usd"]),
+                "fx_syp_per_usd_current": _dec_to_str(settlement_ui["fx_syp_per_usd_current"]),
+            },
+            "settlement": _central_settlement_row_payload(settlement),
+        }
+    )
+
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
