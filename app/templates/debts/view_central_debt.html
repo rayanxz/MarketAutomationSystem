@@ -253,7 +253,7 @@
     padding:12px;
     display:flex;
     flex-direction:column;
-    gap:10px;
+    gap:8px;
   }
   .left-settlement-zone.is-open{
     background:rgba(220, 38, 38, .08);
@@ -354,9 +354,9 @@
     border:1px solid #d7dee9;
     border-radius:10px;
     background:#ffffff;
-    padding:10px;
+    padding:9px;
     display:grid;
-    gap:10px;
+    gap:8px;
   }
   .batch-form.is-disabled{
     opacity:.55;
@@ -364,7 +364,7 @@
   }
   .batch-field{
     display:grid;
-    gap:6px;
+    gap:5px;
   }
   .batch-label{
     color:#5e6c80;
@@ -373,7 +373,7 @@
   }
   .batch-radio-grid{
     display:grid;
-    gap:6px;
+    gap:4px;
   }
   .batch-radio-item{
     display:flex;
@@ -385,23 +385,34 @@
   .batch-radio-item.is-disabled{
     color:#94a3b8;
   }
+  .batch-method-stage{
+    display:grid;
+    align-items:start;
+  }
   .batch-method-panel{
-    display:none;
+    grid-area:1 / 1;
+    display:grid;
+    gap:5px;
+    align-self:start;
+    align-content:start;
+    visibility:hidden;
+    opacity:0;
+    pointer-events:none;
   }
   .batch-method-panel.active{
-    display:block;
+    visibility:visible;
+    opacity:1;
+    pointer-events:auto;
   }
   .batch-input{
     width:100%;
+    height:auto;
+    flex-grow:0;
+    align-self:start;
     padding:9px 10px;
     border:1px solid #d7dee9;
     border-radius:9px;
     background:#fff;
-  }
-  .batch-hint{
-    color:#64748b;
-    font-size:12px;
-    line-height:1.35;
   }
   .batch-error{
     min-height:18px;
@@ -733,7 +744,7 @@
           <div class="batch-field">
             <label class="batch-label" for="debtBatchContainer">الحافظة</label>
             <select id="debtBatchContainer" class="batch-input">
-              <option value="">اختر الحافظة</option>
+              <option value="">اختر حاوية المال</option>
               {% for c in money_containers %}
                 <option value="{{ c.id }}">{{ c.name }}</option>
               {% endfor %}
@@ -757,43 +768,44 @@
             <div class="batch-radio-grid">
               <label class="batch-radio-item">
                 <input type="radio" name="debtBatchPaymentMethod" value="syp_only" checked>
-                <span>SYP only</span>
+                <span>دفع بالليرة فقط</span>
               </label>
               <label class="batch-radio-item">
                 <input type="radio" name="debtBatchPaymentMethod" value="usd_only">
-                <span>USD only</span>
-              </label>
-              <label class="batch-radio-item">
-                <input type="radio" name="debtBatchPaymentMethod" value="mixed">
-                <span>mixed</span>
+                <span>دفع بالدولار فقط</span>
               </label>
               <label id="debtBatchSeparateLabel" class="batch-radio-item">
                 <input id="debtBatchMethodSeparate" type="radio" name="debtBatchPaymentMethod" value="separate">
-                <span>separate</span>
+                <span>دفع منفصل (SYP + USD)</span>
+              </label>
+              <label class="batch-radio-item">
+                <input type="radio" name="debtBatchPaymentMethod" value="mixed">
+                <span>دفع مختلط</span>
               </label>
             </div>
           </div>
-          <div class="batch-field batch-method-panel active" data-method-panel="syp_only">
-            <label class="batch-label" for="debtBatchSypOnly">مبلغ SYP</label>
-            <input id="debtBatchSypOnly" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+          <div class="batch-method-stage">
+            <div class="batch-field batch-method-panel active" data-method-panel="syp_only">
+              <label class="batch-label" for="debtBatchSypOnly">مبلغ SYP</label>
+              <input id="debtBatchSypOnly" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+            </div>
+            <div class="batch-field batch-method-panel" data-method-panel="usd_only">
+              <label class="batch-label" for="debtBatchUsdOnly">مبلغ USD</label>
+              <input id="debtBatchUsdOnly" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+            </div>
+            <div class="batch-field batch-method-panel" data-method-panel="mixed">
+              <label class="batch-label" for="debtBatchMixedSyp">مبلغ SYP</label>
+              <input id="debtBatchMixedSyp" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+              <label class="batch-label" for="debtBatchMixedUsd">مبلغ USD</label>
+              <input id="debtBatchMixedUsd" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
+            </div>
+            <div class="batch-field batch-method-panel" data-method-panel="separate">
+              <label class="batch-label" for="debtBatchSeparateSyp">مبلغ SYP</label>
+              <input id="debtBatchSeparateSyp" class="batch-input" type="number" min="0" step="0.001" placeholder="0" readonly>
+              <label class="batch-label" for="debtBatchSeparateUsd">مبلغ USD</label>
+              <input id="debtBatchSeparateUsd" class="batch-input" type="number" min="0" step="0.001" placeholder="0" readonly>
+            </div>
           </div>
-          <div class="batch-field batch-method-panel" data-method-panel="usd_only">
-            <label class="batch-label" for="debtBatchUsdOnly">مبلغ USD</label>
-            <input id="debtBatchUsdOnly" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
-          </div>
-          <div class="batch-field batch-method-panel" data-method-panel="mixed">
-            <label class="batch-label" for="debtBatchMixedSyp">مبلغ SYP</label>
-            <input id="debtBatchMixedSyp" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
-            <label class="batch-label" for="debtBatchMixedUsd">مبلغ USD</label>
-            <input id="debtBatchMixedUsd" class="batch-input" type="number" min="0" step="0.001" placeholder="0">
-          </div>
-          <div class="batch-field batch-method-panel" data-method-panel="separate">
-            <label class="batch-label" for="debtBatchSeparateSyp">مبلغ SYP</label>
-            <input id="debtBatchSeparateSyp" class="batch-input" type="number" min="0" step="0.001" placeholder="0" readonly>
-            <label class="batch-label" for="debtBatchSeparateUsd">مبلغ USD</label>
-            <input id="debtBatchSeparateUsd" class="batch-input" type="number" min="0" step="0.001" placeholder="0" readonly>
-          </div>
-          <div id="debtBatchHint" class="batch-hint"></div>
           <div id="debtBatchError" class="batch-error"></div>
           <div class="batch-actions">
             <button id="debtBatchSubmitBtn" class="btn primary" type="button">اضافة</button>
@@ -817,7 +829,7 @@
     defaultDisplayCurrency: "{{ settlement_ui.default_currency|default:'SYP' }}",
   };
 </script>
-<script defer src="{% static 'js/debts_view_central_debt.js' %}?v=debt-settle-20260420-1"></script>
+<script defer src="{% static 'js/debts_view_central_debt.js' %}?v=debt-settle-20260420-2"></script>
 {% endblock %}
 
 

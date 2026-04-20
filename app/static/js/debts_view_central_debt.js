@@ -22,7 +22,6 @@
   const containerSelect = $("#debtBatchContainer");
   const submitBtn = $("#debtBatchSubmitBtn");
   const cancelBtn = $("#debtBatchCancelBtn");
-  const hintEl = $("#debtBatchHint");
   const errorEl = $("#debtBatchError");
 
   const separateRadio = $("#debtBatchMethodSeparate");
@@ -106,10 +105,6 @@
     if (errorEl) errorEl.textContent = msg || "";
   };
 
-  const setHint = (msg) => {
-    if (hintEl) hintEl.textContent = msg || "";
-  };
-
   const setInput = (el, value) => {
     if (!el) return;
     const n = Number(value);
@@ -159,15 +154,9 @@
           }
         }
       }
-      setHint("في التغطية الكاملة يجب تصفير المتبقي بالكامل.");
       return;
     }
 
-    if (method === "mixed") {
-      setHint("في الدفعة الجزئية المختلطة يجب إدخال مبلغين SYP و USD أكبر من الصفر.");
-    } else {
-      setHint("في الدفعة الجزئية يجب أن يكون المبلغ أقل من كامل المتبقي.");
-    }
   };
 
   const readPaymentAmounts = () => {
@@ -203,7 +192,7 @@
     if (state.debtStatus === "closed") return { ok: false, error: "الدين مغلق." };
 
     const moneyContainerId = Number(containerSelect?.value || 0);
-    if (!moneyContainerId) return { ok: false, error: "اختر الحافظة أولاً." };
+    if (!moneyContainerId) return { ok: false, error: "اختر حاوية المال أولاً." };
 
     const { method, coverType, paidSyp, paidUsd } = readPaymentAmounts();
     if (paidSyp < 0 || paidUsd < 0) {
@@ -261,7 +250,6 @@
     formEl.setAttribute("aria-disabled", state.formEnabled ? "false" : "true");
     if (!state.formEnabled) {
       setError("");
-      setHint("");
     }
   };
 
@@ -337,11 +325,6 @@
     appendSettlementRow(payload.settlement || {});
 
     setFormEnabled(false);
-    if (state.debtStatus !== "closed") {
-      setHint("تمت إضافة الدفعة بنجاح.");
-    } else {
-      setHint("تم إغلاق الدين بالكامل.");
-    }
   };
 
   const submitSettlement = async () => {
@@ -404,7 +387,6 @@
 
   cancelBtn?.addEventListener("click", () => {
     setFormEnabled(false);
-    setHint("");
   });
   submitBtn?.addEventListener("click", submitSettlement);
 
