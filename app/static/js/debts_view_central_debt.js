@@ -94,11 +94,43 @@
     return state.remainingUsd + (state.remainingSyp / state.fxCurrent);
   };
 
+  const computeDisplayTotals = () => {
+    const remSyp = state.remainingSyp;
+    const remUsd = state.remainingUsd;
+
+    if (remSyp <= EPS && remUsd <= EPS) {
+      return { totalSyp: 0, totalUsd: 0 };
+    }
+
+    if (!hasFx()) {
+      return {
+        totalSyp: remUsd <= EPS ? remSyp : null,
+        totalUsd: remSyp <= EPS ? remUsd : null,
+      };
+    }
+
+    return {
+      totalSyp: remSyp + (remUsd * state.fxCurrent),
+      totalUsd: remUsd + (remSyp / state.fxCurrent),
+    };
+  };
+
+  const fmtSettlementTotal = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    const isInt = Math.abs(n - Math.trunc(n)) <= EPS;
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: isInt ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+  };
+
   const updateSettlementDisplay = () => {
     const cur = String(displayCurrencySelect.value || "SYP").toUpperCase();
-    const raw = cur === "USD" ? settleTotalEl.dataset.totalUsd : settleTotalEl.dataset.totalSyp;
+    const totals = computeDisplayTotals();
+    const raw = cur === "USD" ? totals.totalUsd : totals.totalSyp;
     settleCurLabel.textContent = cur;
-    settleTotalEl.textContent = raw && raw.trim() ? fmtNum(raw) : "-";
+    settleTotalEl.textContent = raw == null ? "-" : fmtSettlementTotal(raw);
   };
 
   const setError = (msg) => {
@@ -302,9 +334,7 @@
   };
 
   const syncTotalsFromPayload = (settlementUi) => {
-    if (!settlementUi || !settleTotalEl) return;
-    settleTotalEl.dataset.totalSyp = settlementUi.total_syp || "";
-    settleTotalEl.dataset.totalUsd = settlementUi.total_usd || "";
+    if (!settlementUi) return;
     const nextFx = toNum(settlementUi.fx_syp_per_usd_current);
     if (nextFx > 0) state.fxCurrent = nextFx;
     if (settlementUi.default_currency && displayCurrencySelect) {
