@@ -88,7 +88,18 @@ class ProductCreateForm(forms.Form):
         self.fields["notes"].widget.attrs.setdefault("class", "input")
         self.fields["notes"].widget.attrs.setdefault("dir", "rtl")
 
-        # Match decimal_places=4 so browsers don't fight the user
+        money_fields = (
+            "cost_syp",
+            "cost_usd",
+            "price_syp",
+            "price_usd",
+            "default_cost_syp",
+            "default_cost_usd",
+            "default_price_syp",
+            "default_price_usd",
+        )
+
+        # Keep browser step/input rules aligned with field precision.
         for n in (
             "cost_syp",
             "cost_usd",
@@ -110,26 +121,11 @@ class ProductCreateForm(forms.Form):
                 self.fields[n].widget.attrs["class"] = " ".join(cls)
                 if n in (
                     "conversion_factor",
-                    "cost_syp",
-                    "cost_usd",
-                    "price_syp",
-                    "price_usd",
-                    "default_cost_syp",
-                    "default_cost_usd",
-                    "default_price_syp",
-                    "default_price_usd",
                 ):
                     self.fields[n].widget.attrs.setdefault("step", "0.0001")
-                if n in (
-                    "cost_syp",
-                    "cost_usd",
-                    "price_syp",
-                    "price_usd",
-                    "default_cost_syp",
-                    "default_cost_usd",
-                    "default_price_syp",
-                    "default_price_usd",
-                ):
+                if n in money_fields:
+                    self.fields[n].widget.attrs["step"] = "0.01"
+                    self.fields[n].widget.attrs.setdefault("data-math-max-decimals", "2")
                     self.fields[n].widget.attrs.pop("min", None)
 
     # ---------- Hierarchy ----------
@@ -160,10 +156,10 @@ class ProductCreateForm(forms.Form):
     )
 
     # Legacy currency-aware fields (kept for backward compatibility)
-    cost_syp = forms.DecimalField(label="Cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    cost_usd = forms.DecimalField(label="Cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    price_syp = forms.DecimalField(label="Price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    price_usd = forms.DecimalField(label="Price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    cost_syp = forms.DecimalField(label="Cost (SYP)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    cost_usd = forms.DecimalField(label="Cost (USD)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    price_syp = forms.DecimalField(label="Price (SYP)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    price_usd = forms.DecimalField(label="Price (USD)", max_digits=12, decimal_places=2, min_value=0, required=False)
 
     # New: currency permissions
     allow_syp_sales = forms.BooleanField(label="Allow SYP sales", required=False, initial=True)
@@ -182,10 +178,10 @@ class ProductCreateForm(forms.Form):
         required=False,
     )
 
-    default_cost_syp = forms.DecimalField(label="Default cost (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    default_cost_usd = forms.DecimalField(label="Default cost (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    default_price_syp = forms.DecimalField(label="Default price (SYP)", max_digits=12, decimal_places=4, min_value=0, required=False)
-    default_price_usd = forms.DecimalField(label="Default price (USD)", max_digits=12, decimal_places=4, min_value=0, required=False)
+    default_cost_syp = forms.DecimalField(label="Default cost (SYP)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    default_cost_usd = forms.DecimalField(label="Default cost (USD)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    default_price_syp = forms.DecimalField(label="Default price (SYP)", max_digits=12, decimal_places=2, min_value=0, required=False)
+    default_price_usd = forms.DecimalField(label="Default price (USD)", max_digits=12, decimal_places=2, min_value=0, required=False)
 
     # Unit IDs are handled as repeated inputs in the UI; fields exist for error binding only.
     unit_primary_ids = forms.CharField(label="Unit IDs (primary)", required=False)
@@ -332,13 +328,13 @@ class ProductCreateForm(forms.Form):
                 self.add_error("default_sale_currency", "Default sale currency must be enabled.")
 
         if not allow_syp_purch:
-            cleaned["default_cost_syp"] = Decimal("0.0000")
+            cleaned["default_cost_syp"] = Decimal("0.00")
         if not allow_usd_purch:
-            cleaned["default_cost_usd"] = Decimal("0.0000")
+            cleaned["default_cost_usd"] = Decimal("0.00")
         if not allow_syp_sales:
-            cleaned["default_price_syp"] = Decimal("0.0000")
+            cleaned["default_price_syp"] = Decimal("0.00")
         if not allow_usd_sales:
-            cleaned["default_price_usd"] = Decimal("0.0000")
+            cleaned["default_price_usd"] = Decimal("0.00")
 
         for fname in (
             "default_cost_syp",
@@ -351,7 +347,7 @@ class ProductCreateForm(forms.Form):
             "price_usd",
         ):
             if cleaned.get(fname) in (None, ""):
-                cleaned[fname] = Decimal("0.0000")
+                cleaned[fname] = Decimal("0.00")
 
         return cleaned
 

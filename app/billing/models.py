@@ -213,7 +213,7 @@ class Bill(models.Model):
     # fx snapshot at creation time (SYP per 1 USD)
     fx_rate_usd_to_syp_used = models.DecimalField(
         max_digits=18,
-        decimal_places=6,
+        decimal_places=2,
         null=True,
         blank=True,
     )
@@ -510,10 +510,10 @@ class BillItem(models.Model):
     unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
     qty_used_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
-    cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
-    price      = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
+    cost       = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    price      = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
-    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -590,7 +590,7 @@ class ProviderReturn(models.Model):
     # FX snapshot used for settlement conversion (SYP per 1 USD)
     fx_rate_used = models.DecimalField(
         max_digits=18,
-        decimal_places=6,
+        decimal_places=2,
         null=True,
         blank=True,
     )
@@ -770,9 +770,9 @@ class ProviderReturnItem(models.Model):
         default=CURRENCY_SYP,
         db_index=True,
     )
-    cost       = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
+    cost       = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
-    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

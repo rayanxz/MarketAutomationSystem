@@ -12,7 +12,7 @@ from catalog.models import Product
 
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
-DEC4 = Decimal("0.0001")
+DEC2 = Decimal("0.01")
 
 
 def q3(x: Decimal) -> Decimal:
@@ -20,7 +20,7 @@ def q3(x: Decimal) -> Decimal:
 
 
 def q4(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC4)
+    return (x or DEC0).quantize(DEC2)
 
 
 class ProductMovement(models.Model):
@@ -75,7 +75,7 @@ class ProductMovement(models.Model):
 
     unit_cost = models.DecimalField(
         max_digits=12,
-        decimal_places=4,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
         help_text="Cost per primary unit at the time of movement.",
     )
@@ -89,11 +89,11 @@ class ProductMovement(models.Model):
 
     # ---- immutable snapshots (do NOT depend on live Product fields) ----
     product_name_at_txn = models.CharField(max_length=255, default="", blank=True)
-    unit_cost_at_txn = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    unit_cost_at_txn = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     cost_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
-    sale_unit_price_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    sale_unit_price_at_txn = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     sale_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
-    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     qty_used_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     qty_primary_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     unit_index_used_at_txn = models.IntegerField(choices=UnitIndex.choices, null=True, blank=True)
@@ -178,7 +178,7 @@ class SaleCostPart(models.Model):
     )
     unit_cost = models.DecimalField(
         max_digits=12,
-        decimal_places=4,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
     )
     total_cost = models.DecimalField(

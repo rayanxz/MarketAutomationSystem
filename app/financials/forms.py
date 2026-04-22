@@ -80,7 +80,8 @@ class FxSettingsForm(forms.ModelForm):
         widgets = {
             "rate_syp_per_usd": forms.NumberInput(attrs={
                 "class": "input numeric-math",
-                "step": "any",
+                "step": "0.01",
+                "data-math-max-decimals": "2",
                 "placeholder": "مثال: 20000"
             }),
         }

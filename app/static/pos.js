@@ -730,6 +730,7 @@ function resetBillState() {
 
 /* ===== Utils ===== */
 function fmt(n) { const x = Number(n || 0); return x.toFixed(3); }
+function fmtPrice(n) { const x = Number(n || 0); return x.toFixed(2); }
 
 function rowBase(r) {
   const qtyInPrimary = Number(r.qty || 0) * (r.uomIndex === 2 ? Number(r.conv || 1) : 1);
@@ -962,7 +963,7 @@ async function openInquiryOverlay(product) {
   );
 
   if (inqNameEl)     inqNameEl.textContent     = product.name || "";
-  if (inqPriceEl)    inqPriceEl.textContent    = `${fmt(priceNum)} ${priceCur} / ${u1Label}`;
+  if (inqPriceEl)    inqPriceEl.textContent    = `${fmtPrice(priceNum)} ${priceCur} / ${u1Label}`;
   if (inqStoreQtyEl) inqStoreQtyEl.textContent = fmt(storeQty);
   if (inqU1El)       inqU1El.textContent       = u1Label;
   if (inqU2El)       inqU2El.textContent       = u2Label || "—";
@@ -1023,7 +1024,7 @@ function renderRows() {
     // NEW: unit price (always price per الوحدة الأساسية)
     const tdPrice = document.createElement("td");
     tdPrice.className = "col-unitprice";
-    tdPrice.textContent = fmt(r.price);
+    tdPrice.textContent = fmtPrice(r.price);
 
     // always show discount as AMOUNT in the middle table
     const tdDisc = document.createElement("td"); 

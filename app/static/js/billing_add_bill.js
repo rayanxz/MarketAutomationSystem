@@ -594,7 +594,7 @@ refreshAutoSerial();
       totalInput.dataset.auto = "0";
       if (!(denom > 0)) return; // avoid divide-by-zero when qty is 0
       const lineTotal = num(totalInput.value);
-      costInput.value = fmt4(lineTotal / denom);
+      costInput.value = fmt2(lineTotal / denom);
       costInput.dataset.auto = "0";
       return;
     }
@@ -684,7 +684,7 @@ refreshAutoSerial();
 
     tr.innerHTML = `
       <td class="pname"><span class="pname-text"></span></td>
-      <td class="cost-cell"><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${costVal}"></td>
+      <td class="cost-cell"><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" step="0.01" value="${costVal}"></td>
       <td>
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
         <input type="hidden" name="currency[]" class="cur-hidden" value="${cur}">
@@ -701,13 +701,13 @@ refreshAutoSerial();
       <td>
         <div class="price-wrap">
           <button type="button" class="btn btn-fx btn-fx-syp">FX</button>
-          <input name="price_syp[]" class="input price-syp numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}>
+          <input name="price_syp[]" class="input price-syp numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" step="0.01" value="${priceSypVal}" ${prod.allow_syp_sales ? "" : "disabled"}>
         </div>
       </td>
       <td class="usd-price-cell">
         <div class="price-wrap">
           <button type="button" class="btn btn-fx btn-fx-usd">FX</button>
-          <input name="price_usd[]" class="input price-usd numeric-math" data-math-display-max-decimals="2" type="number" step="0.0001" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
+          <input name="price_usd[]" class="input price-usd numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" step="0.01" value="${priceUsdVal}" ${prod.allow_usd_sales ? "" : "disabled"}>
         </div>
       </td>
       <td>
@@ -768,7 +768,7 @@ refreshAutoSerial();
       if (!fxVal) return;
       if (!priceSypInput || priceSypInput.disabled) return;
       if (!hasNonZeroValue(priceUsdInput?.value)) return;
-      priceSypInput.value = fmt4(num(priceUsdInput.value) * fxVal);
+      priceSypInput.value = fmt2(num(priceUsdInput.value) * fxVal);
       priceSypInput.dataset.auto = "0";
     });
 
@@ -777,7 +777,7 @@ refreshAutoSerial();
       if (!fxVal) return;
       if (!priceUsdInput || priceUsdInput.disabled) return;
       if (!hasNonZeroValue(priceSypInput?.value)) return;
-      priceUsdInput.value = fmt4(num(priceSypInput.value) / fxVal);
+      priceUsdInput.value = fmt2(num(priceSypInput.value) / fxVal);
       priceUsdInput.dataset.auto = "0";
     });
 

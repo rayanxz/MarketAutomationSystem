@@ -142,10 +142,10 @@ class Product(models.Model):
     )
 
     # Currency-aware defaults (legacy; kept to avoid breaking older code)
-    cost_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    cost_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    price_syp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    price_usd = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    cost_syp = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    cost_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    price_syp = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    price_usd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     # New: per-currency sales/purchasing controls
     allow_syp_sales = models.BooleanField(default=True)
@@ -166,15 +166,15 @@ class Product(models.Model):
         blank=True,
     )
 
-    default_cost_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
-    default_cost_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
-    default_price_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
-    default_price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    default_cost_syp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    default_cost_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    default_price_syp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    default_price_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
-    latest_cost_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
-    latest_cost_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
-    latest_price_syp = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
-    latest_price_usd = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("0.0000"))
+    latest_cost_syp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    latest_cost_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    latest_price_syp = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
+    latest_price_usd = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
     # Legacy flags/defaults (kept for backward compatibility)
     enable_syp = models.BooleanField(default=True)
@@ -345,13 +345,13 @@ class Product(models.Model):
 
         # Force defaults to zero when currency is disabled
         if not purchase_syp:
-            self.default_cost_syp = Decimal("0.0000")
+            self.default_cost_syp = Decimal("0.00")
         if not purchase_usd:
-            self.default_cost_usd = Decimal("0.0000")
+            self.default_cost_usd = Decimal("0.00")
         if not sale_syp:
-            self.default_price_syp = Decimal("0.0000")
+            self.default_price_syp = Decimal("0.00")
         if not sale_usd:
-            self.default_price_usd = Decimal("0.0000")
+            self.default_price_usd = Decimal("0.00")
 
         # Keep legacy default_currency aligned with purchase defaults when possible
         if self.default_purchase_currency:

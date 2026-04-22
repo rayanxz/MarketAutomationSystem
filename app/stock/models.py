@@ -92,8 +92,8 @@ class StockEntry(models.Model):
     # (Optional) average cost in this container – we can use later for valuation
     avg_unit_cost = models.DecimalField(
         max_digits=12,
-        decimal_places=4,
-        default=Decimal("0.0000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
         help_text="Average cost per primary unit in this container (optional for now).",
     )
 
@@ -142,8 +142,8 @@ class StockFifoLayer(models.Model):
     # cost per primary unit for this layer
     unit_cost = models.DecimalField(
         max_digits=12,
-        decimal_places=4,
-        default=Decimal("0.0000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
         help_text="Cost per primary unit for this FIFO layer.",
     )
     cost_currency = models.CharField(

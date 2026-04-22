@@ -52,7 +52,7 @@ from financials.models import Currency, Counterparty, CounterpartyType, MoneyCon
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
-DEC4 = Decimal("0.0001")
+DEC4 = Decimal("0.01")
 FEATURE_PURCHASE_BILLS = "purchase_bills"
 FEATURE_PROVIDER_RETURNS = ("provider_returns", FEATURE_PURCHASE_BILLS)
 

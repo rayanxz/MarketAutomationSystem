@@ -117,7 +117,7 @@ class FxSettings(models.Model):
     Rate meaning: how many SYP for 1 USD.
     Example: 1 USD = 20000 SYP => rate_syp_per_usd = 20000
     """
-    rate_syp_per_usd = models.DecimalField(max_digits=18, decimal_places=6)
+    rate_syp_per_usd = models.DecimalField(max_digits=18, decimal_places=2)
     is_active = models.BooleanField(default=True)
 
     updated_by = models.ForeignKey(

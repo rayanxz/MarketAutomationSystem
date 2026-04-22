@@ -38,10 +38,19 @@
     return Number.isFinite(minNum) && minNum < 0;
   }
 
+  function inputMaxDecimals(input) {
+    const raw = String(input?.dataset?.mathMaxDecimals ?? "").trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(0, Math.trunc(n));
+  }
+
   function getOptions(input) {
     return {
       allowDecimal: allowsDecimal(input),
       allowNegative: allowsNegative(input),
+      maxDecimals: inputMaxDecimals(input),
     };
   }
 
@@ -78,6 +87,15 @@
 
     if (!options.allowDecimal && dotIndex >= 0) {
       value = value.slice(0, dotIndex);
+    } else if (
+      options.allowDecimal &&
+      dotIndex >= 0 &&
+      Number.isInteger(options.maxDecimals) &&
+      options.maxDecimals >= 0
+    ) {
+      const intPart = value.slice(0, dotIndex);
+      const fracPart = value.slice(dotIndex + 1, dotIndex + 1 + options.maxDecimals);
+      value = options.maxDecimals === 0 ? intPart : `${intPart}.${fracPart}`;
     }
 
     if (value.startsWith(".")) value = `0${value}`;

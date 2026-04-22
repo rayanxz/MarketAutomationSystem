@@ -29,7 +29,7 @@ from accounts.models import AccountProfile
 from accounts.utils import has_role
 
 DEC0 = Decimal("0")
-FX_DECIMALS = 6
+FX_DECIMALS = 2
 
 REF_WIDTH = 2
 
