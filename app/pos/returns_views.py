@@ -13,7 +13,7 @@ from django.views.decorators.http import require_POST
 from accounts.decorators import role_required
 from accounts.models import AccountProfile
 from catalog.models import Product, UnitType
-from inventory.models import DEC0, q3
+from inventory.models import DEC0, q3, q4
 from stock.models import ProductContainer
 from financials import services as FinSV
 
@@ -174,9 +174,9 @@ def _build_settle_context(
     total_usd = DEC0
     for r in rows:
         if (r.currency_code or "SYP").upper() == "USD":
-            total_usd = q3(total_usd + q3(_dec(r.line_total)))
+            total_usd = q4(total_usd + q4(_dec(r.line_total)))
         else:
-            total_syp = q3(total_syp + q3(_dec(r.line_total)))
+            total_syp = q4(total_syp + q4(_dec(r.line_total)))
 
     money_containers = (
         FinSV.money_containers_for_user_qs(

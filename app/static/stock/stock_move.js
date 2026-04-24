@@ -342,7 +342,7 @@
     const srcQtySpan = document.createElement("span");
     srcQtySpan.className = "mv-src-qty";
     const batchQtyNum = parseFloat(batch.qty || "0") || 0;
-    srcQtySpan.textContent = batchQtyNum.toFixed(3);
+    srcQtySpan.textContent = batchQtyNum.toFixed(2);
     tdSrcQty.appendChild(srcQtySpan);
 
     // --- col target qty (current in TO container) ---
@@ -365,7 +365,7 @@
           if (!data.ok) return;
           const conts = data.containers || [];
           const item = conts.find((c) => c.code === toCode);
-          if (item) dstQtySpan.textContent = item.qty || "0";
+          if (item) dstQtySpan.textContent = (Number(item.qty || 0) || 0).toFixed(2);
         })
         .catch(() => {});
     }
@@ -380,7 +380,7 @@
     inputQty.className = "mv-qty-input numeric-math";
     inputQty.style.width = "90px";
     inputQty.placeholder = "0.000";
-    inputQty.value = qty > 0 ? qty.toFixed(3) : "";
+    inputQty.value = qty > 0 ? qty.toFixed(2) : "";
     tdMoveQty.appendChild(inputQty);
 
     // --- col remaining src ---
@@ -454,13 +454,13 @@
           : dstQtySpan.textContent || "0"
       ) || 0;
 
-      srcQtySpan.textContent = batchQty.toFixed(3);
+      srcQtySpan.textContent = batchQty.toFixed(2);
 
       if (moveQty > 0) {
         const srcAfter = batchQty - moveQty;
         const dstAfter = dstBefore + moveQty;
-        srcAfterSpan.textContent = srcAfter.toFixed(3);
-        dstAfterSpan.textContent = dstAfter.toFixed(3);
+        srcAfterSpan.textContent = srcAfter.toFixed(2);
+        dstAfterSpan.textContent = dstAfter.toFixed(2);
 
         if (srcAfter < 0) {
           tr.classList.add("mv-row-neg");

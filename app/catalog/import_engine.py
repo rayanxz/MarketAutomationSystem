@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, json, uuid
 from typing import Any, Dict, List, Optional
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import pandas as pd  # xlsx/ods only
 from django.conf import settings
@@ -140,7 +140,7 @@ def _to_dec(x, nd: int = 4) -> Optional[Decimal]:
     try:
         d = Decimal(s)
         q = Decimal("0." + ("0" * (nd - 1)) + "1") if nd > 0 else Decimal("1")
-        return d.quantize(q)
+        return d.quantize(q, rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError):
         return None
 

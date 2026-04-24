@@ -59,23 +59,23 @@
   // ====== Utils ======
   const debounce = (fn, ms=180)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
   const num  = v => { const n = parseFloat(String(v ?? "").trim().replace(",", ".")); return Number.isFinite(n) ? n : 0; };
-  const fmt2 = v => (Number(v || 0)).toFixed(2);
-  const fmt4 = v => (Number(v || 0)).toFixed(4);
-  const formatDisplay2 = (v) => {
+  const round2 = (v) => {
     const n = Number(v ?? 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  };
+  const moneyEq = (a, b) => round2(a) === round2(b);
+  const moneyGt = (a, b) => round2(a) > round2(b);
+  const fmt2 = v => round2(v).toFixed(2);
+  const formatDisplay2 = (v) => {
+    const n = round2(v);
     if (!Number.isFinite(n)) return "0";
-    const clipped = Math.trunc(n * 100) / 100;
-    if (clipped === 0 || Object.is(clipped, -0)) return "0";
-    const [intPartRaw, fracRaw = ""] = clipped.toFixed(2).split(".");
-    const intPart = intPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    const frac = fracRaw.replace(/0+$/, "");
-    return frac ? `${intPart}.${frac}` : intPart;
+    return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
   const readFxRate = () => {
     const fxVal = num(BILLING.fxSypPerUsdRaw || "");
-    return (Number.isFinite(fxVal) && fxVal > 0) ? fxVal : null;
+    return (Number.isFinite(fxVal) && fxVal > 0) ? round2(fxVal) : null;
   };
-  const EPS = 0.0000001;
   const payState = {
     mixedLastEdited: "syp",
     syncingMixed: false,
@@ -92,16 +92,16 @@
   const toAmount = (v) => {
     const n = num(v);
     if (!Number.isFinite(n) || n <= 0) return 0;
-    return n;
+    return round2(n);
   };
   const isZeroFinancialTotal = (totals) => (
-    Math.abs(Number(totals?.totalSyp || 0)) <= EPS &&
-    Math.abs(Number(totals?.totalUsd || 0)) <= EPS
+    moneyEq(totals?.totalSyp || 0, 0) &&
+    moneyEq(totals?.totalUsd || 0, 0)
   );
   const setNumericInputValue = (input, value) => {
     if (!input) return;
     const n = Number(value);
-    input.value = Number.isFinite(n) ? fmt4(n) : "0";
+    input.value = Number.isFinite(n) ? fmt2(n) : "0.00";
   };
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
@@ -814,10 +814,11 @@ refreshAutoSerial();
       const cf = num(tr.dataset.cf || "0");
       const cur = (tr.querySelector('input.cur-hidden')?.value || tr.querySelector('select.cur-ui')?.value || "SYP").toUpperCase();
       let line;
-      if (overrideRaw.trim().length) line = num(overrideRaw);
-      else line = qty * cost * (isU2 ? (cf || 1) : 1);
+      if (overrideRaw.trim().length) line = round2(num(overrideRaw));
+      else line = round2(qty * cost * (isU2 ? (cf || 1) : 1));
       if (Number.isFinite(line)) {
-        if (cur === "USD") totalUsd += line; else totalSyp += line;
+        if (cur === "USD") totalUsd = round2(totalUsd + line);
+        else totalSyp = round2(totalSyp + line);
       }
     });
 
@@ -826,9 +827,9 @@ refreshAutoSerial();
 
     const fxVal = readFxRate();
     const hasFx = Number.isFinite(fxVal) && fxVal > 0;
-    const canConvert = hasFx || totalSyp <= EPS || totalUsd <= EPS;
-    const settlementSyp = canConvert ? (totalSyp + (hasFx ? (totalUsd * fxVal) : 0)) : Number.NaN;
-    const settlementUsd = canConvert ? (totalUsd + (hasFx ? (totalSyp / fxVal) : 0)) : Number.NaN;
+    const canConvert = hasFx || moneyEq(totalSyp, 0) || moneyEq(totalUsd, 0);
+    const settlementSyp = canConvert ? round2(totalSyp + (hasFx ? (totalUsd * fxVal) : 0)) : Number.NaN;
+    const settlementUsd = canConvert ? round2(totalUsd + (hasFx ? (totalSyp / fxVal) : 0)) : Number.NaN;
 
     const settleCur = (payCurrency?.value || "SYP").toUpperCase();
     if (settleCurLabel) settleCurLabel.textContent = settleCur;
@@ -841,7 +842,7 @@ refreshAutoSerial();
       totalUsd,
       settlementSyp,
       settlementUsd,
-      settlementSelected: Number.isFinite(settlementSelected) ? settlementSelected : 0,
+      settlementSelected: Number.isFinite(settlementSelected) ? round2(settlementSelected) : 0,
       settlementCurrency: settleCur,
       fx: hasFx ? fxVal : null,
       isZeroTotal,
@@ -873,17 +874,17 @@ refreshAutoSerial();
     const settleCur = (payState.totals.settlementCurrency || "SYP").toUpperCase();
     const fxVal = payState.totals.fx;
     if (settleCur === "USD") {
-      if (amountSyp > EPS) {
+      if (moneyGt(amountSyp, 0)) {
         if (!(fxVal > 0)) return null;
-        return amountUsd + (amountSyp / fxVal);
+        return round2(amountUsd + (amountSyp / fxVal));
       }
-      return amountUsd;
+      return round2(amountUsd);
     }
-    if (amountUsd > EPS) {
+    if (moneyGt(amountUsd, 0)) {
       if (!(fxVal > 0)) return null;
-      return amountSyp + (amountUsd * fxVal);
+      return round2(amountSyp + (amountUsd * fxVal));
     }
-    return amountSyp;
+    return round2(amountSyp);
   }
 
   function readCurrentPaymentAmounts(status, method){
@@ -909,20 +910,20 @@ refreshAutoSerial();
     const settlementTotal = totals.settlementSelected;
 
     if (method === "mixed") {
-      if (!(totals.totalSyp > EPS) || !(totals.totalUsd > EPS)) {
+      if (!moneyGt(totals.totalSyp, 0) || !moneyGt(totals.totalUsd, 0)) {
         return "الدفع المختلط الجزئي يتطلب وجود إجمالي بعملتي SYP و USD.";
       }
-      if (!(amountSyp > EPS) || !(amountUsd > EPS)) {
+      if (!moneyGt(amountSyp, 0) || !moneyGt(amountUsd, 0)) {
         return "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر.";
       }
     }
 
     const paidSettlement = toSettlementAmount(amountSyp, amountUsd);
     if (paidSettlement == null || !Number.isFinite(paidSettlement)) return null;
-    if ((paidSettlement - settlementTotal) > 0.0001) {
+    if (moneyGt(paidSettlement, settlementTotal)) {
       return "مبلغ الدفع الجزئي لا يمكن أن يتجاوز إجمالي التسوية.";
     }
-    if (Math.abs(paidSettlement - settlementTotal) <= 0.0001) {
+    if (moneyEq(paidSettlement, settlementTotal)) {
       return "يمكنك اختيار خيار (دفع كامل)";
     }
     return null;
@@ -958,7 +959,7 @@ refreshAutoSerial();
     const isUnpaid = status === "unpaid";
     const isPartial = status === "partial";
     const isPaid = status === "paid";
-    const needsFx = (payState.totals.totalSyp > EPS) && (payState.totals.totalUsd > EPS);
+    const needsFx = moneyGt(payState.totals.totalSyp, 0) && moneyGt(payState.totals.totalUsd, 0);
     const hasFx = payState.totals.fx > 0;
 
     if (isZeroTotal) {
@@ -1066,7 +1067,7 @@ refreshAutoSerial();
         },
       };
     }
-    const needsFx = (totals.totalSyp > EPS) && (totals.totalUsd > EPS);
+    const needsFx = moneyGt(totals.totalSyp, 0) && moneyGt(totals.totalUsd, 0);
     if (status !== "unpaid" && needsFx && !(totals.fx > 0)) {
       return { ok: false, error: "لا يمكن إتمام الدفع قبل ضبط سعر الصرف بشكل صحيح." };
     }
@@ -1080,7 +1081,7 @@ refreshAutoSerial();
           amount_syp: "0",
           amount_usd: "0",
           paid_amount: "0",
-          settlement_total: fmt4(totals.settlementSelected),
+          settlement_total: fmt2(totals.settlementSelected),
           fx_rate: totals.fx > 0 ? String(totals.fx) : "",
         },
       };
@@ -1112,25 +1113,25 @@ refreshAutoSerial();
     const settlementTotal = totals.settlementSelected;
     if (status === "partial") {
       if (method === "mixed") {
-        if (!(totals.totalSyp > EPS) || !(totals.totalUsd > EPS)) {
+        if (!moneyGt(totals.totalSyp, 0) || !moneyGt(totals.totalUsd, 0)) {
           return { ok: false, error: "الدفع المختلط الجزئي يتطلب وجود إجمالي بعملتي SYP و USD." };
         }
-        if (!(amountSyp > EPS) || !(amountUsd > EPS)) {
+        if (!moneyGt(amountSyp, 0) || !moneyGt(amountUsd, 0)) {
           return { ok: false, error: "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر." };
         }
       }
-      if (!(paidSettlement > EPS)) {
+      if (!moneyGt(paidSettlement, 0)) {
         return { ok: false, error: "عند اختيار دفع جزئي يجب إدخال مبلغ أكبر من الصفر." };
       }
-      if ((paidSettlement - settlementTotal) > 0.0001) {
+      if (moneyGt(paidSettlement, settlementTotal)) {
         return { ok: false, error: "مبلغ الدفع الجزئي لا يمكن أن يتجاوز إجمالي التسوية." };
       }
-      if (Math.abs(paidSettlement - settlementTotal) <= 0.0001) {
+      if (moneyEq(paidSettlement, settlementTotal)) {
         return { ok: false, error: "يمكنك اختيار خيار (دفع كامل)" };
       }
     }
     if (status === "paid") {
-      if (Math.abs(paidSettlement - settlementTotal) > 0.01) {
+      if (!moneyEq(paidSettlement, settlementTotal)) {
         return { ok: false, error: "الدفع الكامل يتطلب تغطية كامل إجمالي التسوية." };
       }
     }
@@ -1140,10 +1141,10 @@ refreshAutoSerial();
       pay: {
         status,
         method,
-        amount_syp: fmt4(amountSyp),
-        amount_usd: fmt4(amountUsd),
-        paid_amount: fmt4(paidSettlement),
-        settlement_total: fmt4(settlementTotal),
+        amount_syp: fmt2(amountSyp),
+        amount_usd: fmt2(amountUsd),
+        paid_amount: fmt2(paidSettlement),
+        settlement_total: fmt2(settlementTotal),
         fx_rate: totals.fx > 0 ? String(totals.fx) : "",
       },
     };

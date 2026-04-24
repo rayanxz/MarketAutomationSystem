@@ -413,8 +413,8 @@ def pos_manager_customers(request: HttpRequest) -> HttpResponse:
         items.append({
             "id": c.id,
             "name": c.name,
-            "debt_syp": q3(debt_syp),
-            "debt_usd": q3(debt_usd),
+            "debt_syp": q4(debt_syp),
+            "debt_usd": q4(debt_usd),
             "last_seen": st.get("last_seen"),
             "purchases": st.get("purchases") or 0,
         })
@@ -481,9 +481,9 @@ def pos_manager_customer_debts(request: HttpRequest) -> HttpResponse:
             "source_id": e.source_id,
             "doc_serial": e.doc_serial,
             "currency_code": (e.currency_code or "SYP").upper(),
-            "total": q3(e.total or DEC0),
-            "paid": q3(e.paid_amount or DEC0),
-            "remaining": q3(remaining),
+            "total": q4(e.total or DEC0),
+            "paid": q4(e.paid_amount or DEC0),
+            "remaining": q4(remaining),
             "status": e.status,
             "created_at": e.created_at,
             "last_payment": getattr(e, "last_payment", None),
@@ -689,7 +689,7 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: str) -> HttpResponse:
             else unit_price_primary
         )
 
-        disc_amount_total = q3(Decimal(str(r.disc_amount or DEC0)))
+        disc_amount_total = q4(Decimal(str(r.disc_amount or DEC0)))
         disc_pct = Decimal(str(r.disc_pct or 0))
 
         qty_primary_total = (
@@ -702,8 +702,8 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: str) -> HttpResponse:
 
         # ---------- no FIFO ----------
         if not parts:
-            gross = q3(unit_price_display * qty_sold)
-            net = q3(gross - disc_amount_total)
+            gross = q4(unit_price_display * qty_sold)
+            net = q4(gross - disc_amount_total)
 
             display_rows.append(make_row(
                 name=(getattr(r, "product_name_at_txn", "") or r.product_name),
@@ -736,18 +736,18 @@ def pos_manager_bill_detail(request: HttpRequest, bill_id: str) -> HttpResponse:
                 else unit_cost_primary
             )
 
-            total_cost = q3(Decimal(str(part.total_cost or DEC0)))
+            total_cost = q4(Decimal(str(part.total_cost or DEC0)))
 
             if qty_primary_total > DEC0 and disc_amount_total > DEC0:
-                part_disc = q3(
+                part_disc = q4(
                     disc_amount_total * (part_qty_primary / qty_primary_total)
                 )
             else:
                 part_disc = DEC0
 
-            gross = q3(unit_price_display * part_qty_display)
-            net = q3(gross - part_disc)
-            profit = q3(net - total_cost)
+            gross = q4(unit_price_display * part_qty_display)
+            net = q4(gross - part_disc)
+            profit = q4(net - total_cost)
 
             # 🔥 CORRECT purchase bill resolution (FIFO → BillItem → Bill)
             pb_id = None

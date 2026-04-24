@@ -165,7 +165,7 @@ class Bill(models.Model):
         validators=[MinValueValidator(0)],
     )
 
-    total      = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+    total      = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"),
                                      validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -188,26 +188,26 @@ class Bill(models.Model):
 
     subtotal_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
 
     subtotal_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
 
     # per-currency totals (authoritative split)
     total_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     total_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
 
     # fx snapshot at creation time (SYP per 1 USD)
@@ -221,13 +221,13 @@ class Bill(models.Model):
     # totals after FX normalization (keep for current services)
     grand_total_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     grand_total_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
 
     class Meta:
@@ -512,7 +512,7 @@ class BillItem(models.Model):
     qty_primary= models.DecimalField(max_digits=14, decimal_places=3)
     cost       = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     price      = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
-    line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
+    line_total = models.DecimalField(max_digits=14, decimal_places=2, validators=[MinValueValidator(0)])
     fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -568,18 +568,18 @@ class ProviderReturn(models.Model):
     )
     source_bill_public_id = models.CharField(max_length=24, blank=True, default="", db_index=True)
 
-    total          = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+    total          = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"),
                                          validators=[MinValueValidator(0)])
     # per-currency totals (authoritative split)
     total_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     total_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     settlement_currency = models.CharField(
         max_length=3,
@@ -771,7 +771,7 @@ class ProviderReturnItem(models.Model):
         db_index=True,
     )
     cost       = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
-    line_total = models.DecimalField(max_digits=14, decimal_places=3, validators=[MinValueValidator(0)])
+    line_total = models.DecimalField(max_digits=14, decimal_places=2, validators=[MinValueValidator(0)])
     fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

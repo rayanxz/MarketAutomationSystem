@@ -227,18 +227,18 @@ class SalesBill(models.Model):
 
     total_amount = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     total_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     total_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     paid_amount = models.DecimalField(
         max_digits=14,
@@ -356,8 +356,8 @@ class SalesBillRow(models.Model):
 
     disc_amount = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     disc_pct = models.DecimalField(
         max_digits=5,
@@ -415,14 +415,14 @@ class SalesReturn(models.Model):
 
     total_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
         validators=[MinValueValidator(0)],
     )
     total_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
         validators=[MinValueValidator(0)],
     )
 
@@ -517,9 +517,9 @@ class SalesReturnRow(models.Model):
     unit_cost_at_txn = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     cost_currency_at_txn = models.CharField(max_length=3, null=True, blank=True)
     fx_rate_at_txn = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
-    discount_amount_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    discount_amount_at_txn = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     discount_pct_at_txn = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    line_total = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    line_total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
 
     reason = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

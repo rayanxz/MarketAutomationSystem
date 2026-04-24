@@ -2,7 +2,6 @@
   "use strict";
 
   const CFG = window.CENTRAL_DEBT_VIEW_CFG || {};
-  const EPS = 0.000001;
 
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -45,18 +44,27 @@
     return;
   }
 
-  const toNum = (v) => {
-    const n = Number(String(v ?? "").trim().replace(",", "."));
-    return Number.isFinite(n) ? n : 0;
+  const round2 = (v) => {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
   };
 
-  const fmtNum = (v, maxFractionDigits = 3) => {
+  const moneyEq = (a, b) => round2(a) === round2(b);
+  const moneyGt = (a, b) => round2(a) > round2(b);
+
+  const toNum = (v) => {
+    const n = Number(String(v ?? "").trim().replace(",", "."));
+    return Number.isFinite(n) ? round2(n) : 0;
+  };
+
+  const fmtNum = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "-";
-    return new Intl.NumberFormat(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: maxFractionDigits,
-    }).format(n);
+    return round2(n).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   };
 
   const state = {
@@ -84,46 +92,38 @@
   };
 
   const settlementTotalSyp = (paidSyp, paidUsd) => {
-    if (paidUsd > EPS && !hasFx()) return null;
-    return paidSyp + (paidUsd * state.fxCurrent);
+    if (moneyGt(paidUsd, 0) && !hasFx()) return null;
+    return round2(paidSyp + (paidUsd * state.fxCurrent));
   };
 
   const fullRemainingTotalSyp = () => settlementTotalSyp(state.remainingSyp, state.remainingUsd);
   const fullRemainingTotalUsd = () => {
-    if (state.remainingSyp > EPS && !hasFx()) return null;
-    return state.remainingUsd + (state.remainingSyp / state.fxCurrent);
+    if (moneyGt(state.remainingSyp, 0) && !hasFx()) return null;
+    return round2(state.remainingUsd + (state.remainingSyp / state.fxCurrent));
   };
 
   const computeDisplayTotals = () => {
     const remSyp = state.remainingSyp;
     const remUsd = state.remainingUsd;
 
-    if (remSyp <= EPS && remUsd <= EPS) {
+    if (moneyEq(remSyp, 0) && moneyEq(remUsd, 0)) {
       return { totalSyp: 0, totalUsd: 0 };
     }
 
     if (!hasFx()) {
       return {
-        totalSyp: remUsd <= EPS ? remSyp : null,
-        totalUsd: remSyp <= EPS ? remUsd : null,
+        totalSyp: moneyEq(remUsd, 0) ? round2(remSyp) : null,
+        totalUsd: moneyEq(remSyp, 0) ? round2(remUsd) : null,
       };
     }
 
     return {
-      totalSyp: remSyp + (remUsd * state.fxCurrent),
-      totalUsd: remUsd + (remSyp / state.fxCurrent),
+      totalSyp: round2(remSyp + (remUsd * state.fxCurrent)),
+      totalUsd: round2(remUsd + (remSyp / state.fxCurrent)),
     };
   };
 
-  const fmtSettlementTotal = (v) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "-";
-    const isInt = Math.abs(n - Math.trunc(n)) <= EPS;
-    return new Intl.NumberFormat(undefined, {
-      minimumFractionDigits: isInt ? 0 : 2,
-      maximumFractionDigits: 2,
-    }).format(n);
-  };
+  const fmtSettlementTotal = (v) => fmtNum(v);
 
   const updateSettlementDisplay = () => {
     const cur = String(displayCurrencySelect.value || "SYP").toUpperCase();
@@ -140,7 +140,7 @@
   const setInput = (el, value) => {
     if (!el) return;
     const n = Number(value);
-    el.value = Number.isFinite(n) ? String(n) : "0";
+    el.value = Number.isFinite(n) ? round2(n).toFixed(2) : "0.00";
   };
 
   const toggleMethodPanel = () => {
@@ -180,7 +180,7 @@
         if (mixedSypInput && mixedUsdInput) {
           const curSyp = toNum(mixedSypInput.value);
           const curUsd = toNum(mixedUsdInput.value);
-          if (curSyp <= EPS && curUsd <= EPS) {
+          if (moneyEq(curSyp, 0) && moneyEq(curUsd, 0)) {
             setInput(mixedSypInput, state.remainingSyp);
             setInput(mixedUsdInput, state.remainingUsd);
           }
@@ -201,17 +201,17 @@
 
     if (method === "syp_only") {
       paidSyp = toNum(sypOnlyInput?.value);
-      if (coverType === "full" && paidSyp <= EPS && totalSyp != null) paidSyp = totalSyp;
+      if (coverType === "full" && moneyEq(paidSyp, 0) && totalSyp != null) paidSyp = totalSyp;
     } else if (method === "usd_only") {
       paidUsd = toNum(usdOnlyInput?.value);
-      if (coverType === "full" && paidUsd <= EPS && totalUsd != null) paidUsd = totalUsd;
+      if (coverType === "full" && moneyEq(paidUsd, 0) && totalUsd != null) paidUsd = totalUsd;
     } else if (method === "separate") {
       paidSyp = state.remainingSyp;
       paidUsd = state.remainingUsd;
     } else {
       paidSyp = toNum(mixedSypInput?.value);
       paidUsd = toNum(mixedUsdInput?.value);
-      if (coverType === "full" && paidSyp <= EPS && paidUsd <= EPS) {
+      if (coverType === "full" && moneyEq(paidSyp, 0) && moneyEq(paidUsd, 0)) {
         paidSyp = state.remainingSyp;
         paidUsd = state.remainingUsd;
       }
@@ -234,13 +234,13 @@
     if (coverType === "partial" && method === "separate") {
       return { ok: false, error: "طريقة separate غير متاحة مع الدفعة الجزئية." };
     }
-    if (method === "syp_only" && paidUsd > EPS) {
+    if (method === "syp_only" && moneyGt(paidUsd, 0)) {
       return { ok: false, error: "طريقة SYP only تتطلب USD = 0." };
     }
-    if (method === "usd_only" && paidSyp > EPS) {
+    if (method === "usd_only" && moneyGt(paidSyp, 0)) {
       return { ok: false, error: "طريقة USD only تتطلب SYP = 0." };
     }
-    if (coverType === "partial" && method === "mixed" && (paidSyp <= EPS || paidUsd <= EPS)) {
+    if (coverType === "partial" && method === "mixed" && (!moneyGt(paidSyp, 0) || !moneyGt(paidUsd, 0))) {
       return { ok: false, error: "في mixed الجزئي يجب إدخال مبلغين SYP و USD." };
     }
 
@@ -251,15 +251,15 @@
     }
 
     if (coverType === "partial") {
-      if (paidTotal <= EPS) return { ok: false, error: "الدفعة الجزئية يجب أن تكون أكبر من الصفر." };
-      if (paidTotal > remainingTotal + EPS) {
+      if (!moneyGt(paidTotal, 0)) return { ok: false, error: "الدفعة الجزئية يجب أن تكون أكبر من الصفر." };
+      if (moneyGt(paidTotal, remainingTotal)) {
         return { ok: false, error: "لا يمكن أن تتجاوز الدفعة الجزئية كامل المتبقي." };
       }
-      if (Math.abs(paidTotal - remainingTotal) <= EPS) {
+      if (moneyEq(paidTotal, remainingTotal)) {
         return { ok: false, error: "هذه تسوية كاملة، اختر تغطية كاملة." };
       }
     } else {
-      if (Math.abs(paidTotal - remainingTotal) > 0.01) {
+      if (!moneyEq(paidTotal, remainingTotal)) {
         return { ok: false, error: "التغطية الكاملة يجب أن تصفر كامل المتبقي." };
       }
     }
@@ -270,8 +270,8 @@
         cover_type: coverType,
         payment_method: method,
         money_container_id: moneyContainerId,
-        paid_syp: String(paidSyp),
-        paid_usd: String(paidUsd),
+        paid_syp: round2(paidSyp).toFixed(2),
+        paid_usd: round2(paidUsd).toFixed(2),
       },
     };
   };

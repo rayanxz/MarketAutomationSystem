@@ -432,14 +432,18 @@
       return "none";
     }
 
+    function money2(num) {
+      const n = Number(num || 0);
+      if (!Number.isFinite(n)) return 0;
+      return Math.round((n + Number.EPSILON) * 100) / 100;
+    }
+
     function fmt(num) {
-      if (!isFinite(num)) return "0.000";
-      return num.toFixed(3);
+      return money2(num).toFixed(2);
     }
 
     function isZeroFinancialTotal(totals) {
-      const eps = 0.0000001;
-      return Math.abs(totals.totalSyp || 0) <= eps && Math.abs(totals.totalUsd || 0) <= eps;
+      return money2(totals.totalSyp || 0) === 0 && money2(totals.totalUsd || 0) === 0;
     }
 
     function recalcTotals() {
@@ -461,12 +465,12 @@
 
         const unitCost = parseFloat(tr.dataset.unitCost || "0") || 0;
         const cur = (tr.dataset.currency || "SYP").toUpperCase();
-        const lineTotal = qtyTotal * unitCost;
+        const lineTotal = money2(qtyTotal * unitCost);
 
         if (cur === "USD") {
-          totalUsd += lineTotal;
+          totalUsd = money2(totalUsd + lineTotal);
         } else {
-          totalSyp += lineTotal;
+          totalSyp = money2(totalSyp + lineTotal);
         }
       });
 
@@ -481,6 +485,7 @@
       } else {
         settlementTotal = totalUsd + (fx > 0 ? (totalSyp / fx) : 0);
       }
+      settlementTotal = money2(settlementTotal);
 
       if (totalSettlementBox) totalSettlementBox.textContent = fmt(settlementTotal);
 
@@ -521,13 +526,13 @@
       } else if (status === "partial") {
         if (paidInput) {
           const v = parseFloat(paidInput.value || "0") || 0;
-          paid = v < 0 ? 0 : v;
+          paid = money2(v < 0 ? 0 : v);
         }
       } else {
         paid = 0;
       }
 
-      remaining = totals.settlementTotal - paid;
+      remaining = money2(totals.settlementTotal - paid);
       if (remaining < 0) remaining = 0;
 
       if (lblRemaining) {

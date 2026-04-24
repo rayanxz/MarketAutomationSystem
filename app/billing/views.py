@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -31,20 +31,20 @@ def _fmt2(x: Decimal | None) -> str:
     """
     Format a Decimal with 2 decimal places for display.
     """
-    q = (x if x is not None else DEC0).quantize(DEC2)
+    q = (x if x is not None else DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
     return f"{q:.2f}"
 
 
 def _ui_2dp(x: Decimal | None) -> Decimal:
     """
-    Display-only clip to max 2 decimals (toward zero).
+    Display-only quantization to 2 decimals (half-up).
     Storage precision remains unchanged.
     """
     try:
         d = Decimal(str(x if x is not None else DEC0))
     except (InvalidOperation, TypeError, ValueError):
         return DEC0
-    return d.quantize(DEC2, rounding=ROUND_DOWN)
+    return d.quantize(DEC2, rounding=ROUND_HALF_UP)
 
 from django.db.models import Sum , Q
 from stock.models import StockFifoLayer
@@ -1253,14 +1253,14 @@ def bill_view(request, bill_id: str):
         has_debt_now = False
 
     # ===== Read-only payment snapshot at creation time =====
-    bill_total_syp = q3(getattr(bill, "total_syp", DEC0) or DEC0)
-    bill_total_usd = q3(getattr(bill, "total_usd", DEC0) or DEC0)
+    bill_total_syp = q4(getattr(bill, "total_syp", DEC0) or DEC0)
+    bill_total_usd = q4(getattr(bill, "total_usd", DEC0) or DEC0)
     bill_fx_rate = getattr(bill, "fx_rate_usd_to_syp_used", None) or getattr(bill, "fx_usd_syp", None) or DEC0
     try:
         bill_fx_rate = Decimal(str(bill_fx_rate))
     except Exception:
         bill_fx_rate = DEC0
-    bill_fx_rate = q3(bill_fx_rate)
+    bill_fx_rate = q4(bill_fx_rate)
 
     creation_status_raw = (getattr(bill, "creation_payment_status", None) or "").lower().strip()
     creation_method_raw = (getattr(bill, "creation_payment_method", None) or "").lower().strip()
@@ -1275,8 +1275,8 @@ def bill_view(request, bill_id: str):
     created_payment_method_code = "UNKNOWN"
 
     if has_creation_snapshot:
-        created_paid_syp = q3(getattr(bill, "creation_paid_syp", DEC0) or DEC0)
-        created_paid_usd = q3(getattr(bill, "creation_paid_usd", DEC0) or DEC0)
+        created_paid_syp = q4(getattr(bill, "creation_paid_syp", DEC0) or DEC0)
+        created_paid_usd = q4(getattr(bill, "creation_paid_usd", DEC0) or DEC0)
         created_payment_status_code = {
             "paid": "fully_paid",
             "partial": "partially_paid",
@@ -1613,7 +1613,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 item_currency = (getattr(it, "currency", None) or "SYP").upper()
                 cost = q4(Decimal(str(it.cost or "0")))
 
-                line_total_raw = q3(cost * q3(qty_total))
+                line_total_raw = (cost * q3(qty_total)).quantize(DEC2, rounding=ROUND_HALF_UP)
                 line_total = _q_money(item_currency, line_total_raw)
                 if item_currency == "USD":
                     total_return_usd = _q_money("USD", total_return_usd + line_total)

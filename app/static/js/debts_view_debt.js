@@ -24,7 +24,7 @@
   function fmtNum(x){
     if (x === null || x === undefined) return "";
     const n = Number(x);
-    if (Number.isFinite(n)) return n.toFixed(3);
+    if (Number.isFinite(n)) return n.toFixed(2);
     return String(x);
   }
 

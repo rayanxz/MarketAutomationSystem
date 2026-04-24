@@ -9,15 +9,16 @@ register = template.Library()
 def human_number(val):
     """
     Global formatter:
-    - 5000.000  -> 5,000
-    - 20500.5   -> 20,500.5
-    - 5.50      -> 5.5
-    - 0.000     -> 0
+    - Decimal-like values keep fixed precision and thousand separators.
+    - Minimum displayed fractional digits is 2.
+    - Integer inputs remain integer-style with thousand separators.
     """
     if val is None:
         return ""
     if isinstance(val, bool):
         return val
+    if isinstance(val, int):
+        return f"{val:,}"
 
     try:
         raw = str(val).strip()
@@ -27,13 +28,9 @@ def human_number(val):
     except (InvalidOperation, ValueError, TypeError):
         return val  # not a number
 
-    # Fixed-point text and trim trailing zeros in the fraction.
+    if d == 0:
+        return "0.00"
     s = format(d, "f")
-    if "." in s:
-        s = s.rstrip("0").rstrip(".")
-
-    if s in {"", "-0"}:
-        return "0"
 
     sign = ""
     if s.startswith("-"):
@@ -46,9 +43,11 @@ def human_number(val):
         int_part, frac = s, ""
 
     int_part_fmt = f"{int(int_part or '0'):,}"
-    if frac:
-        return f"{sign}{int_part_fmt}.{frac}"
-    return f"{sign}{int_part_fmt}"
+    if not frac:
+        frac = "00"
+    elif len(frac) == 1:
+        frac = f"{frac}0"
+    return f"{sign}{int_part_fmt}.{frac}"
 
 
 @register.filter

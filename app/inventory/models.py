@@ -1,7 +1,7 @@
 # app/inventory/models.py
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
@@ -16,11 +16,15 @@ DEC2 = Decimal("0.01")
 
 
 def q3(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC3)
+    return (x or DEC0).quantize(DEC3, rounding=ROUND_HALF_UP)
+
+
+def q2(x: Decimal) -> Decimal:
+    return (x or DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
 
 
 def q4(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC2)
+    return (x or DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
 
 
 class ProductMovement(models.Model):
@@ -82,7 +86,7 @@ class ProductMovement(models.Model):
 
     total_cost = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
         help_text="Absolute value of qty_primary * unit_cost.",
     )
@@ -100,7 +104,7 @@ class ProductMovement(models.Model):
     conversion_factor_at_txn = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     unit_1_label_at_txn = models.CharField(max_length=32, default="", blank=True)
     unit_2_label_at_txn = models.CharField(max_length=32, default="", blank=True)
-    discount_amount_at_txn = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    discount_amount_at_txn = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     discount_pct_at_txn = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
 
     movement_type = models.CharField(
@@ -150,7 +154,7 @@ class ProductMovement(models.Model):
         # normalize decimals
         self.qty_primary = q3(self.qty_primary)
         self.unit_cost = q4(self.unit_cost)
-        self.total_cost = q3(abs(self.qty_primary) * self.unit_cost)
+        self.total_cost = q2(abs(self.qty_primary) * self.unit_cost)
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -183,7 +187,7 @@ class SaleCostPart(models.Model):
     )
     total_cost = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
+        decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
     )
 

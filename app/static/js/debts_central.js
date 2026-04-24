@@ -43,21 +43,21 @@
   const debtIdLock = window.IdPrefixLock?.attach(fDebtId, { prefix: "D-" }) || null;
   const causeIdLock = window.IdPrefixLock?.attach(fCauseId, { prefix: "" }) || null;
 
-  function nf(x, maxFractionDigits = 3) {
+  function nf(x) {
     const n = Number(x);
     if (!Number.isFinite(n)) return (x ?? "");
     return new Intl.NumberFormat(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: maxFractionDigits,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(n);
   }
 
   function fmtSyp(x) {
-    return nf(x, 3);
+    return nf(x);
   }
 
   function fmtUsd(x) {
-    return nf(x, 2);
+    return nf(x);
   }
 
   function eh(s) {

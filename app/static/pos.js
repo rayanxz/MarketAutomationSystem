@@ -729,7 +729,14 @@ function resetBillState() {
 }
 
 /* ===== Utils ===== */
-function fmt(n) { const x = Number(n || 0); return x.toFixed(3); }
+function fmt(n) { const x = Number(n || 0); return x.toFixed(2); }
+function round2(n) {
+  const x = Number(n || 0);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round((x + Number.EPSILON) * 100) / 100;
+}
+function money2(n) { return round2(n); }
+function fmtMoney(n) { return money2(n).toFixed(2); }
 function fmtPrice(n) { const x = Number(n || 0); return x.toFixed(2); }
 
 function rowBase(r) {
@@ -749,7 +756,7 @@ function formBase() {
 function rowTotal(r) {
   const base = rowBase(r);
   const amt  = Math.max(Number(r.discAmt || 0), 0);
-  return Math.max(base - Math.min(amt, base), 0);
+  return money2(Math.max(base - Math.min(amt, base), 0));
 }
 
 function setEditingLock(locked) {
@@ -901,7 +908,7 @@ async function validateRowStockBeforeSave(idx) {
   const remaining = storeQty - alreadyOther;
 
   // if no stock data, just allow – backend will still block on finalize if needed
-  if (qtyPrimary > remaining + 1e-9) {
+  if (round2(qtyPrimary) > round2(remaining)) {
   const name = row.name || `#${row.id}`;
 
   showPosError(
@@ -1030,11 +1037,11 @@ function renderRows() {
     const tdDisc = document.createElement("td"); 
     tdDisc.className = "col-disc";
     const discAmount = Math.max(Number(r.discAmt || 0), 0);
-    tdDisc.textContent = discAmount > 0 ? fmt(discAmount) : "—";
+    tdDisc.textContent = discAmount > 0 ? fmtMoney(discAmount) : "—";
 
     const tdTotal = document.createElement("td"); 
     tdTotal.className = "col-total"; 
-    tdTotal.textContent = fmt(rowTotal(r));
+    tdTotal.textContent = fmtMoney(rowTotal(r));
 
     const tdNotes = document.createElement("td"); 
     tdNotes.textContent = r.notes || "—";
@@ -1099,10 +1106,10 @@ function totalsByCurrency() {
   let usd = 0;
   state.rows.forEach((r) => {
     const t = rowTotal(r);
-    if ((r.currency || CUR_SYP) === CUR_USD) usd += t;
-    else syp += t;
+    if ((r.currency || CUR_SYP) === CUR_USD) usd = money2(usd + t);
+    else syp = money2(syp + t);
   });
-  return { syp, usd };
+  return { syp: money2(syp), usd: money2(usd) };
 }
 
 function calcSettlementTotal(totalSyp, totalUsd) {
@@ -1128,7 +1135,7 @@ function calcSettlementTotal(totalSyp, totalUsd) {
 
   state.bill.settlementMode = mode;
   state.bill.settlementCurrency = currency;
-  return { total, mode, currency };
+  return { total: money2(total), mode, currency };
 }
 
 function updateGrandTotal() {
@@ -1136,22 +1143,22 @@ function updateGrandTotal() {
   const settlement = calcSettlementTotal(totals.syp, totals.usd);
 
   const el = document.getElementById("grandTotal");
-  if (el) el.textContent = fmt(settlement.total);
+  if (el) el.textContent = fmtMoney(settlement.total);
 
-  if (totalSypEl) totalSypEl.textContent = fmt(totals.syp);
-  if (totalUsdEl) totalUsdEl.textContent = fmt(totals.usd);
+  if (totalSypEl) totalSypEl.textContent = fmtMoney(totals.syp);
+  if (totalUsdEl) totalUsdEl.textContent = fmtMoney(totals.usd);
   if (settlementModeEl) settlementModeEl.textContent = settlement.mode;
-  if (settlementTotalEl) settlementTotalEl.textContent = fmt(settlement.total);
+  if (settlementTotalEl) settlementTotalEl.textContent = fmtMoney(settlement.total);
 
-  state.bill.totalAmount = settlement.total;
-  state.bill.totalSyp = totals.syp;
-  state.bill.totalUsd = totals.usd;
+  state.bill.totalAmount = money2(settlement.total);
+  state.bill.totalSyp = money2(totals.syp);
+  state.bill.totalUsd = money2(totals.usd);
 
   // clamp paid to total whenever total changes
-  state.bill.paidAmount = Math.max(0, Math.min(state.bill.paidAmount, state.bill.totalAmount));
+  state.bill.paidAmount = money2(Math.max(0, Math.min(state.bill.paidAmount, state.bill.totalAmount)));
 
-  state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
-  if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
+  state.bill.leftAmount = money2(Math.max(state.bill.totalAmount - state.bill.paidAmount, 0));
+  if (leftAmtEl) leftAmtEl.textContent = fmtMoney(state.bill.leftAmount);
 }
 
 function toggleSettlementMode(mode) {
@@ -1239,7 +1246,7 @@ function saveRightToRow(idx) {
   // Clamp
   amt = Math.min(amt, Math.max(base, 0));
 
-  r.discAmt  = amt;
+  r.discAmt  = money2(amt);
   r.discPct  = base > 0 ? (amt / base) * 100 : 0;
 
   r.notes    = document.getElementById("notes")?.value || "";
@@ -1360,7 +1367,7 @@ async function lookupByBarcode(code) {
     // If existing row -> we are increasing total requested by addPrimary
     const remainingAfter = storeQty - (already + addPrimary);
 
-    if (remainingAfter < -1e-9) {
+    if (round2(remainingAfter) < 0) {
       const name = p.name || `#${p.id}`;
       showPosError(
         `لا يمكن زيادة كمية المنتج «${name}» لأن المخزون في المتجر غير كافٍ.`,
@@ -1482,8 +1489,8 @@ qtyEl?.addEventListener("input", () => {
 
   if (qtyChanged && hadDiscount) {
     // nuke both discounts; user must re-enter
-    if (pctEl) pctEl.value = "0.000";
-    if (amtEl) amtEl.value = "0.000";
+    if (pctEl) pctEl.value = "0.00";
+    if (amtEl) amtEl.value = "0.00";
   }
 
   // update prev snapshot
@@ -1502,10 +1509,10 @@ uomEl?.addEventListener("change", () => {
   if (pctEl && amtEl) {
     if (currentPct > 0) {
       const amt = base > 0 ? (base * currentPct) / 100 : 0;
-      amtEl.value = base ? fmt(amt) : "0.000";
+      amtEl.value = base ? fmtMoney(amt) : "0.00";
     } else if (currentAmt > 0) {
       const pct = base > 0 ? (currentAmt / base) * 100 : 0;
-      pctEl.value = isFinite(pct) ? fmt(pct) : "0.000";
+      pctEl.value = isFinite(pct) ? fmtMoney(pct) : "0.00";
     }
   }
   pushFormToStateAndRender();
@@ -1516,7 +1523,7 @@ pctEl?.addEventListener("input", () => {
   const base = formBase();
   const pct = Math.max(Number(pctEl.value || 0), 0);
   const amt = base > 0 ? (base * pct) / 100 : 0;
-  if (amtEl) amtEl.value = base ? fmt(amt) : "0.000";
+  if (amtEl) amtEl.value = base ? fmtMoney(amt) : "0.00";
   pushFormToStateAndRender();
 });
 
@@ -1525,7 +1532,7 @@ amtEl?.addEventListener("input", () => {
   const base = formBase();
   const amt  = Math.max(Number(amtEl.value || 0), 0);
   const pct  = base > 0 ? (amt / base) * 100 : 0;
-  if (pctEl) pctEl.value = isFinite(pct) ? fmt(pct) : "0.000";
+  if (pctEl) pctEl.value = isFinite(pct) ? fmtMoney(pct) : "0.00";
   pushFormToStateAndRender();
 });
 
@@ -1547,8 +1554,8 @@ curEl?.addEventListener("change", () => {
   // reset discounts on currency switch
   r.discAmt = 0;
   r.discPct = 0;
-  if (pctEl) pctEl.value = "0.000";
-  if (amtEl) amtEl.value = "0.000";
+  if (pctEl) pctEl.value = "0.00";
+  if (amtEl) amtEl.value = "0.00";
 
   renderRows();
 });
@@ -1578,9 +1585,9 @@ function paymentStatusLabel(value) {
 function updateReadonlyFooter() {
   if (!footerViewBox) return;
 
-  if (roTotalEl)  roTotalEl.textContent  = fmt(state.bill.totalAmount || 0);
-  if (roPaidEl)   roPaidEl.textContent   = fmt(state.bill.paidAmount || 0);
-  if (roLeftEl)   roLeftEl.textContent   = fmt(state.bill.leftAmount || 0);
+  if (roTotalEl)  roTotalEl.textContent  = fmtMoney(state.bill.totalAmount || 0);
+  if (roPaidEl)   roPaidEl.textContent   = fmtMoney(state.bill.paidAmount || 0);
+  if (roLeftEl)   roLeftEl.textContent   = fmtMoney(state.bill.leftAmount || 0);
   if (roStatusEl) roStatusEl.textContent = paymentStatusLabel(state.bill.payStatus);
   if (roCustEl)   roCustEl.textContent   = state.bill.customerName || "—";
 }
@@ -1591,11 +1598,11 @@ function syncBillFromFooter() {
     if (r.checked) state.bill.payStatus = r.value;
   });
 
-  state.bill.paidAmount = Number(partAmtEl?.value || 0);
+  state.bill.paidAmount = money2(Number(partAmtEl?.value || 0));
   // total already tracked in updateGrandTotal
-  state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
+  state.bill.leftAmount = money2(Math.max(state.bill.totalAmount - state.bill.paidAmount, 0));
 
-  if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
+  if (leftAmtEl) leftAmtEl.textContent = fmtMoney(state.bill.leftAmount);
 
   state.bill.customerName = custNameEl?.value.trim() || "";
   state.bill.createNewCustomer = !!custNewEl?.checked;
@@ -1608,9 +1615,9 @@ function syncFooterFromBill() {
   });
 
   if (partAmtEl) {
-    partAmtEl.value = state.bill.paidAmount ? fmt(state.bill.paidAmount) : "";
+    partAmtEl.value = state.bill.paidAmount ? fmtMoney(state.bill.paidAmount) : "";
   }
-  if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount || 0);
+  if (leftAmtEl) leftAmtEl.textContent = fmtMoney(state.bill.leftAmount || 0);
   if (custNameEl) custNameEl.value = state.bill.customerName || "";
   if (custNewEl) custNewEl.checked = !!state.bill.createNewCustomer;
   if (posContainerSelect) {
@@ -1625,24 +1632,24 @@ payRadios.forEach((r) => {
 
     // keep "math" behavior: paidAmount follows textbox
     const typed = Number(partAmtEl?.value || 0);
-    state.bill.paidAmount = Math.max(0, Math.min(typed, state.bill.totalAmount));
+    state.bill.paidAmount = money2(Math.max(0, Math.min(typed, state.bill.totalAmount)));
 
     // left always reflects typed amount
-    state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
-    if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
+    state.bill.leftAmount = money2(Math.max(state.bill.totalAmount - state.bill.paidAmount, 0));
+    if (leftAmtEl) leftAmtEl.textContent = fmtMoney(state.bill.leftAmount);
   });
 });
 
 
 partAmtEl?.addEventListener("input", () => {
-  state.bill.paidAmount = Number(partAmtEl.value || 0);
+  state.bill.paidAmount = money2(Number(partAmtEl.value || 0));
   if (state.bill.paidAmount < 0) state.bill.paidAmount = 0;
   if (state.bill.paidAmount > state.bill.totalAmount) {
     state.bill.paidAmount = state.bill.totalAmount;
-    partAmtEl.value = fmt(state.bill.paidAmount);
+    partAmtEl.value = fmtMoney(state.bill.paidAmount);
   }
-  state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
-  if (leftAmtEl) leftAmtEl.textContent = fmt(state.bill.leftAmount);
+  state.bill.leftAmount = money2(Math.max(state.bill.totalAmount - state.bill.paidAmount, 0));
+  if (leftAmtEl) leftAmtEl.textContent = fmtMoney(state.bill.leftAmount);
 });
 
 custNameEl?.addEventListener("input", () => {
@@ -1809,8 +1816,8 @@ function renderLeftBills() {
     amounts.style.textAlign = "left";
     amounts.style.fontSize = "11px";
     amounts.innerHTML = `
-      <div>${fmt(b.total_amount || 0)} إجمالي</div>
-      <div class="muted">${fmt(b.paid_amount || 0)} مدفوع</div>
+      <div>${fmtMoney(b.total_amount || 0)} إجمالي</div>
+      <div class="muted">${fmtMoney(b.paid_amount || 0)} مدفوع</div>
     `;
 
     // base parked styling (gets enhanced by pos_customers.js override)
@@ -1906,7 +1913,7 @@ async function loadBillFromBackend(id) {
           id: r.product_id,
           name: r.name,
           number: r.number,
-          price: price,
+          price: money2(price),
           currency: effCur,
           qty: Number(r.qty || 0),
           uomIndex: Number(r.uom_index || 1),
@@ -1917,7 +1924,7 @@ async function loadBillFromBackend(id) {
           allowUsdSales: allowUsd,
           defaultPriceSyp: priceSyp,
           defaultPriceUsd: priceUsd,
-          discAmt: Number(r.disc_amount || 0),
+          discAmt: money2(Number(r.disc_amount || 0)),
           discPct: Number(r.disc_pct || 0),
           notes: r.notes || "",
         };
@@ -1930,13 +1937,13 @@ async function loadBillFromBackend(id) {
     state.bill.id           = b.id;
     state.bill.parked       = !!b.parked;
     state.bill.payStatus    = b.pay_status;
-    state.bill.paidAmount   = Number(b.paid_amount || 0);
-    state.bill.totalAmount  = Number(b.total_amount || 0);
-    state.bill.totalSyp     = Number(b.total_syp || 0);
-    state.bill.totalUsd     = Number(b.total_usd || 0);
+    state.bill.paidAmount   = money2(Number(b.paid_amount || 0));
+    state.bill.totalAmount  = money2(Number(b.total_amount || 0));
+    state.bill.totalSyp     = money2(Number(b.total_syp || 0));
+    state.bill.totalUsd     = money2(Number(b.total_usd || 0));
     state.bill.settlementMode = b.settlement_mode || "split";
     state.bill.settlementCurrency = b.settlement_currency || "";
-    state.bill.leftAmount   = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
+    state.bill.leftAmount   = money2(Math.max(state.bill.totalAmount - state.bill.paidAmount, 0));
     state.bill.customerName = b.customer_name || "";
     state.bill.customerId   = b.customer_id || null;
     state.bill.createdAt    = b.created_at;
@@ -2374,17 +2381,17 @@ const payPrintBtn = document.getElementById("payPrintBtn");
 function finalizePaidForSave() {
   // 🔥 enforce save rules (ignore textbox for full/none)
   if (state.bill.payStatus === "full") {
-    state.bill.paidAmount = state.bill.totalAmount;
+    state.bill.paidAmount = money2(state.bill.totalAmount);
     state.bill.leftAmount = 0;
     return;
   }
   if (state.bill.payStatus === "none") {
     state.bill.paidAmount = 0;
-    state.bill.leftAmount = state.bill.totalAmount;
+    state.bill.leftAmount = money2(state.bill.totalAmount);
     return;
   }
   // partial: keep whatever user typed (already in state.bill.paidAmount)
-  state.bill.leftAmount = Math.max(state.bill.totalAmount - state.bill.paidAmount, 0);
+  state.bill.leftAmount = money2(Math.max(state.bill.totalAmount - state.bill.paidAmount, 0));
 }
 
 function pruneZeroRows() {
@@ -2462,9 +2469,9 @@ async function validateBillBeforeSave(options) {
       showPosError("حسم غير صالح.", `السطر رقم <strong>${i + 1}</strong> يحتوي حسم غير صحيح.`);
       return false;
     }
-    if (discAmt > base + 1e-9) {
+    if (round2(discAmt) > round2(base)) {
       // clamp it rather than failing hard (your choice)
-      r.discAmt = base;
+      r.discAmt = money2(base);
       r.discPct = base > 0 ? 100 : 0;
     }
   }
@@ -2474,6 +2481,7 @@ async function validateBillBeforeSave(options) {
 
   // guard: paidAmount must be numeric
   if (!isFinite(state.bill.paidAmount)) state.bill.paidAmount = 0;
+  state.bill.paidAmount = money2(state.bill.paidAmount);
 
   // 4) apply your save rules (full/none override textbox)
   finalizePaidForSave();
@@ -2552,10 +2560,10 @@ async function sendBillToBackend(options) {
     id: state.bill.id,
     parked: parked,
     pay_status: state.bill.payStatus,
-    paid_amount: state.bill.paidAmount,
-    total_amount: state.bill.totalAmount,
-    total_syp: state.bill.totalSyp,
-    total_usd: state.bill.totalUsd,
+    paid_amount: money2(state.bill.paidAmount),
+    total_amount: money2(state.bill.totalAmount),
+    total_syp: money2(state.bill.totalSyp),
+    total_usd: money2(state.bill.totalUsd),
     settlement_mode: state.bill.settlementMode,
     settlement_currency: state.bill.settlementCurrency || null,
     customer_name: state.bill.customerName || null,
@@ -2570,7 +2578,7 @@ async function sendBillToBackend(options) {
       uom_index: r.uomIndex,
       unit_price: r.price,
       currency: r.currency || CUR_SYP,
-      disc_amount: r.discAmt || 0,
+      disc_amount: money2(r.discAmt || 0),
       disc_pct: r.discPct || 0,
       notes: r.notes || "",
     })),

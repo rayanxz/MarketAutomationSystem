@@ -677,10 +677,10 @@
           {% for s in settlements %}
             <tr>
               <td>{{ s.created_at|date:"Y-m-d H:i:s" }}</td>
-              <td>{{ s.payment_syp|floatformat:3 }}</td>
-              <td>{{ s.payment_usd|floatformat:3 }}</td>
-              <td>{{ s.applied_syp|floatformat:3 }}</td>
-              <td>{{ s.applied_usd|floatformat:3 }}</td>
+              <td>{{ s.payment_syp|floatformat:2 }}</td>
+              <td>{{ s.payment_usd|floatformat:2 }}</td>
+              <td>{{ s.applied_syp|floatformat:2 }}</td>
+              <td>{{ s.applied_usd|floatformat:2 }}</td>
               <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}-{% endif %}</td>
               <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}-{% endif %}</td>
               <td>{{ s.actor_username|default:"-" }}</td>

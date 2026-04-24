@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Iterable, Dict, Any, Optional
 from datetime import date
 
@@ -51,16 +51,20 @@ from financials.models import Currency, Counterparty, CounterpartyType, MoneyCon
 
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
+DEC2 = Decimal("0.01")
 DEC3 = Decimal("0.001")
 DEC4 = Decimal("0.01")
 FEATURE_PURCHASE_BILLS = "purchase_bills"
 FEATURE_PROVIDER_RETURNS = ("provider_returns", FEATURE_PURCHASE_BILLS)
 
 def q3(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC3)
+    return (x or DEC0).quantize(DEC3, rounding=ROUND_HALF_UP)
+
+def q2(x: Decimal) -> Decimal:
+    return (x or DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
 
 def q4(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC4)
+    return (x or DEC0).quantize(DEC4, rounding=ROUND_HALF_UP)
 
 
 def _row_suffix(row_idx: int | None) -> str:
@@ -96,7 +100,7 @@ def _quantize_value(
     row_idx: int | None = None,
 ) -> Decimal:
     try:
-        out = raw.quantize(exp)
+        out = raw.quantize(exp, rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError):
         raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
     if not out.is_finite():
@@ -277,7 +281,6 @@ def _resolve_creation_payment_plan(
         paid_usd=total_usd,
         fx_snapshot=fx_snapshot,
     )
-    settlement_quantum = _settlement_quantum(settle)
 
     # Zero-total purchase bills are valid but strictly non-financial.
     if settlement_total <= DEC0:
@@ -376,7 +379,7 @@ def _resolve_creation_payment_plan(
             if actual_paid_syp <= DEC0 or actual_paid_usd <= DEC0:
                 raise ValidationError("mixed partial payment requires both SYP and USD amounts")
     elif status_norm == "paid":
-        if abs(settlement_paid - settlement_total) > settlement_quantum:
+        if settlement_paid != settlement_total:
             raise ValidationError("full payment must match settlement total using bill FX")
 
     remaining_syp, remaining_usd = _resolve_purchase_bill_remaining_components(
@@ -440,7 +443,6 @@ def _resolve_return_collection_plan(
         paid_usd=total_usd,
         fx_snapshot=fx_snapshot,
     )
-    settlement_quantum = _settlement_quantum(settle)
 
     # Zero-total returns are valid but strictly non-financial.
     if settlement_total <= DEC0:
@@ -470,7 +472,7 @@ def _resolve_return_collection_plan(
         if intended > settlement_total:
             raise ValidationError("Paid amount exceeds return total.")
         settlement_collected = intended
-        if abs(settlement_collected - settlement_total) <= settlement_quantum:
+        if settlement_collected == settlement_total:
             status_norm = "paid"
 
     actual_collected_syp = DEC0
@@ -887,9 +889,9 @@ def create_bill(
 
         # ---- line total (in ITEM currency)
         line_total_raw = (
-            _quantize_value(raw=total_override, exp=DEC3, field_name="total_cost", row_idx=idx)
+            _quantize_value(raw=total_override, exp=DEC2, field_name="total_cost", row_idx=idx)
             if total_override and total_override > 0
-            else _quantize_value(raw=(cost_u1 * qty_primary), exp=DEC3, field_name="line_total", row_idx=idx)
+            else _quantize_value(raw=(cost_u1 * qty_primary), exp=DEC2, field_name="line_total", row_idx=idx)
         )
         line_total = _q_money(item_currency, line_total_raw)
 
@@ -1468,7 +1470,7 @@ def delete_bill(*, actor, bill_id: int) -> None:
         DebtorPayment.objects.filter(entry__in=entries).delete()
         DebtorDebt.objects.filter(id__in=[e.id for e in entries]).delete()
 
-    paid_amount_total = q3(paid_syp + paid_usd)
+    paid_amount_total = q2(paid_syp + paid_usd)
     if central_debt is not None:
         if central_debt.status == "closed":
             status_label = "paid"
@@ -1736,7 +1738,7 @@ def create_return(
             qty_primary = q3(qty_primary)
 
         # ----- line total & ProviderReturnItem -----
-        line_total_raw = q3(total_override) if (total_override and total_override > 0) else q3(cost_u1 * qty_primary)
+        line_total_raw = q2(total_override) if (total_override and total_override > 0) else q2(cost_u1 * qty_primary)
         line_total = _q_money(item_currency, line_total_raw)
         qty_used_val = abs(qty_primary) if unit_idx == 1 else q3(abs(qty_primary) / (cf_val or Decimal("1")))
         fx_used_for_item = None

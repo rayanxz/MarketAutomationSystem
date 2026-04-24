@@ -16,7 +16,7 @@ from catalog.models import Product
 from core.currency import SYP, USD
 from financials.models import MoneyContainer, MoneyContainerCurrency
 from financials import services as FinSV
-from inventory.models import q3, q4, DEC0
+from inventory.models import q2, q3, q4, DEC0
 from . import services as POSSV
 from .views import _resolve_sales_bill_from_ref
 from accounts.decorators import role_required_api
@@ -55,19 +55,19 @@ def _calc_row_total(*, product: Product, row: dict) -> Decimal:
     if qty_primary <= 0:
         return DEC0
 
-    base = q3(qty_primary * unit_price)
+    base = q2(qty_primary * unit_price)
 
     disc_amt = _parse_decimal(row.get("disc_amount"))
     disc_pct = _parse_decimal(row.get("disc_pct"))
     if disc_amt <= 0 and disc_pct > 0 and base > 0:
-        disc_amt = q3((base * disc_pct) / Decimal("100"))
+        disc_amt = q2((base * disc_pct) / Decimal("100"))
 
     if disc_amt < 0:
         disc_amt = DEC0
     if disc_amt > base:
         disc_amt = base
 
-    return q3(base - disc_amt)
+    return q2(base - disc_amt)
 
 
 def _sync_customer_debt(*, bill: SalesBill, actor) -> None:
@@ -570,7 +570,7 @@ def api_bill_save(request: HttpRequest):
                 unit_cost_at_txn=cost_hint,
                 cost_currency_at_txn=(row_currency if cost_hint is not None else None),
                 fx_rate_at_txn=fx_rate,
-                disc_amount=_parse_decimal(r.get("disc_amount")),
+                disc_amount=q2(_parse_decimal(r.get("disc_amount"))),
                 disc_pct=_parse_decimal(r.get("disc_pct") or 0),
                 notes=r.get("notes") or "",
             )

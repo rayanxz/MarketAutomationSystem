@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -394,21 +394,21 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
         ui = resp.context["debt_ui"]
-        self.assertEqual(ui["total_syp"], Decimal("123.45"))
-        self.assertEqual(ui["total_usd"], Decimal("4.12"))
-        self.assertEqual(ui["remaining_syp"], Decimal("11.99"))
-        self.assertEqual(ui["remaining_usd"], Decimal("0.56"))
-        self.assertEqual(ui["fx_syp_per_usd_at_creation"], Decimal("19750.98"))
+        self.assertEqual(ui["total_syp"], Decimal("123.46"))
+        self.assertEqual(ui["total_usd"], Decimal("4.13"))
+        self.assertEqual(ui["remaining_syp"], Decimal("12.00"))
+        self.assertEqual(ui["remaining_usd"], Decimal("0.57"))
+        self.assertEqual(ui["fx_syp_per_usd_at_creation"], Decimal("19750.99"))
 
         settlement_ui = resp.context["settlement_ui"]
         q2 = Decimal("0.01")
         expected_syp = (Decimal("11.999") + (Decimal("0.567") * Decimal("21000"))).quantize(
             q2,
-            rounding=ROUND_DOWN,
+            rounding=ROUND_HALF_UP,
         )
         expected_usd = (Decimal("0.567") + (Decimal("11.999") / Decimal("21000"))).quantize(
             q2,
-            rounding=ROUND_DOWN,
+            rounding=ROUND_HALF_UP,
         )
         self.assertEqual(settlement_ui["total_syp"], expected_syp)
         self.assertEqual(settlement_ui["total_usd"], expected_usd)

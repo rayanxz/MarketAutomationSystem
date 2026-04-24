@@ -64,7 +64,19 @@
   // ========================= Tiny utils =========================
   function el(s){ return document.querySelector(s); }
   function qs(s, root){ return (root || document).querySelector(s); }
-  function nf(x){ const n = Number(x); return Number.isFinite(n) ? new Intl.NumberFormat().format(n) : (x ?? ""); }
+  const moneyFmt = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  function round2(v){
+    const n = Number(v || 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+  function nf(x){
+    const n = Number(x);
+    return Number.isFinite(n) ? moneyFmt.format(round2(n)) : (x ?? "");
+  }
   function escapeHtml(s){ return String(s||"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function getCsrf(){ const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/); return m ? decodeURIComponent(m[1]) : ""; }
   function qsBuild(obj){
@@ -118,9 +130,9 @@
     const serial    = src.serial ?? src.doc_serial ?? "";
     const partyType = src.party_type || "provider";
     const partyName = src.party_name || (src?.provider?.name || "");
-    const total     = Number(src.total ?? src.grand_total ?? 0);
-    const paid      = Number(src.paid_amount ?? src.paid ?? 0); // creditor uses "paid_amount" = collected in serializer
-    const remaining = Number(
+    const total     = round2(src.total ?? src.grand_total ?? 0);
+    const paid      = round2(src.paid_amount ?? src.paid ?? 0); // creditor uses "paid_amount" = collected in serializer
+    const remaining = round2(
       src.remaining != null ? src.remaining : Math.max(0, total - paid)
     );
     const status    = (src.status || "").toLowerCase();
@@ -354,8 +366,8 @@
     const url = urlForConfirmFull();
     try{
       if ((fRole?.value || "debtor") === "debtor" && !target.manual){
-        const rs = target.entries["SYP"]?.remaining ?? 0;
-        const ru = target.entries["USD"]?.remaining ?? 0;
+        const rs = round2(target.entries["SYP"]?.remaining ?? 0);
+        const ru = round2(target.entries["USD"]?.remaining ?? 0);
         const tasks = [];
         if (rs > 0 && target.entries["SYP"]?.entryId) tasks.push(postPayPartial(target.entries["SYP"].entryId, rs));
         if (ru > 0 && target.entries["USD"]?.entryId) tasks.push(postPayPartial(target.entries["USD"].entryId, ru));
@@ -376,14 +388,14 @@
   mBatchConfirm?.addEventListener("click", async () => {
     try{
       if ((fRole?.value || "debtor") === "debtor" && !target.manual){
-        const rs = parseFloat(mBatchSypInput?.value || "0") || 0;
-        const ru = parseFloat(mBatchUsdInput?.value || "0") || 0;
-        const maxS = target.entries["SYP"]?.remaining ?? 0;
-        const maxU = target.entries["USD"]?.remaining ?? 0;
+        const rs = round2(parseFloat(mBatchSypInput?.value || "0") || 0);
+        const ru = round2(parseFloat(mBatchUsdInput?.value || "0") || 0);
+        const maxS = round2(target.entries["SYP"]?.remaining ?? 0);
+        const maxU = round2(target.entries["USD"]?.remaining ?? 0);
 
         if (rs < 0 || ru < 0){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
-        if (rs > maxS + 1e-9){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
-        if (ru > maxU + 1e-9){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
+        if (rs > maxS){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
+        if (ru > maxU){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
         if (!(rs > 0 || ru > 0)){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
 
         const tasks = [];
@@ -392,9 +404,9 @@
         await Promise.all(tasks);
         closeModal(mBatch); load(true);
       } else {
-        const v = parseFloat(mBatchSypInput?.value || "0") || 0;
+        const v = round2(parseFloat(mBatchSypInput?.value || "0") || 0);
         if (!(v > 0)){ alert("O?O_OrU, U,USU.Oc U.U^O?O"Oc."); return; }
-        if (v > target.remaining + 1e-9){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
+        if (v > round2(target.remaining)){ alert("OÒU,U,USU.Oc O?O?O?OÒU^O? OÒU,U.O"U,O? OÒU,U.O?O"U,US."); return; }
 
         const url  = urlForConfirmBatch();
         const form = new FormData();

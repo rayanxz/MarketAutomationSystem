@@ -11,7 +11,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from catalog.models import Product
-from inventory.models import DEC0, q3, q4, ProductMovement
+from inventory.models import DEC0, q2, q3, q4, ProductMovement
 from inventory import services as InvSV
 from inventory.models import SaleCostPart
 from stock import services as StockSV
@@ -59,11 +59,11 @@ def _qty_to_primary(*, qty_raw: Decimal, uom_index: int, product: Product, conv_
 
 
 def _calc_row_disc_total(*, row: SalesBillRow, qty_primary_total: Decimal, unit_price_primary: Decimal) -> Decimal:
-    base = q3(qty_primary_total * unit_price_primary)
-    disc_amount_total = q3(_dec(row.disc_amount))
+    base = q2(qty_primary_total * unit_price_primary)
+    disc_amount_total = q2(_dec(row.disc_amount))
     disc_pct = _dec(row.disc_pct or 0)
     if disc_amount_total <= DEC0 and disc_pct > 0 and base > 0:
-        disc_amount_total = q3((base * disc_pct) / Decimal("100"))
+        disc_amount_total = q2((base * disc_pct) / Decimal("100"))
     if disc_amount_total < 0:
         disc_amount_total = DEC0
     if disc_amount_total > base:
@@ -108,7 +108,7 @@ def _avg_sale_cost_for_bill_product(*, bill_id: int, product_id: int) -> tuple[D
     cost_currencies: set[str] = set()
 
     for p in parts:
-        total_cost = q3(total_cost + q3(_dec(p.total_cost)))
+        total_cost = q2(total_cost + q2(_dec(p.total_cost)))
         total_qty = q3(total_qty + q3(_dec(p.qty_primary)))
         if p.fifo_layer and getattr(p.fifo_layer, "cost_currency", None):
             cur = (p.fifo_layer.cost_currency or "").upper()
@@ -226,7 +226,7 @@ def create_sales_return_draft(
             qty_primary_total=sold_qty_primary,
             unit_price_primary=unit_price_primary,
         )
-        disc_part = q3((disc_total * qty_primary) / sold_qty_primary) if sold_qty_primary > DEC0 else DEC0
+        disc_part = q2((disc_total * qty_primary) / sold_qty_primary) if sold_qty_primary > DEC0 else DEC0
         row_currency = (sale_row.sale_currency or "SYP").upper()
         line_total = _q_money(row_currency, (unit_price_primary * qty_primary) - disc_part)
         if line_total < DEC0:
@@ -245,7 +245,7 @@ def create_sales_return_draft(
             qty_returned=qty_primary,
             currency_code=(sale_row.sale_currency or "SYP").upper(),
             unit_price_at_sale=unit_price_primary,
-            discount_amount_at_txn=q3(sale_row.disc_amount or DEC0),
+            discount_amount_at_txn=q2(sale_row.disc_amount or DEC0),
             discount_pct_at_txn=q3(sale_row.disc_pct or DEC0),
             fx_rate_at_txn=bill.fx_rate_used,
             line_total=line_total,

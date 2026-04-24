@@ -422,9 +422,9 @@
                     </a>
                   </td>
                   <td>{{ d.total_bills }}</td>
-                  <td>{{ d.total_amount|localize }}</td>
-                  <td>{{ d.paid_amount|localize }}</td>
-                  <td>{{ d.left_amount|localize }}</td>
+                  <td>{{ d.total_amount|floatformat:2 }}</td>
+                  <td>{{ d.paid_amount|floatformat:2 }}</td>
+                  <td>{{ d.left_amount|floatformat:2 }}</td>
                 </tr>
               {% endwith %}
             {% endfor %}
@@ -668,9 +668,18 @@
   }
   document.addEventListener("keydown", escListener);
 
+  function round2(value) {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
   function money(x) {
-    if (x === null || x === undefined) return "0";
-    return String(x);
+    const n = round2(x);
+    const fixed = n.toFixed(2);
+    const parts = fixed.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return `${parts[0]}.${parts[1] || "00"}`;
   }
 
   function renderBill(bill) {
@@ -682,23 +691,26 @@
     const cust = bill.customer_name ? bill.customer_name : "بدون عميل";
     const status = bill.parked ? "معلقة" : "مغلقة";
 
+    const totalAmount = round2(bill.total_amount);
+    const paidAmount = round2(bill.paid_amount);
+    const remainingAmount = round2((bill.left_amount ?? (totalAmount - paidAmount)));
     metaBox.innerHTML = `
       <div><b>الوقت:</b> ${bill.created_at ? bill.created_at.replace("T"," ").slice(0,16) : ""}</div>
       <div><b>الحالة:</b> ${status}</div>
       <div><b>العميل:</b> ${cust}</div>
-      <div><b>الإجمالي:</b> ${money(bill.total_amount)}</div>
-      <div><b>المدفوع:</b> ${money(bill.paid_amount)}</div>
-        <div><b>المتبقي:</b> ${money((((parseFloat(bill.total_amount) || 0) - (parseFloat(bill.paid_amount) || 0))).toFixed(3)))}</div>
+      <div><b>الإجمالي:</b> ${money(totalAmount)}</div>
+      <div><b>المدفوع:</b> ${money(paidAmount)}</div>
+      <div><b>المتبقي:</b> ${money(remainingAmount)}</div>
 
     `;
 
     rowsBox.innerHTML = "";
     const rows = bill.rows || [];
     rows.forEach((r, idx) => {
-      const qty = money(r.qty);
+      const qty = String(r.qty ?? "0");
       const price = money(r.unit_price);
       const disc = money(r.disc_amount);
-      const lineTotal = (parseFloat(r.qty || "0") * parseFloat(r.unit_price || "0")) - parseFloat(r.disc_amount || "0");
+      const lineTotal = round2((Number(r.qty || 0) * Number(r.unit_price || 0)) - Number(r.disc_amount || 0));
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -707,7 +719,7 @@
         <td>${qty}</td>
         <td>${price}</td>
         <td>${disc}</td>
-        <td>${money(lineTotal.toFixed ? lineTotal.toFixed(3) : lineTotal)}</td>
+        <td>${money(lineTotal)}</td>
         <td class="name">${(r.notes || "")}</td>
       `;
       rowsBox.appendChild(tr);

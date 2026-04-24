@@ -1,7 +1,7 @@
 # app/stock/services.py
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
 
 from django.db import transaction
@@ -10,7 +10,7 @@ from django.db.models import Sum
 from django.conf import settings
 
 from catalog.models import Product
-from inventory.models import ProductMovement, q3 , q4
+from inventory.models import ProductMovement, q2, q3, q4
 from stock.models import ProductContainer, StockEntry , StockFifoLayer, DEC0
 
 from django.utils import timezone
@@ -80,7 +80,7 @@ def _fifo_sum_for(product: Product, container: ProductContainer) -> Decimal:
         .filter(product=product, container=container)
         .aggregate(s=Sum("qty_remaining"))
     )
-    return (agg["s"] or DEC0).quantize(Decimal("0.001"))
+    return (agg["s"] or DEC0).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
 def sync_entry_from_fifo(product: Product, container: ProductContainer) -> StockEntry:
@@ -276,7 +276,7 @@ def fifo_consume(
         use = avail if avail <= remaining else remaining
 
         uc = q4(Decimal(str(layer.unit_cost or DEC0)))
-        total_cost += q3(use) * uc
+        total_cost = q2(total_cost + (q3(use) * uc))
 
         layer.qty_remaining = q3(avail - use)
         layer.save(update_fields=["qty_remaining"])
@@ -350,7 +350,7 @@ def fifo_consume_scoped(
         use = avail if avail <= remaining else remaining
         uc = q4(Decimal(str(layer.unit_cost or DEC0)))
 
-        total_cost += q3(use) * uc
+        total_cost = q2(total_cost + (q3(use) * uc))
 
         layer.qty_remaining = q3(avail - use)
         layer.save(update_fields=["qty_remaining"])
@@ -422,7 +422,7 @@ def fifo_consume_with_parts(
             "fifo_layer": layer,
             "qty_primary": q3(use),
             "unit_cost": uc,
-            "total_cost": q3(use * uc),
+            "total_cost": q2(use * uc),
             "cost_currency": layer.cost_currency,
         })
 

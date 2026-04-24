@@ -1,7 +1,7 @@
 # app/debts/views.py
 from __future__ import annotations
 import json
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import date as _date_cls
 
 from django.http import JsonResponse, HttpRequest, HttpResponse
@@ -40,14 +40,14 @@ DEC2 = Decimal("0.01")
 
 def _ui_2dp(x: Decimal | None) -> Decimal:
     """
-    Display-only clip to max 2 decimals (toward zero).
+    Display-only quantization to 2 decimals (half-up).
     Keep DB precision unchanged.
     """
     try:
         d = Decimal(str(x if x is not None else DEC0))
     except (InvalidOperation, TypeError, ValueError):
         return DEC0
-    return d.quantize(DEC2, rounding=ROUND_DOWN)
+    return d.quantize(DEC2, rounding=ROUND_HALF_UP)
 
 
 def _dec_or_zero(x: Decimal | None) -> Decimal:

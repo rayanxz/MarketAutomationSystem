@@ -1,7 +1,7 @@
 # app/stock/views.py
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -34,7 +34,7 @@ def _fmt_decimal(x: Decimal | None) -> str:
     """
     if x is None:
         return "0"
-    q = (x or DEC0).quantize(Decimal("0.001"))  # keep 3 decimals max
+    q = (x or DEC0).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)  # keep 3 decimals max
     return format(q.normalize(), "f")  # normalize() removes trailing zeros/dot
 
 

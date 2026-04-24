@@ -34,9 +34,21 @@
     return p.toString();
   }
 
+  function round2(v) {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  function moneyEq(a, b) {
+    return round2(a) === round2(b);
+  }
+
   function nfmt(x) {
     const n = Number(x);
-    return Number.isFinite(n) ? new Intl.NumberFormat().format(n) : (x ?? "");
+    return Number.isFinite(n)
+      ? round2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : (x ?? "");
   }
 
   function escHtml(v) {
@@ -70,7 +82,7 @@
     const syp = _numOrNaN(bill?.total_syp);
     const usd = _numOrNaN(bill?.total_usd);
     if (!Number.isFinite(syp) || !Number.isFinite(usd)) return false;
-    return Math.abs(syp) < 1e-9 && Math.abs(usd) < 1e-9;
+    return moneyEq(syp, 0) && moneyEq(usd, 0);
   }
 
   function pill(bill) {

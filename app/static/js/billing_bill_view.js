@@ -41,16 +41,24 @@
     return Number.isFinite(n) ? n : 0;
   }
 
-  // Match add_bill display rules: comma group separator, clip to 2 decimals, trim trailing zeros.
-  function formatDisplay2(value) {
+  function round2(value) {
     const n = Number(value == null ? 0 : value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  function moneyEq(a, b) {
+    return round2(a) === round2(b);
+  }
+
+  // Match add_bill display rules: comma group separator with fixed 2 decimals.
+  function formatDisplay2(value) {
+    const n = round2(value);
     if (!Number.isFinite(n)) return "0";
-    const clipped = Math.trunc(n * 100) / 100;
-    if (clipped === 0 || Object.is(clipped, -0)) return "0";
-    const parts = clipped.toFixed(2).split(".");
+    const parts = n.toFixed(2).split(".");
     const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    const frac = (parts[1] || "").replace(/0+$/, "");
-    return frac ? intPart + "." + frac : intPart;
+    const frac = parts[1] || "00";
+    return intPart + "." + frac;
   }
 
   function applyFlexibleColumnWidths(productWidth, unitCostWidth, totalCostWidth) {
@@ -121,11 +129,11 @@
 
     let settlementSyp = Number.NaN;
     let settlementUsd = Number.NaN;
-    if (hasFx || Math.abs(totalUsd) < 0.000001) {
-      settlementSyp = totalSyp + (hasFx ? (totalUsd * fxRate) : 0);
+    if (hasFx || moneyEq(totalUsd, 0)) {
+      settlementSyp = round2(totalSyp + (hasFx ? (totalUsd * fxRate) : 0));
     }
-    if (hasFx || Math.abs(totalSyp) < 0.000001) {
-      settlementUsd = totalUsd + (hasFx ? (totalSyp / fxRate) : 0);
+    if (hasFx || moneyEq(totalSyp, 0)) {
+      settlementUsd = round2(totalUsd + (hasFx ? (totalSyp / fxRate) : 0));
     }
 
     const preview = mode === "USD" ? settlementUsd : settlementSyp;

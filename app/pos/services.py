@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from catalog.models import Product
 from inventory import services as InvSV
-from inventory.models import ProductMovement, DEC0, q3
+from inventory.models import ProductMovement, DEC0, q2, q3
 from stock.models import ProductContainer, StockEntry  # ⬅ added StockEntry
 from .models import SalesBill, SalesBillRow, PosDay, PosLoginSession , PosShift
 from core.currency import SYP, USD
@@ -202,15 +202,15 @@ def _calc_row_total(*, product: Product, row: SalesBillRow) -> Decimal:
     )
     if qty_primary <= 0:
         return DEC0
-    base = q3(qty_primary * q3(row.unit_price or DEC0))
-    disc_amt = q3(row.disc_amount or DEC0)
+    base = q2(qty_primary * q2(row.unit_price or DEC0))
+    disc_amt = q2(row.disc_amount or DEC0)
     if disc_amt <= 0 and (row.disc_pct or DEC0) > 0 and base > 0:
-        disc_amt = q3((base * q3(row.disc_pct)) / Decimal("100"))
+        disc_amt = q2((base * q2(row.disc_pct)) / Decimal("100"))
     if disc_amt < 0:
         disc_amt = DEC0
     if disc_amt > base:
         disc_amt = base
-    return q3(base - disc_amt)
+    return q2(base - disc_amt)
 
 
 @transaction.atomic
@@ -352,10 +352,10 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
             unit_index=unit_index_used,
             qty_primary=qty_primary,   # POSITIVE; wrapper will flip it to negative
             unit_cost=DEC0,
-            sale_unit_price_at_txn=q3(row.unit_price or DEC0),
+            sale_unit_price_at_txn=q2(row.unit_price or DEC0),
             sale_currency_at_txn=(row.sale_currency or SYP),
             fx_rate_at_txn=bill.fx_rate_used,
-            discount_amount_at_txn=q3(row.disc_amount or DEC0),
+            discount_amount_at_txn=q2(row.disc_amount or DEC0),
             discount_pct_at_txn=q3(row.disc_pct or DEC0),
             qty_used_at_txn=q3(row.qty or DEC0),
             conversion_factor_at_txn=getattr(row, "conv_factor_at_txn", None),
@@ -369,7 +369,7 @@ def finalize_pos_bill(*, bill: SalesBill, actor) -> None:
         )
 
         # Update latest/default price from actual sales (per currency)
-        unit_price = q3(row.unit_price or DEC0)
+        unit_price = q2(row.unit_price or DEC0)
         if unit_price > DEC0:
             row_currency = (row.sale_currency or SYP).upper()
             if row_currency == USD:

@@ -151,7 +151,7 @@
 
   let cursor = null, busy = false, done = false;
 
-  function nf(x){ const n=Number(x); return Number.isFinite(n)? new Intl.NumberFormat().format(n): x; }
+  function nf(x){ const n=Number(x); return Number.isFinite(n)? new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n): x; }
   function debtLabel(p){
     const totals = p.debt_totals || {};
     const syp = nf(totals.SYP || "0");

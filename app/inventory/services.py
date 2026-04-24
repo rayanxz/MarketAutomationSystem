@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from catalog.models import Product
-from inventory.models import ProductMovement, q3, q4, DEC0
+from inventory.models import ProductMovement, q2, q3, q4, DEC0
 from stock.models import ProductContainer
 from stock import services as StockSV
 from stock.services import MissingCostBasisError, MissingFifoCostBasisError
@@ -58,7 +58,7 @@ def record_movement(
     qty_primary_q = q3(Decimal(str(qty_primary)))
     qty_primary_abs = q3(abs(qty_primary_q))
     unit_cost_q = q4(Decimal(str(unit_cost)))
-    total_cost_q = q3(abs(qty_primary_q) * unit_cost_q)
+    total_cost_q = q2(abs(qty_primary_q) * unit_cost_q)
 
     unit_idx = int(unit_index or 1)
     if getattr(product, "is_single_unit", False):
@@ -116,6 +116,10 @@ def record_movement(
         )
     cost_currency_at_txn = cost_currency_norm
 
+    sale_unit_price_q = q2(Decimal(str(sale_unit_price_at_txn))) if sale_unit_price_at_txn is not None else None
+    fx_rate_q = q2(Decimal(str(fx_rate_at_txn))) if fx_rate_at_txn is not None else None
+    discount_amount_q = q2(Decimal(str(discount_amount_at_txn))) if discount_amount_at_txn is not None else None
+
     mv = ProductMovement.objects.create(
         product=product,
         qty_primary=qty_primary_q,
@@ -125,16 +129,16 @@ def record_movement(
         product_name_at_txn=product_name_at_txn or "",
         unit_cost_at_txn=unit_cost_q,
         cost_currency_at_txn=cost_currency_at_txn,
-        sale_unit_price_at_txn=sale_unit_price_at_txn,
+        sale_unit_price_at_txn=sale_unit_price_q,
         sale_currency_at_txn=(sale_currency_at_txn.upper() if sale_currency_at_txn else None),
-        fx_rate_at_txn=fx_rate_at_txn,
+        fx_rate_at_txn=fx_rate_q,
         qty_used_at_txn=qty_used_at_txn,
         qty_primary_at_txn=qty_primary_at_txn,
         unit_index_used_at_txn=unit_index_used_at_txn,
         conversion_factor_at_txn=conv_val,
         unit_1_label_at_txn=unit_1_label_at_txn or "",
         unit_2_label_at_txn=unit_2_label_at_txn or "",
-        discount_amount_at_txn=discount_amount_at_txn,
+        discount_amount_at_txn=discount_amount_q,
         discount_pct_at_txn=discount_pct_at_txn,
         movement_type=movement_type,
         source_app=source_app,
@@ -441,7 +445,7 @@ def record_sale_item(
     total_qty = DEC0
 
     for p in parts:
-        total_cost += p["total_cost"]
+        total_cost = q2(total_cost + p["total_cost"])
         total_qty += p["qty_primary"]
 
     if total_qty > DEC0:
@@ -514,7 +518,7 @@ def record_sale_item(
             fifo_layer=p["fifo_layer"],
             qty_primary=p["qty_primary"],
             unit_cost=p["unit_cost"],
-            total_cost=p["total_cost"],
+            total_cost=q2(p["total_cost"]),
         )
 
     return mv
