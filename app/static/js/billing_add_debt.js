@@ -28,13 +28,9 @@
   const saveBtn = $("#save");
   const saveErr = $("#saveErr");
 
-  const moneyFmt = new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
   function nf(x){
     const n = Number(x);
-    return Number.isFinite(n) ? moneyFmt.format(n) : x;
+    return Number.isFinite(n) ? formatMoney(n) : x;
   }
   function getCsrf(){ const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/); return m ? decodeURIComponent(m[1]) : ""; }
 

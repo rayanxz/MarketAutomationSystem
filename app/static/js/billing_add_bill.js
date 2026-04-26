@@ -70,7 +70,7 @@
   const formatDisplay2 = (v) => {
     const n = round2(v);
     if (!Number.isFinite(n)) return "0";
-    return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatMoney(n);
   };
   const readFxRate = () => {
     const fxVal = num(BILLING.fxSypPerUsdRaw || "");

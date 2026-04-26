@@ -1,5 +1,5 @@
 {% extends "manager/base_manager.html" %}
-{% load l10n %}
+{% load l10n formatting %}
 
 {% block title %}POS Customers{% endblock %}
 
@@ -64,8 +64,8 @@
           <tr>
             <td>{{ c.id }}</td>
             <td>{{ c.name }}</td>
-            <td>{{ c.debt_syp|localize }}</td>
-            <td>{{ c.debt_usd|localize }}</td>
+            <td>{{ c.debt_syp|money_number }}</td>
+            <td>{{ c.debt_usd|money_number }}</td>
             <td>{% if c.last_seen %}{{ c.last_seen|date:"Y-m-d H:i" }}{% endif %}</td>
             <td>{{ c.purchases }}</td>
             <td class="left">

@@ -1,5 +1,5 @@
 {# app/templates/pos/_manager_overview_timeline_items.html #}
-{% load l10n %}
+{% load l10n formatting %}
 
 {% for ev in timeline_events %}
 
@@ -114,9 +114,9 @@
                 {% endif %}
               </span>
 
-              <span class="bill-col">{{ b.total_amount|localize }}</span>
-              <span class="bill-col">{{ b.paid_amount|localize }}</span>
-              <span class="bill-col">{{ b.left_amount|localize }}</span>
+              <span class="bill-col">{{ b.total_amount|money_number }}</span>
+              <span class="bill-col">{{ b.paid_amount|money_number }}</span>
+              <span class="bill-col">{{ b.left_amount|money_number }}</span>
 
               <span class="bill-customer">
                 {% if b.customer_name %}

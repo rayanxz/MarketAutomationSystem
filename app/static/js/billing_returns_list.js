@@ -19,13 +19,9 @@
 
   // helpers
   const qs = (obj)=> new URLSearchParams(obj).toString();
-  const moneyFmt = new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
   const nfmt = (x)=> {
     const n = Number(x);
-    return Number.isFinite(n) ? moneyFmt.format(n) : (x ?? "");
+    return Number.isFinite(n) ? formatMoney(n) : (x ?? "");
   };
   const pill = (status) => {
     const cls = status === "paid" ? "paid" : (status === "partial" ? "partial" : "unpaid");

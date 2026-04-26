@@ -254,19 +254,19 @@
               <td>{{ r.qty|human_number }}</td>
               <td title="{{ r.uom_label }}">{{ r.uom_label }}</td>
 
-              <td>{{ r.unit_price|human_number }}</td>
+              <td>{{ r.unit_price|money_number }}</td>
 
-              <td title="{% if r.disc_pct and r.disc_pct != 0 %}{{ r.disc_amount|human_number }} ({{ r.disc_pct|human_number }}%){% else %}{{ r.disc_amount|human_number }}{% endif %}">
-                {{ r.disc_amount|human_number }}
+              <td title="{% if r.disc_pct and r.disc_pct != 0 %}{{ r.disc_amount|money_number }} ({{ r.disc_pct|human_number }}%){% else %}{{ r.disc_amount|money_number }}{% endif %}">
+                {{ r.disc_amount|money_number }}
               </td>
 
-              <td>{{ r.line_total|human_number }}</td>
+              <td>{{ r.line_total|money_number }}</td>
 
               <td class="notes" title="{{ r.notes }}">{{ r.notes }}</td>
 
               <td>
                 {% if r.unit_cost is not None %}
-                  {{ r.unit_cost|human_number }}
+                  {{ r.unit_cost|money_number }}
                 {% else %}
                   —
                 {% endif %}
@@ -274,7 +274,7 @@
 
               <td>
                 {% if r.total_cost is not None %}
-                  {{ r.total_cost|human_number }}
+                  {{ r.total_cost|money_number }}
                 {% else %}
                   —
                 {% endif %}
@@ -285,12 +285,12 @@
                   {% if r.profit_is_pos %}
                     <span class="profit pos" title="profit">
                       <span class="arrow">▲</span>
-                      +{{ r.profit|human_number }}
+                      +{{ r.profit|money_number }}
                     </span>
                   {% else %}
                     <span class="profit neg" title="loss">
                       <span class="arrow">▼</span>
-                      {{ r.profit|human_number }}
+                      {{ r.profit|money_number }}
                     </span>
                   {% endif %}
                 {% else %}
@@ -326,15 +326,15 @@
   <div class="totals">
     <div class="t-item">
       <b>الإجمالي</b>
-      <span class="t-val">{{ total_amount|human_number }}</span>
+      <span class="t-val">{{ total_amount|money_number }}</span>
     </div>
     <div class="t-item">
       <b>المدفوع</b>
-      <span class="t-val">{{ paid_amount|human_number }}</span>
+      <span class="t-val">{{ paid_amount|money_number }}</span>
     </div>
     <div class="t-item">
       <b>المتبقي</b>
-      <span class="t-val">{{ left_amount|human_number }}</span>
+      <span class="t-val">{{ left_amount|money_number }}</span>
     </div>
   </div>
 
@@ -362,8 +362,8 @@
                 <td>{{ r.serial|default:r.id }}</td>
                 <td>{{ r.status }}</td>
                 <td>{{ r.stock_container.name }}</td>
-                <td>{{ r.total_syp|human_number }}</td>
-                <td>{{ r.total_usd|human_number }}</td>
+                <td>{{ r.total_syp|money_number }}</td>
+                <td>{{ r.total_usd|money_number }}</td>
                 <td>{{ r.created_at|date:"Y-m-d H:i" }}</td>
               </tr>
             {% endfor %}

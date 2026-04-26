@@ -869,8 +869,8 @@
                 <span class="total-cost-cur" aria-hidden="true">{% if row.currency == "USD" %}${% else %}SYP{% endif %}</span>
                 <span
                   class="total-cost-value"
-                  title="{% if row.currency == 'USD' %}${% else %}SYP{% endif %} {{ row.cost|human_number }}"
-                >{{ row.cost|human_number }}</span>
+                  title="{% if row.currency == 'USD' %}${% else %}SYP{% endif %} {{ row.cost|money_number }}"
+                >{{ row.cost|money_number }}</span>
               </div>
             </td>
 
@@ -896,8 +896,8 @@
                 <span class="total-cost-cur" aria-hidden="true">{% if row.currency == "USD" %}${% else %}SYP{% endif %}</span>
                 <span
                   class="total-cost-value"
-                  title="{% if row.currency == 'USD' %}${% else %}SYP{% endif %} {{ row.line_total|human_number }}"
-                >{{ row.line_total|human_number }}</span>
+                  title="{% if row.currency == 'USD' %}${% else %}SYP{% endif %} {{ row.line_total|money_number }}"
+                >{{ row.line_total|money_number }}</span>
               </div>
             </td>
 
@@ -970,11 +970,11 @@
     <section class="foot-left">
       <div class="total-box">
         <div class="muted">الإجمالي (SYP)</div>
-        <div id="billTotalSyp" class="total-amt" title="{{ bill_total_syp_ui|human_number }}">{{ bill_total_syp_ui|human_number }}</div>
+        <div id="billTotalSyp" class="total-amt" title="{{ bill_total_syp_ui|money_number }}">{{ bill_total_syp_ui|money_number }}</div>
       </div>
       <div class="total-box">
         <div class="muted">الإجمالي (USD)</div>
-        <div id="billTotalUsd" class="total-amt" title="{{ bill_total_usd_ui|human_number }}">{{ bill_total_usd_ui|human_number }}</div>
+        <div id="billTotalUsd" class="total-amt" title="{{ bill_total_usd_ui|money_number }}">{{ bill_total_usd_ui|money_number }}</div>
       </div>
       <div class="total-box">
         <div class="muted">إجمالي التسوية (<span id="settleCurLabel">SYP</span>)</div>
@@ -994,7 +994,7 @@
 
       <div class="bill-fx-info" role="note" aria-label="سعر الصرف عند إنشاء الفاتورة">
         <div class="bill-fx-label">سعر الصرف عند إنشاء الفاتورة</div>
-        <div class="bill-fx-value" title="{{ bill_fx_rate_ui|human_number }}">{{ bill_fx_rate_ui|human_number }}</div>
+        <div class="bill-fx-value" title="{{ bill_fx_rate_ui|money_number }}">{{ bill_fx_rate_ui|money_number }}</div>
       </div>
 
       <div class="bill-side-card bill-payment-card">
@@ -1008,11 +1008,11 @@
         </div>
         <div class="bill-side-row">
           <span class="bill-side-label">المبلغ المدفوع (ل.س)</span>
-          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|human_number }}">{{ created_paid_syp_ui|human_number }}</span>
+          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|money_number }}">{{ created_paid_syp_ui|money_number }}</span>
         </div>
         <div class="bill-side-row">
           <span class="bill-side-label">المبلغ المدفوع ($)</span>
-          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|human_number }}">{{ created_paid_usd_ui|human_number }}</span>
+          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|money_number }}">{{ created_paid_usd_ui|money_number }}</span>
         </div>
       </div>
 
@@ -1038,7 +1038,6 @@
 
 </div>
 {% endblock %}
-
 
 
 

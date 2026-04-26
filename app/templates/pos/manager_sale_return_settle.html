@@ -19,8 +19,8 @@
       <div><b>Stock container:</b> {{ ret.stock_container.name }}</div>
     </div>
     <div class="meta-card">
-      <div><b>Total SYP:</b> {{ total_syp|human_number }}</div>
-      <div><b>Total USD:</b> {{ total_usd|human_number }}</div>
+      <div><b>Total SYP:</b> {{ total_syp|money_number }}</div>
+      <div><b>Total USD:</b> {{ total_usd|money_number }}</div>
     </div>
   </div>
 
@@ -43,8 +43,8 @@
               <td>{{ forloop.counter }}</td>
               <td class="name">{{ r.product_name_at_txn }}</td>
               <td>{{ r.qty_returned|human_number }}</td>
-              <td>{{ r.unit_price_at_sale|human_number }}</td>
-              <td>{{ r.line_total|human_number }}</td>
+              <td>{{ r.unit_price_at_sale|money_number }}</td>
+              <td>{{ r.line_total|money_number }}</td>
               <td>{{ r.currency_code }}</td>
             </tr>
           {% endfor %}

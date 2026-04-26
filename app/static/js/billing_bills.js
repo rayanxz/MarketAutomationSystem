@@ -46,9 +46,7 @@
 
   function nfmt(x) {
     const n = Number(x);
-    return Number.isFinite(n)
-      ? round2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : (x ?? "");
+    return Number.isFinite(n) ? formatMoney(round2(n)) : (x ?? "");
   }
 
   function escHtml(v) {

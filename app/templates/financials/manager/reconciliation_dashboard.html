@@ -29,8 +29,8 @@
               <td style="padding:10px;">{{ b.public_id }}</td>
               <td style="padding:10px;">{{ b.serial }}</td>
               <td style="padding:10px;">{{ b.provider.name|default:"—" }}</td>
-              <td style="padding:10px;">{{ b.total_syp|human_number }}</td>
-              <td style="padding:10px;">{{ b.total_usd|human_number }}</td>
+              <td style="padding:10px;">{{ b.total_syp|money_number }}</td>
+              <td style="padding:10px;">{{ b.total_usd|money_number }}</td>
               <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_bill_view' b.public_id %}">فتح</a></td>
             </tr>
           {% empty %}
@@ -59,8 +59,8 @@
               <td style="padding:10px;">{{ r.public_id }}</td>
               <td style="padding:10px;">{{ r.serial }}</td>
               <td style="padding:10px;">{{ r.provider.name|default:"—" }}</td>
-              <td style="padding:10px;">{{ r.total_syp|human_number }}</td>
-              <td style="padding:10px;">{{ r.total_usd|human_number }}</td>
+              <td style="padding:10px;">{{ r.total_syp|money_number }}</td>
+              <td style="padding:10px;">{{ r.total_usd|money_number }}</td>
               <td style="padding:10px;"><a class="btn-soft" href="{% url 'billing_return_view' r.public_id %}">فتح</a></td>
             </tr>
           {% empty %}
@@ -87,8 +87,8 @@
             <tr>
               <td style="padding:10px;">{{ b.public_id }}</td>
               <td style="padding:10px;">{{ b.customer_name|default:"—" }}</td>
-              <td style="padding:10px;">{{ b.total_syp|human_number }}</td>
-              <td style="padding:10px;">{{ b.total_usd|human_number }}</td>
+              <td style="padding:10px;">{{ b.total_syp|money_number }}</td>
+              <td style="padding:10px;">{{ b.total_usd|money_number }}</td>
               <td style="padding:10px;"><a class="btn-soft" href="{% url 'pos:pos_manager_bill_detail' b.public_id %}">فتح</a></td>
             </tr>
           {% empty %}
@@ -115,8 +115,8 @@
             <tr>
               <td style="padding:10px;">{{ r.id }}</td>
               <td style="padding:10px;">{{ r.serial|default:"—" }}</td>
-              <td style="padding:10px;">{{ r.total_syp|human_number }}</td>
-              <td style="padding:10px;">{{ r.total_usd|human_number }}</td>
+              <td style="padding:10px;">{{ r.total_syp|money_number }}</td>
+              <td style="padding:10px;">{{ r.total_usd|money_number }}</td>
               <td style="padding:10px;"><a class="btn-soft" href="{% url 'pos:pos_manager_sale_return_settle' r.id %}">فتح</a></td>
             </tr>
           {% empty %}
@@ -217,7 +217,7 @@
               <td style="padding:10px;">{{ ln.receipt.serial }}</td>
               <td style="padding:10px;">{{ ln.container.name|default:"—" }}</td>
               <td style="padding:10px;">{{ ln.currency.code|default:"—" }}</td>
-              <td style="padding:10px;">{{ ln.amount|human_number }}</td>
+              <td style="padding:10px;">{{ ln.amount|money_number }}</td>
             </tr>
           {% empty %}
             <tr><td colspan="4" style="padding:14px;">لا توجد حالات.</td></tr>

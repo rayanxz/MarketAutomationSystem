@@ -1,5 +1,5 @@
 {% extends "manager/base_manager.html" %}
-{% load l10n %}
+{% load l10n formatting %}
 
 {% block title %}Customer Debts (POS){% endblock %}
 
@@ -86,9 +86,9 @@
             <td>{{ e.customer_name }}</td>
             <td>{{ e.doc_serial|default:e.source_id }}</td>
             <td>{{ e.currency_code }}</td>
-            <td>{{ e.total|localize }}</td>
-            <td>{{ e.paid|localize }}</td>
-            <td>{{ e.remaining|localize }}</td>
+            <td>{{ e.total|money_number }}</td>
+            <td>{{ e.paid|money_number }}</td>
+            <td>{{ e.remaining|money_number }}</td>
             <td>{{ e.status }}</td>
             <td>{% if e.created_at %}{{ e.created_at|date:"Y-m-d H:i" }}{% endif %}</td>
             <td>{% if e.last_payment %}{{ e.last_payment|date:"Y-m-d H:i" }}{% endif %}</td>

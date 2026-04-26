@@ -39,7 +39,7 @@
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           {% for code, total in currency_totals.items %}
-            <span class="chip">{{ code }}: {{ total|human_number }}</span>
+            <span class="chip">{{ code }}: {{ total|money_number }}</span>
           {% empty %}
             <span class="chip">لا يوجد إجمالي قيد</span>
           {% endfor %}
@@ -79,7 +79,7 @@
                     {% else %}
                       طرف مقابل: {{ ln.counterparty.name|default:"—" }}
                     {% endif %}
-                    | {{ ln.currency.code }} | {{ ln.amount|human_number }}
+                    | {{ ln.currency.code }} | {{ ln.amount|money_number }}
                   </div>
                 {% empty %}
                   —
@@ -112,9 +112,9 @@
               <tr>
                 <td style="padding:10px;">{{ e.id }}</td>
                 <td style="padding:10px;">{{ e.currency_code|default:"—" }}</td>
-                <td style="padding:10px;">{{ e.total|human_number }}</td>
-                <td style="padding:10px;">{{ e.paid_amount|human_number }}</td>
-                <td style="padding:10px;">{{ e.remaining|human_number }}</td>
+                <td style="padding:10px;">{{ e.total|money_number }}</td>
+                <td style="padding:10px;">{{ e.paid_amount|money_number }}</td>
+                <td style="padding:10px;">{{ e.remaining|money_number }}</td>
                 <td style="padding:10px;">{{ e.get_status_display }}</td>
               </tr>
             {% empty %}
@@ -142,9 +142,9 @@
               <tr>
                 <td style="padding:10px;">{{ e.id }}</td>
                 <td style="padding:10px;">{{ e.currency_code|default:"—" }}</td>
-                <td style="padding:10px;">{{ e.total|human_number }}</td>
-                <td style="padding:10px;">{{ e.collected|human_number }}</td>
-                <td style="padding:10px;">{{ e.remaining|human_number }}</td>
+                <td style="padding:10px;">{{ e.total|money_number }}</td>
+                <td style="padding:10px;">{{ e.collected|money_number }}</td>
+                <td style="padding:10px;">{{ e.remaining|money_number }}</td>
                 <td style="padding:10px;">{{ e.get_status_display }}</td>
               </tr>
             {% empty %}
@@ -174,10 +174,10 @@
                 <td style="padding:10px;">{{ d.public_id }}</td>
                 <td style="padding:10px;">{{ d.direction }}</td>
                 <td style="padding:10px;">{{ d.status }}</td>
-                <td style="padding:10px;">{{ d.total_syp|human_number }}</td>
-                <td style="padding:10px;">{{ d.total_usd|human_number }}</td>
-                <td style="padding:10px;">{{ d.remaining_syp|human_number }}</td>
-                <td style="padding:10px;">{{ d.remaining_usd|human_number }}</td>
+                <td style="padding:10px;">{{ d.total_syp|money_number }}</td>
+                <td style="padding:10px;">{{ d.total_usd|money_number }}</td>
+                <td style="padding:10px;">{{ d.remaining_syp|money_number }}</td>
+                <td style="padding:10px;">{{ d.remaining_usd|money_number }}</td>
               </tr>
             {% empty %}
               <tr><td colspan="7" style="padding:14px;">لا توجد ذمم مركزية مرتبطة.</td></tr>
@@ -206,10 +206,10 @@
               <tr>
                 <td style="padding:10px;white-space:nowrap;">{{ s.created_at|date:"Y-m-d H:i" }}</td>
                 <td style="padding:10px;">{{ s.debt.public_id|default:"—" }}</td>
-                <td style="padding:10px;">{{ s.payment_syp|human_number }}</td>
-                <td style="padding:10px;">{{ s.payment_usd|human_number }}</td>
-                <td style="padding:10px;">{{ s.applied_syp|human_number }}</td>
-                <td style="padding:10px;">{{ s.applied_usd|human_number }}</td>
+                <td style="padding:10px;">{{ s.payment_syp|money_number }}</td>
+                <td style="padding:10px;">{{ s.payment_usd|money_number }}</td>
+                <td style="padding:10px;">{{ s.applied_syp|money_number }}</td>
+                <td style="padding:10px;">{{ s.applied_usd|money_number }}</td>
                 <td style="padding:10px;">{{ s.receipt.serial|default:"—" }}</td>
                 <td style="padding:10px;">{{ s.money_container.name|default:"—" }}</td>
               </tr>
@@ -239,7 +239,7 @@
                 <td style="padding:10px;white-space:nowrap;">{{ p.created_at|date:"Y-m-d H:i" }}</td>
                 <td style="padding:10px;">{{ p.entry_id }}</td>
                 <td style="padding:10px;">{{ p.currency_code|default:"—" }}</td>
-                <td style="padding:10px;">{{ p.amount|human_number }}</td>
+                <td style="padding:10px;">{{ p.amount|money_number }}</td>
                 <td style="padding:10px;">{{ p.receipt.serial|default:"—" }}</td>
                 <td style="padding:10px;">{{ p.money_container.name|default:"—" }}</td>
               </tr>
@@ -269,7 +269,7 @@
                 <td style="padding:10px;white-space:nowrap;">{{ p.created_at|date:"Y-m-d H:i" }}</td>
                 <td style="padding:10px;">{{ p.entry_id }}</td>
                 <td style="padding:10px;">{{ p.currency_code|default:"—" }}</td>
-                <td style="padding:10px;">{{ p.amount|human_number }}</td>
+                <td style="padding:10px;">{{ p.amount|money_number }}</td>
                 <td style="padding:10px;">{{ p.receipt.serial|default:"—" }}</td>
                 <td style="padding:10px;">{{ p.money_container.name|default:"—" }}</td>
               </tr>

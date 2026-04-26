@@ -285,7 +285,7 @@
                                 {% endif %}
                               </td>
                               <td class="num">
-                                {{ b.unit_cost|human_number }}
+                                {{ b.unit_cost|money_number }}
                               </td>
                               <td class="num">
                                 —  {# السعر من المنتج نفسه، لا من الدفعة #}
@@ -349,11 +349,11 @@
                           </td>
 
                           <td class="num">
-                            {{ item.cost_display|human_number }}
+                            {{ item.cost_display|money_number }}
                           </td>
 
                           <td class="num">
-                            {{ item.price_display|human_number }}
+                            {{ item.price_display|money_number }}
                           </td>
                         </tr>
                       {% endif %}

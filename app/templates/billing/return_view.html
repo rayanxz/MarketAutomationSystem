@@ -309,7 +309,7 @@
             <tr data-prod-name="{{ r.product_name }}">
               <td class="prod-name-cell">{{ r.product_name }}</td>
               <td class="cell-center">
-                {{ r.item.cost|human_number }} {{ r.item.currency }}
+                {{ r.item.cost|money_number }} {{ r.item.currency }}
               </td>
               <td class="cell-center">
                 {{ r.item.qty_primary|human_number }} {{ r.unit_label }}
@@ -326,7 +326,7 @@
               </td>
 
               <td class="cell-center">
-                {{ r.item.line_total|human_number }} {{ r.item.currency }}
+                {{ r.item.line_total|money_number }} {{ r.item.currency }}
               </td>
             </tr>
           {% endfor %}
@@ -343,11 +343,11 @@
 
     <div class="total-box">
       <div class="muted">Total SYP</div>
-      <div class="total-amt">{{ total_syp|default:pret.total|human_number }}</div>
+      <div class="total-amt">{{ total_syp|default:pret.total|money_number }}</div>
       <div class="muted">Total USD</div>
-      <div class="total-amt">{{ total_usd|default:0|human_number }}</div>
+      <div class="total-amt">{{ total_usd|default:0|money_number }}</div>
       <div class="muted">Settlement ({{ settlement_currency|default:'SYP' }})</div>
-      <div class="total-amt">{{ pret.total|human_number }}</div>
+      <div class="total-amt">{{ pret.total|money_number }}</div>
     </div>
   </section>
 
@@ -359,15 +359,15 @@
       <div class="pay-body grid-2">
         <div>
           <div class="muted">Total SYP</div>
-          <div class="badge" style="font-weight:600;">{{ total_syp|default:pret.total|human_number }}</div>
+          <div class="badge" style="font-weight:600;">{{ total_syp|default:pret.total|money_number }}</div>
         </div>
         <div>
           <div class="muted">Total USD</div>
-          <div class="badge" style="font-weight:600;">{{ total_usd|default:0|human_number }}</div>
+          <div class="badge" style="font-weight:600;">{{ total_usd|default:0|money_number }}</div>
         </div>
         <div>
           <div class="muted">Initial paid ({{ settlement_currency|default:'SYP' }})</div>
-          <div class="badge">{{ created_paid|human_number }}</div>
+          <div class="badge">{{ created_paid|money_number }}</div>
         </div>
         <div>
           <div class="muted">Valuation mode</div>
@@ -389,19 +389,19 @@
       <div class="pay-body grid-2">
         <div>
           <div class="muted">Collected SYP</div>
-          <div class="badge">{{ collected_syp|default:0|human_number }}</div>
+          <div class="badge">{{ collected_syp|default:0|money_number }}</div>
         </div>
         <div>
           <div class="muted">Collected USD</div>
-          <div class="badge">{{ collected_usd|default:0|human_number }}</div>
+          <div class="badge">{{ collected_usd|default:0|money_number }}</div>
         </div>
         <div>
           <div class="muted">Remaining SYP</div>
-          <div class="badge" style="font-weight:600;">{{ remaining_syp|default:0|human_number }}</div>
+          <div class="badge" style="font-weight:600;">{{ remaining_syp|default:0|money_number }}</div>
         </div>
         <div>
           <div class="muted">Remaining USD</div>
-          <div class="badge" style="font-weight:600;">{{ remaining_usd|default:0|human_number }}</div>
+          <div class="badge" style="font-weight:600;">{{ remaining_usd|default:0|money_number }}</div>
         </div>
         <div>
           <div class="muted">Status</div>
@@ -411,7 +411,7 @@
 
       {% if has_credit_now %}
         <div class="muted" style="margin-top:8px;">
-          Remaining SYP: {{ remaining_syp|default:0|human_number }} | Remaining USD: {{ remaining_usd|default:0|human_number }}
+          Remaining SYP: {{ remaining_syp|default:0|money_number }} | Remaining USD: {{ remaining_usd|default:0|money_number }}
         </div>
       {% else %}
         <div class="muted" style="margin-top:8px;">

@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django import template
 
@@ -47,6 +47,54 @@ def human_number(val):
         frac = "00"
     elif len(frac) == 1:
         frac = f"{frac}0"
+    return f"{sign}{int_part_fmt}.{frac}"
+
+
+@register.filter
+def money_number(val):
+    """
+    Money display formatter:
+    - 12.00 -> 12
+    - 12.50 -> 12.5
+    - 12.25 -> 12.25
+    - 1000.00 -> 1,000
+    - 1000.80 -> 1,000.8
+    """
+    if val is None:
+        return ""
+    if isinstance(val, bool):
+        return val
+
+    try:
+        raw = str(val).strip()
+        if raw == "":
+            return ""
+        d = Decimal(raw.replace(",", ""))
+    except (InvalidOperation, ValueError, TypeError):
+        return val  # not a number
+
+    # Normalize money display to 2dp with explicit HALF_UP rounding.
+    d = d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if d == 0:
+        return "0"
+
+    s = format(d, "f")  # avoid scientific notation
+
+    sign = ""
+    if s.startswith("-"):
+        sign = "-"
+        s = s[1:]
+
+    if "." in s:
+        int_part, frac = s.split(".", 1)
+    else:
+        int_part, frac = s, ""
+
+    int_part_fmt = f"{int(int_part or '0'):,}"
+    frac = frac.rstrip("0")
+
+    if not frac:
+        return f"{sign}{int_part_fmt}"
     return f"{sign}{int_part_fmt}.{frac}"
 
 

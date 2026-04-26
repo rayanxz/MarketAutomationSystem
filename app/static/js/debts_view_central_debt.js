@@ -61,10 +61,7 @@
   const fmtNum = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "-";
-    return round2(n).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+    return formatMoney(round2(n));
   };
 
   const state = {

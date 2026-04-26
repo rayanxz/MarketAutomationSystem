@@ -123,11 +123,11 @@
               {{ row.receipt.source_app }}/{{ row.receipt.source_model }}/{{ row.source_ref_display }}
             </td>
             <td style="padding:10px;white-space:nowrap;">{{ row.receipt.action_key|default:"—" }}</td>
-            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.fx_syp_per_usd|default:"—"|human_number }}</td>
+            <td style="padding:10px;white-space:nowrap;">{{ row.receipt.fx_syp_per_usd|default:"—"|money_number }}</td>
             <td style="padding:10px;white-space:nowrap;">{{ row.receipt.actor.username }}</td>
             <td style="padding:10px;min-width:360px;">
               {% for ln in row.line_rows %}
-                <div>{{ ln.target_label }} | {{ ln.currency }} | {{ ln.amount|human_number }}</div>
+                <div>{{ ln.target_label }} | {{ ln.currency }} | {{ ln.amount|money_number }}</div>
               {% empty %}
                 —
               {% endfor %}

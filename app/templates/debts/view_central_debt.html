@@ -619,14 +619,14 @@
             <div class="total-label">إجمالي SYP عند الإنشاء</div>
             <div class="total-value-row">
               <span class="total-currency-chip">SYP</span>
-              <span class="total-value">{{ debt_ui.total_syp|human_number }}</span>
+              <span class="total-value">{{ debt_ui.total_syp|money_number }}</span>
             </div>
           </div>
           <div class="total-box-mini">
             <div class="total-label">إجمالي USD عند الإنشاء</div>
             <div class="total-value-row">
               <span class="total-currency-chip">USD</span>
-              <span class="total-value">{{ debt_ui.total_usd|human_number }}</span>
+              <span class="total-value">{{ debt_ui.total_usd|money_number }}</span>
             </div>
           </div>
         </div>
@@ -638,7 +638,7 @@
               <span class="total-currency-chip fx-chip">FX</span>
               <span class="total-value">
                 {% if debt_ui.fx_syp_per_usd_at_creation is not None %}
-                  {{ debt_ui.fx_syp_per_usd_at_creation|human_number }}
+                  {{ debt_ui.fx_syp_per_usd_at_creation|money_number }}
                 {% else %}
                   -
                 {% endif %}
@@ -677,10 +677,10 @@
           {% for s in settlements %}
             <tr>
               <td>{{ s.created_at|date:"Y-m-d H:i:s" }}</td>
-              <td>{{ s.payment_syp|floatformat:2 }}</td>
-              <td>{{ s.payment_usd|floatformat:2 }}</td>
-              <td>{{ s.applied_syp|floatformat:2 }}</td>
-              <td>{{ s.applied_usd|floatformat:2 }}</td>
+              <td>{{ s.payment_syp|money_number }}</td>
+              <td>{{ s.payment_usd|money_number }}</td>
+              <td>{{ s.applied_syp|money_number }}</td>
+              <td>{{ s.applied_usd|money_number }}</td>
               <td>{% if s.money_container_id %}{{ s.money_container.name }}{% else %}-{% endif %}</td>
               <td>{% if s.receipt_id %}{{ s.receipt.serial }}{% else %}-{% endif %}</td>
               <td>{{ s.actor_username|default:"-" }}</td>
@@ -702,14 +702,14 @@
             <div class="remaining-label">المتبقي SYP</div>
             <div class="remaining-value-row">
               <span class="total-currency-chip remaining-chip">SYP</span>
-              <span id="debtRemainingSypValue" class="remaining-value total-value">{{ debt_ui.remaining_syp|human_number }}</span>
+              <span id="debtRemainingSypValue" class="remaining-value total-value">{{ debt_ui.remaining_syp|money_number }}</span>
             </div>
           </div>
           <div class="remaining-card">
             <div class="remaining-label">المتبقي USD</div>
             <div class="remaining-value-row">
               <span class="total-currency-chip remaining-chip">USD</span>
-              <span id="debtRemainingUsdValue" class="remaining-value total-value">{{ debt_ui.remaining_usd|human_number }}</span>
+              <span id="debtRemainingUsdValue" class="remaining-value total-value">{{ debt_ui.remaining_usd|money_number }}</span>
             </div>
           </div>
         </div>
@@ -722,9 +722,9 @@
             data-total-usd="{% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd }}{% endif %}"
           >
             {% if settlement_ui.default_currency == 'USD' %}
-              {% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd|human_number }}{% else %}-{% endif %}
+              {% if settlement_ui.total_usd is not None %}{{ settlement_ui.total_usd|money_number }}{% else %}-{% endif %}
             {% else %}
-              {% if settlement_ui.total_syp is not None %}{{ settlement_ui.total_syp|human_number }}{% else %}-{% endif %}
+              {% if settlement_ui.total_syp is not None %}{{ settlement_ui.total_syp|money_number }}{% else %}-{% endif %}
             {% endif %}
           </div>
         </div>

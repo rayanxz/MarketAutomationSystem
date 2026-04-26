@@ -121,9 +121,9 @@
               <td class="col-balance">
                 {% with b=balances|get_item:c.id %}
                   {% if b and b|get_item:cur.code %}
-                    {{ b|get_item:cur.code|human_number }}
+                    {{ b|get_item:cur.code|money_number }}
                   {% else %}
-                    {{ 0|human_number }}
+                    {{ 0|money_number }}
                   {% endif %}
                 {% endwith %}
               </td>

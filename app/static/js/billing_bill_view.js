@@ -55,10 +55,7 @@
   function formatDisplay2(value) {
     const n = round2(value);
     if (!Number.isFinite(n)) return "0";
-    const parts = n.toFixed(2).split(".");
-    const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    const frac = parts[1] || "00";
-    return intPart + "." + frac;
+    return formatMoney(n);
   }
 
   function applyFlexibleColumnWidths(productWidth, unitCostWidth, totalCostWidth) {

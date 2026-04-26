@@ -166,10 +166,10 @@
               </td>
 
               {# الكلفة للوحدة (منسّقة) #}
-              <td>{{ row.cost|human_number }}</td>
+              <td>{{ row.cost|money_number }}</td>
 
               {# السعر للوحدة (منسّق) #}
-              <td>{{ row.price|human_number }}</td>
+              <td>{{ row.price|money_number }}</td>
 
               {# النوع (label من choices) #}
               <td>{{ row.movement_type_label }}</td>

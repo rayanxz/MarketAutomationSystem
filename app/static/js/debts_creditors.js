@@ -41,13 +41,9 @@
 
   function el(s){ return document.querySelector(s); }
   function qs(s, root){ return (root || document).querySelector(s); }
-  const moneyFmt = new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
   function nf(x){
     const n = Number(x);
-    return Number.isFinite(n) ? moneyFmt.format(n) : x;
+    return Number.isFinite(n) ? formatMoney(n) : x;
   }
   function escapeHtml(s){ return String(s||"").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function getCsrf(){ const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/); return m ? decodeURIComponent(m[1]) : ""; }

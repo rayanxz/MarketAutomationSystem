@@ -736,8 +736,8 @@ function round2(n) {
   return Math.round((x + Number.EPSILON) * 100) / 100;
 }
 function money2(n) { return round2(n); }
-function fmtMoney(n) { return money2(n).toFixed(2); }
-function fmtPrice(n) { const x = Number(n || 0); return x.toFixed(2); }
+function fmtMoney(n) { return formatMoney(money2(n)); }
+function fmtPrice(n) { const x = Number(n || 0); return formatMoney(x); }
 
 function rowBase(r) {
   const qtyInPrimary = Number(r.qty || 0) * (r.uomIndex === 2 ? Number(r.conv || 1) : 1);

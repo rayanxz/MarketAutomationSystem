@@ -46,10 +46,7 @@
   function nf(x) {
     const n = Number(x);
     if (!Number.isFinite(n)) return (x ?? "");
-    return new Intl.NumberFormat(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n);
+    return formatMoney(n);
   }
 
   function fmtSyp(x) {
