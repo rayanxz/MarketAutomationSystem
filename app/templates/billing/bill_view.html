@@ -1018,7 +1018,9 @@
 
       <div class="foot-right">
         <a class="btn-sec" href="{% url 'billing_list' %}">رجوع</a>
-        {% if has_debt_now %}
+        {% if bill_debt_view_url %}
+          <a class="btn-sec" href="{{ bill_debt_view_url }}">معلومات الدين</a>
+        {% elif has_debt_now %}
           <a class="btn-sec" href="{% url 'debts_page' %}?cause_type=purchase_bill&cause_id={{ bill.public_id|urlencode }}">معلومات الدين</a>
         {% endif %}
         <a class="btn-sec" href="{% url 'financials:document_trace' %}?source_app=billing&source_model=Bill&source_id={{ bill.public_id|urlencode }}">الأثر المالي</a>
@@ -1038,6 +1040,5 @@
 
 </div>
 {% endblock %}
-
 
 

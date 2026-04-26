@@ -10,6 +10,7 @@ from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from django.urls import reverse
 
 from django.contrib.auth.decorators import login_required
 
@@ -1230,6 +1231,7 @@ def bill_view(request, bill_id: str):
         )
 
     has_debt_now = False
+    bill_debt_view_url = ""
     try:
         if bill.serial:
             has_legacy_debt = DebtorEntry.objects.filter(
@@ -1241,16 +1243,30 @@ def bill_view(request, bill_id: str):
             bill_public_ref = (getattr(bill, "public_id", "") or "").strip()
             if bill_public_ref:
                 cause_refs.insert(0, bill_public_ref)
-            has_central_debt = DebtRecord.objects.filter(
-                direction=DebtDirection.PAYABLE,
-                cause_type=DebtCauseType.PURCHASE_BILL,
-                cause_id__in=cause_refs,
-                status=DebtStatus.OPEN,
-            ).exists()
+            central_debt = (
+                DebtRecord.objects
+                .filter(
+                    direction=DebtDirection.PAYABLE,
+                    cause_type=DebtCauseType.PURCHASE_BILL,
+                    cause_id__in=cause_refs,
+                )
+                .only("public_id", "status")
+                .order_by("id")
+                .first()
+            )
+            has_central_debt = bool(
+                central_debt and central_debt.status == DebtStatus.OPEN
+            )
+            if central_debt and (central_debt.public_id or "").strip():
+                bill_debt_view_url = reverse(
+                    "debts_view_central_debt",
+                    kwargs={"debt_ref": central_debt.public_id},
+                )
             has_debt_now = has_legacy_debt or has_central_debt
 
     except Exception:
         has_debt_now = False
+        bill_debt_view_url = ""
 
     # ===== Read-only payment snapshot at creation time =====
     bill_total_syp = q4(getattr(bill, "total_syp", DEC0) or DEC0)
@@ -1333,6 +1349,7 @@ def bill_view(request, bill_id: str):
         "can_delete": untouched,
         "can_return": not is_closed,
         "has_debt_now": has_debt_now,
+        "bill_debt_view_url": bill_debt_view_url,
         "error_msg": error_msg,
         "selected_items": selected_items,
         "initial_status": initial_status,
