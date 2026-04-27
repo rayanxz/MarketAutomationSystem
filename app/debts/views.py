@@ -222,8 +222,12 @@ def _date(val):
     
 def _int_or_none(s):
     try:
-        s = (s or "").strip()
-        return int(s) if s else None
+        if s is None:
+            return None
+        if isinstance(s, str):
+            s = s.strip()
+            return int(s) if s else None
+        return int(s)
     except Exception:
         return None
 
