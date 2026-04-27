@@ -1326,6 +1326,21 @@ def bill_view(request, bill_id: str):
         "UNKNOWN": "غير معروف (سجل قديم)",
     }.get(created_payment_method_code, "تم الدفع بالليرة السورية فقط")
 
+    # ===== Current debt/payment state (debt-aware if central debt exists) =====
+    current_remaining_syp = q4(getattr(bill, "remaining_syp", DEC0) or DEC0)
+    current_remaining_usd = q4(getattr(bill, "remaining_usd", DEC0) or DEC0)
+    current_paid_syp = q4(getattr(bill, "paid_syp", DEC0) or DEC0)
+    current_paid_usd = q4(getattr(bill, "paid_usd", DEC0) or DEC0)
+
+    if current_remaining_syp <= DEC0 and current_remaining_usd <= DEC0:
+        current_payment_status_code = "fully_paid"
+    elif current_paid_syp > DEC0 or current_paid_usd > DEC0:
+        current_payment_status_code = "partially_paid"
+    else:
+        current_payment_status_code = "not_paid"
+
+    current_state_is_fully_paid = current_payment_status_code == "fully_paid"
+
     # parse selected items (when coming back from wizard with ?items=1,2,3)
     raw_sel = (request.GET.get("items") or "").strip()
     selected_items: list[int] = []
@@ -1363,6 +1378,10 @@ def bill_view(request, bill_id: str):
         "created_payment_status_label": created_payment_status_label,
         "created_payment_method_code": created_payment_method_code,
         "created_payment_method_label": created_payment_method_label,
+        "current_payment_status_code": current_payment_status_code,
+        "current_state_is_fully_paid": current_state_is_fully_paid,
+        "current_remaining_syp_ui": _ui_2dp(current_remaining_syp),
+        "current_remaining_usd_ui": _ui_2dp(current_remaining_usd),
     }
     return render(request, "billing/bill_view.html", ctx)
 

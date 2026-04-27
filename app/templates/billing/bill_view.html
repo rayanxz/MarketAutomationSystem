@@ -471,6 +471,31 @@
   .bill-payment-card{
     margin-top:10px;
   }
+  .bill-side-section{
+    display:grid;
+    gap:6px;
+  }
+  .bill-side-title{
+    color:#1f2937;
+    font-size:14px;
+    font-weight:800;
+    letter-spacing:.1px;
+    text-align:right;
+  }
+  .bill-side-separator{
+    height:1px;
+    background:#e5e7eb;
+    border:0;
+    margin:4px 0;
+  }
+  .bill-current-card.is-fully-paid{
+    background:#f0fdf4;
+    border-color:#bbf7d0;
+  }
+  .bill-current-card.is-not-fully-paid{
+    background:#fef2f2;
+    border-color:#fecaca;
+  }
   .btn{
     padding:10px 14px;
     border-radius:10px;
@@ -996,23 +1021,56 @@
         <div class="bill-fx-label">سعر الصرف عند إنشاء الفاتورة</div>
         <div class="bill-fx-value" title="{{ bill_fx_rate_ui|money_number }}">{{ bill_fx_rate_ui|money_number }}</div>
       </div>
+      <div class="bill-side-separator" aria-hidden="true"></div>
 
-      <div class="bill-side-card bill-payment-card">
-        <div class="bill-side-row">
-          <span class="bill-side-label">حالة الدفع عند الإنشاء</span>
-          <span class="bill-side-value" title="{{ created_payment_status_label }}">{{ created_payment_status_label }}</span>
+      <div class="bill-side-stack bill-payment-card">
+        <div class="bill-side-section">
+          <div class="bill-side-title">عند الانشاء</div>
+          <div class="bill-side-card">
+            <div class="bill-side-row">
+              <span class="bill-side-label">حالة الدفع</span>
+              <span class="bill-side-value" title="{{ created_payment_status_label }}">{{ created_payment_status_label }}</span>
+            </div>
+            <div class="bill-side-row">
+              <span class="bill-side-label">طريقة الدفع</span>
+              <span class="bill-side-value" title="{{ created_payment_method_label }}">{{ created_payment_method_label }}</span>
+            </div>
+            <div class="bill-side-row">
+              <span class="bill-side-label">(SYP) المبلغ المدفوع</span>
+              <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|money_number }}">{{ created_paid_syp_ui|money_number }}</span>
+            </div>
+            <div class="bill-side-row">
+              <span class="bill-side-label">(USD) المبلغ المدفوع</span>
+              <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|money_number }}">{{ created_paid_usd_ui|money_number }}</span>
+            </div>
+          </div>
         </div>
-        <div class="bill-side-row">
-          <span class="bill-side-label">طريقة الدفع عند الإنشاء</span>
-          <span class="bill-side-value" title="{{ created_payment_method_label }}">{{ created_payment_method_label }}</span>
-        </div>
-        <div class="bill-side-row">
-          <span class="bill-side-label">المبلغ المدفوع (ل.س)</span>
-          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_syp_ui|money_number }}">{{ created_paid_syp_ui|money_number }}</span>
-        </div>
-        <div class="bill-side-row">
-          <span class="bill-side-label">المبلغ المدفوع ($)</span>
-          <span class="bill-side-value bill-side-value-num" title="{{ created_paid_usd_ui|money_number }}">{{ created_paid_usd_ui|money_number }}</span>
+        <div class="bill-side-separator" aria-hidden="true"></div>
+
+        <div class="bill-side-section">
+          <div class="bill-side-title">حالياً</div>
+          <div class="bill-side-card bill-current-card{% if current_state_is_fully_paid %} is-fully-paid{% else %} is-not-fully-paid{% endif %}">
+            <div class="bill-side-row">
+              <span class="bill-side-label">حالة الدفع</span>
+              <span class="bill-side-value">
+                {% if current_payment_status_code == "fully_paid" %}
+                  مدفوعة بالكامل
+                {% elif current_payment_status_code == "partially_paid" %}
+                  مدفوعة جزئياً
+                {% else %}
+                  غير مدفوعة
+                {% endif %}
+              </span>
+            </div>
+            <div class="bill-side-row">
+              <span class="bill-side-label">المتبقي (SYP)</span>
+              <span class="bill-side-value bill-side-value-num" title="{{ current_remaining_syp_ui|money_number }}">{{ current_remaining_syp_ui|money_number }}</span>
+            </div>
+            <div class="bill-side-row">
+              <span class="bill-side-label">المتبقي (USD)</span>
+              <span class="bill-side-value bill-side-value-num" title="{{ current_remaining_usd_ui|money_number }}">{{ current_remaining_usd_ui|money_number }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1040,5 +1098,3 @@
 
 </div>
 {% endblock %}
-
-
