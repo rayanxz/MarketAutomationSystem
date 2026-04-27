@@ -366,14 +366,13 @@
     top:12px;
   }
   .foot-right{
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    align-items:center;
+    display:grid;
+    gap:8px;
   }
-  .foot-left > .foot-right{
+  .bill-actions{
     margin-top:auto;
     padding-top:12px;
+    border-top:1px solid #e5e7eb;
   }
   .pay-head{
     display:grid;
@@ -530,6 +529,76 @@
     pointer-events:none;
     cursor:default;
   }
+  .bill-actions .bill-action-btn{
+    width:100%;
+    min-height:42px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    font-size:14px;
+    font-weight:700;
+    line-height:1.2;
+    transition:background-color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .06s ease;
+  }
+  .bill-actions .bill-action-btn .action-icon{
+    font-size:14px;
+    line-height:1;
+    opacity:.9;
+    pointer-events:none;
+  }
+  .bill-actions .bill-action-btn.is-back{
+    background:#f9fafb;
+    border-style:dashed;
+    border-color:#d1d5db;
+    color:#374151;
+  }
+  .bill-actions .bill-action-btn.is-back:hover{
+    background:#f3f4f6;
+    border-color:#9ca3af;
+  }
+  .bill-actions .bill-action-btn.is-subtle{
+    background:#fff;
+    border-color:#d1d5db;
+    color:#111827;
+  }
+  .bill-actions .bill-action-btn.is-subtle:hover{
+    background:#f9fafb;
+    border-color:#9ca3af;
+  }
+  .bill-actions .bill-action-btn.is-soft{
+    background:#eef2ff;
+    border-color:#c7d2fe;
+    color:#1e3a8a;
+  }
+  .bill-actions .bill-action-btn.is-soft:hover{
+    background:#e0e7ff;
+    border-color:#a5b4fc;
+  }
+  .bill-actions .bill-action-btn.is-primary{
+    border-color:var(--brand);
+    background:var(--brand);
+    color:#fff;
+  }
+  .bill-actions .bill-action-btn.is-primary:hover{
+    filter:brightness(.95);
+  }
+  .bill-actions .bill-action-btn:active{
+    transform:translateY(1px);
+  }
+  .bill-actions .bill-action-btn:focus-visible{
+    outline:2px solid #93c5fd;
+    outline-offset:1px;
+  }
+  .bill-actions-note{
+    text-align:center;
+    color:#6b7280;
+    font-size:12px;
+    padding:8px 10px;
+    border:1px dashed #d1d5db;
+    border-radius:10px;
+    background:#f9fafb;
+  }
 
   .col-orange { background:#fff7ed; }
   .col-purple { background:#f5f3ff; }
@@ -543,16 +612,17 @@
   .return-select-controls{
     display:none;
     gap:8px;
-    flex-wrap:wrap;
-    align-items:center;
-    margin-top:8px;
+    margin-top:0;
   }
   .bill-view.bill-select-active .return-select-controls{
-    display:flex;
+    display:grid;
   }
 
     /* hide "add return" when in selection mode */
   .bill-view.bill-select-active #btnStartReturn{
+    display:none;
+  }
+  .bill-view.bill-select-active .bill-actions .bill-action-btn[data-nav-url]{
     display:none;
   }
 
@@ -634,9 +704,9 @@
       position:static;
       top:auto;
     }
-    .foot-left > .foot-right{
+    .bill-actions{
       margin-top:12px;
-      padding-top:0;
+      padding-top:10px;
     }
   }
   @media (max-width:760px){
@@ -1074,23 +1144,44 @@
         </div>
       </div>
 
-      <div class="foot-right">
-        <a class="btn-sec" href="{% url 'billing_list' %}">رجوع</a>
+      <div class="foot-right bill-actions" role="group" aria-label="إجراءات الفاتورة">
+        <button type="button" class="btn bill-action-btn is-back" data-nav-url="{% url 'billing_list' %}">
+          <span class="action-icon" aria-hidden="true">↩</span>
+          <span>رجوع</span>
+        </button>
         {% if bill_debt_view_url %}
-          <a class="btn-sec" href="{{ bill_debt_view_url }}">معلومات الدين</a>
+          <button type="button" class="btn bill-action-btn is-subtle" data-nav-url="{{ bill_debt_view_url }}">
+            <span class="action-icon" aria-hidden="true">▤</span>
+            <span>معلومات الدين</span>
+          </button>
         {% elif has_debt_now %}
-          <a class="btn-sec" href="{% url 'debts_page' %}?cause_type=purchase_bill&cause_id={{ bill.public_id|urlencode }}">معلومات الدين</a>
+          <button type="button" class="btn bill-action-btn is-subtle" data-nav-url="{% url 'debts_page' %}?cause_type=purchase_bill&cause_id={{ bill.public_id|urlencode }}">
+            <span class="action-icon" aria-hidden="true">▤</span>
+            <span>معلومات الدين</span>
+          </button>
         {% endif %}
-        <a class="btn-sec" href="{% url 'financials:document_trace' %}?source_app=billing&source_model=Bill&source_id={{ bill.public_id|urlencode }}">الأثر المالي</a>
+        <button type="button" class="btn bill-action-btn is-soft" data-nav-url="{% url 'financials:document_trace' %}?source_app=billing&source_model=Bill&source_id={{ bill.public_id|urlencode }}">
+          <span class="action-icon" aria-hidden="true">≣</span>
+          <span>الأثر المالي</span>
+        </button>
 
         {% if can_return %}
-          <button type="button" class="btn" id="btnStartReturn">إضافة مرتجع</button>
+          <button type="button" class="btn bill-action-btn is-primary" id="btnStartReturn">
+            <span class="action-icon" aria-hidden="true">↺</span>
+            <span>إضافة مرتجع</span>
+          </button>
           <div class="return-select-controls" id="returnSelectControls">
-            <button type="button" class="btn" id="btnProceedReturn">متابعة</button>
-            <button type="button" class="btn" id="btnCancelReturnSelection">إلغاء التحديد</button>
+            <button type="button" class="btn bill-action-btn is-primary" id="btnProceedReturn">
+              <span class="action-icon" aria-hidden="true">✓</span>
+              <span>متابعة</span>
+            </button>
+            <button type="button" class="btn bill-action-btn is-subtle" id="btnCancelReturnSelection">
+              <span class="action-icon" aria-hidden="true">✕</span>
+              <span>إلغاء التحديد</span>
+            </button>
           </div>
         {% else %}
-          <span class="muted">الفاتورة مغلقة</span>
+          <div class="bill-actions-note">الفاتورة مغلقة</div>
         {% endif %}
       </div>
     </section>

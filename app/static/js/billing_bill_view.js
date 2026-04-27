@@ -35,6 +35,9 @@
   const btnStart = document.getElementById("btnStartReturn");
   const btnCancel = document.getElementById("btnCancelReturnSelection") || document.getElementById("btnCancelReturn");
   const btnProceed = document.getElementById("btnProceedReturn");
+  const navButtons = Array.prototype.slice.call(
+    document.querySelectorAll(".bill-action-btn[data-nav-url]")
+  );
 
   function toNumber(raw) {
     const n = parseFloat(String(raw == null ? "" : raw).trim().replace(",", "."));
@@ -316,6 +319,17 @@
       btn.addEventListener("click", function () {
         if (btn.disabled) return;
         const url = btn.getAttribute("data-returns-url");
+        if (url) {
+          window.location.href = url;
+        }
+      });
+    });
+  }
+
+  if (navButtons.length > 0) {
+    navButtons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const url = String(btn.getAttribute("data-nav-url") || "").trim();
         if (url) {
           window.location.href = url;
         }
