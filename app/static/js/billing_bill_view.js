@@ -337,6 +337,24 @@
     });
   }
 
+  // Product name cell click mirrors checkbox click for return selection mode.
+  document.addEventListener("click", function (e) {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (!root.classList.contains("bill-select-active")) return;
+
+    const productCell = target.closest("td.pname.col-product-cell");
+    if (!productCell) return;
+
+    const row = productCell.closest("tr");
+    if (!row) return;
+
+    const checkbox = row.querySelector("input.return-select");
+    if (!(checkbox instanceof HTMLInputElement) || checkbox.disabled) return;
+
+    checkbox.click();
+  });
+
   // ====== GUARD: don't allow selecting rows with zero left ======
   document.addEventListener("change", function (e) {
     const t = e.target;
