@@ -29,6 +29,7 @@ urlpatterns = [
     # Provider returns (receivables)
     path("returns/list/", V.providers_returns_list_page, name="billing_returns_list"),
     path("api/returns/list/", V.api_returns_list, name="billing_api_returns_list"),
+    path("api/returns/next-serial/", V.api_return_next_serial, name="billing_api_return_next_serial"),
     path("returns/<str:ret_id>/", V.return_view, name="billing_return_view"),
     path("returns/<str:ret_id>/collect-full/", V.collect_return_full, name="billing_collect_full"),
     path("returns/<str:ret_id>/collect-batch/", V.collect_return_batch, name="billing_collect_batch"),

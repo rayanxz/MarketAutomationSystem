@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Type
+from typing import Callable, Type
 
 from django.db import IntegrityError, models, transaction
 
@@ -51,13 +51,36 @@ def _max_existing_public_id_number(
     return max_seen
 
 
-def _lock_or_create_sequence(*, key: str) -> PublicIdSequence:
+def expected_next_public_id_value(
+    *,
+    model: Type[models.Model],
+    field_name: str,
+    prefix: str,
+) -> int:
+    return max(
+        1,
+        _max_existing_public_id_number(
+            model=model,
+            field_name=field_name,
+            prefix=prefix,
+        ) + 1,
+    )
+
+
+def _lock_or_create_sequence(
+    *,
+    key: str,
+    initial_next_value_provider: Callable[[], int] | None = None,
+) -> PublicIdSequence:
     qs = PublicIdSequence.objects.select_for_update()
     seq = qs.filter(key=key).first()
     if seq is not None:
         return seq
+    seed_value = 1
+    if initial_next_value_provider is not None:
+        seed_value = max(1, int(initial_next_value_provider() or 1))
     try:
-        return PublicIdSequence.objects.create(key=key, next_value=1)
+        return PublicIdSequence.objects.create(key=key, next_value=seed_value)
     except IntegrityError:
         return qs.get(key=key)
 
@@ -72,12 +95,11 @@ def _initialize_sequence_start_locked(
     current = int(sequence.next_value or 1)
     if current > 1:
         return
-    max_existing = _max_existing_public_id_number(
+    desired_next = expected_next_public_id_value(
         model=model,
         field_name=field_name,
         prefix=prefix,
     )
-    desired_next = max(1, max_existing + 1)
     if desired_next != current:
         sequence.next_value = desired_next
         sequence.save(update_fields=["next_value", "updated_at"])
@@ -95,7 +117,14 @@ def allocate_next_public_id(
         raise ValueError("sequence_key is required")
 
     with transaction.atomic():
-        sequence = _lock_or_create_sequence(key=sequence_key)
+        sequence = _lock_or_create_sequence(
+            key=sequence_key,
+            initial_next_value_provider=lambda: expected_next_public_id_value(
+                model=model,
+                field_name=field_name,
+                prefix=prefix,
+            ),
+        )
         _initialize_sequence_start_locked(
             sequence=sequence,
             model=model,
@@ -132,11 +161,11 @@ def peek_next_public_id(
     if sequence is not None and int(sequence.next_value or 1) > 1:
         next_value = int(sequence.next_value or 1)
     else:
-        next_value = _max_existing_public_id_number(
+        next_value = expected_next_public_id_value(
             model=model,
             field_name=field_name,
             prefix=prefix,
-        ) + 1
+        )
 
     while True:
         candidate = format_public_id(

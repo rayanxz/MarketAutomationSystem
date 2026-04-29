@@ -511,11 +511,12 @@
               <div class="ret-head-field">
                 <span class="ret-head-inline-label">رقم المرتجع</span>
                 <span class="ret-head-inline-sep">:</span>
-                {% if return_public_id %}
-                  <span class="ret-head-inline-value" title="{{ return_public_id }}">{{ return_public_id }}</span>
-                {% else %}
-                  <span class="ret-head-inline-value is-placeholder" title="تلقائي بعد الحفظ">تلقائي بعد الحفظ</span>
-                {% endif %}
+                <span
+                  id="returnAutoPublicId"
+                  class="ret-head-inline-value{% if not return_public_id_preview %} is-placeholder{% endif %}"
+                  title="{% if return_public_id_preview %}{{ return_public_id_preview }}{% else %}—{% endif %}"
+                  aria-live="polite"
+                >{% if return_public_id_preview %}{{ return_public_id_preview }}{% else %}—{% endif %}</span>
               </div>
               <div class="ret-head-field">
                 <span class="ret-head-inline-label">عدد المنتجات المحددة</span>
@@ -731,6 +732,8 @@
     const totalSettlementBox = document.getElementById("retTotalSettlement");
     const settlementLabel = document.getElementById("retSettleCurLabel");
     const selectedProductsCountBox = document.getElementById("retSelectedProductsCount");
+    const returnAutoPublicIdBox = document.getElementById("returnAutoPublicId");
+    const returnNextSerialUrl = "{% url 'billing_api_return_next_serial' %}";
 
     const paidInput = document.getElementById("returnPaidAmount");
     const lblRemaining = document.getElementById("retRemainingLabel");
@@ -773,6 +776,38 @@
       const text = fmt(value);
       el.textContent = text;
       el.setAttribute("title", text);
+    }
+
+    function setReturnPublicIdPreview(value, isPlaceholder) {
+      if (!returnAutoPublicIdBox) return;
+      const clean = String(value || "").trim();
+      const text = clean || "—";
+      returnAutoPublicIdBox.textContent = text;
+      returnAutoPublicIdBox.setAttribute("title", text);
+      returnAutoPublicIdBox.classList.toggle("is-placeholder", !!isPlaceholder || !clean);
+    }
+
+    async function refreshReturnPublicIdPreview() {
+      if (!returnAutoPublicIdBox) return;
+      try {
+        const res = await fetch(returnNextSerialUrl, { headers: { "Accept": "application/json" } });
+        const data = await res.json();
+        if (data && data.ok) {
+          const nextPublic = String(data.next_public_id || "").trim();
+          if (nextPublic) {
+            setReturnPublicIdPreview(nextPublic, false);
+            return;
+          }
+          const prefix = String(data.prefix || "").trim();
+          const nextSerial = Number(data.next_serial || 0);
+          if (prefix && Number.isFinite(nextSerial) && nextSerial > 0) {
+            setReturnPublicIdPreview(prefix + String(nextSerial).padStart(3, "0"), false);
+            return;
+          }
+        }
+      } catch (_err) {
+      }
+      setReturnPublicIdPreview("", true);
     }
 
     function isZeroFinancialTotal(totals) {
@@ -937,6 +972,7 @@
       radio.addEventListener("change", handleStatusChange);
     });
 
+    refreshReturnPublicIdPreview();
     handleStatusChange();
   })();
 </script>

@@ -61,6 +61,7 @@ from billing.models import (
     BILL_PUBLIC_ID_PREFIX,
     PROVIDER_RETURN_PUBLIC_ID_PREFIX,
     BILL_PUBLIC_ID_SEQUENCE_KEY,
+    PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
 )
 from debts.models import (
     DebtorDebt as DebtorEntry,
@@ -592,6 +593,28 @@ def api_bill_next_serial(request: HttpRequest) -> JsonResponse:
             "ok": True,
             "next_serial": next_serial,  # legacy compatibility only
             "next_public_id": next_public_id,
+        }
+    )
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def api_return_next_serial(request: HttpRequest) -> JsonResponse:
+    from django.db.models import Max
+    m_ret = ProviderReturn.objects.aggregate(m=Max("serial"))["m"] or 0
+    m_debt = CreditorEntry.objects.aggregate(m=Max("doc_serial"))["m"] or 0
+    next_serial = int(max(int(m_ret or 0), int(m_debt or 0))) + 1
+    next_public_id = peek_next_public_id(
+        sequence_key=PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
+        prefix=PROVIDER_RETURN_PUBLIC_ID_PREFIX,
+        model=ProviderReturn,
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "next_serial": next_serial,  # legacy compatibility only
+            "next_public_id": next_public_id,
+            "prefix": PROVIDER_RETURN_PUBLIC_ID_PREFIX,
         }
     )
 
@@ -1773,6 +1796,16 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
 
     selected_ids_str = ",".join(str(r["item_id"]) for r in rows)
 
+    return_public_id_preview = ""
+    try:
+        return_public_id_preview = peek_next_public_id(
+            sequence_key=PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
+            prefix=PROVIDER_RETURN_PUBLIC_ID_PREFIX,
+            model=ProviderReturn,
+        )
+    except Exception:
+        return_public_id_preview = ""
+
     ctx = {
         "bill": bill,
         "rows": rows,
@@ -1789,6 +1822,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         "fx_current": fx_current,
         "fx_bill": fx_bill,
         "money_containers": money_containers,
+        "return_public_id_preview": return_public_id_preview,
     }
 
     return render(request, "billing/bill_return_wizard.html", ctx)
