@@ -104,41 +104,97 @@
     text-overflow:ellipsis;
   }
 
-  .audit-strip{
-    width:100%;
-    overflow-x:auto;
-    overflow-y:hidden;
-  }
-  .audit-grid{
+  .ret-head-grid{
     display:grid;
-    grid-template-columns:repeat(4, minmax(0, 1fr));
     gap:10px;
-    min-width:880px;
+    min-height:128px;
   }
-  .audit-item{
+  .ret-head-row{
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr);
+    gap:12px;
+    align-items:stretch;
+    min-height:62px;
+  }
+  .ret-head-title{
+    color:#111827;
+    font-size:15px;
+    font-weight:800;
+    text-align:right;
+    white-space:nowrap;
     display:flex;
     align-items:center;
+    min-height:56px;
+  }
+  .ret-head-fields{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
     gap:8px;
-    min-height:42px;
-    padding:8px 10px;
+    min-width:0;
+    align-items:stretch;
+  }
+  .ret-head-field{
     border:1px solid #e5e7eb;
     border-radius:10px;
     background:#f8fafc;
-    text-align:right;
+    padding:8px 10px;
     min-width:0;
+    min-height:56px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    overflow:hidden;
   }
-  .audit-label{
+  .ret-head-inline-label{
     color:#4b5563;
     font-size:13px;
-    font-weight:600;
+    font-weight:700;
     white-space:nowrap;
     flex:0 0 auto;
   }
-  .audit-value{
-    color:#111827;
+  .ret-head-inline-sep{
+    color:#64748b;
+    font-size:13px;
     font-weight:700;
-    min-width:0;
+    flex:0 0 auto;
+  }
+  .ret-head-inline-value{
+    color:#111827;
+    font-size:13px;
+    font-weight:700;
     flex:1 1 auto;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .ret-head-inline-value.is-placeholder{
+    color:#475569;
+    font-weight:600;
+  }
+  .ret-head-inline-input{
+    flex:1 1 auto;
+    min-width:0;
+    height:34px;
+    min-height:34px;
+    padding:0 10px;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    background:#fff;
+    font-size:13px;
+    line-height:34px;
+    margin:0;
+  }
+  .ret-head-count{
+    direction:ltr;
+    text-align:left;
+    font-variant-numeric:tabular-nums;
+  }
+  .ret-head-separator{
+    height:1px;
+    background:#e5e7eb;
+    border:0;
+    margin:2px 0;
   }
 
   .items{
@@ -151,7 +207,7 @@
     min-width:0;
   }
   .ret-table-wrap{
-    height:clamp(52vh, calc(46vh + 6.5rem), 62vh);
+    height:clamp(48vh, calc(42vh + 6.5rem), 58vh);
     width:100%;
     min-width:0;
     overflow:auto;
@@ -267,7 +323,7 @@
   .foot-left{
     background:#fff;
     border-radius:12px;
-    padding:12px;
+    padding:14px 12px;
     box-shadow:var(--card-shadow);
     height:100%;
     min-height:100%;
@@ -398,6 +454,18 @@
       top:auto;
       min-height:0;
     }
+    .ret-head-fields{
+      grid-template-columns:1fr;
+    }
+  }
+  @media (max-width:760px){
+    .ret-head-row{
+      grid-template-columns:1fr;
+      gap:8px;
+    }
+    .ret-head-title{
+      padding-top:0;
+    }
   }
 </style>
 {% endblock %}
@@ -415,23 +483,61 @@
 
       <section class="card">
         <h4>بيانات مرتجع فاتورة الشراء</h4>
-        <div class="audit-strip">
-          <div class="audit-grid">
-            <div class="audit-item">
-              <span class="audit-label">رقم الفاتورة:</span>
-              <span class="audit-value pname" title="{{ bill.public_id }}"><span class="pname-text">{{ bill.public_id }}</span></span>
+        <div class="ret-head-grid">
+          <div class="ret-head-row">
+            <div class="ret-head-title">فاتورة المشتريات:</div>
+            <div class="ret-head-fields">
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">رقم الفاتورة</span>
+                <span class="ret-head-inline-sep">:</span>
+                <span class="ret-head-inline-value" title="{{ bill.public_id }}">{{ bill.public_id }}</span>
+              </div>
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">المورد</span>
+                <span class="ret-head-inline-sep">:</span>
+                <span class="ret-head-inline-value" title="{{ bill.provider.name }}">{{ bill.provider.name }}</span>
+              </div>
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">تاريخ الإنشاء</span>
+                <span class="ret-head-inline-sep">:</span>
+                <span class="ret-head-inline-value" title="{{ bill.created_at|date:'Y-m-d H:i' }}">{{ bill.created_at|date:"Y-m-d H:i" }}</span>
+              </div>
             </div>
-            <div class="audit-item">
-              <span class="audit-label">المورد:</span>
-              <span class="audit-value pname" title="{{ bill.provider.name }}"><span class="pname-text">{{ bill.provider.name }}</span></span>
-            </div>
-            <div class="audit-item">
-              <span class="audit-label">تاريخ الفاتورة:</span>
-              <span class="audit-value pname" title="{{ bill.created_at|date:'Y-m-d H:i' }}"><span class="pname-text">{{ bill.created_at|date:"Y-m-d H:i" }}</span></span>
-            </div>
-            <div class="audit-item">
-              <span class="audit-label">عدد العناصر المحددة:</span>
-              <span class="audit-value">{{ rows|length|human_number }}</span>
+          </div>
+          <div class="ret-head-separator" aria-hidden="true"></div>
+          <div class="ret-head-row">
+            <div class="ret-head-title">فاتورة المرتجعات:</div>
+            <div class="ret-head-fields">
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">رقم المرتجع</span>
+                <span class="ret-head-inline-sep">:</span>
+                {% if return_public_id %}
+                  <span class="ret-head-inline-value" title="{{ return_public_id }}">{{ return_public_id }}</span>
+                {% else %}
+                  <span class="ret-head-inline-value is-placeholder" title="تلقائي بعد الحفظ">تلقائي بعد الحفظ</span>
+                {% endif %}
+              </div>
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">عدد المنتجات المحددة</span>
+                <span class="ret-head-inline-sep">:</span>
+                <span
+                  id="retSelectedProductsCount"
+                  class="ret-head-inline-value ret-head-count"
+                  title="{{ rows|length|human_number }}"
+                >{{ rows|length|human_number }}</span>
+              </div>
+              <div class="ret-head-field">
+                <label class="ret-head-inline-label" for="moneyContainer">حاوية المال</label>
+                <span class="ret-head-inline-sep">:</span>
+                <select class="ret-head-inline-input" name="money_container_id" id="moneyContainer">
+                  <option value="">اختر الحاوية</option>
+                  {% for mc in money_containers %}
+                    <option value="{{ mc.id }}" {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}>{{ mc.name }}</option>
+                  {% empty %}
+                    <option value="" disabled>لا توجد حاويات متاحة</option>
+                  {% endfor %}
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -559,17 +665,6 @@
                   <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
                 </select>
               </div>
-              <div class="bill-side-row">
-                <label class="bill-side-label" for="moneyContainer">حاوية المال</label>
-                <select class="input" name="money_container_id" id="moneyContainer">
-                  <option value="">اختر الحاوية</option>
-                  {% for mc in money_containers %}
-                    <option value="{{ mc.id }}" {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}>{{ mc.name }}</option>
-                  {% empty %}
-                    <option value="" disabled>لا توجد حاويات متاحة</option>
-                  {% endfor %}
-                </select>
-              </div>
             </div>
           </div>
 
@@ -635,6 +730,7 @@
     const totalUsdBox = document.getElementById("retTotalUsd");
     const totalSettlementBox = document.getElementById("retTotalSettlement");
     const settlementLabel = document.getElementById("retSettleCurLabel");
+    const selectedProductsCountBox = document.getElementById("retSelectedProductsCount");
 
     const paidInput = document.getElementById("returnPaidAmount");
     const lblRemaining = document.getElementById("retRemainingLabel");
@@ -686,10 +782,12 @@
     function recalcTotals() {
       let totalSyp = 0;
       let totalUsd = 0;
+      let selectedRowsCount = 0;
 
       const rows = form.querySelectorAll("tbody tr");
       rows.forEach(function (tr) {
         if (tr.style.display === "none") return;
+        selectedRowsCount += 1;
 
         const iid = tr.getAttribute("data-item-id");
         if (!iid) return;
@@ -713,6 +811,11 @@
 
       renderMoney(totalSypBox, totalSyp);
       renderMoney(totalUsdBox, totalUsd);
+      if (selectedProductsCountBox) {
+        const countText = String(selectedRowsCount);
+        selectedProductsCountBox.textContent = countText;
+        selectedProductsCountBox.setAttribute("title", countText);
+      }
 
       const fx = getFx();
       const settlementCur = (settlementCurrency ? settlementCurrency.value : "SYP").toUpperCase();
