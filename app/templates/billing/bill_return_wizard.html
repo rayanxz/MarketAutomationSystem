@@ -3,23 +3,66 @@
 
 {% block title %}مرتجع فاتورة شراء{% endblock %}
 
+{% block menu_secondary %}
+  {% with name=request.resolver_match.url_name %}
+  <div class="tabs-row">
+    <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec{% if name == 'debts_page' or name == 'debts_view_central_debt' or name == 'debts_view_debt' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة الديون</a>
+    <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+    <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+  </div>
+  {% endwith %}
+{% endblock %}
+
 {% block extra_head %}
 <style>
+  .viewport-center > .center-box{
+    max-width:1560px;
+  }
+
+  .ret-wizard{
+    --col-product-width:220px;
+    --col-cost-width:130px;
+    --col-qty-width:122px;
+  }
+
   .bill-wrap{
     display:grid;
-    grid-template-rows:auto auto auto;
+    grid-template-columns:minmax(0,1fr) 320px;
     gap:12px;
     width:100%;
-    max-width:1400px;
-    margin:0 auto;
-    padding:0 12px;
-    box-sizing:border-box;
+    max-width:1560px;
+    margin-inline:auto;
+    align-items:stretch;
   }
+  .bill-main{
+    display:grid;
+    grid-template-rows:auto minmax(260px,1fr);
+    gap:12px;
+    min-width:0;
+    overflow:hidden;
+  }
+  .bill-side{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    width:320px;
+    min-width:320px;
+    max-width:320px;
+    min-height:100%;
+    align-self:stretch;
+  }
+
   .card{
     background:#fff;
     border-radius:12px;
     padding:12px;
     box-shadow:var(--card-shadow);
+  }
+  .card h4{
+    margin:0 0 8px;
   }
   .row{
     display:flex;
@@ -27,26 +70,101 @@
     flex-wrap:wrap;
     align-items:center;
   }
-  .field{ flex:1 1 220px; }
+  .field{
+    flex:1 1 220px;
+    min-width:180px;
+  }
+  .input{
+    width:100%;
+    padding:10px 12px;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    box-sizing:border-box;
+    background:#fff;
+  }
+  .muted{
+    color:#6b7280;
+    font-size:12px;
+  }
   .badge{
     padding:10px 12px;
     border:1px dashed #c7cad1;
     border-radius:10px;
     background:#f8fafc;
   }
-  .muted{ color:#6b7280; font-size:12px; }
-
-  /* table */
-  .ret-table-wrap{
-    max-height:360px;
-    overflow-y:auto;
-    border-radius:12px;
-    border:1px solid #e5e7eb;
+  .pname{
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
-  table.ret-table{
+  .pname .pname-text{
+    display:block;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .audit-strip{
     width:100%;
+    overflow-x:auto;
+    overflow-y:hidden;
+  }
+  .audit-grid{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:10px;
+    min-width:880px;
+  }
+  .audit-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-height:42px;
+    padding:8px 10px;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    text-align:right;
+    min-width:0;
+  }
+  .audit-label{
+    color:#4b5563;
+    font-size:13px;
+    font-weight:600;
+    white-space:nowrap;
+    flex:0 0 auto;
+  }
+  .audit-value{
+    color:#111827;
+    font-weight:700;
+    min-width:0;
+    flex:1 1 auto;
+  }
+
+  .items{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+  }
+  .ret-table-wrap{
+    height:clamp(52vh, calc(46vh + 6.5rem), 62vh);
+    width:100%;
+    min-width:0;
+    overflow:auto;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+  }
+
+  table.ret-table{
+    width:max-content;
+    min-width:100%;
     border-collapse:collapse;
     table-layout:fixed;
+    min-width:1240px;
   }
   table.ret-table th,
   table.ret-table td{
@@ -54,6 +172,7 @@
     padding:6px 8px;
     white-space:normal;
     border-right:1px solid #e5e7eb;
+    text-align:center;
     font-size:13px;
   }
   table.ret-table th:last-child,
@@ -66,21 +185,72 @@
     top:0;
     z-index:1;
   }
-  .input{
-    width:100%;
-    box-sizing:border-box;
+  table.ret-table th.col-delete,
+  table.ret-table td.col-delete{
+    width:62px;
+    min-width:62px;
+    max-width:62px;
+  }
+  table.ret-table th.col-product,
+  table.ret-table td.col-product{
+    width:var(--col-product-width);
+    min-width:220px;
+    max-width:var(--col-product-width);
+    text-align:start;
+  }
+  table.ret-table th.col-cost,
+  table.ret-table td.col-cost{
+    width:var(--col-cost-width);
+    min-width:130px;
+    max-width:var(--col-cost-width);
+    white-space:nowrap;
+  }
+  table.ret-table th.col-qty,
+  table.ret-table td.col-qty{
+    width:var(--col-qty-width);
+    min-width:122px;
+    max-width:var(--col-qty-width);
+    white-space:nowrap;
+  }
+  .col-store{ background:#eff6ff; }
+  .col-wh1{ background:#ecfdf3; }
+  .col-wh2{ background:#fef2f2; }
+
+  .ret-qty{
+    direction:ltr;
+    text-align:left;
+    font-variant-numeric:tabular-nums;
+  }
+  .ret-input-disabled{
+    background:#f3f4f6;
+    cursor:not-allowed;
+  }
+  .ret-help{
+    margin-top:8px;
+    padding:8px 10px;
+    border-radius:10px;
+    background:#f8fafc;
+    border:1px dashed #cbd5e1;
   }
 
-  /* column colors */
-  .col-store  { background:#eff6ff; }  /* light blue */
-  .col-wh1    { background:#ecfdf3; }  /* light green */
-  .col-wh2    { background:#fef2f2; }  /* light red */
-
-  .cell-center{
-    text-align:center;
+  .btn{
+    padding:10px 14px;
+    border-radius:10px;
+    border:1px solid #e5e7eb;
+    background:#f8fafc;
+    cursor:pointer;
+    text-decoration:none;
+    color:inherit;
   }
-
-  /* delete button */
+  .btn:hover{ background:#eef2ff; }
+  .btn-primary{
+    background:#4f46e5;
+    color:#fff;
+    border-color:#4f46e5;
+  }
+  .btn-primary:hover{
+    background:#4338ca;
+  }
   .btn-mini{
     display:inline-block;
     padding:4px 8px;
@@ -94,28 +264,23 @@
     background:#e5e7eb;
   }
 
-  .btn{
-    padding:8px 14px;
-    border-radius:10px;
-    border:1px solid #e5e7eb;
-    background:#f8fafc;
-    cursor:pointer;
+  .foot-left{
+    background:#fff;
+    border-radius:12px;
+    padding:12px;
+    box-shadow:var(--card-shadow);
+    height:100%;
+    min-height:100%;
+    box-sizing:border-box;
+    display:flex;
+    flex-direction:column;
+    position:sticky;
+    top:12px;
   }
-  .btn:hover{ background:#eef2ff; }
-
-  .btn-primary{
-    background:#4f46e5;
-    color:#fff;
-    border-color:#4f46e5;
-  }
-  .btn-primary:hover{
-    background:#4338ca;
-  }
-
   .total-box{
     display:flex;
-    justify-content:space-between;
     align-items:center;
+    justify-content:space-between;
     padding:10px 12px;
     border:1px solid #e5e7eb;
     border-radius:10px;
@@ -123,104 +288,188 @@
     margin-bottom:10px;
   }
   .total-amt{
-    font-size:22px;
+    font-size:24px;
     font-weight:800;
+    direction:ltr;
+    text-align:left;
+    font-variant-numeric:tabular-nums;
   }
 
-  .pay-row{
-    display:flex;
-    flex-wrap:wrap;
-    gap:12px;
-    align-items:center;
+  .bill-side-stack{
+    display:grid;
+    gap:10px;
+    margin-top:8px;
   }
-  .pay-row label{
+  .bill-side-section{
+    display:grid;
+    gap:6px;
+  }
+  .bill-side-title{
+    color:#1f2937;
+    font-size:14px;
+    font-weight:800;
+    letter-spacing:.1px;
+    text-align:right;
+  }
+  .bill-side-card{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    padding:10px;
+    display:grid;
+    gap:8px;
+  }
+  .bill-side-row{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;
+    gap:10px;
+  }
+  .bill-side-label{
+    color:#4b5563;
+    font-size:13px;
+    font-weight:600;
+    text-align:right;
+  }
+  .bill-side-value{
+    color:#111827;
+    font-weight:700;
+    text-align:left;
+    direction:ltr;
+    white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .bill-side-separator{
+    height:1px;
+    background:#e5e7eb;
+    border:0;
+    margin:4px 0;
+  }
+
+  .pay-status-list{
+    display:grid;
+    gap:6px;
+  }
+  .pay-status-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
     font-size:13px;
   }
-  #retRemainingLabel{
-    font-size:12px;
-    color:#4b5563;
-    margin-inline-start:8px;
+  .pay-amount-wrap{
+    display:grid;
+    gap:6px;
   }
-  .err-msg{
-    margin-top:6px;
+  #retRemainingLabel{
+    color:#4b5563;
     font-size:12px;
-    color:#b91c1c;
+    min-height:18px;
+  }
+  .ret-error{
+    border:1px solid #fecaca;
+    background:#fef2f2;
+    color:#991b1b;
+    font-size:13px;
+    font-weight:600;
+  }
+  .ret-actions{
+    margin-top:auto;
+    padding-top:12px;
+    border-top:1px solid #e5e7eb;
+    display:grid;
+    gap:8px;
   }
 
-  /* disabled inputs for zero containers */
-  .ret-input-disabled{
-    background:#f3f4f6;
-    cursor:not-allowed;
+  @media (max-width:1100px){
+    .bill-wrap{
+      grid-template-columns:1fr;
+    }
+    .bill-main{
+      grid-template-rows:auto minmax(260px,auto);
+    }
+    .bill-side{
+      width:100%;
+      min-width:0;
+      max-width:none;
+      min-height:0;
+    }
+    .foot-left{
+      position:static;
+      top:auto;
+      min-height:0;
+    }
   }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="bill-wrap" dir="rtl">
+<form id="retForm" method="post" dir="rtl">
+  {% csrf_token %}
+  <input type="hidden" name="items_ids" value="{{ items_ids }}">
 
-  {# HEADER: bill info #}
-  <section class="card">
-    <h4 style="margin:0 0 8px;">مرتجع فاتورة شراء</h4>
-    <div class="row">
-      <div class="field">
-        <label class="muted">ID الفاتورة</label>
-        <div class="badge">{{ bill.public_id }}</div>
-      </div>
-      <div class="field">
-        <label class="muted">المورد</label>
-        <div class="badge">{{ bill.provider.name }}</div>
-      </div>
-      <div class="field">
-        <label class="muted">تاريخ الفاتورة</label>
-        <div class="badge">{{ bill.created_at|date:"Y-m-d H:i" }}</div>
-      </div>
-    </div>
-  </section>
+  <div class="bill-wrap ret-wizard">
+    <div class="bill-main">
+      {% if error_msg %}
+      <section class="card ret-error">{{ error_msg }}</section>
+      {% endif %}
 
-  {# ITEMS TABLE #}
-  <section class="card">
-    <form id="retForm" method="post">
-      {% csrf_token %}
-      <input type="hidden" name="items_ids" value="{{ items_ids }}">
+      <section class="card">
+        <h4>بيانات مرتجع فاتورة الشراء</h4>
+        <div class="audit-strip">
+          <div class="audit-grid">
+            <div class="audit-item">
+              <span class="audit-label">رقم الفاتورة:</span>
+              <span class="audit-value pname" title="{{ bill.public_id }}"><span class="pname-text">{{ bill.public_id }}</span></span>
+            </div>
+            <div class="audit-item">
+              <span class="audit-label">المورد:</span>
+              <span class="audit-value pname" title="{{ bill.provider.name }}"><span class="pname-text">{{ bill.provider.name }}</span></span>
+            </div>
+            <div class="audit-item">
+              <span class="audit-label">تاريخ الفاتورة:</span>
+              <span class="audit-value pname" title="{{ bill.created_at|date:'Y-m-d H:i' }}"><span class="pname-text">{{ bill.created_at|date:"Y-m-d H:i" }}</span></span>
+            </div>
+            <div class="audit-item">
+              <span class="audit-label">عدد العناصر المحددة:</span>
+              <span class="audit-value">{{ rows|length|human_number }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <div class="ret-table-wrap">
-        <table class="ret-table">
-          <thead>
-            <tr>
-              <th>حذف</th>
-              <th>المنتج</th>
-              <th>كلفة الوحدة الأولى</th>
-              <th>الكمية المتبقية</th>
+      <section class="items">
+        <div class="ret-table-wrap">
+          <table class="ret-table">
+            <thead>
+              <tr>
+                <th class="col-delete">حذف</th>
+                <th class="col-product">المنتج</th>
+                <th class="col-cost">كلفة الوحدة</th>
+                <th class="col-qty">المتبقي الكلي</th>
+                <th class="col-qty col-store">متاح المتجر</th>
+                <th class="col-qty col-store">مرتجع المتجر</th>
+                <th class="col-qty col-wh1">متاح مستودع 1</th>
+                <th class="col-qty col-wh1">مرتجع مستودع 1</th>
+                <th class="col-qty col-wh2">متاح مستودع 2</th>
+                <th class="col-qty col-wh2">مرتجع مستودع 2</th>
+                <th class="col-cost">عملة السطر</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for r in rows %}
+              <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency }}">
+                <td class="col-delete">
+                  <button type="button" class="btn-mini btn-row-delete">حذف</button>
+                </td>
+                <td class="col-product pname" title="{{ r.product_name }}">
+                  <span class="pname-text">{{ r.product_name }}</span>
+                </td>
+                <td class="col-cost">{{ r.cost|money_number }}</td>
+                <td class="col-qty">{{ r.left_qty_str }}</td>
 
-              <th class="col-store">المتاح في المتجر</th>
-              <th class="col-store">المرتجع من المتجر</th>
-
-              <th class="col-wh1">المتاح في مستودع 1</th>
-              <th class="col-wh1">المرتجع من مستودع 1</th>
-
-              <th class="col-wh2">المتاح في مستودع 2</th>
-              <th class="col-wh2">المرتجع من مستودع 2</th>
-
-              <th>Unit cost (auto)</th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for r in rows %}
-            <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency }}">
-              <td class="cell-center">
-                <button type="button" class="btn-mini btn-row-delete">
-                  حذف
-                </button>
-              </td>
-
-              <td>{{ r.product_name }}</td>
-              <td class="cell-center">{{ r.cost|money_number }}</td>
-              <td class="cell-center">{{ r.left_qty_str }}</td>
-
-              {# store #}
-              <td class="cell-center col-store">{{ r.store_qty_str }}</td>
-              <td class="col-store">
-                <input
+                <td class="col-qty col-store">{{ r.store_qty_str }}</td>
+                <td class="col-qty col-store">
+                  <input
                     type="number"
                     class="input ret-qty input-store numeric-math {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
                     name="ret_store_{{ r.item_id }}"
@@ -229,14 +478,12 @@
                     {% if r.store_qty <= 0 %}disabled{% endif %}
                     placeholder="0.000"
                     value="{{ r.ret_store_raw|default_if_none:'' }}"
-                >
+                  >
                 </td>
 
-
-              {# wh1 #}
-              <td class="cell-center col-wh1">{{ r.wh1_qty_str }}</td>
-              <td class="col-wh1">
-                <input
+                <td class="col-qty col-wh1">{{ r.wh1_qty_str }}</td>
+                <td class="col-qty col-wh1">
+                  <input
                     type="number"
                     class="input ret-qty input-wh1 numeric-math {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
                     name="ret_wh1_{{ r.item_id }}"
@@ -245,14 +492,12 @@
                     {% if r.wh1_qty <= 0 %}disabled{% endif %}
                     placeholder="0.000"
                     value="{{ r.ret_wh1_raw|default_if_none:'' }}"
-                >
+                  >
                 </td>
 
-
-              {# wh2 #}
-              <td class="cell-center col-wh2">{{ r.wh2_qty_str }}</td>
-              <td class="col-wh2">
-                <input
+                <td class="col-qty col-wh2">{{ r.wh2_qty_str }}</td>
+                <td class="col-qty col-wh2">
+                  <input
                     type="number"
                     class="input ret-qty input-wh2 numeric-math {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
                     name="ret_wh2_{{ r.item_id }}"
@@ -261,139 +506,123 @@
                     {% if r.wh2_qty <= 0 %}disabled{% endif %}
                     placeholder="0.000"
                     value="{{ r.ret_wh2_raw|default_if_none:'' }}"
-                >
+                  >
                 </td>
 
-              <td class="cell-center">
-                {{ r.cost|money_number }} {{ r.currency }}
-              </td>
-
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      {# TOTAL + PAY SECTION #}
-      <div class="total-box" style="margin-top:10px;">
-        <div>
-          <div class="muted">Total SYP</div>
-          <div id="retTotalSyp" class="total-amt">0.000</div>
-        </div>
-        <div>
-          <div class="muted">Total USD</div>
-          <div id="retTotalUsd" class="total-amt">0.000</div>
-        </div>
-        <div>
-          <div class="muted">Settlement ({{ settlement_currency_selected }})</div>
-          <div id="retTotalSettlement" class="total-amt">0.000</div>
-        </div>
-      </div>
-
-      <div class="row" style="margin-top:6px;">
-        <div class="field">
-          <label class="muted">Valuation mode</label>
-          <select class="input" name="valuation_mode" id="valuationMode">
-            <option value="HISTORICAL" {% if valuation_mode_selected == "HISTORICAL" %}selected{% endif %}>As purchased (historical FX)</option>
-            <option value="CURRENT_FX" {% if valuation_mode_selected == "CURRENT_FX" %}selected{% endif %}>As purchased (current FX)</option>
-          </select>
-        </div>
-        <div class="field">
-          <label class="muted">Settlement currency</label>
-          <select class="input" name="settlement_currency" id="settlementCurrency">
-            <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
-            <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
-          </select>
-        </div>
-        <div class="field">
-          <label class="muted">Money container</label>
-          <select class="input" name="money_container_id" id="moneyContainer">
-            <option value="">-- select --</option>
-            {% for mc in money_containers %}
-              <option value="{{ mc.id }}" {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}>{{ mc.name }}</option>
+                <td class="col-cost">{{ r.currency }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="11" class="muted">لا توجد عناصر صالحة للمرتجع.</td>
+              </tr>
             {% endfor %}
-          </select>
+            </tbody>
+          </table>
         </div>
-      </div>
-</div>
 
-      <div class="pay-row" style="margin-top:8px;">
-        <span class="muted">حالة الدفع للمرتجع</span>
-
-        <label>
-            <input
-                type="radio"
-                name="return_status"
-                id="retPaid"
-                value="paid"
-                {% if return_status_selected == "paid" %}checked{% endif %}
-            >
-            مدفوعة بالكامل
-        </label>
-
-        <label>
-            <input
-                type="radio"
-                name="return_status"
-                id="retPartial"
-                value="partial"
-                {% if return_status_selected == "partial" %}checked{% endif %}
-            >
-            مدفوعة جزئياً
-        </label>
-
-        <label>
-            <input
-                type="radio"
-                name="return_status"
-                id="retUnpaid"
-                value="unpaid"
-                {% if return_status_selected == "unpaid" %}checked{% endif %}
-            >
-            غير مدفوعة
-        </label>
-
-
-        <div style="display:flex; align-items:center; gap:6px;">
-          <input
-            type="number"
-            id="returnPaidAmount"
-            name="return_paid_amount"
-            class="input numeric-math"
-            style="width:200px;"
-            min="0"
-            step="0.001"
-            placeholder="المبلغ المدفوع"
-            value="{{ return_paid_amount_raw }}"
-            {% if return_status_selected != "partial" %}disabled{% endif %}
-            />
-
-
-          <span id="retRemainingLabel"></span>
+        <div class="ret-help muted">
+          حذف صف من الجدول يعني تجاهل هذا المنتج في هذا المرتجع فقط، ولن يؤثر على الفاتورة الأصلية.
         </div>
-      </div>
+      </section>
+    </div>
 
-      {% if error_msg %}
-        <div class="err-msg">{{ error_msg }}</div>
-      {% endif %}
+    <aside class="bill-side">
+      <section class="foot-left">
+        <div class="total-box">
+          <div class="muted">إجمالي المرتجع (SYP)</div>
+          <div id="retTotalSyp" class="total-amt" title="{{ total_return_syp|default:0|money_number }}">{{ total_return_syp|default:0|money_number }}</div>
+        </div>
+        <div class="total-box">
+          <div class="muted">إجمالي المرتجع (USD)</div>
+          <div id="retTotalUsd" class="total-amt" title="{{ total_return_usd|default:0|money_number }}">{{ total_return_usd|default:0|money_number }}</div>
+        </div>
+        <div class="total-box">
+          <div class="muted">إجمالي التسوية (<span id="retSettleCurLabel">{{ settlement_currency_selected|default:"SYP" }}</span>)</div>
+          <div id="retTotalSettlement" class="total-amt" title="{{ total_return_settlement|default:0|money_number }}">{{ total_return_settlement|default:0|money_number }}</div>
+        </div>
 
-      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button type="submit" class="btn btn-primary">حفظ المرتجع</button>
-        <a class="btn" href="{% url 'billing_bill_view' bill.public_id %}?items={{ items_ids }}">
-          رجوع إلى الفاتورة
-        </a>
-      </div>
-    </form>
-  </section>
+        <div class="bill-side-stack">
+          <div class="bill-side-section">
+            <div class="bill-side-title">خيارات التقييم والتسوية</div>
+            <div class="bill-side-card">
+              <div class="bill-side-row">
+                <label class="bill-side-label" for="valuationMode">وضع التقييم</label>
+                <select class="input" name="valuation_mode" id="valuationMode">
+                  <option value="HISTORICAL" {% if valuation_mode_selected == "HISTORICAL" %}selected{% endif %}>حسب سعر الفاتورة</option>
+                  <option value="CURRENT_FX" {% if valuation_mode_selected == "CURRENT_FX" %}selected{% endif %}>حسب السعر الحالي</option>
+                </select>
+              </div>
+              <div class="bill-side-row">
+                <label class="bill-side-label" for="settlementCurrency">عملة التسوية</label>
+                <select class="input" name="settlement_currency" id="settlementCurrency">
+                  <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
+                  <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
+                </select>
+              </div>
+              <div class="bill-side-row">
+                <label class="bill-side-label" for="moneyContainer">حاوية المال</label>
+                <select class="input" name="money_container_id" id="moneyContainer">
+                  <option value="">اختر الحاوية</option>
+                  {% for mc in money_containers %}
+                    <option value="{{ mc.id }}" {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}>{{ mc.name }}</option>
+                  {% empty %}
+                    <option value="" disabled>لا توجد حاويات متاحة</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          </div>
 
-  <section class="card">
-    <span class="muted">
-      لاحظ أن حذف صف من الجدول يعني تجاهل هذا المنتج في هذا المرتجع فقط،
-      ولن يؤثر على الفاتورة الأصلية.
-    </span>
-  </section>
+          <div class="bill-side-separator" aria-hidden="true"></div>
 
-</div>
+          <div class="bill-side-section">
+            <div class="bill-side-title">حالة دفع المرتجع</div>
+            <div class="bill-side-card">
+              <fieldset style="margin:0; padding:0; border:0;">
+                <legend class="muted" style="margin-bottom:6px;">اختر حالة الدفع</legend>
+                <div class="pay-status-list">
+                  <label class="pay-status-item">
+                    <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
+                    <span>مدفوعة بالكامل</span>
+                  </label>
+                  <label class="pay-status-item">
+                    <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
+                    <span>مدفوعة جزئياً</span>
+                  </label>
+                  <label class="pay-status-item">
+                    <input type="radio" name="return_status" id="retUnpaid" value="unpaid" {% if return_status_selected == "unpaid" %}checked{% endif %}>
+                    <span>غير مدفوعة</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <div class="pay-amount-wrap">
+                <label class="bill-side-label" for="returnPaidAmount">المبلغ المدفوع</label>
+                <input
+                  type="number"
+                  id="returnPaidAmount"
+                  name="return_paid_amount"
+                  class="input numeric-math"
+                  min="0"
+                  step="0.001"
+                  placeholder="0.000"
+                  value="{{ return_paid_amount_raw }}"
+                  {% if return_status_selected != "partial" %}disabled{% endif %}
+                >
+                <span id="retRemainingLabel"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ret-actions">
+          <button type="submit" class="btn btn-primary">حفظ المرتجع</button>
+          <a class="btn" href="{% url 'billing_bill_view' bill.public_id %}?items={{ items_ids }}">رجوع إلى الفاتورة</a>
+        </div>
+      </section>
+    </aside>
+  </div>
+</form>
 
 <script>
   (function () {
@@ -405,13 +634,14 @@
     const totalSypBox = document.getElementById("retTotalSyp");
     const totalUsdBox = document.getElementById("retTotalUsd");
     const totalSettlementBox = document.getElementById("retTotalSettlement");
+    const settlementLabel = document.getElementById("retSettleCurLabel");
 
-    const paidInput    = document.getElementById("returnPaidAmount");
+    const paidInput = document.getElementById("returnPaidAmount");
     const lblRemaining = document.getElementById("retRemainingLabel");
 
-    const statusPaid    = document.getElementById("retPaid");
+    const statusPaid = document.getElementById("retPaid");
     const statusPartial = document.getElementById("retPartial");
-    const statusUnpaid  = document.getElementById("retUnpaid");
+    const statusUnpaid = document.getElementById("retUnpaid");
 
     const valuationMode = document.getElementById("valuationMode");
     const settlementCurrency = document.getElementById("settlementCurrency");
@@ -426,9 +656,9 @@
     }
 
     function getCurrentStatus() {
-      if (statusPaid && statusPaid.checked)      return "paid";
-      if (statusUnpaid && statusUnpaid.checked)  return "unpaid";
-      if (statusPartial && statusPartial.checked)return "partial";
+      if (statusPaid && statusPaid.checked) return "paid";
+      if (statusUnpaid && statusUnpaid.checked) return "unpaid";
+      if (statusPartial && statusPartial.checked) return "partial";
       return "none";
     }
 
@@ -440,6 +670,13 @@
 
     function fmt(num) {
       return formatMoney(money2(num));
+    }
+
+    function renderMoney(el, value) {
+      if (!el) return;
+      const text = fmt(value);
+      el.textContent = text;
+      el.setAttribute("title", text);
     }
 
     function isZeroFinancialTotal(totals) {
@@ -458,8 +695,8 @@
         if (!iid) return;
 
         const qStore = parseFloat(form["ret_store_" + iid]?.value || "0") || 0;
-        const qWh1   = parseFloat(form["ret_wh1_" + iid]?.value   || "0") || 0;
-        const qWh2   = parseFloat(form["ret_wh2_" + iid]?.value   || "0") || 0;
+        const qWh1 = parseFloat(form["ret_wh1_" + iid]?.value || "0") || 0;
+        const qWh2 = parseFloat(form["ret_wh2_" + iid]?.value || "0") || 0;
         const qtyTotal = qStore + qWh1 + qWh2;
         if (qtyTotal <= 0) return;
 
@@ -474,11 +711,13 @@
         }
       });
 
-      if (totalSypBox) totalSypBox.textContent = fmt(totalSyp);
-      if (totalUsdBox) totalUsdBox.textContent = fmt(totalUsd);
+      renderMoney(totalSypBox, totalSyp);
+      renderMoney(totalUsdBox, totalUsd);
 
       const fx = getFx();
       const settlementCur = (settlementCurrency ? settlementCurrency.value : "SYP").toUpperCase();
+      if (settlementLabel) settlementLabel.textContent = settlementCur;
+
       let settlementTotal = 0;
       if (settlementCur === "SYP") {
         settlementTotal = totalSyp + (fx > 0 ? (totalUsd * fx) : 0);
@@ -487,8 +726,7 @@
       }
       settlementTotal = money2(settlementTotal);
 
-      if (totalSettlementBox) totalSettlementBox.textContent = fmt(settlementTotal);
-
+      renderMoney(totalSettlementBox, settlementTotal);
       return { totalSyp, totalUsd, settlementTotal };
     }
 
@@ -517,9 +755,9 @@
       }
 
       let remaining = totals.settlementTotal;
-
       const status = getCurrentStatus();
       let paid = 0;
+
       if (status === "paid") {
         paid = totals.settlementTotal;
         if (paidInput) paidInput.value = fmt(totals.settlementTotal);
@@ -528,8 +766,6 @@
           const v = parseFloat(paidInput.value || "0") || 0;
           paid = money2(v < 0 ? 0 : v);
         }
-      } else {
-        paid = 0;
       }
 
       remaining = money2(totals.settlementTotal - paid);
@@ -539,7 +775,7 @@
         if (totals.settlementTotal <= 0) {
           lblRemaining.textContent = "";
         } else {
-          lblRemaining.textContent = "Remaining after payment: " + fmt(remaining);
+          lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);
         }
       }
     }
@@ -565,12 +801,8 @@
       updateRemainingLabel();
     }
 
-    // quantities & inputs
     form.addEventListener("input", function (e) {
-      if (
-        e.target.classList.contains("ret-qty") ||
-        e.target === paidInput
-      ) {
+      if (e.target.classList.contains("ret-qty") || e.target === paidInput) {
         updateRemainingLabel();
       }
     });
@@ -582,7 +814,6 @@
       settlementCurrency.addEventListener("change", updateRemainingLabel);
     }
 
-    // delete row buttons
     form.querySelectorAll(".btn-row-delete").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const tr = btn.closest("tr");
@@ -590,23 +821,20 @@
         const iid = tr.getAttribute("data-item-id");
         if (iid) {
           if (form["ret_store_" + iid]) form["ret_store_" + iid].value = "";
-          if (form["ret_wh1_" + iid])   form["ret_wh1_" + iid].value   = "";
-          if (form["ret_wh2_" + iid])   form["ret_wh2_" + iid].value   = "";
+          if (form["ret_wh1_" + iid]) form["ret_wh1_" + iid].value = "";
+          if (form["ret_wh2_" + iid]) form["ret_wh2_" + iid].value = "";
         }
         tr.style.display = "none";
         updateRemainingLabel();
       });
     });
 
-    // status radios
-    [statusPaid, statusPartial, statusUnpaid].forEach(function (r) {
-      if (!r) return;
-      r.addEventListener("change", handleStatusChange);
+    [statusPaid, statusPartial, statusUnpaid].forEach(function (radio) {
+      if (!radio) return;
+      radio.addEventListener("change", handleStatusChange);
     });
 
-    // initial state
     handleStatusChange();
   })();
 </script>
-
 {% endblock %}
