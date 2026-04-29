@@ -23,9 +23,7 @@
   }
 
   .ret-wizard{
-    --col-product-width:220px;
-    --col-cost-width:130px;
-    --col-qty-width:122px;
+    --col-qty-width:104px;
   }
 
   .bill-wrap{
@@ -220,11 +218,10 @@
   }
 
   table.ret-table{
-    width:max-content;
-    min-width:100%;
+    width:100%;
+    min-width:0;
     border-collapse:collapse;
     table-layout:fixed;
-    min-width:1240px;
   }
   table.ret-table th,
   table.ret-table td{
@@ -245,30 +242,24 @@
     top:0;
     z-index:1;
   }
-  table.ret-table th.col-delete,
-  table.ret-table td.col-delete{
-    width:62px;
-    min-width:62px;
-    max-width:62px;
-  }
   table.ret-table th.col-product,
   table.ret-table td.col-product{
-    width:var(--col-product-width);
-    min-width:220px;
-    max-width:var(--col-product-width);
     text-align:start;
+    width:calc((100% - (7 * var(--col-qty-width))) * 0.64);
+    min-width:0;
+    max-width:none;
   }
   table.ret-table th.col-cost,
   table.ret-table td.col-cost{
-    width:var(--col-cost-width);
-    min-width:130px;
-    max-width:var(--col-cost-width);
     white-space:nowrap;
+    width:calc((100% - (7 * var(--col-qty-width))) * 0.36);
+    min-width:0;
+    max-width:none;
   }
   table.ret-table th.col-qty,
   table.ret-table td.col-qty{
     width:var(--col-qty-width);
-    min-width:122px;
+    min-width:var(--col-qty-width);
     max-width:var(--col-qty-width);
     white-space:nowrap;
   }
@@ -322,6 +313,41 @@
   }
   .btn-mini:hover{
     background:#e5e7eb;
+  }
+  .total-cost-wrap{
+    display:flex;
+    align-items:center;
+    gap:2px;
+    direction:ltr;
+    width:100%;
+    min-width:0;
+  }
+  .total-cost-value{
+    flex:1 1 auto;
+    min-width:0;
+    display:block;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    text-align:center;
+  }
+  .total-cost-cur{
+    flex:0 0 32px;
+    width:32px;
+    min-width:32px;
+    max-width:32px;
+    box-sizing:border-box;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:10px;
+    line-height:1;
+    color:#15803d;
+    background:#f8fafc;
+    border:1px solid #e5e7eb;
+    border-radius:8px;
+    padding:1px 0;
+    white-space:nowrap;
   }
 
   .foot-left{
@@ -553,7 +579,6 @@
           <table class="ret-table">
             <thead>
               <tr>
-                <th class="col-delete">حذف</th>
                 <th class="col-product">المنتج</th>
                 <th class="col-cost">كلفة الوحدة</th>
                 <th class="col-qty">المتبقي الكلي</th>
@@ -563,21 +588,24 @@
                 <th class="col-qty col-wh1">مرتجع مستودع 1</th>
                 <th class="col-qty col-wh2">متاح مستودع 2</th>
                 <th class="col-qty col-wh2">مرتجع مستودع 2</th>
-                <th class="col-cost">عملة السطر</th>
               </tr>
             </thead>
             <tbody>
             {% for r in rows %}
               <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency }}">
-                <td class="col-delete">
-                  <button type="button" class="btn-mini btn-row-delete">حذف</button>
-                </td>
                 <td class="col-product pname" title="{{ r.product_name }}">
                   <span class="pname-text">{{ r.product_name }}</span>
                 </td>
-                <td class="col-cost">{{ r.cost|money_number }}</td>
+                <td class="col-cost">
+                  <div class="total-cost-wrap">
+                    <span class="total-cost-cur" aria-hidden="true">{% if r.currency == "USD" %}${% else %}SYP{% endif %}</span>
+                    <span
+                      class="total-cost-value"
+                      title="{% if r.currency == 'USD' %}${% else %}SYP{% endif %} {{ r.cost|money_number }}"
+                    >{{ r.cost|money_number }}</span>
+                  </div>
+                </td>
                 <td class="col-qty">{{ r.left_qty_str }}</td>
-
                 <td class="col-qty col-store">{{ r.store_qty_str }}</td>
                 <td class="col-qty col-store">
                   <input
@@ -620,11 +648,10 @@
                   >
                 </td>
 
-                <td class="col-cost">{{ r.currency }}</td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="11" class="muted">لا توجد عناصر صالحة للمرتجع.</td>
+                <td colspan="9" class="muted">لا توجد عناصر صالحة للمرتجع.</td>
               </tr>
             {% endfor %}
             </tbody>
@@ -632,7 +659,7 @@
         </div>
 
         <div class="ret-help muted">
-          حذف صف من الجدول يعني تجاهل هذا المنتج في هذا المرتجع فقط، ولن يؤثر على الفاتورة الأصلية.
+          أدخل كميات المرتجع في الأعمدة المخصصة لكل مستودع ضمن الحدود المتاحة.
         </div>
       </section>
     </div>
@@ -825,7 +852,6 @@
 
       const rows = form.querySelectorAll("tbody tr");
       rows.forEach(function (tr) {
-        if (tr.style.display === "none") return;
         selectedRowsCount += 1;
 
         const iid = tr.getAttribute("data-item-id");
@@ -955,21 +981,6 @@
     if (settlementCurrency) {
       settlementCurrency.addEventListener("change", updateRemainingLabel);
     }
-
-    form.querySelectorAll(".btn-row-delete").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        const tr = btn.closest("tr");
-        if (!tr) return;
-        const iid = tr.getAttribute("data-item-id");
-        if (iid) {
-          if (form["ret_store_" + iid]) form["ret_store_" + iid].value = "";
-          if (form["ret_wh1_" + iid]) form["ret_wh1_" + iid].value = "";
-          if (form["ret_wh2_" + iid]) form["ret_wh2_" + iid].value = "";
-        }
-        tr.style.display = "none";
-        updateRemainingLabel();
-      });
-    });
 
     [statusPaid, statusPartial, statusUnpaid].forEach(function (radio) {
       if (!radio) return;
