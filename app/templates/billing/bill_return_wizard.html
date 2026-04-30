@@ -555,6 +555,7 @@
 <form id="retForm" method="post" dir="rtl">
   {% csrf_token %}
   <input type="hidden" name="items_ids" value="{{ items_ids }}">
+  <input type="hidden" name="fx_at_return_creation" id="fxAtReturnCreation" value="">
 
   <div class="bill-wrap ret-wizard">
     <div class="bill-main">
@@ -856,16 +857,15 @@
     const statusPartial = document.getElementById("retPartial");
     const statusUnpaid = document.getElementById("retUnpaid");
 
-    const valuationMode = document.getElementById("valuationMode");
     const settlementCurrency = document.getElementById("settlementCurrency");
     const moneyContainer = document.getElementById("moneyContainer");
+    const fxAtReturnCreationInput = document.getElementById("fxAtReturnCreation");
 
     const fxCurrent = parseFloat("{{ fx_current|default_if_none:''|unlocalize }}") || 0;
     const fxBill = parseFloat("{{ fx_bill|default_if_none:''|unlocalize }}") || 0;
-
-    function getFx() {
-      if (valuationMode && valuationMode.value === "CURRENT_FX") return fxCurrent;
-      return fxBill || fxCurrent;
+    const fxAtReturnCreation = fxCurrent > 0 ? fxCurrent : (fxBill > 0 ? fxBill : 0);
+    if (fxAtReturnCreationInput) {
+      fxAtReturnCreationInput.value = fxAtReturnCreation > 0 ? String(fxAtReturnCreation) : "";
     }
 
     function getCurrentStatus() {
@@ -905,6 +905,27 @@
 
     function fmtCost4(num) {
       return money4(num).toFixed(4);
+    }
+
+    function toSyp(value, currency) {
+      const amount = money4(value);
+      const cur = normalizeCurrency(currency, "SYP");
+      if (cur === "USD") {
+        if (fxAtReturnCreation <= 0) return 0;
+        return money4(amount * fxAtReturnCreation);
+      }
+      return amount;
+    }
+
+    function convertBetweenCurrencies(value, fromCurrency, toCurrency) {
+      const fromCur = normalizeCurrency(fromCurrency, "SYP");
+      const toCur = normalizeCurrency(toCurrency, "SYP");
+      const amount = money4(value);
+      if (fromCur === toCur) return amount;
+      if (fxAtReturnCreation <= 0) return amount;
+      if (fromCur === "SYP" && toCur === "USD") return money4(amount / fxAtReturnCreation);
+      if (fromCur === "USD" && toCur === "SYP") return money4(amount * fxAtReturnCreation);
+      return amount;
     }
 
     function fmt(num) {
@@ -975,7 +996,7 @@
         return;
       }
 
-      const msg = state.currentReturnCost > state.originalPurchaseCost ? costWarnHigherMsg : costWarnLowerMsg;
+      const msg = state.current_value_syp > state.original_purchase_cost_syp ? costWarnHigherMsg : costWarnLowerMsg;
       editor.setAttribute("title", msg);
       if (cell) cell.setAttribute("title", msg);
     }
@@ -990,6 +1011,7 @@
       input.setCustomValidity("");
       input.value = fmtCost4(state.currentReturnCost);
       select.value = state.currentCurrency;
+      select.dataset.prevCurrency = state.currentCurrency;
       setCostEditorMode(editor, state, false);
     }
 
@@ -1013,13 +1035,24 @@
 
       const committedCost = money4(parsedCost);
       const committedCurrency = normalizeCurrency(select.value, state.currentCurrency || state.originalCurrency);
+      if (committedCurrency === "USD" && fxAtReturnCreation <= 0) {
+        input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
+        input.reportValidity();
+        return false;
+      }
+      const committedCostSyp = toSyp(committedCost, committedCurrency);
 
       state.currentReturnCost = committedCost;
       state.currentCurrency = committedCurrency;
-      state.isOverridden = !sameCost(committedCost, state.originalPurchaseCost);
+      state.current_value = committedCost;
+      state.current_currency = committedCurrency;
+      state.current_value_syp = committedCostSyp;
+      state.is_overridden = !sameCost(committedCostSyp, state.original_purchase_cost_syp);
+      state.isOverridden = state.is_overridden;
 
       input.value = fmtCost4(committedCost);
       select.value = committedCurrency;
+      select.dataset.prevCurrency = committedCurrency;
       hiddenCur.value = committedCurrency;
 
       const tr = editor.closest("tr");
@@ -1048,23 +1081,32 @@
 
         const originalCost = money4(parseCostNumber(editor.getAttribute("data-original-cost")) || 0);
         const originalCurrency = normalizeCurrency(editor.getAttribute("data-original-currency"), "SYP");
+        const originalCostSyp = toSyp(originalCost, originalCurrency);
 
         let currentCost = parseCostNumber(input.value);
         if (currentCost === null || currentCost < 0) currentCost = originalCost;
         currentCost = money4(currentCost);
 
         const currentCurrency = normalizeCurrency(hiddenCur.value || select.value, originalCurrency);
+        const currentCostSyp = toSyp(currentCost, currentCurrency);
         hiddenCur.value = currentCurrency;
         select.value = currentCurrency;
+        select.dataset.prevCurrency = currentCurrency;
         input.value = fmtCost4(currentCost);
 
         const state = {
+          original_purchase_cost_syp: originalCostSyp,
+          original_currency: originalCurrency,
+          current_value: currentCost,
+          current_currency: currentCurrency,
+          current_value_syp: currentCostSyp,
+          is_overridden: !sameCost(currentCostSyp, originalCostSyp),
           originalPurchaseCost: originalCost,
           currentReturnCost: currentCost,
           originalCurrency: originalCurrency,
           currentCurrency: currentCurrency,
           isEditing: false,
-          isOverridden: !sameCost(currentCost, originalCost),
+          isOverridden: !sameCost(currentCostSyp, originalCostSyp),
         };
         costStateByItemId.set(itemId, state);
 
@@ -1084,11 +1126,44 @@
           }
           setCostEditorMode(editor, state, true);
           select.value = state.currentCurrency;
+          select.dataset.prevCurrency = state.currentCurrency;
           input.value = fmtCost4(state.currentReturnCost);
           window.requestAnimationFrame(function () {
             input.focus();
             input.select();
           });
+        });
+
+        select.addEventListener("change", function () {
+          if (!state.isEditing) return;
+          const prevCurrency = normalizeCurrency(select.dataset.prevCurrency || state.currentCurrency, state.currentCurrency);
+          const nextCurrency = normalizeCurrency(select.value, prevCurrency);
+          if (prevCurrency === nextCurrency) {
+            select.dataset.prevCurrency = nextCurrency;
+            return;
+          }
+          if (fxAtReturnCreation <= 0) {
+            select.value = prevCurrency;
+            input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
+            input.reportValidity();
+            return;
+          }
+          const typedValue = parseCostNumber(input.value);
+          if (typedValue === null || typedValue < 0) {
+            input.setCustomValidity("أدخل كلفة صحيحة (صفر أو أكبر).");
+            input.reportValidity();
+            select.value = prevCurrency;
+            return;
+          }
+          input.setCustomValidity("");
+          const convertedValue = convertBetweenCurrencies(typedValue, prevCurrency, nextCurrency);
+          input.value = fmtCost4(convertedValue);
+          select.dataset.prevCurrency = nextCurrency;
+        });
+
+        input.addEventListener("input", function () {
+          if (!state.isEditing) return;
+          input.setCustomValidity("");
         });
 
         input.addEventListener("keydown", function (evt) {
@@ -1113,6 +1188,7 @@
     function recalcTotals() {
       let totalSyp = 0;
       let totalUsd = 0;
+      let totalSypNormalized = 0;
       let selectedRowsCount = 0;
 
       const rows = form.querySelectorAll("tbody tr");
@@ -1136,8 +1212,12 @@
 
         if (cur === "USD") {
           totalUsd = money2(totalUsd + lineTotal);
+          totalSypNormalized = money2(
+            totalSypNormalized + (fxAtReturnCreation > 0 ? (lineTotal * fxAtReturnCreation) : 0)
+          );
         } else {
           totalSyp = money2(totalSyp + lineTotal);
+          totalSypNormalized = money2(totalSypNormalized + lineTotal);
         }
       });
 
@@ -1149,15 +1229,14 @@
         selectedProductsCountBox.setAttribute("title", countText);
       }
 
-      const fx = getFx();
       const settlementCur = (settlementCurrency ? settlementCurrency.value : "SYP").toUpperCase();
       if (settlementLabel) settlementLabel.textContent = settlementCur;
 
       let settlementTotal = 0;
       if (settlementCur === "SYP") {
-        settlementTotal = totalSyp + (fx > 0 ? (totalUsd * fx) : 0);
+        settlementTotal = totalSypNormalized;
       } else {
-        settlementTotal = totalUsd + (fx > 0 ? (totalSyp / fx) : 0);
+        settlementTotal = fxAtReturnCreation > 0 ? (totalSypNormalized / fxAtReturnCreation) : 0;
       }
       settlementTotal = money2(settlementTotal);
 
@@ -1259,9 +1338,6 @@
       e.preventDefault();
     });
 
-    if (valuationMode) {
-      valuationMode.addEventListener("change", updateRemainingLabel);
-    }
     if (settlementCurrency) {
       settlementCurrency.addEventListener("change", updateRemainingLabel);
     }
