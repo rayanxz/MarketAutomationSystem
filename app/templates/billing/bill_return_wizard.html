@@ -314,40 +314,91 @@
   .btn-mini:hover{
     background:#e5e7eb;
   }
-  .total-cost-wrap{
+  .ret-cost-editor{
     display:flex;
     align-items:center;
-    gap:2px;
+    gap:4px;
     direction:ltr;
     width:100%;
     min-width:0;
   }
-  .total-cost-value{
-    flex:1 1 auto;
-    min-width:0;
-    display:block;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    text-align:center;
-  }
-  .total-cost-cur{
-    flex:0 0 32px;
-    width:32px;
-    min-width:32px;
-    max-width:32px;
-    box-sizing:border-box;
+  .ret-cost-warn{
+    width:18px;
+    min-width:18px;
+    height:18px;
+    border-radius:999px;
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    font-size:10px;
+    border:1px solid #fca5a5;
+    background:#fff1f2;
+    color:#b91c1c;
+    font-size:11px;
+    font-weight:800;
     line-height:1;
-    color:#15803d;
-    background:#f8fafc;
-    border:1px solid #e5e7eb;
+    visibility:hidden;
+    opacity:0;
+    transition:opacity .15s ease;
+  }
+  .ret-cost-editor.is-overridden .ret-cost-warn{
+    visibility:visible;
+    opacity:1;
+  }
+  .ret-cost-cur-select{
+    width:56px;
+    min-width:56px;
+    max-width:56px;
+    height:30px;
+    min-height:30px;
+    padding:0 4px;
     border-radius:8px;
-    padding:1px 0;
+    text-align:center;
+    font-size:11px;
+    line-height:1;
+  }
+  .ret-cost-input{
+    flex:1 1 auto;
+    min-width:0;
+    height:30px;
+    min-height:30px;
+    padding:0 8px;
+    border-radius:8px;
+    font-size:12px;
+    line-height:30px;
+    direction:ltr;
+    text-align:center;
+    font-variant-numeric:tabular-nums;
     white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .ret-cost-toggle{
+    width:30px;
+    min-width:30px;
+    max-width:30px;
+    height:30px;
+    min-height:30px;
+    padding:0;
+    border-radius:8px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:13px;
+    font-weight:800;
+  }
+  .ret-cost-toggle.is-commit{
+    color:#166534;
+    border-color:#86efac;
+    background:#f0fdf4;
+  }
+  .ret-cost-editor .ret-cost-input[readonly],
+  .ret-cost-editor .ret-cost-cur-select:disabled{
+    background:#f8fafc;
+    color:#111827;
+    cursor:not-allowed;
+  }
+  .ret-cost-overridden{
+    background:#fff7f7;
   }
 
   .foot-left{
@@ -592,18 +643,47 @@
             </thead>
             <tbody>
             {% for r in rows %}
-              <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency }}">
+              <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency|upper }}">
                 <td class="col-product pname" title="{{ r.product_name }}">
                   <span class="pname-text">{{ r.product_name }}</span>
                 </td>
                 <td class="col-cost">
-                  <div class="total-cost-wrap">
-                    <span class="total-cost-cur" aria-hidden="true">{% if r.currency == "USD" %}${% else %}SYP{% endif %}</span>
-                    <span
-                      class="total-cost-value"
-                      title="{% if r.currency == 'USD' %}${% else %}SYP{% endif %} {{ r.cost|money_number }}"
-                    >{{ r.cost|money_number }}</span>
+                  {% with row_currency=r.ret_currency_raw|default:r.currency|upper %}
+                  <div
+                    class="ret-cost-editor"
+                    data-item-id="{{ r.item_id }}"
+                    data-original-cost="{{ r.cost|unlocalize }}"
+                    data-original-currency="{{ r.currency|upper }}"
+                  >
+                    <span class="ret-cost-warn" aria-hidden="true">!</span>
+                    <select class="ret-cost-cur-select input" aria-label="عملة الكلفة" disabled>
+                      <option value="SYP" {% if row_currency == "SYP" %}selected{% endif %}>SYP</option>
+                      <option value="USD" {% if row_currency == "USD" %}selected{% endif %}>USD</option>
+                    </select>
+                    <input
+                      type="number"
+                      class="ret-cost-input input numeric-math"
+                      name="ret_cost_{{ r.item_id }}"
+                      min="0"
+                      step="0.0001"
+                      placeholder="0.0000"
+                      value="{% if r.ret_cost_raw %}{{ r.ret_cost_raw }}{% else %}{{ r.cost|unlocalize }}{% endif %}"
+                      readonly
+                    >
+                    <input
+                      type="hidden"
+                      class="ret-cost-cur-hidden"
+                      name="ret_currency_{{ r.item_id }}"
+                      value="{{ row_currency }}"
+                    >
+                    <button
+                      type="button"
+                      class="ret-cost-toggle btn-mini"
+                      aria-label="تعديل كلفة المنتج"
+                      title="تعديل الكلفة"
+                    >✎</button>
                   </div>
+                  {% endwith %}
                 </td>
                 <td class="col-qty">{{ r.left_qty_str }}</td>
                 <td class="col-qty col-store">{{ r.store_qty_str }}</td>
@@ -765,6 +845,9 @@
     const selectedProductsCountBox = document.getElementById("retSelectedProductsCount");
     const returnAutoPublicIdBox = document.getElementById("returnAutoPublicId");
     const returnNextSerialUrl = "{% url 'billing_api_return_next_serial' %}";
+    const costStateByItemId = new Map();
+    const costWarnHigherMsg = "التكلفة المحددة للمنتج اعلى من التكلفة المستخدمة عند الشراء";
+    const costWarnLowerMsg = "التكلفة المحددة للمنتج اقل من التكلفة المستخدمة عند الشراء";
 
     const paidInput = document.getElementById("returnPaidAmount");
     const lblRemaining = document.getElementById("retRemainingLabel");
@@ -796,6 +879,32 @@
       const n = Number(num || 0);
       if (!Number.isFinite(n)) return 0;
       return Math.round((n + Number.EPSILON) * 100) / 100;
+    }
+
+    function money4(num) {
+      const n = Number(num || 0);
+      if (!Number.isFinite(n)) return 0;
+      return Math.round((n + Number.EPSILON) * 10000) / 10000;
+    }
+
+    function sameCost(a, b) {
+      return Math.abs(money4(a) - money4(b)) < 0.00005;
+    }
+
+    function normalizeCurrency(value, fallback) {
+      const cur = String(value || "").trim().toUpperCase();
+      if (cur === "USD" || cur === "SYP") return cur;
+      return String(fallback || "SYP").trim().toUpperCase() === "USD" ? "USD" : "SYP";
+    }
+
+    function parseCostNumber(value) {
+      const parsed = parseFloat(String(value || "").trim());
+      if (!Number.isFinite(parsed)) return null;
+      return parsed;
+    }
+
+    function fmtCost4(num) {
+      return money4(num).toFixed(4);
     }
 
     function fmt(num) {
@@ -841,6 +950,162 @@
       setReturnPublicIdPreview("", true);
     }
 
+    function setCostEditorMode(editor, state, isEditing) {
+      const input = editor.querySelector(".ret-cost-input");
+      const select = editor.querySelector(".ret-cost-cur-select");
+      const button = editor.querySelector(".ret-cost-toggle");
+      if (!input || !select || !button) return;
+      state.isEditing = !!isEditing;
+      input.readOnly = !state.isEditing;
+      select.disabled = !state.isEditing;
+      button.classList.toggle("is-commit", state.isEditing);
+      button.textContent = state.isEditing ? "✓" : "✎";
+      button.setAttribute("aria-label", state.isEditing ? "تأكيد كلفة المنتج" : "تعديل كلفة المنتج");
+      button.setAttribute("title", state.isEditing ? "تأكيد الكلفة" : "تعديل الكلفة");
+    }
+
+    function renderCostOverrideState(editor, state) {
+      const cell = editor.closest("td");
+      editor.classList.toggle("is-overridden", !!state.isOverridden);
+      if (cell) cell.classList.toggle("ret-cost-overridden", !!state.isOverridden);
+
+      if (!state.isOverridden) {
+        editor.removeAttribute("title");
+        if (cell) cell.removeAttribute("title");
+        return;
+      }
+
+      const msg = state.currentReturnCost > state.originalPurchaseCost ? costWarnHigherMsg : costWarnLowerMsg;
+      editor.setAttribute("title", msg);
+      if (cell) cell.setAttribute("title", msg);
+    }
+
+    function cancelCostEditor(editor) {
+      const itemId = String(editor.getAttribute("data-item-id") || "").trim();
+      const state = costStateByItemId.get(itemId);
+      if (!state) return;
+      const input = editor.querySelector(".ret-cost-input");
+      const select = editor.querySelector(".ret-cost-cur-select");
+      if (!input || !select) return;
+      input.setCustomValidity("");
+      input.value = fmtCost4(state.currentReturnCost);
+      select.value = state.currentCurrency;
+      setCostEditorMode(editor, state, false);
+    }
+
+    function commitCostEditor(editor) {
+      const itemId = String(editor.getAttribute("data-item-id") || "").trim();
+      const state = costStateByItemId.get(itemId);
+      if (!state) return true;
+
+      const input = editor.querySelector(".ret-cost-input");
+      const select = editor.querySelector(".ret-cost-cur-select");
+      const hiddenCur = editor.querySelector(".ret-cost-cur-hidden");
+      if (!input || !select || !hiddenCur) return true;
+
+      const parsedCost = parseCostNumber(input.value);
+      if (parsedCost === null || parsedCost < 0) {
+        input.setCustomValidity("أدخل كلفة صحيحة (صفر أو أكبر).");
+        input.reportValidity();
+        return false;
+      }
+      input.setCustomValidity("");
+
+      const committedCost = money4(parsedCost);
+      const committedCurrency = normalizeCurrency(select.value, state.currentCurrency || state.originalCurrency);
+
+      state.currentReturnCost = committedCost;
+      state.currentCurrency = committedCurrency;
+      state.isOverridden = !sameCost(committedCost, state.originalPurchaseCost);
+
+      input.value = fmtCost4(committedCost);
+      select.value = committedCurrency;
+      hiddenCur.value = committedCurrency;
+
+      const tr = editor.closest("tr");
+      if (tr) {
+        tr.dataset.unitCost = String(committedCost);
+        tr.dataset.currency = committedCurrency;
+      }
+
+      setCostEditorMode(editor, state, false);
+      renderCostOverrideState(editor, state);
+      updateRemainingLabel();
+      return true;
+    }
+
+    function initCostEditors() {
+      const editors = form.querySelectorAll(".ret-cost-editor");
+      editors.forEach(function (editor) {
+        const itemId = String(editor.getAttribute("data-item-id") || "").trim();
+        if (!itemId) return;
+
+        const input = editor.querySelector(".ret-cost-input");
+        const select = editor.querySelector(".ret-cost-cur-select");
+        const hiddenCur = editor.querySelector(".ret-cost-cur-hidden");
+        const button = editor.querySelector(".ret-cost-toggle");
+        if (!input || !select || !hiddenCur || !button) return;
+
+        const originalCost = money4(parseCostNumber(editor.getAttribute("data-original-cost")) || 0);
+        const originalCurrency = normalizeCurrency(editor.getAttribute("data-original-currency"), "SYP");
+
+        let currentCost = parseCostNumber(input.value);
+        if (currentCost === null || currentCost < 0) currentCost = originalCost;
+        currentCost = money4(currentCost);
+
+        const currentCurrency = normalizeCurrency(hiddenCur.value || select.value, originalCurrency);
+        hiddenCur.value = currentCurrency;
+        select.value = currentCurrency;
+        input.value = fmtCost4(currentCost);
+
+        const state = {
+          originalPurchaseCost: originalCost,
+          currentReturnCost: currentCost,
+          originalCurrency: originalCurrency,
+          currentCurrency: currentCurrency,
+          isEditing: false,
+          isOverridden: !sameCost(currentCost, originalCost),
+        };
+        costStateByItemId.set(itemId, state);
+
+        const tr = editor.closest("tr");
+        if (tr) {
+          tr.dataset.unitCost = String(currentCost);
+          tr.dataset.currency = currentCurrency;
+        }
+
+        setCostEditorMode(editor, state, false);
+        renderCostOverrideState(editor, state);
+
+        button.addEventListener("click", function () {
+          if (state.isEditing) {
+            commitCostEditor(editor);
+            return;
+          }
+          setCostEditorMode(editor, state, true);
+          select.value = state.currentCurrency;
+          input.value = fmtCost4(state.currentReturnCost);
+          window.requestAnimationFrame(function () {
+            input.focus();
+            input.select();
+          });
+        });
+
+        input.addEventListener("keydown", function (evt) {
+          if (!state.isEditing) return;
+          if (evt.key === "Enter") {
+            evt.preventDefault();
+            commitCostEditor(editor);
+            return;
+          }
+          if (evt.key === "Escape") {
+            evt.preventDefault();
+            cancelCostEditor(editor);
+          }
+        });
+      });
+    }
+
     function isZeroFinancialTotal(totals) {
       return money2(totals.totalSyp || 0) === 0 && money2(totals.totalUsd || 0) === 0;
     }
@@ -852,10 +1117,9 @@
 
       const rows = form.querySelectorAll("tbody tr");
       rows.forEach(function (tr) {
-        selectedRowsCount += 1;
-
         const iid = tr.getAttribute("data-item-id");
         if (!iid) return;
+        selectedRowsCount += 1;
 
         const qStore = parseFloat(form["ret_store_" + iid]?.value || "0") || 0;
         const qWh1 = parseFloat(form["ret_wh1_" + iid]?.value || "0") || 0;
@@ -863,8 +1127,11 @@
         const qtyTotal = qStore + qWh1 + qWh2;
         if (qtyTotal <= 0) return;
 
-        const unitCost = parseFloat(tr.dataset.unitCost || "0") || 0;
-        const cur = (tr.dataset.currency || "SYP").toUpperCase();
+        const rowState = costStateByItemId.get(String(iid).trim());
+        const unitCost = rowState ? money4(rowState.currentReturnCost) : (parseFloat(tr.dataset.unitCost || "0") || 0);
+        const cur = rowState
+          ? normalizeCurrency(rowState.currentCurrency, "SYP")
+          : normalizeCurrency(tr.dataset.currency, "SYP");
         const lineTotal = money2(qtyTotal * unitCost);
 
         if (cur === "USD") {
@@ -975,6 +1242,23 @@
       }
     });
 
+    form.addEventListener("submit", function (e) {
+      let hasOpenEditor = false;
+      form.querySelectorAll(".ret-cost-editor").forEach(function (editor) {
+        const itemId = String(editor.getAttribute("data-item-id") || "").trim();
+        const state = costStateByItemId.get(itemId);
+        if (!state || !state.isEditing) return;
+        hasOpenEditor = true;
+        const input = editor.querySelector(".ret-cost-input");
+        if (input) {
+          input.setCustomValidity("يرجى تأكيد تعديل الكلفة أولاً.");
+          input.reportValidity();
+        }
+      });
+      if (!hasOpenEditor) return;
+      e.preventDefault();
+    });
+
     if (valuationMode) {
       valuationMode.addEventListener("change", updateRemainingLabel);
     }
@@ -987,6 +1271,7 @@
       radio.addEventListener("change", handleStatusChange);
     });
 
+    initCostEditors();
     refreshReturnPublicIdPreview();
     handleStatusChange();
   })();

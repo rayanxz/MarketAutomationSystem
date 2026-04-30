@@ -1570,6 +1570,8 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 "unit1_label": unit1_label,
                 "cost": it.cost,
                 "currency": getattr(it, "currency", None) or "SYP",
+                "ret_cost_raw": "",
+                "ret_currency_raw": "",
                 "left_qty": left_qty,
                 "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
                 "store_qty": store_qty,
@@ -1610,11 +1612,13 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
             key_wh1 = f"ret_wh1_{iid}"
             key_wh2 = f"ret_wh2_{iid}"
             key_cost = f"ret_cost_{iid}"
+            key_currency = f"ret_currency_{iid}"
 
             r["ret_store_raw"] = (request.POST.get(key_store) or "").strip()
             r["ret_wh1_raw"] = (request.POST.get(key_wh1) or "").strip()
             r["ret_wh2_raw"] = (request.POST.get(key_wh2) or "").strip()
             r["ret_cost_raw"] = (request.POST.get(key_cost) or "").strip()
+            r["ret_currency_raw"] = (request.POST.get(key_currency) or "").strip().upper()
 
         # 2) build payload + validate
         items_payload: list[dict[str, Any]] = []
@@ -1638,11 +1642,6 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 iid = r["item_id"]
                 it = items_by_id[iid]
                 prod = it.product
-
-                key_store = f"ret_store_{iid}"
-                key_wh1 = f"ret_wh1_{iid}"
-                key_wh2 = f"ret_wh2_{iid}"
-                key_cost = f"ret_cost_{iid}"
 
                 # use the raw values we already copied into row
                 q_store = _dec(r.get("ret_store_raw"), "0")
@@ -1669,8 +1668,24 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 if qty_total > r["left_qty"]:
                     raise ValueError(f"Return qty exceeds remaining FIFO qty for '{prod.name}'.")
 
-                item_currency = (getattr(it, "currency", None) or "SYP").upper()
-                cost = q4(Decimal(str(it.cost or "0")))
+                purchase_currency = (getattr(it, "currency", None) or "SYP").upper()
+                purchase_cost = q4(Decimal(str(it.cost or "0")))
+
+                raw_currency = (r.get("ret_currency_raw") or "").strip().upper()
+                item_currency = raw_currency or purchase_currency
+                if item_currency not in {"SYP", "USD"}:
+                    raise ValueError(f"Invalid return currency for '{prod.name}'.")
+
+                raw_cost = (r.get("ret_cost_raw") or "").strip()
+                if raw_cost:
+                    try:
+                        cost = q4(Decimal(raw_cost))
+                    except Exception:
+                        raise ValueError(f"Invalid return cost for '{prod.name}'.")
+                else:
+                    cost = purchase_cost
+                if cost < DEC0:
+                    raise ValueError(f"Invalid negative return cost for '{prod.name}'.")
 
                 line_total_raw = (cost * q3(qty_total)).quantize(DEC2, rounding=ROUND_HALF_UP)
                 line_total = _q_money(item_currency, line_total_raw)
