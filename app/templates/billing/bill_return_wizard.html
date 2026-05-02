@@ -103,6 +103,7 @@
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
+    text-align:center;
   }
 
   .ret-head-grid{
@@ -250,7 +251,7 @@
   }
   table.ret-table th.col-product,
   table.ret-table td.col-product{
-    text-align:start;
+    text-align:center;
     width:var(--col-product-width);
     min-width:var(--col-product-width);
     max-width:var(--col-product-width);
@@ -272,6 +273,12 @@
   table.ret-table th.col-qty,
   table.ret-table td.col-qty{
     white-space:nowrap;
+  }
+  table.ret-table th.col-qty-main,
+  table.ret-table td.col-qty-main{
+    width:auto;
+    min-width:0;
+    max-width:none;
   }
   table.ret-table th.col-qty-return,
   table.ret-table td.col-qty-return{

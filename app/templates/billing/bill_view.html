@@ -971,14 +971,14 @@
 
             <!-- qty u1 / u2 -->
             <td class="col-qty-cell qty-display {% if row.highlight_unit == 1 %}hl-unit{% endif %}">
-              <span class="cell-clip" title="{{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.qty_u1_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.qty_u1_str }}">
+                {{ row.qty_u1_str }}
               </span>
             </td>
             <td class="col-qty-cell qty-display {% if row.highlight_unit == 2 %}hl-unit{% endif %}">
               {% if row.unit2_label %}
-                <span class="cell-clip" title="{{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}">
-                  {{ row.qty_u2_ui|human_number }} {{ row.unit2_label }}
+                <span class="cell-clip" title="{{ row.qty_u2_str }}">
+                  {{ row.qty_u2_str }}
                 </span>
               {% else %}
                 <span class="cell-clip" title="&mdash;">&mdash;</span>
@@ -998,37 +998,37 @@
 
             <!-- containers -->
             <td class="col-orange col-balance-total-cell stock-display stock-total-col">
-              <span class="cell-clip" title="{{ row.total_remaining_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.total_remaining_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.total_remaining_str }}">
+                {{ row.total_remaining_str }}
               </span>
             </td>
             <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">
-              <span class="cell-clip" title="{{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.store_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.store_qty_str }}">
+                {{ row.store_qty_str }}
               </span>
             </td>
             <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">
-              <span class="cell-clip" title="{{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.wh1_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.wh1_qty_str }}">
+                {{ row.wh1_qty_str }}
               </span>
             </td>
             <td class="col-orange col-balance-detail-cell stock-display stock-detail-col">
-              <span class="cell-clip" title="{{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.wh2_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.wh2_qty_str }}">
+                {{ row.wh2_qty_str }}
               </span>
             </td>
 
             <!-- sold -->
             <td class="col-purple col-flow-cell stock-display">
-              <span class="cell-clip" title="{{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.sold_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.sold_qty_str }}">
+                {{ row.sold_qty_str }}
               </span>
             </td>
 
             <!-- total returned -->
             <td class="col-red col-flow-cell stock-display">
-              <span class="cell-clip" title="{{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}">
-                {{ row.returned_qty_ui|human_number }}{% if row.unit1_label %} {{ row.unit1_label }}{% endif %}
+              <span class="cell-clip" title="{{ row.returned_qty_str }}">
+                {{ row.returned_qty_str }}
               </span>
             </td>
 

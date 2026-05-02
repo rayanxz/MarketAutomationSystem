@@ -23,6 +23,7 @@ from financials.models import Currency, MoneyContainer
 from financials import services as FinSV
 from core.public_ids import peek_next_public_id
 from core.date_filters import parse_filter_date
+from core.formatters import format_quantity
 
 
 DEC2 = Decimal("0.01")
@@ -1214,33 +1215,34 @@ def bill_view(request, bill_id: str):
                 "currency": (getattr(it, "currency", None) or "SYP").upper(),
                 "qty_u1": qty_u1,
                 "qty_u1_ui": _ui_2dp(qty_u1),
-                "qty_u1_str": f"{_fmt2(qty_u1)} {unit1_label}",
+                "qty_u1_str": format_quantity(qty_u1, unit1_label),
                 "qty_u2": qty_u2,
                 "qty_u2_ui": _ui_2dp(qty_u2),
-                "qty_u2_str": f"{_fmt2(qty_u2)} {unit2_label}" if unit2_label else "",
+                "qty_u2_str": format_quantity(qty_u2, unit2_label) if unit2_label else "",
                 "highlight_unit": highlight_unit,
                 "line_total": it.line_total,
                 "left_qty": left_qty,
-                "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
+                "left_qty_str": format_quantity(left_qty, unit1_label),
                 "returned_qty": total_returned,
                 "returned_qty_ui": _ui_2dp(total_returned),
-                "returned_qty_str": f"{_fmt2(total_returned)} {unit1_label}",
+                "returned_qty_str": format_quantity(total_returned, unit1_label),
                 "has_returns": has_returns,
                 "can_return": left_qty > DEC0,
                 "store_qty": store_qty,
                 "store_qty_ui": _ui_2dp(store_qty),
-                "store_qty_str": f"{_fmt2(store_qty)} {unit1_label}",
+                "store_qty_str": format_quantity(store_qty, unit1_label),
                 "wh1_qty": wh1_qty,
                 "wh1_qty_ui": _ui_2dp(wh1_qty),
-                "wh1_qty_str": f"{_fmt2(wh1_qty)} {unit1_label}",
+                "wh1_qty_str": format_quantity(wh1_qty, unit1_label),
                 "wh2_qty": wh2_qty,
                 "wh2_qty_ui": _ui_2dp(wh2_qty),
-                "wh2_qty_str": f"{_fmt2(wh2_qty)} {unit1_label}",
+                "wh2_qty_str": format_quantity(wh2_qty, unit1_label),
                 "total_remaining": total_remaining,
                 "total_remaining_ui": _ui_2dp(total_remaining),
+                "total_remaining_str": format_quantity(total_remaining, unit1_label),
                 "sold_qty": sold_qty,
                 "sold_qty_ui": _ui_2dp(sold_qty),
-                "sold_qty_str": f"{_fmt2(sold_qty)} {unit1_label}",
+                "sold_qty_str": format_quantity(sold_qty, unit1_label),
                 # for search
                 "product_id": prod_code,
                 "code": prod_code,
@@ -1573,13 +1575,13 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 "ret_cost_raw": "",
                 "ret_currency_raw": "",
                 "left_qty": left_qty,
-                "left_qty_str": f"{_fmt2(left_qty)} {unit1_label}",
+                "left_qty_str": format_quantity(left_qty, unit1_label),
                 "store_qty": store_qty,
-                "store_qty_str": f"{_fmt2(store_qty)} {unit1_label}",
+                "store_qty_str": format_quantity(store_qty, unit1_label),
                 "wh1_qty": wh1_qty,
-                "wh1_qty_str": f"{_fmt2(wh1_qty)} {unit1_label}",
+                "wh1_qty_str": format_quantity(wh1_qty, unit1_label),
                 "wh2_qty": wh2_qty,
-                "wh2_qty_str": f"{_fmt2(wh2_qty)} {unit1_label}",
+                "wh2_qty_str": format_quantity(wh2_qty, unit1_label),
             }
         )
 #=========================from here ================================================================
