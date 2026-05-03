@@ -25,8 +25,12 @@
   .ret-wizard{
     --col-product-width:220px;
     --col-qty-return-width:104px;
+    --col-qty-stable-width:132px;
+    --col-qty-main-2plus-width:calc(var(--col-qty-stable-width) - 1cm);
     --col-unit-cost-width:calc(176px + 2cm);
     --col-total-cost-width:var(--col-unit-cost-width);
+    --col-fixed-width-total:calc(var(--col-product-width) + var(--col-unit-cost-width) + var(--col-total-cost-width));
+    --col-qty-shared-width:calc((100% - var(--col-fixed-width-total)) / 4);
   }
 
   .bill-wrap{
@@ -227,9 +231,6 @@
     border-collapse:collapse;
     table-layout:fixed;
   }
-  .ret-wizard.ret-force-scroll table.ret-table{
-    min-width:1280px;
-  }
   table.ret-table th,
   table.ret-table td{
     border-bottom:1px solid #eef2f7;
@@ -286,6 +287,71 @@
     min-width:var(--col-qty-return-width);
     max-width:var(--col-qty-return-width);
   }
+  table.ret-table th.col-qty-main,
+  table.ret-table td.col-qty-main,
+  table.ret-table th.col-qty-return,
+  table.ret-table td.col-qty-return{
+    transition:width .18s ease;
+  }
+  .ret-table-wrap.table-state-1 .ret-col-total-remaining,
+  .ret-table-wrap.table-state-2plus .ret-col-total-remaining{
+    display:none;
+  }
+  .ret-table-wrap.table-state-0{
+    --col-store-pair-width:var(--col-qty-shared-width);
+    --col-wh1-pair-width:var(--col-qty-shared-width);
+    --col-wh2-pair-width:var(--col-qty-shared-width);
+  }
+  .ret-table-wrap.table-state-1{
+    --col-store-pair-width:var(--col-qty-shared-width);
+    --col-wh1-pair-width:var(--col-qty-shared-width);
+    --col-wh2-pair-width:var(--col-qty-shared-width);
+  }
+  .ret-table-wrap.table-state-2plus{
+    --col-store-pair-width:var(--col-qty-main-2plus-width);
+    --col-wh1-pair-width:var(--col-qty-main-2plus-width);
+    --col-wh2-pair-width:var(--col-qty-main-2plus-width);
+  }
+  .ret-table-wrap.table-state-0 table.ret-table th.col-qty-main,
+  .ret-table-wrap.table-state-0 table.ret-table td.col-qty-main{
+    width:var(--col-qty-shared-width);
+    min-width:var(--col-qty-shared-width);
+    max-width:var(--col-qty-shared-width);
+  }
+  .ret-table-wrap.table-state-1 table.ret-table th.col-qty-main,
+  .ret-table-wrap.table-state-1 table.ret-table td.col-qty-main,
+  .ret-table-wrap.table-state-1 table.ret-table th.col-qty-return,
+  .ret-table-wrap.table-state-1 table.ret-table td.col-qty-return{
+    width:var(--col-qty-shared-width);
+    min-width:var(--col-qty-shared-width);
+    max-width:var(--col-qty-shared-width);
+  }
+  .ret-table-wrap table.ret-table th.col-store,
+  .ret-table-wrap table.ret-table td.col-store{
+    width:var(--col-store-pair-width);
+    min-width:var(--col-store-pair-width);
+    max-width:var(--col-store-pair-width);
+  }
+  .ret-table-wrap table.ret-table th.col-wh1,
+  .ret-table-wrap table.ret-table td.col-wh1{
+    width:var(--col-wh1-pair-width);
+    min-width:var(--col-wh1-pair-width);
+    max-width:var(--col-wh1-pair-width);
+  }
+  .ret-table-wrap table.ret-table th.col-wh2,
+  .ret-table-wrap table.ret-table td.col-wh2{
+    width:var(--col-wh2-pair-width);
+    min-width:var(--col-wh2-pair-width);
+    max-width:var(--col-wh2-pair-width);
+  }
+  .ret-table-wrap.table-state-2plus table.ret-table{
+    min-width:calc(
+      var(--col-fixed-width-total) +
+      (var(--col-store-pair-width) * 2) +
+      (var(--col-wh1-pair-width) * 2) +
+      (var(--col-wh2-pair-width) * 2)
+    );
+  }
   .col-store{ background:#eff6ff; }
   .col-wh1{ background:#ecfdf3; }
   .col-wh2{ background:#fef2f2; }
@@ -324,6 +390,35 @@
   .ret-pair-toggle[disabled]{
     opacity:.5;
     cursor:not-allowed;
+  }
+  .ret-table-wrap.table-state-2plus .ret-pair-head{
+    gap:4px;
+    justify-content:flex-start;
+  }
+  .ret-table-wrap.table-state-2plus .ret-pair-head > span{
+    min-width:0;
+    flex:1 1 auto;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .ret-table-wrap.table-state-2plus .ret-pair-toggle{
+    width:18px;
+    min-width:18px;
+    height:18px;
+    min-height:18px;
+    padding:0;
+    margin:0;
+    border-radius:4px;
+    border-color:#d1d5db;
+    background:transparent;
+    font-size:12px;
+    line-height:1;
+    flex:0 0 auto;
+  }
+  .ret-table-wrap.table-state-2plus .ret-pair-toggle:hover{
+    background:#eef2ff;
+    border-color:#c7d2fe;
   }
 
   .ret-qty{
@@ -693,14 +788,14 @@
       </section>
 
       <section class="items">
-        <div class="ret-table-wrap">
+        <div class="ret-table-wrap table-state-0">
           <table class="ret-table">
             <thead>
               <tr>
                 <th class="col-product">المنتج</th>
                 <th class="col-unit-cost">كلفة الوحدة</th>
                 <th class="col-total-cost">الكلفة الإجمالية</th>
-                <th class="col-qty col-qty-main">المتبقي الكلي</th>
+                <th class="col-qty col-qty-main ret-col-total-remaining">المتبقي الكلي</th>
                 <th class="col-qty col-qty-main col-store">
                   <div class="ret-pair-head">
                     <span>متاح المتجر</span>
@@ -801,7 +896,7 @@
                   </div>
                   {% endwith %}
                 </td>
-                <td class="col-qty col-qty-main">{{ r.left_qty_str }}</td>
+                <td class="col-qty col-qty-main ret-col-total-remaining">{{ r.left_qty_str }}</td>
                 <td class="col-qty col-qty-main col-store">{{ r.store_qty_str }}</td>
                 <td class="col-qty col-qty-return col-store ret-return-col ret-return-store">
                   <input
@@ -955,6 +1050,7 @@
     if (!form) return;
     const wizard = form.querySelector(".ret-wizard");
     if (!wizard) return;
+    const tableWrap = form.querySelector(".ret-table-wrap");
 
     const totalSypBox = document.getElementById("retTotalSyp");
     const totalUsdBox = document.getElementById("retTotalUsd");
@@ -1182,13 +1278,24 @@
     }
 
     function syncCollapseState() {
-      const collapsedStore = wizard.classList.contains(returnColumnMeta.store.collapseClass);
-      const collapsedWh1 = wizard.classList.contains(returnColumnMeta.wh1.collapseClass);
-      const collapsedWh2 = wizard.classList.contains(returnColumnMeta.wh2.collapseClass);
-      const collapsedCount = [collapsedStore, collapsedWh1, collapsedWh2].filter(Boolean).length;
+      let expandedCount = 0;
+      Object.keys(returnColumnMeta).forEach(function (key) {
+        const meta = returnColumnMeta[key];
+        if (!meta) return;
+        const isCollapsed = wizard.classList.contains(meta.collapseClass);
+        if (!isCollapsed) expandedCount += 1;
+      });
 
-      wizard.classList.remove("ret-force-scroll");
-      if (collapsedCount <= 1) wizard.classList.add("ret-force-scroll");
+      if (tableWrap) {
+        tableWrap.classList.remove("table-state-0", "table-state-1", "table-state-2plus");
+        if (expandedCount === 0) {
+          tableWrap.classList.add("table-state-0");
+        } else if (expandedCount === 1) {
+          tableWrap.classList.add("table-state-1");
+        } else {
+          tableWrap.classList.add("table-state-2plus");
+        }
+      }
 
       pairToggleButtons.forEach(function (btn) {
         const key = String(btn.dataset.toggleReturn || "");
