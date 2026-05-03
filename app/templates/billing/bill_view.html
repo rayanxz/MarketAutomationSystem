@@ -787,32 +787,32 @@
     <div class="audit-grid">
       <div class="audit-item">
         <span class="audit-label">رمز الفاتورة (آلي):</span>
-        <span class="audit-value pname" title="{{ bill.public_id }}"><span class="pname-text">{{ bill.public_id }}</span></span>
+        <span class="audit-value pname" title="{{ bill.public_id }}"><span class="pname-text truncate-cell">{{ bill.public_id }}</span></span>
       </div>
 
       <div class="audit-item">
         <span class="audit-label">اسم المورد:</span>
-        <span class="audit-value pname" title="{{ bill.provider.name }}"><span class="pname-text">{{ bill.provider.name }}</span></span>
+        <span class="audit-value pname" title="{{ bill.provider.name }}"><span class="pname-text truncate-cell">{{ bill.provider.name }}</span></span>
       </div>
 
       <div class="audit-item">
         <span class="audit-label">مكان التخزين:</span>
-        <span class="audit-value pname" title="{{ storage_location_label }}"><span class="pname-text">{{ storage_location_label }}</span></span>
+        <span class="audit-value pname" title="{{ storage_location_label }}"><span class="pname-text truncate-cell">{{ storage_location_label }}</span></span>
       </div>
 
       <div class="audit-item">
         <span class="audit-label">تاريخ الإنشاء:</span>
-        <span class="audit-value pname" title="{{ bill.created_at|date:'Y-m-d H:i' }}"><span class="pname-text">{{ bill.created_at|date:"Y-m-d H:i" }}</span></span>
+        <span class="audit-value pname" title="{{ bill.created_at|date:'Y-m-d H:i' }}"><span class="pname-text truncate-cell">{{ bill.created_at|date:"Y-m-d H:i" }}</span></span>
       </div>
 
       <div class="audit-item">
         <span class="audit-label">أُنشئت بواسطة:</span>
         {% if bill.created_by %}
           {% with creator_name=bill.created_by.get_full_name|default:bill.created_by.username %}
-            <span class="audit-value pname" title="{{ creator_name }}"><span class="pname-text">{{ creator_name }}</span></span>
+            <span class="audit-value pname" title="{{ creator_name }}"><span class="pname-text truncate-cell">{{ creator_name }}</span></span>
           {% endwith %}
         {% else %}
-          <span class="audit-value pname" title="—"><span class="pname-text">—</span></span>
+          <span class="audit-value pname" title="—"><span class="pname-text truncate-cell">—</span></span>
         {% endif %}
       </div>
     </div>
@@ -955,7 +955,7 @@
 
             <!-- product -->
             <td class="pname col-product-cell" title="{{ row.product_name }}">
-              <span class="pname-text">{{ row.product_name }}</span>
+              <span class="pname-text truncate-cell">{{ row.product_name }}</span>
             </td>
 
             <!-- cost -->

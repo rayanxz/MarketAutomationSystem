@@ -798,32 +798,38 @@
                 <th class="col-qty col-qty-main ret-col-total-remaining">المتبقي الكلي</th>
                 <th class="col-qty col-qty-main col-store">
                   <div class="ret-pair-head">
-                    <span>متاح المتجر</span>
+                    <span class="truncate-cell" title="متاح المتجر">متاح المتجر</span>
                     <button type="button" class="ret-pair-toggle" data-toggle-return="store" aria-expanded="false" aria-label="إظهار مرتجع المتجر" title="إظهار مرتجع المتجر">+</button>
                   </div>
                 </th>
-                <th class="col-qty col-qty-return col-store ret-return-col ret-return-store">مرتجع المتجر</th>
+                <th class="col-qty col-qty-return col-store ret-return-col ret-return-store">
+                  <span class="truncate-cell" title="مرتجع المتجر">مرتجع المتجر</span>
+                </th>
                 <th class="col-qty col-qty-main col-wh1">
                   <div class="ret-pair-head">
-                    <span>متاح مستودع 1</span>
+                    <span class="truncate-cell" title="متاح مستودع 1">متاح مستودع 1</span>
                     <button type="button" class="ret-pair-toggle" data-toggle-return="wh1" aria-expanded="false" aria-label="إظهار مرتجع مستودع 1" title="إظهار مرتجع مستودع 1">+</button>
                   </div>
                 </th>
-                <th class="col-qty col-qty-return col-wh1 ret-return-col ret-return-wh1">مرتجع مستودع 1</th>
+                <th class="col-qty col-qty-return col-wh1 ret-return-col ret-return-wh1">
+                  <span class="truncate-cell" title="مرتجع مستودع 1">مرتجع مستودع 1</span>
+                </th>
                 <th class="col-qty col-qty-main col-wh2">
                   <div class="ret-pair-head">
-                    <span>متاح مستودع 2</span>
+                    <span class="truncate-cell" title="متاح مستودع 2">متاح مستودع 2</span>
                     <button type="button" class="ret-pair-toggle" data-toggle-return="wh2" aria-expanded="false" aria-label="إظهار مرتجع مستودع 2" title="إظهار مرتجع مستودع 2">+</button>
                   </div>
                 </th>
-                <th class="col-qty col-qty-return col-wh2 ret-return-col ret-return-wh2">مرتجع مستودع 2</th>
+                <th class="col-qty col-qty-return col-wh2 ret-return-col ret-return-wh2">
+                  <span class="truncate-cell" title="مرتجع مستودع 2">مرتجع مستودع 2</span>
+                </th>
               </tr>
             </thead>
             <tbody>
             {% for r in rows %}
               <tr data-item-id="{{ r.item_id }}" data-unit-cost="{{ r.cost|unlocalize }}" data-currency="{{ r.currency|upper }}">
                 <td class="col-product pname" title="{{ r.product_name }}">
-                  <span class="pname-text">{{ r.product_name }}</span>
+                  <span class="pname-text truncate-cell" title="{{ r.product_name }}">{{ r.product_name }}</span>
                 </td>
                 <td class="col-unit-cost">
                   {% with row_currency=r.ret_currency_raw|default:r.currency|upper %}

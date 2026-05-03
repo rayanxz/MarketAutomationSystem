@@ -483,6 +483,17 @@ body:has(.auth-wrap.auth-dark){ background:var(--bg-0); }
 /* Misc */
 .muted{ color:#666; }
 
+/* Reusable text truncation for table/list text-only cells + native title tooltip. */
+.truncate-cell{
+  display:block;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+
 /* =========================
    Manager – two-pane layout
    ========================= */

@@ -683,7 +683,7 @@ refreshAutoSerial();
     const priceUsdVal = prod.allow_usd_sales ? defaultPriceFor(prod, "USD") : "";
 
     tr.innerHTML = `
-      <td class="pname"><span class="pname-text"></span></td>
+      <td class="pname"><span class="pname-text truncate-cell"></span></td>
       <td class="cost-cell"><input name="cost[]" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" step="0.01" value="${costVal}"></td>
       <td>
         <select class="input cur-ui" ${lockCurrency ? "disabled" : ""}>${curOptions.join("")}</select>
