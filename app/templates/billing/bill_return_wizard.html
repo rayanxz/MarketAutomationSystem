@@ -1260,6 +1260,26 @@
       if (!state || !state.is_overridden) return "";
       return state.current_value_syp > state.original_purchase_cost_syp ? costWarnHigherMsg : costWarnLowerMsg;
     }
+    function warningReferenceValueForEditor(state, kind) {
+      if (!state) return 0;
+      const originalUnit = money4(
+        state.original_unit_cost !== undefined
+          ? state.original_unit_cost
+          : (state.original_purchase_cost_syp || 0)
+      );
+      if (kind === "total") {
+        const qty = Number(state.total_qty || 0);
+        const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 0;
+        return money4(originalUnit * safeQty);
+      }
+      return originalUnit;
+    }
+    function warningMessageForEditor(state, kind) {
+      const base = warningMessageForState(state);
+      if (!base) return "";
+      const referenceValue = warningReferenceValueForEditor(state, kind);
+      return base + " , (" + fmt(referenceValue) + ")";
+    }
 
     function renderRowState(state) {
       if (!state) return;
@@ -1278,9 +1298,10 @@
         state.tr.dataset.unitCost = String(state.current_value);
         state.tr.dataset.currency = state.current_currency;
       }
-      const msg = warningMessageForState(state);
-      applyWarningToEditor(unitEditor, state.is_overridden, msg);
-      applyWarningToEditor(totalEditor, state.is_overridden, msg);
+      const unitMsg = warningMessageForEditor(state, "unit");
+      const totalMsg = warningMessageForEditor(state, "total");
+      applyWarningToEditor(unitEditor, state.is_overridden, unitMsg);
+      applyWarningToEditor(totalEditor, state.is_overridden, totalMsg);
     }
 
     function syncCollapseState() {
@@ -1508,6 +1529,7 @@
         const state = {
           itemId: itemId,
           tr: tr,
+          original_unit_cost: originalUnitCost,
           original_purchase_cost_syp: originalPurchaseCostSyp,
           original_currency: originalCurrency,
           current_value: currentUnitCost,
