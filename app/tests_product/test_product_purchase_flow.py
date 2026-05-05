@@ -41,14 +41,14 @@ class ProductPurchaseFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 2,
                     "qty_raw": "3",
-                    "cost": "5.0000",
-                    "price": "9.0000",
+                    "cost": "5.00",
+                    "price": "9.00",
                     "currency": "SYP",
                 }
             ],
@@ -59,7 +59,7 @@ class ProductPurchaseFlowTests(TestCase):
         )
 
         item = BillItem.objects.get(bill=bill, product=prod)
-        self.assertEqual(item.qty_primary, Decimal("6.000"))
+        self.assertEqual(item.qty_primary, Decimal("6.00"))
         self.assertEqual(item.conv_factor_at_txn, Decimal("2"))
         self.assertTrue(item.unit_1_label_at_txn)
 
@@ -67,7 +67,7 @@ class ProductPurchaseFlowTests(TestCase):
         prod.save(update_fields=["notes"])
 
         qty_u2 = (item.qty_primary / item.conv_factor_at_txn) if item.unit_index == 2 else item.qty_primary
-        self.assertEqual(qty_u2, Decimal("3.000"))
+        self.assertEqual(qty_u2, Decimal("3.00"))
 
     def test_purchase_bill_primary_unit_qty_primary(self):
         _, pset = create_collection_set("C-B2", "S-B2")
@@ -83,14 +83,14 @@ class ProductPurchaseFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "4",
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],
@@ -101,7 +101,7 @@ class ProductPurchaseFlowTests(TestCase):
         )
 
         item = BillItem.objects.get(bill=bill, product=prod)
-        self.assertEqual(item.qty_primary, Decimal("4.000"))
+        self.assertEqual(item.qty_primary, Decimal("4.00"))
 
     def test_purchase_bill_usd_currency_snapshot(self):
         _, pset = create_collection_set("C-B3", "S-B3")
@@ -119,14 +119,14 @@ class ProductPurchaseFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "1",
-                    "cost": "2.5000",
-                    "price": "3.0000",
+                    "cost": "2.50",
+                    "price": "3.00",
                     "currency": "USD",
                 }
             ],

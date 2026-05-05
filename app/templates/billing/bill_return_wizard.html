@@ -848,10 +848,11 @@
                     <input
                       type="number"
                       class="ret-cost-input ret-unit-cost-input input numeric-math"
+                      data-math-max-decimals="2"
                       name="ret_cost_{{ r.item_id }}"
                       min="0"
-                      step="0.0001"
-                      placeholder="0.0000"
+                      step="0.01"
+                      placeholder="0.00"
                       value="{% if r.ret_cost_raw %}{{ r.ret_cost_raw }}{% else %}{{ r.cost|unlocalize }}{% endif %}"
                       readonly
                     >
@@ -887,10 +888,11 @@
                     <input
                       type="number"
                       class="ret-cost-input ret-total-cost-input input numeric-math"
+                      data-math-max-decimals="2"
                       min="0"
-                      step="0.0001"
-                      placeholder="0.0000"
-                      value="0.0000"
+                      step="0.01"
+                      placeholder="0.00"
+                      value="0.00"
                       readonly
                     >
                     <button
@@ -1027,9 +1029,10 @@
                   id="returnPaidAmount"
                   name="return_paid_amount"
                   class="input numeric-math"
+                  data-math-max-decimals="2"
                   min="0"
-                  step="0.001"
-                  placeholder="0.000"
+                  step="0.01"
+                  placeholder="0.00"
                   value="{{ return_paid_amount_raw }}"
                   {% if return_status_selected != "partial" %}disabled{% endif %}
                 >
@@ -1092,11 +1095,114 @@
     const moneyContainer = document.getElementById("moneyContainer");
     const fxAtReturnCreationInput = document.getElementById("fxAtReturnCreation");
 
-    const fxCurrent = parseFloat("{{ fx_current|default_if_none:''|unlocalize }}") || 0;
-    const fxBill = parseFloat("{{ fx_bill|default_if_none:''|unlocalize }}") || 0;
-    const fxAtReturnCreation = fxCurrent > 0 ? fxCurrent : (fxBill > 0 ? fxBill : 0);
+    const SCALE_MONEY = 2;
+    const SCALE_QTY = 3;
+    const SCALE_FX = 6;
+    const BIG_ZERO = 0n;
+    const BIG_TEN = 10n;
+
+    function pow10(scale) {
+      let out = 1n;
+      for (let i = 0; i < scale; i += 1) out *= BIG_TEN;
+      return out;
+    }
+
+    const POW10_MONEY = pow10(SCALE_MONEY);
+    const POW10_QTY = pow10(SCALE_QTY);
+    const POW10_FX = pow10(SCALE_FX);
+
+    function normalizeDecimalInput(raw) {
+      return String(raw == null ? "" : raw).trim().replace(/,/g, "");
+    }
+
+    function parseDecimalToken(raw) {
+      const text = normalizeDecimalInput(raw);
+      if (!text) return null;
+      if (!/^[+-]?(?:\d+|\d*\.\d+)$/.test(text)) return null;
+      const negative = text.startsWith("-");
+      const unsigned = text.startsWith("+") || text.startsWith("-") ? text.slice(1) : text;
+      const parts = unsigned.split(".");
+      const intPart = parts[0] || "0";
+      const fracPart = parts.length > 1 ? (parts[1] || "") : "";
+      const digitsRaw = (intPart + fracPart).replace(/^0+(?=\d)/, "");
+      const digits = digitsRaw ? BigInt(digitsRaw) : BIG_ZERO;
+      return { negative, digits, fracLen: fracPart.length };
+    }
+
+    function roundTokenToScale(token, scale) {
+      if (!token) return null;
+      const sign = token.negative ? -1n : 1n;
+      if (token.fracLen <= scale) {
+        return sign * token.digits * pow10(scale - token.fracLen);
+      }
+      const cut = token.fracLen - scale;
+      const divisor = pow10(cut);
+      let q = token.digits / divisor;
+      const r = token.digits % divisor;
+      if ((r * 2n) >= divisor) q += 1n;
+      return sign * q;
+    }
+
+    function parseScaledStrict(raw, scale) {
+      const token = parseDecimalToken(raw);
+      if (!token) return null;
+      if (token.fracLen > scale) return null;
+      return roundTokenToScale(token, scale);
+    }
+
+    function divRoundHalfUpSigned(numerator, denominator) {
+      if (denominator === BIG_ZERO) return BIG_ZERO;
+      const negative = numerator < BIG_ZERO;
+      const absNum = negative ? -numerator : numerator;
+      let q = absNum / denominator;
+      const r = absNum % denominator;
+      if ((r * 2n) >= denominator) q += 1n;
+      return negative ? -q : q;
+    }
+
+    function scaledToString(value, scale, fixedScale) {
+      let v = value == null ? BIG_ZERO : value;
+      if (typeof v !== "bigint") v = roundTokenToScale(parseDecimalToken(v), scale) ?? BIG_ZERO;
+      const negative = v < BIG_ZERO;
+      const abs = negative ? -v : v;
+      const divisor = pow10(scale);
+      const whole = abs / divisor;
+      let frac = (abs % divisor).toString().padStart(scale, "0");
+      if (!fixedScale) frac = frac.replace(/0+$/, "");
+      const sign = negative ? "-" : "";
+      if (!frac) return sign + whole.toString();
+      return sign + whole.toString() + "." + frac;
+    }
+
+    function money2(value) {
+      if (typeof value === "bigint") return value;
+      return roundTokenToScale(parseDecimalToken(value), SCALE_MONEY) ?? BIG_ZERO;
+    }
+
+    function qty3(value) {
+      if (typeof value === "bigint") return value;
+      return roundTokenToScale(parseDecimalToken(value), SCALE_QTY) ?? BIG_ZERO;
+    }
+
+    function parseMoneyCentsStrict(value) {
+      return parseScaledStrict(value, SCALE_MONEY);
+    }
+
+    function parseQtyMills(value) {
+      const parsed = parseScaledStrict(value, SCALE_QTY);
+      if (parsed === null || parsed < BIG_ZERO) return BIG_ZERO;
+      return parsed;
+    }
+
+    const fxCurrentRaw = "{{ fx_current|default_if_none:''|unlocalize }}";
+    const fxBillRaw = "{{ fx_bill|default_if_none:''|unlocalize }}";
+    const fxCurrent = parseScaledStrict(fxCurrentRaw, SCALE_FX);
+    const fxBill = parseScaledStrict(fxBillRaw, SCALE_FX);
+    const fxAtReturnCreation = (fxCurrent !== null && fxCurrent > BIG_ZERO)
+      ? fxCurrent
+      : ((fxBill !== null && fxBill > BIG_ZERO) ? fxBill : BIG_ZERO);
     if (fxAtReturnCreationInput) {
-      fxAtReturnCreationInput.value = fxAtReturnCreation > 0 ? String(fxAtReturnCreation) : "";
+      fxAtReturnCreationInput.value = fxAtReturnCreation > BIG_ZERO ? scaledToString(fxAtReturnCreation, SCALE_FX, false) : "";
     }
 
     function getCurrentStatus() {
@@ -1106,20 +1212,8 @@
       return "none";
     }
 
-    function money2(num) {
-      const n = Number(num || 0);
-      if (!Number.isFinite(n)) return 0;
-      return Math.round((n + Number.EPSILON) * 100) / 100;
-    }
-
-    function money4(num) {
-      const n = Number(num || 0);
-      if (!Number.isFinite(n)) return 0;
-      return Math.round((n + Number.EPSILON) * 10000) / 10000;
-    }
-
     function sameCost(a, b) {
-      return Math.abs(money4(a) - money4(b)) < 0.00005;
+      return money2(a) === money2(b);
     }
 
     function normalizeCurrency(value, fallback) {
@@ -1129,44 +1223,48 @@
     }
 
     function parseCostNumber(value) {
-      const parsed = parseFloat(String(value || "").trim());
-      if (!Number.isFinite(parsed)) return null;
-      return parsed;
+      return parseMoneyCentsStrict(value);
     }
     function parseQtyNumber(value) {
-      const parsed = parseFloat(String(value || "").trim());
-      if (!Number.isFinite(parsed)) return 0;
-      if (parsed < 0) return 0;
-      return parsed;
+      return parseQtyMills(value);
     }
 
-    function fmtCost4(num) {
-      return money4(num).toFixed(4);
+    function fmtCost2(num) {
+      return scaledToString(money2(num), SCALE_MONEY, true);
     }
 
-    function toSyp(value, currency) {
-      const amount = money4(value);
+    function convertUsdCentsToSypCents(valueCents) {
+      if (fxAtReturnCreation <= BIG_ZERO) return BIG_ZERO;
+      return divRoundHalfUpSigned(money2(valueCents) * fxAtReturnCreation, POW10_FX);
+    }
+
+    function convertSypCentsToUsdCents(valueCents) {
+      if (fxAtReturnCreation <= BIG_ZERO) return BIG_ZERO;
+      return divRoundHalfUpSigned(money2(valueCents) * POW10_FX, fxAtReturnCreation);
+    }
+
+    function toSyp(valueCents, currency) {
+      const amount = money2(valueCents);
       const cur = normalizeCurrency(currency, "SYP");
       if (cur === "USD") {
-        if (fxAtReturnCreation <= 0) return 0;
-        return money4(amount * fxAtReturnCreation);
+        return convertUsdCentsToSypCents(amount);
       }
       return amount;
     }
 
-    function convertBetweenCurrencies(value, fromCurrency, toCurrency) {
+    function convertBetweenCurrencies(valueCents, fromCurrency, toCurrency) {
       const fromCur = normalizeCurrency(fromCurrency, "SYP");
       const toCur = normalizeCurrency(toCurrency, "SYP");
-      const amount = money4(value);
+      const amount = money2(valueCents);
       if (fromCur === toCur) return amount;
-      if (fxAtReturnCreation <= 0) return amount;
-      if (fromCur === "SYP" && toCur === "USD") return money4(amount / fxAtReturnCreation);
-      if (fromCur === "USD" && toCur === "SYP") return money4(amount * fxAtReturnCreation);
+      if (fxAtReturnCreation <= BIG_ZERO) return amount;
+      if (fromCur === "SYP" && toCur === "USD") return convertSypCentsToUsdCents(amount);
+      if (fromCur === "USD" && toCur === "SYP") return convertUsdCentsToSypCents(amount);
       return amount;
     }
 
     function fmt(num) {
-      return formatMoney(money2(num));
+      return formatMoney(scaledToString(money2(num), SCALE_MONEY, true));
     }
 
     function renderMoney(el, value) {
@@ -1212,7 +1310,7 @@
       const qStore = parseQtyNumber(form["ret_store_" + itemId]?.value || "0");
       const qWh1 = parseQtyNumber(form["ret_wh1_" + itemId]?.value || "0");
       const qWh2 = parseQtyNumber(form["ret_wh2_" + itemId]?.value || "0");
-      return money4(qStore + qWh1 + qWh2);
+      return qty3(qStore + qWh1 + qWh2);
     }
 
     function setEditorMode(editorObj, isEditing) {
@@ -1248,9 +1346,9 @@
     function computeRowState(state) {
       if (!state) return;
       state.total_qty = getRowQtyTotal(state.itemId);
-      state.current_value = money4(state.current_value);
+      state.current_value = money2(state.current_value);
       state.current_value_syp = toSyp(state.current_value, state.current_currency);
-      state.total_value = money4(state.current_value * state.total_qty);
+      state.total_value = divRoundHalfUpSigned(state.current_value * state.total_qty, POW10_QTY);
       state.total_value_syp = toSyp(state.total_value, state.current_currency);
       state.is_overridden = !sameCost(state.current_value_syp, state.original_purchase_cost_syp);
       state.isOverridden = state.is_overridden;
@@ -1261,16 +1359,16 @@
       return state.current_value_syp > state.original_purchase_cost_syp ? costWarnHigherMsg : costWarnLowerMsg;
     }
     function warningReferenceValueForEditor(state, kind) {
-      if (!state) return 0;
-      const originalUnit = money4(
+      if (!state) return BIG_ZERO;
+      const originalUnit = money2(
         state.original_unit_cost !== undefined
           ? state.original_unit_cost
           : (state.original_purchase_cost_syp || 0)
       );
       if (kind === "total") {
-        const qty = Number(state.total_qty || 0);
-        const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 0;
-        return money4(originalUnit * safeQty);
+        const qty = qty3(state.total_qty || BIG_ZERO);
+        const safeQty = qty > BIG_ZERO ? qty : BIG_ZERO;
+        return divRoundHalfUpSigned(originalUnit * safeQty, POW10_QTY);
       }
       return originalUnit;
     }
@@ -1287,15 +1385,15 @@
       const totalEditor = state.editors.total;
       if (!unitEditor || !totalEditor) return;
       computeRowState(state);
-      unitEditor.input.value = fmtCost4(state.current_value);
-      totalEditor.input.value = fmtCost4(state.total_value);
+      unitEditor.input.value = fmtCost2(state.current_value);
+      totalEditor.input.value = fmtCost2(state.total_value);
       unitEditor.select.value = state.current_currency;
       totalEditor.select.value = state.current_currency;
       unitEditor.select.dataset.prevCurrency = state.current_currency;
       totalEditor.select.dataset.prevCurrency = state.current_currency;
       if (unitEditor.hiddenCurrency) unitEditor.hiddenCurrency.value = state.current_currency;
       if (state.tr) {
-        state.tr.dataset.unitCost = String(state.current_value);
+        state.tr.dataset.unitCost = scaledToString(state.current_value, SCALE_MONEY, false);
         state.tr.dataset.currency = state.current_currency;
       }
       const unitMsg = warningMessageForEditor(state, "unit");
@@ -1367,7 +1465,7 @@
         totalEditor.root.classList.toggle("is-locked", locked && !isActiveTotal);
 
         unitEditor.button.disabled = locked && !isActiveUnit;
-        const totalEditingAllowed = state.total_qty > 0;
+        const totalEditingAllowed = state.total_qty > BIG_ZERO;
         totalEditor.button.disabled = (locked && !isActiveTotal) || (!totalEditingAllowed && !isActiveTotal);
         if (!isActiveTotal) {
           if (!totalEditingAllowed) {
@@ -1386,17 +1484,17 @@
       const activeEditor = state.editors[field];
       if (!activeEditor) return;
       const parsed = parseCostNumber(activeEditor.input.value);
-      if (parsed === null || parsed < 0) return;
+      if (parsed === null || parsed < BIG_ZERO) return;
       const previewCur = normalizeCurrency(activeEditor.select.value, state.current_currency);
-      const previewValue = money4(parsed);
+      const previewValue = money2(parsed);
       if (field === "unit") {
-        const previewTotal = money4(previewValue * state.total_qty);
-        state.editors.total.input.value = fmtCost4(previewTotal);
+        const previewTotal = divRoundHalfUpSigned(previewValue * state.total_qty, POW10_QTY);
+        state.editors.total.input.value = fmtCost2(previewTotal);
         state.editors.total.select.value = previewCur;
       } else {
-        if (state.total_qty <= 0) return;
-        const previewUnit = money4(previewValue / state.total_qty);
-        state.editors.unit.input.value = fmtCost4(previewUnit);
+        if (state.total_qty <= BIG_ZERO) return;
+        const previewUnit = divRoundHalfUpSigned(previewValue * POW10_QTY, state.total_qty);
+        state.editors.unit.input.value = fmtCost2(previewUnit);
         state.editors.unit.select.value = previewCur;
       }
     }
@@ -1404,7 +1502,7 @@
     function beginEditing(state, field) {
       if (!state) return;
       if (activeEdit && (activeEdit.itemId !== state.itemId || activeEdit.field !== field)) return;
-      if (field === "total" && state.total_qty <= 0) {
+      if (field === "total" && state.total_qty <= BIG_ZERO) {
         state.editors.total.input.setCustomValidity("لا يمكن تعديل الكلفة الإجمالية عندما الكمية صفر.");
         state.editors.total.input.reportValidity();
         return;
@@ -1417,9 +1515,9 @@
       editor.select.value = state.current_currency;
       editor.select.dataset.prevCurrency = state.current_currency;
       if (field === "unit") {
-        editor.input.value = fmtCost4(state.current_value);
+        editor.input.value = fmtCost2(state.current_value);
       } else {
-        editor.input.value = fmtCost4(state.total_value);
+        editor.input.value = fmtCost2(state.total_value);
       }
       window.requestAnimationFrame(function () {
         editor.input.focus();
@@ -1454,7 +1552,7 @@
         return true;
       }
       const parsed = parseCostNumber(editor.input.value);
-      if (parsed === null || parsed < 0) {
+      if (parsed === null || parsed < BIG_ZERO) {
         editor.input.setCustomValidity("أدخل كلفة صحيحة (صفر أو أكبر).");
         editor.input.reportValidity();
         return false;
@@ -1462,24 +1560,24 @@
       editor.input.setCustomValidity("");
 
       const committedCurrency = normalizeCurrency(editor.select.value, state.current_currency);
-      if (committedCurrency === "USD" && fxAtReturnCreation <= 0) {
+      if (committedCurrency === "USD" && fxAtReturnCreation <= BIG_ZERO) {
         editor.input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
         editor.input.reportValidity();
         return false;
       }
 
-      const committedValue = money4(parsed);
+      const committedValue = money2(parsed);
       if (field === "unit") {
         state.current_value = committedValue;
         state.current_currency = committedCurrency;
       } else {
-        if (state.total_qty <= 0) {
+        if (state.total_qty <= BIG_ZERO) {
           editor.input.setCustomValidity("لا يمكن تعديل الكلفة الإجمالية عندما الكمية صفر.");
           editor.input.reportValidity();
           return false;
         }
         state.current_currency = committedCurrency;
-        state.current_value = money4(committedValue / state.total_qty);
+        state.current_value = divRoundHalfUpSigned(committedValue * POW10_QTY, state.total_qty);
       }
 
       activeEdit = null;
@@ -1518,12 +1616,12 @@
         if (!unitEditor.input || !unitEditor.select || !unitEditor.hiddenCurrency || !unitEditor.button) return;
         if (!totalEditor.input || !totalEditor.select || !totalEditor.button) return;
 
-        const originalUnitCost = money4(parseCostNumber(unitRoot.getAttribute("data-original-cost")) || 0);
+        const originalUnitCost = money2(parseCostNumber(unitRoot.getAttribute("data-original-cost")) || BIG_ZERO);
         const originalCurrency = normalizeCurrency(unitRoot.getAttribute("data-original-currency"), "SYP");
         const originalPurchaseCostSyp = toSyp(originalUnitCost, originalCurrency);
 
         const unitInitial = parseCostNumber(unitEditor.input.value);
-        const currentUnitCost = money4(unitInitial === null || unitInitial < 0 ? originalUnitCost : unitInitial);
+        const currentUnitCost = money2(unitInitial === null || unitInitial < BIG_ZERO ? originalUnitCost : unitInitial);
         const currentCurrency = normalizeCurrency(unitEditor.hiddenCurrency.value || unitEditor.select.value, originalCurrency);
 
         const state = {
@@ -1535,9 +1633,9 @@
           current_value: currentUnitCost,
           current_currency: currentCurrency,
           current_value_syp: toSyp(currentUnitCost, currentCurrency),
-          total_qty: 0,
-          total_value: 0,
-          total_value_syp: 0,
+          total_qty: BIG_ZERO,
+          total_value: BIG_ZERO,
+          total_value_syp: BIG_ZERO,
           is_overridden: false,
           isOverridden: false,
           editors: {
@@ -1565,14 +1663,14 @@
               editorObj.select.dataset.prevCurrency = nextCurrency;
               return;
             }
-            if (fxAtReturnCreation <= 0) {
+            if (fxAtReturnCreation <= BIG_ZERO) {
               editorObj.select.value = prevCurrency;
               editorObj.input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
               editorObj.input.reportValidity();
               return;
             }
             const typedValue = parseCostNumber(editorObj.input.value);
-            if (typedValue === null || typedValue < 0) {
+            if (typedValue === null || typedValue < BIG_ZERO) {
               editorObj.input.setCustomValidity("أدخل كلفة صحيحة (صفر أو أكبر).");
               editorObj.input.reportValidity();
               editorObj.select.value = prevCurrency;
@@ -1580,7 +1678,7 @@
             }
             editorObj.input.setCustomValidity("");
             const converted = convertBetweenCurrencies(typedValue, prevCurrency, nextCurrency);
-            editorObj.input.value = fmtCost4(converted);
+            editorObj.input.value = fmtCost2(converted);
             editorObj.select.dataset.prevCurrency = nextCurrency;
             const opposite = editorObj.kind === "unit" ? state.editors.total : state.editors.unit;
             opposite.select.value = nextCurrency;
@@ -1613,13 +1711,13 @@
     }
 
     function isZeroFinancialTotal(totals) {
-      return money2(totals.totalSyp || 0) === 0 && money2(totals.totalUsd || 0) === 0;
+      return money2(totals.totalSyp || BIG_ZERO) === BIG_ZERO && money2(totals.totalUsd || BIG_ZERO) === BIG_ZERO;
     }
 
     function recalcTotals() {
-      let totalSyp = 0;
-      let totalUsd = 0;
-      let totalSypNormalized = 0;
+      let totalSyp = BIG_ZERO;
+      let totalUsd = BIG_ZERO;
+      let totalSypNormalized = BIG_ZERO;
       let selectedRowsCount = 0;
 
       const rows = form.querySelectorAll("tbody tr");
@@ -1631,17 +1729,15 @@
         if (!state) return;
         computeRowState(state);
         const qtyTotal = state.total_qty;
-        if (qtyTotal <= 0) return;
+        if (qtyTotal <= BIG_ZERO) return;
 
-        const unitCost = money4(state.current_value);
+        const unitCost = money2(state.current_value);
         const cur = normalizeCurrency(state.current_currency, "SYP");
-        const lineTotal = money2(qtyTotal * unitCost);
+        const lineTotal = divRoundHalfUpSigned(qtyTotal * unitCost, POW10_QTY);
 
         if (cur === "USD") {
           totalUsd = money2(totalUsd + lineTotal);
-          totalSypNormalized = money2(
-            totalSypNormalized + (fxAtReturnCreation > 0 ? (lineTotal * fxAtReturnCreation) : 0)
-          );
+          totalSypNormalized = money2(totalSypNormalized + convertUsdCentsToSypCents(lineTotal));
         } else {
           totalSyp = money2(totalSyp + lineTotal);
           totalSypNormalized = money2(totalSypNormalized + lineTotal);
@@ -1659,11 +1755,11 @@
       const settlementCur = (settlementCurrency ? settlementCurrency.value : "SYP").toUpperCase();
       if (settlementLabel) settlementLabel.textContent = settlementCur;
 
-      let settlementTotal = 0;
+      let settlementTotal = BIG_ZERO;
       if (settlementCur === "SYP") {
         settlementTotal = totalSypNormalized;
       } else {
-        settlementTotal = fxAtReturnCreation > 0 ? (totalSypNormalized / fxAtReturnCreation) : 0;
+        settlementTotal = convertSypCentsToUsdCents(totalSypNormalized);
       }
       settlementTotal = money2(settlementTotal);
 
@@ -1697,23 +1793,23 @@
 
       let remaining = totals.settlementTotal;
       const status = getCurrentStatus();
-      let paid = 0;
+      let paid = BIG_ZERO;
 
       if (status === "paid") {
         paid = totals.settlementTotal;
-        if (paidInput) paidInput.value = fmt(totals.settlementTotal);
+        if (paidInput) paidInput.value = fmtCost2(totals.settlementTotal);
       } else if (status === "partial") {
         if (paidInput) {
-          const v = parseFloat(paidInput.value || "0") || 0;
-          paid = money2(v < 0 ? 0 : v);
+          const parsedPaid = parseMoneyCentsStrict(paidInput.value || "0");
+          paid = (parsedPaid === null || parsedPaid < BIG_ZERO) ? BIG_ZERO : money2(parsedPaid);
         }
       }
 
       remaining = money2(totals.settlementTotal - paid);
-      if (remaining < 0) remaining = 0;
+      if (remaining < BIG_ZERO) remaining = BIG_ZERO;
 
       if (lblRemaining) {
-        if (totals.settlementTotal <= 0) {
+        if (totals.settlementTotal <= BIG_ZERO) {
           lblRemaining.textContent = "";
         } else {
           lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);

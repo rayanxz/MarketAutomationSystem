@@ -68,7 +68,7 @@ class StockTransferRoundtripNumericIntegrityTests(TestCase):
 
     def test_transfer_sell_transfer_back_preserves_fifo_and_quantities(self):
         store_entry_before = StockEntry.objects.get(product=self.product, container=self.store)
-        self.assertEqual(q3(store_entry_before.qty_primary), Decimal("10.000"))
+        self.assertEqual(q3(store_entry_before.qty_primary), Decimal("10.00"))
 
         first_layer = self._layer(container=self.store)
         self.assertIsNotNone(first_layer)
@@ -97,13 +97,13 @@ class StockTransferRoundtripNumericIntegrityTests(TestCase):
         )
         sale_parts = list(SaleCostPart.objects.filter(movement=sale_mv).select_related("fifo_layer"))
         self.assertGreater(len(sale_parts), 0)
-        self.assertEqual(q3(sum((p.qty_primary for p in sale_parts), Decimal("0"))), Decimal("3.000"))
-        self.assertEqual(q3(sum((p.total_cost for p in sale_parts), Decimal("0"))), Decimal("15.000"))
+        self.assertEqual(q3(sum((p.qty_primary for p in sale_parts), Decimal("0"))), Decimal("3.00"))
+        self.assertEqual(q3(sum((p.total_cost for p in sale_parts), Decimal("0"))), Decimal("15.00"))
         self.assertTrue(all((p.fifo_layer.cost_currency or "").upper() == "USD" for p in sale_parts))
 
         wh1_layer_after_sale = self._layer(container=self.wh1)
         self.assertIsNotNone(wh1_layer_after_sale)
-        self.assertEqual(q3(wh1_layer_after_sale.qty_remaining), Decimal("1.000"))
+        self.assertEqual(q3(wh1_layer_after_sale.qty_remaining), Decimal("1.00"))
 
         StockSV.transfer_from_batch(
             actor=self.actor,
@@ -116,11 +116,11 @@ class StockTransferRoundtripNumericIntegrityTests(TestCase):
 
         store_entry_after = StockEntry.objects.get(product=self.product, container=self.store)
         wh1_entry_after = StockEntry.objects.get(product=self.product, container=self.wh1)
-        self.assertEqual(q3(store_entry_after.qty_primary), Decimal("7.000"))
-        self.assertEqual(q3(wh1_entry_after.qty_primary), Decimal("0.000"))
+        self.assertEqual(q3(store_entry_after.qty_primary), Decimal("7.00"))
+        self.assertEqual(q3(wh1_entry_after.qty_primary), Decimal("0.00"))
 
         self.product.refresh_from_db(fields=["stock_qty"])
-        self.assertEqual(q3(self.product.stock_qty), Decimal("7.000"))
+        self.assertEqual(q3(self.product.stock_qty), Decimal("7.00"))
 
         store_layers = list(
             StockFifoLayer.objects.filter(product=self.product, container=self.store, qty_remaining__gt=0)
@@ -130,11 +130,11 @@ class StockTransferRoundtripNumericIntegrityTests(TestCase):
         )
         self.assertEqual(
             q3(sum((layer.qty_remaining for layer in store_layers), Decimal("0"))),
-            Decimal("7.000"),
+            Decimal("7.00"),
         )
         self.assertEqual(
             q3(sum((layer.qty_remaining for layer in wh1_layers), Decimal("0"))),
-            Decimal("0.000"),
+            Decimal("0.00"),
         )
         self.assertTrue(all(layer.qty_remaining >= 0 for layer in store_layers))
         self.assertTrue(all(layer.qty_remaining >= 0 for layer in wh1_layers))

@@ -729,34 +729,89 @@ function resetBillState() {
 }
 
 /* ===== Utils ===== */
-function fmt(n) { const x = Number(n || 0); return x.toFixed(2); }
-function round2(n) {
-  const x = Number(n || 0);
-  if (!Number.isFinite(x)) return 0;
-  return Math.round((x + Number.EPSILON) * 100) / 100;
+const _pow10n = (scale) => 10n ** BigInt(scale);
+function _divRoundHalfUp(numerator, denominator) {
+  if (denominator === 0n) return 0n;
+  const neg = (numerator < 0n) !== (denominator < 0n);
+  const a = numerator < 0n ? -numerator : numerator;
+  const b = denominator < 0n ? -denominator : denominator;
+  let out = a / b;
+  const rem = a % b;
+  if ((rem * 2n) >= b) out += 1n;
+  return neg ? -out : out;
 }
+function _parseScaled(value, scale) {
+  const txt = String(value ?? "").trim().replace(",", ".");
+  if (!txt) return 0n;
+  const m = txt.match(/^([+-]?)(\d+)(?:\.(\d+))?$/);
+  if (!m) return 0n;
+  const sign = m[1] === "-" ? -1n : 1n;
+  const intPart = m[2] || "0";
+  const fracRaw = m[3] || "";
+  const fracHead = fracRaw.slice(0, scale).padEnd(scale, "0");
+  let units = BigInt(intPart + fracHead);
+  if (fracRaw.length > scale) {
+    const nextDigit = Number(fracRaw.charAt(scale) || "0");
+    if (nextDigit >= 5) units += 1n;
+  }
+  return sign * units;
+}
+const _moneyToCents = (value) => _parseScaled(value, 2);
+const _qtyToMillis = (value) => _parseScaled(value, 3);
+const _fxToScaled = (value) => _parseScaled(value, 2);
+const _toNumber = (units, scale) => Number(units) / (10 ** scale);
+const _convertUsdCentsToSypCents = (usdCents) => {
+  const fxScaled = _fxToScaled(POS_FX_SYP_PER_USD);
+  if (fxScaled <= 0n) return null;
+  return _divRoundHalfUp(usdCents * fxScaled, _pow10n(2));
+};
+const _convertSypCentsToUsdCents = (sypCents) => {
+  const fxScaled = _fxToScaled(POS_FX_SYP_PER_USD);
+  if (fxScaled <= 0n) return null;
+  return _divRoundHalfUp(sypCents * _pow10n(2), fxScaled);
+};
+function fmt(n) { return _toNumber(_moneyToCents(n), 2).toFixed(2); }
+function round2(n) { return _toNumber(_moneyToCents(n), 2); }
 function money2(n) { return round2(n); }
 function fmtMoney(n) { return formatMoney(money2(n)); }
-function fmtPrice(n) { const x = Number(n || 0); return formatMoney(x); }
+function fmtPrice(n) { return formatMoney(money2(n)); }
+
+function rowBaseCents(r) {
+  const qtyRaw = r.qty || 0;
+  const convRaw = (r.uomIndex === 2) ? (r.conv || 1) : 1;
+  const priceRaw = r.price || 0;
+  let qtyMillis = _qtyToMillis(qtyRaw);
+  const convScaled = _parseScaled(convRaw, 4);
+  const safeConv = convScaled === 0n ? _pow10n(4) : convScaled;
+  if (r.uomIndex === 2) qtyMillis = _divRoundHalfUp(qtyMillis * safeConv, _pow10n(4));
+  const priceCents = _moneyToCents(priceRaw);
+  return _divRoundHalfUp(qtyMillis * priceCents, _pow10n(3));
+}
 
 function rowBase(r) {
-  const qtyInPrimary = Number(r.qty || 0) * (r.uomIndex === 2 ? Number(r.conv || 1) : 1);
-  return qtyInPrimary * Number(r.price || 0);
+  return _toNumber(rowBaseCents(r), 2);
 }
 
 function formBase() {
   if (state.selectedIndex < 0) return 0;
   const r = state.rows[state.selectedIndex];
-  const qty = Number(document.getElementById("qty").value || 0);
+  const qty = document.getElementById("qty").value || 0;
   const uomIndex = Number(document.getElementById("uom").value || 1);
-  const qtyInPrimary = qty * (uomIndex === 2 ? Number(r.conv || 1) : 1);
-  return qtyInPrimary * Number(r.price || 0);
+  const pseudoRow = {
+    qty,
+    uomIndex,
+    conv: r.conv || 1,
+    price: r.price || 0,
+  };
+  return _toNumber(rowBaseCents(pseudoRow), 2);
 }
 
 function rowTotal(r) {
-  const base = rowBase(r);
-  const amt  = Math.max(Number(r.discAmt || 0), 0);
-  return money2(Math.max(base - Math.min(amt, base), 0));
+  const baseCents = rowBaseCents(r);
+  let discCents = _moneyToCents(r.discAmt || 0);
+  if (discCents < 0n) discCents = 0n;
+  if (discCents > baseCents) discCents = baseCents;
+  return _toNumber(baseCents - discCents, 2);
 }
 
 function setEditingLock(locked) {
@@ -1102,31 +1157,43 @@ const roLeftEl       = document.getElementById("roLeft");
 const roCustEl       = document.getElementById("roCustomer");
 
 function totalsByCurrency() {
-  let syp = 0;
-  let usd = 0;
+  let sypCents = 0n;
+  let usdCents = 0n;
   state.rows.forEach((r) => {
-    const t = rowTotal(r);
-    if ((r.currency || CUR_SYP) === CUR_USD) usd = money2(usd + t);
-    else syp = money2(syp + t);
+    const tCents = _moneyToCents(rowTotal(r));
+    if ((r.currency || CUR_SYP) === CUR_USD) usdCents += tCents;
+    else sypCents += tCents;
   });
-  return { syp: money2(syp), usd: money2(usd) };
+  return { syp: _toNumber(sypCents, 2), usd: _toNumber(usdCents, 2) };
 }
 
 function calcSettlementTotal(totalSyp, totalUsd) {
   let mode = state.bill.settlementMode || "split";
   let currency = "";
-  let total = totalSyp + totalUsd;
+  let totalCents = _moneyToCents(totalSyp + totalUsd);
+  const totalSypCents = _moneyToCents(totalSyp);
+  const totalUsdCents = _moneyToCents(totalUsd);
 
   if (mode === "all_syp") {
     if (POS_FX_SYP_PER_USD > 0) {
-      total = totalSyp + (totalUsd * POS_FX_SYP_PER_USD);
+      const converted = _convertUsdCentsToSypCents(totalUsdCents);
+      if (converted === null) {
+        mode = "split";
+      } else {
+        totalCents = totalSypCents + converted;
+      }
       currency = CUR_SYP;
     } else {
       mode = "split";
     }
   } else if (mode === "all_usd") {
     if (POS_FX_SYP_PER_USD > 0) {
-      total = totalUsd + (totalSyp / POS_FX_SYP_PER_USD);
+      const converted = _convertSypCentsToUsdCents(totalSypCents);
+      if (converted === null) {
+        mode = "split";
+      } else {
+        totalCents = totalUsdCents + converted;
+      }
       currency = CUR_USD;
     } else {
       mode = "split";
@@ -1135,7 +1202,7 @@ function calcSettlementTotal(totalSyp, totalUsd) {
 
   state.bill.settlementMode = mode;
   state.bill.settlementCurrency = currency;
-  return { total: money2(total), mode, currency };
+  return { total: _toNumber(totalCents, 2), mode, currency };
 }
 
 function updateGrandTotal() {

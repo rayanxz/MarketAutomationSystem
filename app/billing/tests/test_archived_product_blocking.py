@@ -93,8 +93,8 @@ class BillingArchivedProductBlockingTests(TestCase):
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "1",
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],
@@ -115,14 +115,14 @@ class BillingArchivedProductBlockingTests(TestCase):
                 actor=self.user,
                 provider_id=self.provider.id,
                 status="unpaid",
-                paid_amount=Decimal("0.000"),
+                paid_amount=Decimal("0.00"),
                 items=[
                     {
                         "product_id": prod.id,
                         "unit_index": 1,
                         "qty_raw": "1",
-                        "cost": "1.0000",
-                        "price": "2.0000",
+                        "cost": "1.00",
+                        "price": "2.00",
                         "currency": "SYP",
                     }
                 ],
@@ -138,13 +138,13 @@ class BillingArchivedProductBlockingTests(TestCase):
                 actor=self.user,
                 provider_id=self.provider.id,
                 status="unpaid",
-                paid_amount=Decimal("0.000"),
+                paid_amount=Decimal("0.00"),
                 items=[
                     {
                         "product_id": prod.id,
                         "unit_index": 1,
                         "qty_raw": "1.000",
-                        "cost": "1.0000",
+                        "cost": "1.00",
                     }
                 ],
                 container=self.store,

@@ -74,20 +74,20 @@ class CatalogIntegrityBaseTestCase(TestCase):
             allow_usd_purchasing=False,
             default_purchase_currency="SYP",
             default_sale_currency="SYP",
-            default_cost_syp=Decimal("1.0000"),
-            default_cost_usd=Decimal("0.0000"),
-            default_price_syp=Decimal("2.0000"),
-            default_price_usd=Decimal("0.0000"),
+            default_cost_syp=Decimal("1.00"),
+            default_cost_usd=Decimal("0.00"),
+            default_price_syp=Decimal("2.00"),
+            default_price_usd=Decimal("0.00"),
         )
 
     def add_history(self, product: Product) -> ProductMovement:
         return ProductMovement.objects.create(
             product=product,
             container=self.store,
-            qty_primary=Decimal("1.000"),
+            qty_primary=Decimal("1.00"),
             unit_index=ProductMovement.UnitIndex.PRIMARY,
-            unit_cost=Decimal("1.0000"),
-            total_cost=Decimal("1.000"),
+            unit_cost=Decimal("1.00"),
+            total_cost=Decimal("1.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model=self.__class__.__name__,
@@ -99,7 +99,7 @@ class CatalogIntegrityBaseTestCase(TestCase):
             product=product,
             container=container,
             qty_remaining=Decimal(qty),
-            unit_cost=Decimal("1.0000"),
+            unit_cost=Decimal("1.00"),
             cost_currency="SYP",
         )
 
@@ -118,14 +118,14 @@ class CatalogIntegrityBaseTestCase(TestCase):
             "allow_usd_purchasing": "",
             "default_purchase_currency": "SYP",
             "default_sale_currency": "SYP",
-            "default_cost_syp": "1.0000",
-            "default_cost_usd": "0.0000",
-            "default_price_syp": "2.0000",
-            "default_price_usd": "0.0000",
-            "cost_syp": "0.0000",
-            "cost_usd": "0.0000",
-            "price_syp": "0.0000",
-            "price_usd": "0.0000",
+            "default_cost_syp": "1.00",
+            "default_cost_usd": "0.00",
+            "default_price_syp": "2.00",
+            "default_price_usd": "0.00",
+            "cost_syp": "0.00",
+            "cost_usd": "0.00",
+            "price_syp": "0.00",
+            "price_usd": "0.00",
             "notes": "",
             "barcodes_u1": "",
             "barcodes_u2": "",
@@ -207,10 +207,10 @@ class TestProductLifecycle(CatalogIntegrityBaseTestCase):
             "Dual Unit Product",
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.BNDL,
-            conversion_factor=Decimal("12.0000"),
+            conversion_factor=Decimal("12.00"),
         )
         self.assertEqual(p.unit_secondary, UnitType.BNDL)
-        self.assertEqual(p.conversion_factor, Decimal("12.0000"))
+        self.assertEqual(p.conversion_factor, Decimal("12.00"))
 
     def test_duplicate_product_name_rejected(self):
         self.make_product("Unique Name")
@@ -264,7 +264,7 @@ class TestIdentifierLogic(CatalogIntegrityBaseTestCase):
         p = self.make_product(
             "Identifier Product",
             unit_secondary=UnitType.BNDL,
-            conversion_factor=Decimal("10.0000"),
+            conversion_factor=Decimal("10.00"),
         )
         uid_primary = ProductUnitId.objects.create(product=p, unit_index=1, value="UID-P-1")
         uid_secondary = ProductUnitId.objects.create(product=p, unit_index=2, value="UID-S-1")
@@ -326,7 +326,7 @@ class TestIdentifierLogic(CatalogIntegrityBaseTestCase):
 
 class TestUnitRules(CatalogIntegrityBaseTestCase):
     def test_primary_only_normalizes_conversion_factor_to_none(self):
-        p = self.make_product("Normalize Conversion", conversion_factor=Decimal("5.0000"))
+        p = self.make_product("Normalize Conversion", conversion_factor=Decimal("5.00"))
         p.refresh_from_db()
         self.assertEqual(p.unit_secondary, "")
         self.assertIsNone(p.conversion_factor)
@@ -337,7 +337,7 @@ class TestUnitRules(CatalogIntegrityBaseTestCase):
                 "Invalid Same Units",
                 unit_primary=UnitType.PIECE,
                 unit_secondary=UnitType.PIECE,
-                conversion_factor=Decimal("2.0000"),
+                conversion_factor=Decimal("2.00"),
             )
 
     def test_secondary_unit_requires_positive_conversion(self):
@@ -350,7 +350,7 @@ class TestUnitRules(CatalogIntegrityBaseTestCase):
     def test_zero_conversion_factor_invalid(self):
         p = self.make_product("Zero Conversion")
         p.unit_secondary = UnitType.BNDL
-        p.conversion_factor = Decimal("0.0000")
+        p.conversion_factor = Decimal("0.00")
         with self.assertRaises(ValidationError):
             p.save()
 
@@ -360,7 +360,7 @@ class TestUnitRules(CatalogIntegrityBaseTestCase):
                 name="Form Unit Same",
                 unit_primary=UnitType.PIECE,
                 unit_secondary=UnitType.PIECE,
-                conversion_factor="1.0000",
+                conversion_factor="1.00",
             )
         )
         self.assertFalse(form_same.is_valid())
@@ -491,7 +491,7 @@ class TestValidationLayer(CatalogIntegrityBaseTestCase):
     def test_model_level_validation_works_for_invalid_units(self):
         p = self.make_product("Model Validation Product")
         p.unit_secondary = UnitType.PIECE
-        p.conversion_factor = Decimal("5.0000")
+        p.conversion_factor = Decimal("5.00")
         with self.assertRaises(ValidationError):
             p.save()
 

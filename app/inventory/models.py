@@ -9,10 +9,10 @@ from django.db import models
 from django.utils import timezone
 
 from catalog.models import Product
+from core.formatters import round_money
 
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
-DEC2 = Decimal("0.01")
 
 
 def q3(x: Decimal) -> Decimal:
@@ -20,11 +20,11 @@ def q3(x: Decimal) -> Decimal:
 
 
 def q2(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
+    return round_money(x)
 
 
 def q4(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
+    return round_money(x)
 
 
 class ProductMovement(models.Model):

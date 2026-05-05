@@ -86,13 +86,13 @@ class ArchivedProductBlockingTests(TestCase):
                 actor=self.user,
                 provider_id=provider.id,
                 status="unpaid",
-                paid_amount=Decimal("0.000"),
+                paid_amount=Decimal("0.00"),
                 items=[
                     {
                         "product_id": prod.id,
                         "unit_index": 1,
                         "qty_raw": "1.000",
-                        "cost": "1.0000",
+                        "cost": "1.00",
                     }
                 ],
                 container=container,
@@ -105,8 +105,8 @@ class ArchivedProductBlockingTests(TestCase):
         batch = StockFifoLayer.objects.create(
             product=prod,
             container=c_from,
-            qty_remaining=Decimal("5.000"),
-            unit_cost=Decimal("1.0000"),
+            qty_remaining=Decimal("5.00"),
+            unit_cost=Decimal("1.00"),
             cost_currency="SYP",
         )
         with self.assertRaises(ValidationError):
@@ -114,7 +114,7 @@ class ArchivedProductBlockingTests(TestCase):
                 actor=self.user,
                 batch=batch,
                 to_container=c_to,
-                qty_primary=Decimal("1.000"),
+                qty_primary=Decimal("1.00"),
             )
 
     def test_service_layer_blocks_archived_product(self):
@@ -125,8 +125,8 @@ class ArchivedProductBlockingTests(TestCase):
                 actor=self.user,
                 product=prod,
                 unit_index=1,
-                qty_primary=Decimal("1.000"),
-                unit_cost=Decimal("1.0000"),
+                qty_primary=Decimal("1.00"),
+                unit_cost=Decimal("1.00"),
                 cost_currency="SYP",
                 movement_type="adjustment",
                 source_app="tests",

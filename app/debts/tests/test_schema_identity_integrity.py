@@ -64,10 +64,10 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
             customer_name=self.customer.name,
             cashier=self.user,
             pay_status=SalesBill.PAY_FULL,
-            total_amount=Decimal("20.000"),
-            total_syp=Decimal("0.000"),
-            total_usd=Decimal("20.000"),
-            paid_amount=Decimal("20.000"),
+            total_amount=Decimal("20.00"),
+            total_syp=Decimal("0.00"),
+            total_usd=Decimal("20.00"),
+            paid_amount=Decimal("20.00"),
             settlement_mode=SalesBill.SETTLE_ALL_USD,
             settlement_currency="USD",
             fx_rate_used=Decimal("10000"),
@@ -80,11 +80,11 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
             product_id=self.product.id,
             product_name=self.product.name,
             product_number=str(self.product.id),
-            qty=Decimal("2.000"),
+            qty=Decimal("2.00"),
             uom_index=1,
-            unit_price=Decimal("10.000"),
+            unit_price=Decimal("10.00"),
             sale_currency="USD",
-            disc_amount=Decimal("0.000"),
+            disc_amount=Decimal("0.00"),
             disc_pct=Decimal("0.00"),
         )
         return bill, row
@@ -95,8 +95,8 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
             actor=self.user,
             product=self.product,
             unit_index=1,
-            qty_primary=Decimal("10.000"),
-            unit_cost=Decimal("5.0000"),
+            qty_primary=Decimal("10.00"),
+            unit_cost=Decimal("5.00"),
             cost_currency="USD",
             source_app="tests",
             source_model="Seed",
@@ -109,9 +109,9 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
             actor=self.user,
             product=self.product,
             unit_index=1,
-            qty_primary=Decimal("2.000"),
-            unit_cost=Decimal("5.0000"),
-            sale_unit_price_at_txn=Decimal("10.000"),
+            qty_primary=Decimal("2.00"),
+            unit_cost=Decimal("5.00"),
+            sale_unit_price_at_txn=Decimal("10.00"),
             sale_currency_at_txn="USD",
             source_app="pos",
             source_model="SalesBill",
@@ -123,7 +123,7 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
             actor=self.user,
             sale_bill_id=bill.id,
             stock_container_id=self.container.id,
-            items=[{"sale_row_id": row.id, "qty": Decimal("1.000"), "reason": "schema"}],
+            items=[{"sale_row_id": row.id, "qty": Decimal("1.00"), "reason": "schema"}],
         )
         ReturnSV.post_sales_return(
             actor=self.user,
@@ -146,8 +146,8 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
     def test_provider_based_creditor_entry_still_valid(self):
         entry = DebtSV.create_creditor_entry(
             provider=self.provider,
-            total=Decimal("100.000"),
-            collected=Decimal("0.000"),
+            total=Decimal("100.00"),
+            collected=Decimal("0.00"),
             source_app="billing",
             source_model="ProviderReturn",
             source_id="9001",
@@ -163,8 +163,8 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
     def test_cross_currency_entries_use_same_canonical_source_id(self):
         DebtSV.create_debtor_entry(
             provider=self.provider,
-            total=Decimal("1000.000"),
-            paid_amount=Decimal("0.000"),
+            total=Decimal("1000.00"),
+            paid_amount=Decimal("0.00"),
             source_app="billing",
             source_model="Bill",
             source_id="777",
@@ -173,8 +173,8 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
         )
         DebtSV.create_debtor_entry(
             provider=self.provider,
-            total=Decimal("10.000"),
-            paid_amount=Decimal("0.000"),
+            total=Decimal("10.00"),
+            paid_amount=Decimal("0.00"),
             source_app="billing",
             source_model="Bill",
             source_id="777",
@@ -200,8 +200,8 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
     def test_legacy_source_id_suffix_is_normalized_to_canonical_identity(self):
         first = DebtSV.create_creditor_entry(
             provider=self.provider,
-            total=Decimal("5.000"),
-            collected=Decimal("0.000"),
+            total=Decimal("5.00"),
+            collected=Decimal("0.00"),
             source_app="billing",
             source_model="ProviderReturn",
             source_id="555:USD",
@@ -210,8 +210,8 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
         )
         second = DebtSV.create_creditor_entry(
             provider=self.provider,
-            total=Decimal("9.000"),
-            collected=Decimal("0.000"),
+            total=Decimal("9.00"),
+            collected=Decimal("0.00"),
             source_app="billing",
             source_model="ProviderReturn",
             source_id="555",
@@ -224,7 +224,7 @@ class DebtSchemaIdentityIntegrityTests(TestCase):
         self.assertEqual(second.source_id, "555")
         self.assertEqual(second.currency_code, "USD")
         self.assertEqual(second.legacy_source_id, "555:USD")
-        self.assertEqual(second.total, Decimal("9.000"))
+        self.assertEqual(second.total, Decimal("9.00"))
 
     def test_migration_graph_has_no_conflicts_and_keeps_debts_anchor_dependency(self):
         loader = MigrationLoader(connection, ignore_no_migrations=True)

@@ -283,11 +283,11 @@ class CentralDebtsListApiTests(TestCase):
             cause_type=DebtCauseType.MANUAL,
             cause_id=str(entry.id),
         )
-        self.assertEqual(central.total_syp, Decimal("321.000"))
-        self.assertEqual(central.remaining_syp, Decimal("321.000"))
-        self.assertEqual(central.total_usd, Decimal("0.000"))
-        self.assertEqual(central.remaining_usd, Decimal("0.000"))
-        self.assertEqual(central.fx_syp_per_usd_at_creation, Decimal("21000.000000"))
+        self.assertEqual(central.total_syp, Decimal("321.00"))
+        self.assertEqual(central.remaining_syp, Decimal("321.00"))
+        self.assertEqual(central.total_usd, Decimal("0.00"))
+        self.assertEqual(central.remaining_usd, Decimal("0.00"))
+        self.assertEqual(central.fx_syp_per_usd_at_creation, Decimal("21000.00"))
         self.assertEqual(central.other_party_type, OtherPartyType.OTHER)
 
     def test_central_debt_creation_fx_snapshot_stays_fixed_after_updates(self):
@@ -299,13 +299,13 @@ class CentralDebtsListApiTests(TestCase):
             other_party_type=OtherPartyType.OTHER,
             other_party_id="FX Snapshot Party",
             actor_username="debts_api_mgr",
-            total_syp=Decimal("100.000"),
-            total_usd=Decimal("0.000"),
-            remaining_syp=Decimal("100.000"),
-            remaining_usd=Decimal("0.000"),
+            total_syp=Decimal("100.00"),
+            total_usd=Decimal("0.00"),
+            remaining_syp=Decimal("100.00"),
+            remaining_usd=Decimal("0.00"),
             note="fx lock test",
         )
-        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("21000.000000"))
+        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("21000.00"))
 
         FinSV.set_current_fx(actor=self.manager, rate_syp_per_usd=Decimal("27500"))
         debt = DebtSV.upsert_central_debt(
@@ -316,13 +316,13 @@ class CentralDebtsListApiTests(TestCase):
             other_party_type=OtherPartyType.OTHER,
             other_party_id="FX Snapshot Party",
             actor_username="debts_api_mgr",
-            total_syp=Decimal("125.000"),
-            total_usd=Decimal("0.000"),
-            remaining_syp=Decimal("125.000"),
-            remaining_usd=Decimal("0.000"),
+            total_syp=Decimal("125.00"),
+            total_usd=Decimal("0.00"),
+            remaining_syp=Decimal("125.00"),
+            remaining_usd=Decimal("0.00"),
             note="fx lock update",
         )
-        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("21000.000000"))
+        self.assertEqual(debt.fx_syp_per_usd_at_creation, Decimal("21000.00"))
 
     def test_view_link_is_resolved_for_manual_debt(self):
         entry = DebtSV.create_manual_debt(
@@ -383,10 +383,10 @@ class CentralDebtsListApiTests(TestCase):
             other_party_type=OtherPartyType.OTHER,
             other_party_id="Fmt Party",
             actor_username="debts_api_mgr",
-            total_syp=Decimal("123.459"),
-            total_usd=Decimal("4.129"),
-            remaining_syp=Decimal("11.999"),
-            remaining_usd=Decimal("0.567"),
+            total_syp=Decimal("123.46"),
+            total_usd=Decimal("4.13"),
+            remaining_syp=Decimal("12.00"),
+            remaining_usd=Decimal("0.57"),
             fx_syp_per_usd_at_creation=Decimal("19750.987654"),
             status=DebtStatus.OPEN,
         )
@@ -402,11 +402,11 @@ class CentralDebtsListApiTests(TestCase):
 
         settlement_ui = resp.context["settlement_ui"]
         q2 = Decimal("0.01")
-        expected_syp = (Decimal("11.999") + (Decimal("0.567") * Decimal("21000"))).quantize(
+        expected_syp = (Decimal("12.00") + (Decimal("0.57") * Decimal("21000"))).quantize(
             q2,
             rounding=ROUND_HALF_UP,
         )
-        expected_usd = (Decimal("0.567") + (Decimal("11.999") / Decimal("21000"))).quantize(
+        expected_usd = (Decimal("0.57") + (Decimal("12.00") / Decimal("21000"))).quantize(
             q2,
             rounding=ROUND_HALF_UP,
         )
@@ -425,10 +425,10 @@ class CentralDebtsListApiTests(TestCase):
             other_party_type=OtherPartyType.OTHER,
             other_party_id="Legacy Party",
             actor_username="debts_api_mgr",
-            total_syp=Decimal("300.000"),
-            total_usd=Decimal("2.000"),
-            remaining_syp=Decimal("100.000"),
-            remaining_usd=Decimal("2.000"),
+            total_syp=Decimal("300.00"),
+            total_usd=Decimal("2.00"),
+            remaining_syp=Decimal("100.00"),
+            remaining_usd=Decimal("2.00"),
             fx_syp_per_usd_at_creation=None,
             status=DebtStatus.OPEN,
         )

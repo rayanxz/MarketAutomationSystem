@@ -182,10 +182,20 @@ class DebtsFinancialsPaymentsTests(TestCase):
             currency_code="USD",
         )
 
+        with self.assertRaisesRegex(ValueError, "at most 2 decimal digits"):
+            DebtSV.pay_debt(
+                actor=self.actor,
+                entry_id=entry.id,
+                amount=D("1.005"),
+                full=False,
+                money_container_id=self.container.id,
+                currency_code="USD",
+            )
+
         DebtSV.pay_debt(
             actor=self.actor,
             entry_id=entry.id,
-            amount=D("1.005"),
+            amount=D("1.01"),
             full=False,
             money_container_id=self.container.id,
             currency_code="USD",
@@ -221,12 +231,24 @@ class DebtsFinancialsPaymentsTests(TestCase):
         before_container = FinSV.container_balance(container_id=self.container.id).get("USD", D("0"))
         before_cp = FinSV.counterparty_balance(counterparty_id=cp.id).get("USD", D("0"))
 
+        with self.assertRaisesRegex(ValueError, "at most 2 decimal digits"):
+            FinSV.post_settlement_with_fx(
+                actor=self.actor,
+                container_id=self.container.id,
+                counterparty_id=cp.id,
+                currency_code="USD",
+                cash_amount_signed=D("-1.005"),
+                fx_syp_per_usd=D("15000"),
+                source_app="tests",
+                source_model="Settlement",
+                source_id="usd-precision-reject",
+            )
         receipt = FinSV.post_settlement_with_fx(
             actor=self.actor,
             container_id=self.container.id,
             counterparty_id=cp.id,
             currency_code="USD",
-            cash_amount_signed=D("-1.005"),
+            cash_amount_signed=D("-1.01"),
             fx_syp_per_usd=D("15000"),
             source_app="tests",
             source_model="Settlement",

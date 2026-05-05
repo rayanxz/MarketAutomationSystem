@@ -66,9 +66,9 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
             "default_purchase_currency": "SYP",
             "default_sale_currency": "SYP",
             "default_cost_syp": cost,
-            "default_cost_usd": "0.0000",
+            "default_cost_usd": "0.00",
             "default_price_syp": price,
-            "default_price_usd": "0.0000",
+            "default_price_usd": "0.00",
             "notes": f"diag:{product_name}",
             "barcodes_u1[]": [barcode],
         }
@@ -96,8 +96,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "set_name": "DIAG-S-A",
                 "product_name": "DIAG-P-A",
                 "barcode": "100001",
-                "cost": "1.1000",
-                "price": "2.1000",
+                "cost": "1.10",
+                "price": "2.10",
             },
             {
                 "label": "Case B",
@@ -109,8 +109,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "set_name": "DIAG-S-B",
                 "product_name": "DIAG-P-B",
                 "barcode": "100002",
-                "cost": "3.2000",
-                "price": "4.2000",
+                "cost": "3.20",
+                "price": "4.20",
             },
             {
                 "label": "Case C",
@@ -124,8 +124,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "set_name": "DIAG-S-C",
                 "product_name": "DIAG-P-C",
                 "barcode": "100003",
-                "cost": "5.3000",
-                "price": "6.3000",
+                "cost": "5.30",
+                "price": "6.30",
             },
             {
                 "label": "Case D",
@@ -139,8 +139,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "set_name": "DIAG-S-D",
                 "product_name": "DIAG-P-D",
                 "barcode": "100004",
-                "cost": "7.4000",
-                "price": "8.4000",
+                "cost": "7.40",
+                "price": "8.40",
             },
             {
                 "label": "Case E",
@@ -152,8 +152,8 @@ class ProductCreationMatrixDiagnosticTests(TestCase):
                 "set_name": "DIAG-S-E",
                 "product_name": "DIAG-P-E",
                 "barcode": "100005",
-                "cost": "9.5000",
-                "price": "10.5000",
+                "cost": "9.50",
+                "price": "10.50",
             },
         ]
 

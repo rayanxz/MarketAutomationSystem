@@ -75,10 +75,10 @@ class ProductNewRenderSmokeTests(TestCase):
 
     def test_edit_mode_latest_cost_price_use_global_human_number_format(self):
         product = self._create_product("P-RENDER-LATEST-FMT")
-        product.latest_cost_syp = Decimal("1234567.8000")
-        product.latest_cost_usd = Decimal("12.3400")
-        product.latest_price_syp = Decimal("2500000.0000")
-        product.latest_price_usd = Decimal("5.5000")
+        product.latest_cost_syp = Decimal("1234567.80")
+        product.latest_cost_usd = Decimal("12.34")
+        product.latest_price_syp = Decimal("2500000.00")
+        product.latest_price_usd = Decimal("5.50")
         product.save(
             update_fields=[
                 "latest_cost_syp",
@@ -102,8 +102,8 @@ class ProductNewRenderSmokeTests(TestCase):
             product=product,
             qty_primary=Decimal("0"),
             unit_index=1,
-            unit_cost=Decimal("0.0000"),
-            total_cost=Decimal("0.000"),
+            unit_cost=Decimal("0.00"),
+            total_cost=Decimal("0.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model="ProductNewRenderSmokeTests",
@@ -132,8 +132,8 @@ class ProductNewRenderSmokeTests(TestCase):
             product=product,
             qty_primary=Decimal("0"),
             unit_index=1,
-            unit_cost=Decimal("0.0000"),
-            total_cost=Decimal("0.000"),
+            unit_cost=Decimal("0.00"),
+            total_cost=Decimal("0.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model="ProductNewRenderSmokeTests",

@@ -59,13 +59,63 @@
   // ====== Utils ======
   const debounce = (fn, ms=180)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
   const num  = v => { const n = parseFloat(String(v ?? "").trim().replace(",", ".")); return Number.isFinite(n) ? n : 0; };
-  const round2 = (v) => {
-    const n = Number(v ?? 0);
-    if (!Number.isFinite(n)) return 0;
-    return Math.round((n + Number.EPSILON) * 100) / 100;
+  const _pow10n = (scale) => 10n ** BigInt(scale);
+  const _divRoundHalfUp = (numerator, denominator) => {
+    if (denominator === 0n) return 0n;
+    const neg = (numerator < 0n) !== (denominator < 0n);
+    const a = numerator < 0n ? -numerator : numerator;
+    const b = denominator < 0n ? -denominator : denominator;
+    let out = a / b;
+    const rem = a % b;
+    if ((rem * 2n) >= b) out += 1n;
+    return neg ? -out : out;
   };
-  const moneyEq = (a, b) => round2(a) === round2(b);
-  const moneyGt = (a, b) => round2(a) > round2(b);
+  const _parseScaled = (value, scale) => {
+    const txt = String(value ?? "").trim().replace(",", ".");
+    if (!txt) return 0n;
+    const m = txt.match(/^([+-]?)(\d+)(?:\.(\d+))?$/);
+    if (!m) return 0n;
+    const sign = m[1] === "-" ? -1n : 1n;
+    const intPart = m[2] || "0";
+    const fracRaw = m[3] || "";
+    const fracHead = fracRaw.slice(0, scale).padEnd(scale, "0");
+    let units = BigInt(intPart + fracHead);
+    if (fracRaw.length > scale) {
+      const nextDigit = Number(fracRaw.charAt(scale) || "0");
+      if (nextDigit >= 5) units += 1n;
+    }
+    return sign * units;
+  };
+  const _toNumber = (units, scale) => Number(units) / (10 ** scale);
+  const _moneyToCents = (value) => _parseScaled(value, 2);
+  const _qtyToMillis = (value) => _parseScaled(value, 3);
+  const _fxToScaled = (value) => _parseScaled(value, 2);
+  const _convertUsdCentsToSypCents = (usdCents, fxRaw) => {
+    const fxScaled = _fxToScaled(fxRaw);
+    if (fxScaled <= 0n) return null;
+    return _divRoundHalfUp(usdCents * fxScaled, _pow10n(2));
+  };
+  const _convertSypCentsToUsdCents = (sypCents, fxRaw) => {
+    const fxScaled = _fxToScaled(fxRaw);
+    if (fxScaled <= 0n) return null;
+    return _divRoundHalfUp(sypCents * _pow10n(2), fxScaled);
+  };
+  const _rowLineCents = ({ qtyRaw, costRaw, isU2, convRaw, overrideRaw }) => {
+    const overrideTxt = String(overrideRaw ?? "").trim();
+    if (overrideTxt.length) return _moneyToCents(overrideTxt);
+
+    let qtyMillis = _qtyToMillis(qtyRaw);
+    if (isU2) {
+      const convScaled = _parseScaled(convRaw || "1", 4);
+      const safeConv = convScaled === 0n ? _pow10n(4) : convScaled;
+      qtyMillis = _divRoundHalfUp(qtyMillis * safeConv, _pow10n(4));
+    }
+    const costCents = _moneyToCents(costRaw);
+    return _divRoundHalfUp(qtyMillis * costCents, _pow10n(3));
+  };
+  const round2 = (v) => _toNumber(_moneyToCents(v), 2);
+  const moneyEq = (a, b) => _moneyToCents(a) === _moneyToCents(b);
+  const moneyGt = (a, b) => _moneyToCents(a) > _moneyToCents(b);
   const fmt2 = v => round2(v).toFixed(2);
   const formatDisplay2 = (v) => {
     const n = round2(v);
@@ -73,8 +123,9 @@
     return formatMoney(n);
   };
   const readFxRate = () => {
-    const fxVal = num(BILLING.fxSypPerUsdRaw || "");
-    return (Number.isFinite(fxVal) && fxVal > 0) ? round2(fxVal) : null;
+    const fxScaled = _fxToScaled(BILLING.fxSypPerUsdRaw || "");
+    if (fxScaled <= 0n) return null;
+    return _toNumber(fxScaled, 2);
   };
   const payState = {
     mixedLastEdited: "syp",
@@ -90,9 +141,9 @@
     },
   };
   const toAmount = (v) => {
-    const n = num(v);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return round2(n);
+    const cents = _moneyToCents(v);
+    if (cents <= 0n) return 0;
+    return _toNumber(cents, 2);
   };
   const isZeroFinancialTotal = (totals) => (
     moneyEq(totals?.totalSyp || 0, 0) &&
@@ -713,7 +764,7 @@ refreshAutoSerial();
       <td>
         <div class="total-cost-wrap">
           <span class="total-cost-cur" aria-hidden="true">${indicatorForPurchaseCurrency(cur)}</span>
-          <input name="total_cost[]" class="input numeric-math" data-math-display-max-decimals="2" type="number" step="0.01" placeholder="0.00">
+          <input name="total_cost[]" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" step="0.01" placeholder="0.00">
         </div>
       </td>
       <td style="text-align:center;"><button type="button" class="btn-danger btn-del">✕</button></td>
@@ -768,7 +819,9 @@ refreshAutoSerial();
       if (!fxVal) return;
       if (!priceSypInput || priceSypInput.disabled) return;
       if (!hasNonZeroValue(priceUsdInput?.value)) return;
-      priceSypInput.value = fmt2(num(priceUsdInput.value) * fxVal);
+      const converted = _convertUsdCentsToSypCents(_moneyToCents(priceUsdInput.value), fxVal);
+      if (converted === null) return;
+      priceSypInput.value = fmt2(_toNumber(converted, 2));
       priceSypInput.dataset.auto = "0";
     });
 
@@ -777,7 +830,9 @@ refreshAutoSerial();
       if (!fxVal) return;
       if (!priceUsdInput || priceUsdInput.disabled) return;
       if (!hasNonZeroValue(priceSypInput?.value)) return;
-      priceUsdInput.value = fmt2(num(priceSypInput.value) / fxVal);
+      const converted = _convertSypCentsToUsdCents(_moneyToCents(priceSypInput.value), fxVal);
+      if (converted === null) return;
+      priceUsdInput.value = fmt2(_toNumber(converted, 2));
       priceUsdInput.dataset.auto = "0";
     });
 
@@ -804,23 +859,28 @@ refreshAutoSerial();
   }
 
   function recalcBillTotal(){
-    let totalSyp = 0;
-    let totalUsd = 0;
+    let totalSypCents = 0n;
+    let totalUsdCents = 0n;
     tbody?.querySelectorAll("tr").forEach(tr=>{
-      const qty = num(tr.querySelector('input[name="qty[]"]')?.value);
-      const cost = num(tr.querySelector('input[name="cost[]"]')?.value);
+      const qtyRaw = tr.querySelector('input[name="qty[]"]')?.value ?? "0";
+      const costRaw = tr.querySelector('input[name="cost[]"]')?.value ?? "0";
       const overrideRaw = tr.querySelector('input[name="total_cost[]"]')?.value ?? "";
       const isU2 = tr.querySelector('select[name="qty_unit[]"]')?.value === "u2";
-      const cf = num(tr.dataset.cf || "0");
+      const cfRaw = tr.dataset.cf || "1";
       const cur = (tr.querySelector('input.cur-hidden')?.value || tr.querySelector('select.cur-ui')?.value || "SYP").toUpperCase();
-      let line;
-      if (overrideRaw.trim().length) line = round2(num(overrideRaw));
-      else line = round2(qty * cost * (isU2 ? (cf || 1) : 1));
-      if (Number.isFinite(line)) {
-        if (cur === "USD") totalUsd = round2(totalUsd + line);
-        else totalSyp = round2(totalSyp + line);
-      }
+      const lineCents = _rowLineCents({
+        qtyRaw,
+        costRaw,
+        isU2,
+        convRaw: cfRaw,
+        overrideRaw,
+      });
+      if (cur === "USD") totalUsdCents += lineCents;
+      else totalSypCents += lineCents;
     });
+
+    const totalSyp = _toNumber(totalSypCents, 2);
+    const totalUsd = _toNumber(totalUsdCents, 2);
 
     if (totalSypBox) totalSypBox.textContent = formatDisplay2(totalSyp);
     if (totalUsdBox) totalUsdBox.textContent = formatDisplay2(totalUsd);
@@ -828,8 +888,25 @@ refreshAutoSerial();
     const fxVal = readFxRate();
     const hasFx = Number.isFinite(fxVal) && fxVal > 0;
     const canConvert = hasFx || moneyEq(totalSyp, 0) || moneyEq(totalUsd, 0);
-    const settlementSyp = canConvert ? round2(totalSyp + (hasFx ? (totalUsd * fxVal) : 0)) : Number.NaN;
-    const settlementUsd = canConvert ? round2(totalUsd + (hasFx ? (totalSyp / fxVal) : 0)) : Number.NaN;
+    let settlementSyp = Number.NaN;
+    let settlementUsd = Number.NaN;
+    if (canConvert) {
+      let settlementSypCents = totalSypCents;
+      let settlementUsdCents = totalUsdCents;
+      if (hasFx) {
+        const usdToSyp = _convertUsdCentsToSypCents(totalUsdCents, fxVal);
+        const sypToUsd = _convertSypCentsToUsdCents(totalSypCents, fxVal);
+        if (usdToSyp === null || sypToUsd === null) {
+          settlementSypCents = 0n;
+          settlementUsdCents = 0n;
+        } else {
+          settlementSypCents += usdToSyp;
+          settlementUsdCents += sypToUsd;
+        }
+      }
+      settlementSyp = _toNumber(settlementSypCents, 2);
+      settlementUsd = _toNumber(settlementUsdCents, 2);
+    }
 
     const settleCur = (payCurrency?.value || "SYP").toUpperCase();
     if (settleCurLabel) settleCurLabel.textContent = settleCur;
@@ -873,18 +950,24 @@ refreshAutoSerial();
   function toSettlementAmount(amountSyp, amountUsd){
     const settleCur = (payState.totals.settlementCurrency || "SYP").toUpperCase();
     const fxVal = payState.totals.fx;
+    const amountSypCents = _moneyToCents(amountSyp);
+    const amountUsdCents = _moneyToCents(amountUsd);
     if (settleCur === "USD") {
-      if (moneyGt(amountSyp, 0)) {
+      if (amountSypCents > 0n) {
         if (!(fxVal > 0)) return null;
-        return round2(amountUsd + (amountSyp / fxVal));
+        const converted = _convertSypCentsToUsdCents(amountSypCents, fxVal);
+        if (converted === null) return null;
+        return _toNumber(amountUsdCents + converted, 2);
       }
-      return round2(amountUsd);
+      return _toNumber(amountUsdCents, 2);
     }
-    if (moneyGt(amountUsd, 0)) {
+    if (amountUsdCents > 0n) {
       if (!(fxVal > 0)) return null;
-      return round2(amountSyp + (amountUsd * fxVal));
+      const converted = _convertUsdCentsToSypCents(amountUsdCents, fxVal);
+      if (converted === null) return null;
+      return _toNumber(amountSypCents + converted, 2);
     }
-    return round2(amountSyp);
+    return _toNumber(amountSypCents, 2);
   }
 
   function readCurrentPaymentAmounts(status, method){
@@ -932,22 +1015,27 @@ refreshAutoSerial();
   function syncMixedFullFrom(source){
     if (payState.syncingMixed) return;
     const fxVal = payState.totals.fx;
-    const targetSyp = payState.totals.settlementSyp;
-    const targetUsd = payState.totals.settlementUsd;
-    if (!(fxVal > 0) || !Number.isFinite(targetSyp) || !Number.isFinite(targetUsd)) return;
+    const targetSypCents = _moneyToCents(payState.totals.settlementSyp);
+    const targetUsdCents = _moneyToCents(payState.totals.settlementUsd);
+    if (!(fxVal > 0) || targetSypCents < 0n || targetUsdCents < 0n) return;
     payState.syncingMixed = true;
     if (source === "usd") {
-      let usd = toAmount(payMixedUsdInput?.value);
-      usd = Math.min(usd, targetUsd);
-      const syp = Math.max(0, targetSyp - (usd * fxVal));
-      setNumericInputValue(payMixedUsdInput, usd);
-      setNumericInputValue(payMixedSypInput, syp);
+      let usdCents = _moneyToCents(payMixedUsdInput?.value);
+      if (usdCents > targetUsdCents) usdCents = targetUsdCents;
+      if (usdCents < 0n) usdCents = 0n;
+      const convertedToSyp = _convertUsdCentsToSypCents(usdCents, fxVal) || 0n;
+      const sypCents = targetSypCents > convertedToSyp ? (targetSypCents - convertedToSyp) : 0n;
+      setNumericInputValue(payMixedUsdInput, _toNumber(usdCents, 2));
+      setNumericInputValue(payMixedSypInput, _toNumber(sypCents, 2));
     } else {
-      let syp = toAmount(payMixedSypInput?.value);
-      syp = Math.min(syp, targetSyp);
-      const usd = Math.max(0, (targetSyp - syp) / fxVal);
-      setNumericInputValue(payMixedSypInput, syp);
-      setNumericInputValue(payMixedUsdInput, usd);
+      let sypCents = _moneyToCents(payMixedSypInput?.value);
+      if (sypCents > targetSypCents) sypCents = targetSypCents;
+      if (sypCents < 0n) sypCents = 0n;
+      const remainingSypCents = targetSypCents > sypCents ? (targetSypCents - sypCents) : 0n;
+      let usdCents = _convertSypCentsToUsdCents(remainingSypCents, fxVal) || 0n;
+      if (usdCents > targetUsdCents) usdCents = targetUsdCents;
+      setNumericInputValue(payMixedSypInput, _toNumber(sypCents, 2));
+      setNumericInputValue(payMixedUsdInput, _toNumber(usdCents, 2));
     }
     payState.syncingMixed = false;
   }

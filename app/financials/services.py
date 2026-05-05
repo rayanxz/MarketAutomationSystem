@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from functools import lru_cache
 from typing import Optional, Dict, Any
 
 from django.db import transaction
@@ -11,6 +12,8 @@ from django.utils import timezone
 from django.db import IntegrityError
 from django.db.models import Max, IntegerField
 from django.db.models.functions import Cast, Substr
+
+from core.formatters import round_money, parse_money_strict
 
 from .models import (
     Currency,
@@ -234,20 +237,33 @@ def _opening_exists(*, container_id: int) -> bool:
     ).exists()
 
 
+def _parse_money_input_strict(value: Decimal, *, field_name: str = "amount") -> Decimal:
+    return parse_money_strict(value, field_name=field_name, error_cls=ValueError)
+
+
+@lru_cache(maxsize=32)
+def _currency_code_supported(code: str) -> bool:
+    normalized = (code or "").upper().strip()
+    if normalized in {"SYP", "USD"}:
+        return True
+    return Currency.objects.filter(code=normalized).exists()
+
+
 def q_currency(amount: Decimal, *, currency: Currency) -> Decimal:
     if amount is None:
         return DEC0
-    places = currency.decimals
-    exp = Decimal("1").scaleb(-places)
-    return amount.quantize(exp, rounding=ROUND_HALF_UP)
+    if currency is None:
+        raise ValueError("currency is required")
+    return round_money(amount)
 
 
 def q_money(*, amount: Decimal, currency_code: str) -> Decimal:
     code = (currency_code or "").upper().strip()
     if not code:
         raise ValueError("currency_code is required")
-    currency = Currency.objects.get(code=code)
-    return q_currency(Decimal(amount or DEC0), currency=currency)
+    if not _currency_code_supported(code):
+        raise ValueError(f"Unsupported currency code: {code}")
+    return round_money(amount)
 
 
 def q_fx(value: Decimal) -> Decimal:
@@ -257,6 +273,20 @@ def q_fx(value: Decimal) -> Decimal:
         raise ValueError("Invalid FX rate")
     exp = Decimal("1").scaleb(-FX_DECIMALS)
     return d.quantize(exp, rounding=ROUND_HALF_UP)
+
+
+def _guard_money_write_value(value: Decimal, *, field_name: str) -> Decimal:
+    text = str(value if value is not None else DEC0).strip()
+    try:
+        dec = Decimal(text)
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError(f"Invalid {field_name}")
+    if not dec.is_finite():
+        raise ValueError(f"Invalid {field_name}")
+    rounded = round_money(dec)
+    if dec != rounded:
+        raise ValueError(f"{field_name} must be normalized to 2 decimals before save")
+    return rounded
 
 
 def _apply_container_balance_delta(*, container: MoneyContainer, currency_code: str, amount: Decimal) -> None:
@@ -323,25 +353,27 @@ def _post_receipt(r: Receipt) -> Receipt:
 
 
 def _add_line_container(*, receipt: Receipt, container: MoneyContainer, currency: Currency, amount: Decimal, meta: Optional[Dict[str, Any]] = None) -> PostingLine:
+    safe_amount = _guard_money_write_value(amount, field_name="posting line amount")
     return PostingLine.objects.create(
         receipt=receipt,
         target_type=PostingTargetType.CONTAINER,
         container=container,
         counterparty=None,
         currency=currency,
-        amount=amount,
+        amount=safe_amount,
         meta_json=json.dumps(meta or {}, ensure_ascii=False),
     )
 
 
 def _add_line_counterparty(*, receipt: Receipt, counterparty: Counterparty, currency: Currency, amount: Decimal, meta: Optional[Dict[str, Any]] = None) -> PostingLine:
+    safe_amount = _guard_money_write_value(amount, field_name="posting line amount")
     return PostingLine.objects.create(
         receipt=receipt,
         target_type=PostingTargetType.COUNTERPARTY,
         container=None,
         counterparty=counterparty,
         currency=currency,
-        amount=amount,
+        amount=safe_amount,
         meta_json=json.dumps(meta or {}, ensure_ascii=False),
     )
 
@@ -361,7 +393,8 @@ def post_initial_balance(*, actor, container_id: int, amounts_by_code: Dict[str,
     cleaned: Dict[str, Decimal] = {}
     for code, raw in (amounts_by_code or {}).items():
         currency = Currency.objects.get(code=code)
-        amt = q_currency(Decimal(raw), currency=currency)
+        parsed = _parse_money_input_strict(raw, field_name=f"opening amount ({code})")
+        amt = q_currency(parsed, currency=currency)
         if amt == 0:
             continue
         if not _container_currency_enabled(container_id=container_id, currency_code=code):
@@ -401,7 +434,10 @@ def post_cash_add(*, actor, container_id: int, currency_code: str, amount: Decim
     if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError(f"Currency {currency_code} is disabled for this container")
 
-    amt = q_currency(Decimal(amount), currency=currency)
+    amt = q_currency(
+        _parse_money_input_strict(amount, field_name=f"amount ({currency_code})"),
+        currency=currency,
+    )
     if amt <= 0:
         raise ValueError("Cash add amount must be > 0")
 
@@ -435,7 +471,8 @@ def post_pos_sale_receipt(
         if raw is None:
             continue
         currency = Currency.objects.get(code=code)
-        amt = q_currency(Decimal(raw), currency=currency)
+        parsed = _parse_money_input_strict(raw, field_name=f"amount ({code})")
+        amt = q_currency(parsed, currency=currency)
         if amt == 0:
             continue
         if not _container_currency_enabled(container_id=container_id, currency_code=code):
@@ -480,7 +517,10 @@ def post_cash_withdraw(*, actor, container_id: int, currency_code: str, amount: 
     if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError(f"Currency {currency_code} is disabled for this container")
 
-    amt = q_currency(Decimal(amount), currency=currency)
+    amt = q_currency(
+        _parse_money_input_strict(amount, field_name=f"amount ({currency_code})"),
+        currency=currency,
+    )
     if amt <= 0:
         raise ValueError("Cash withdraw amount must be > 0")
 
@@ -511,7 +551,10 @@ def post_transfer(*, actor, from_container_id: int, to_container_id: int, curren
     if not _container_currency_enabled(container_id=to_container_id, currency_code=currency_code):
         raise ValueError("Currency disabled for destination container")
 
-    amt = q_currency(Decimal(amount), currency=currency)
+    amt = q_currency(
+        _parse_money_input_strict(amount, field_name=f"amount ({currency_code})"),
+        currency=currency,
+    )
     if amt <= 0:
         raise ValueError("Transfer amount must be > 0")
 
@@ -529,7 +572,10 @@ def post_counterparty_adjust(*, actor, counterparty_id: int, currency_code: str,
     fx = get_current_fx_syp_per_usd()
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
     currency = Currency.objects.get(code=currency_code)
-    amt = q_currency(Decimal(amount_signed), currency=currency)
+    amt = q_currency(
+        _parse_money_input_strict(amount_signed, field_name=f"amount ({currency_code})"),
+        currency=currency,
+    )
     if amt == 0:
         raise ValueError("Counterparty adjustment cannot be 0")
 
@@ -554,7 +600,10 @@ def post_counterparty_adjust_with_fx(
         raise ValueError("FX is required for receipts.")
     cp = Counterparty.objects.select_for_update().get(pk=counterparty_id)
     currency = Currency.objects.get(code=currency_code)
-    amt = q_currency(Decimal(amount_signed), currency=currency)
+    amt = q_currency(
+        _parse_money_input_strict(amount_signed, field_name=f"amount ({currency_code})"),
+        currency=currency,
+    )
     if amt == 0:
         raise ValueError("Counterparty adjustment cannot be 0")
 
@@ -575,7 +624,10 @@ def post_settlement(*, actor, container_id: int, counterparty_id: int, currency_
     if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError(f"Currency {currency_code} is disabled for this container")
 
-    cash_amt = q_currency(Decimal(cash_amount_signed), currency=currency)
+    cash_amt = q_currency(
+        _parse_money_input_strict(cash_amount_signed, field_name=f"cash amount ({currency_code})"),
+        currency=currency,
+    )
     if cash_amt == 0:
         raise ValueError("Settlement cash amount cannot be 0")
 
@@ -611,7 +663,10 @@ def post_settlement_with_fx(
     if not _container_currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError(f"Currency {currency_code} is disabled for this container")
 
-    cash_amt = q_currency(Decimal(cash_amount_signed), currency=currency)
+    cash_amt = q_currency(
+        _parse_money_input_strict(cash_amount_signed, field_name=f"cash amount ({currency_code})"),
+        currency=currency,
+    )
     if cash_amt == 0:
         raise ValueError("Settlement cash amount cannot be 0")
 
@@ -657,7 +712,8 @@ def post_settlement_components_with_fx(
         currency = Currency.objects.get(code=code)
         if not _container_currency_enabled(container_id=container.id, currency_code=code):
             raise ValueError(f"Currency {code} is disabled for this container")
-        amt = q_currency(Decimal(raw_amount or DEC0), currency=currency)
+        parsed = _parse_money_input_strict(raw_amount or DEC0, field_name=f"cash amount ({code})")
+        amt = q_currency(parsed, currency=currency)
         if amt == 0:
             continue
         cleaned[code] = (currency, amt)
@@ -748,7 +804,8 @@ def post_counterparty_bill_action_with_fx(
             if not code:
                 raise ValueError(f"{field_name} currency code is required")
             cur = Currency.objects.get(code=code)
-            amt = q_currency(Decimal(raw or DEC0), currency=cur)
+            parsed = _parse_money_input_strict(raw or DEC0, field_name=f"{field_name}[{code}]")
+            amt = q_currency(parsed, currency=cur)
             if amt < 0:
                 raise ValueError(f"{field_name} amount cannot be negative")
             if amt == 0:
@@ -781,6 +838,7 @@ def post_counterparty_bill_action_with_fx(
     if container_paid_map:
         container = MoneyContainer.objects.select_for_update().get(pk=container_id)
         _assert_container_usable(container)
+        assert_money_container_access(user=actor, container=container)
         for code in container_paid_map.keys():
             if not _container_currency_enabled(container_id=container.id, currency_code=code):
                 raise ValueError(f"Currency {code} is disabled for this container")
@@ -899,7 +957,8 @@ def post_counterparty_return_action_with_fx(
             if not code:
                 raise ValueError(f"{field_name} currency code is required")
             cur = Currency.objects.get(code=code)
-            amt = q_currency(Decimal(raw or DEC0), currency=cur)
+            parsed = _parse_money_input_strict(raw or DEC0, field_name=f"{field_name}[{code}]")
+            amt = q_currency(parsed, currency=cur)
             if amt < 0:
                 raise ValueError(f"{field_name} amount cannot be negative")
             if amt == 0:
@@ -932,6 +991,7 @@ def post_counterparty_return_action_with_fx(
     if container_collected_map:
         container = MoneyContainer.objects.select_for_update().get(pk=container_id)
         _assert_container_usable(container)
+        assert_money_container_access(user=actor, container=container)
         for code in container_collected_map.keys():
             if not _container_currency_enabled(container_id=container.id, currency_code=code):
                 raise ValueError(f"Currency {code} is disabled for this container")

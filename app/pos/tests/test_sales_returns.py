@@ -230,7 +230,7 @@ class PosSalesReturnTests(TestCase):
 
         debt_before = self._get_debtor_entry(bill_id, "SYP")
         self.assertIsNotNone(debt_before)
-        self.assertEqual(debt_before.remaining, Decimal("70.000"))
+        self.assertEqual(debt_before.remaining, Decimal("70.00"))
 
         ret = ReturnSV.create_sales_return_draft(
             actor=self.user,
@@ -251,7 +251,7 @@ class PosSalesReturnTests(TestCase):
 
         debt_after = self._get_debtor_entry(bill_id, "SYP")
         self.assertIsNotNone(debt_after)
-        self.assertEqual(debt_after.remaining, Decimal("0.000"))
+        self.assertEqual(debt_after.remaining, Decimal("0.00"))
 
         self.cash.refresh_from_db(fields=["balance_syp"])
         balance_after = self.cash.balance_syp

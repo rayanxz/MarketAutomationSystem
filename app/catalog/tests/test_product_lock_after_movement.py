@@ -61,7 +61,7 @@ class ProductLockAfterMovementTests(TestCase):
             product=prod,
             unit_index=1,
             qty_primary=Decimal("3"),
-            unit_cost=Decimal("5.0000"),
+            unit_cost=Decimal("5.00"),
             source_app="tests",
             source_model="Seed",
             source_id="1",
@@ -92,7 +92,7 @@ class ProductLockAfterMovementTests(TestCase):
             product=prod,
             unit_index=1,
             qty_primary=Decimal("3"),
-            unit_cost=Decimal("5.0000"),
+            unit_cost=Decimal("5.00"),
             source_app="tests",
             source_model="Seed",
             source_id="1",
@@ -101,15 +101,15 @@ class ProductLockAfterMovementTests(TestCase):
 
         prod.refresh_from_db()
         prod.notes = "updated"
-        prod.default_cost_syp = Decimal("7.0000")
-        prod.default_price_syp = Decimal("11.0000")
+        prod.default_cost_syp = Decimal("7.00")
+        prod.default_price_syp = Decimal("11.00")
         prod.is_active = False
         prod.save()
 
         prod.refresh_from_db()
         self.assertEqual(prod.notes, "updated")
-        self.assertEqual(prod.default_cost_syp, Decimal("7.0000"))
-        self.assertEqual(prod.default_price_syp, Decimal("11.0000"))
+        self.assertEqual(prod.default_cost_syp, Decimal("7.00"))
+        self.assertEqual(prod.default_price_syp, Decimal("11.00"))
         self.assertFalse(prod.is_active)
 
     def test_has_history_detects_movement(self):
@@ -120,7 +120,7 @@ class ProductLockAfterMovementTests(TestCase):
             product=prod,
             unit_index=1,
             qty_primary=Decimal("1"),
-            unit_cost=Decimal("5.0000"),
+            unit_cost=Decimal("5.00"),
             source_app="tests",
             source_model="Seed",
             source_id="1",
@@ -136,7 +136,7 @@ class ProductLockAfterMovementTests(TestCase):
             product=prod,
             unit_index=1,
             qty_primary=Decimal("1"),
-            unit_cost=Decimal("5.0000"),
+            unit_cost=Decimal("5.00"),
             source_app="tests",
             source_model="Seed",
             source_id="1",

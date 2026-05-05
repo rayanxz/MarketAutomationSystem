@@ -334,8 +334,8 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             source_app="billing",
             source_model="Bill",
             source_id="700",
-            total=Decimal("20.000"),
-            paid_amount=Decimal("0.000"),
+            total=Decimal("20.00"),
+            paid_amount=Decimal("0.00"),
             status=DebtorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=provider.name,
@@ -348,8 +348,8 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             source_app="billing",
             source_model="Bill",
             source_id="700:USD",
-            total=Decimal("9.000"),
-            paid_amount=Decimal("0.000"),
+            total=Decimal("9.00"),
+            paid_amount=Decimal("0.00"),
             status=DebtorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=provider.name,
@@ -381,7 +381,7 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             container_type=MoneyContainer.ContainerType.DRAWER,
             is_active=True,
             created_by=self.actor,
-            balance_usd=Decimal("500.000"),
+            balance_usd=Decimal("500.00"),
         )
         cash.allowed_users.add(self.actor)
         syp = Currency.objects.get(code="SYP")
@@ -418,8 +418,8 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             source_app="billing",
             source_model="Bill",
             source_id=f"{bill.id}:USD",
-            total=Decimal("77.000"),
-            paid_amount=Decimal("0.000"),
+            total=Decimal("77.00"),
+            paid_amount=Decimal("0.00"),
             status=DebtorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=provider.name,
@@ -436,7 +436,7 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             currency_code="USD",
         )
         legacy.refresh_from_db()
-        self.assertEqual(legacy.paid_amount, Decimal("0.000"))
+        self.assertEqual(legacy.paid_amount, Decimal("0.00"))
 
         BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)
         self.assertFalse(
@@ -454,8 +454,8 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             source_app="billing",
             source_model="ProviderReturn",
             source_id="801",
-            total=Decimal("10.000"),
-            collected=Decimal("0.000"),
+            total=Decimal("10.00"),
+            collected=Decimal("0.00"),
             status=CreditorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=provider.name,
@@ -468,8 +468,8 @@ class DebtSchemaIdentityRuntimeAssuranceTests(TestCase):
             source_app="billing",
             source_model="ProviderReturn",
             source_id="801:USD",
-            total=Decimal("8.000"),
-            collected=Decimal("0.000"),
+            total=Decimal("8.00"),
+            collected=Decimal("0.00"),
             status=CreditorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=provider.name,

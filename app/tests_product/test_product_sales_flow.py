@@ -42,14 +42,14 @@ class ProductSalesFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "20",
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],
@@ -89,7 +89,7 @@ class ProductSalesFlowTests(TestCase):
                     "number": str(prod.id),
                     "qty": "3",
                     "uom_index": 2,
-                    "unit_price": "2.000",
+                    "unit_price": "2.00",
                     "currency": "SYP",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -105,7 +105,8 @@ class ProductSalesFlowTests(TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json().get("ok"))
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
 
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         self.assertEqual(row.conv_factor_at_txn, Decimal("2"))
@@ -115,7 +116,7 @@ class ProductSalesFlowTests(TestCase):
         prod.save(update_fields=["notes"])
 
         row.refresh_from_db()
-        self.assertEqual(row.qty, Decimal("3.000"))
+        self.assertEqual(row.qty, Decimal("3.00"))
         self.assertEqual(row.conv_factor_at_txn, Decimal("2"))
 
     def test_pos_sale_primary_unit_qty(self):
@@ -146,7 +147,7 @@ class ProductSalesFlowTests(TestCase):
                     "number": str(prod.id),
                     "qty": "5",
                     "uom_index": 1,
-                    "unit_price": "2.000",
+                    "unit_price": "2.00",
                     "currency": "SYP",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -160,9 +161,10 @@ class ProductSalesFlowTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
-        self.assertEqual(row.qty, Decimal("5.000"))
+        self.assertEqual(row.qty, Decimal("5.00"))
 
     def test_pos_sale_usd_currency(self):
         _, pset = create_collection_set("C-S3", "S-S3")
@@ -174,7 +176,7 @@ class ProductSalesFlowTests(TestCase):
             conversion_factor=None,
         )
         prod.allow_usd_sales = True
-        prod.default_price_usd = Decimal("3.0000")
+        prod.default_price_usd = Decimal("3.00")
         prod.save(update_fields=["allow_usd_sales", "default_price_usd"])
         self._stock_product(prod)
 
@@ -196,7 +198,7 @@ class ProductSalesFlowTests(TestCase):
                     "number": str(prod.id),
                     "qty": "1",
                     "uom_index": 1,
-                    "unit_price": "3.000",
+                    "unit_price": "3.00",
                     "currency": "USD",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -210,7 +212,8 @@ class ProductSalesFlowTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         self.assertEqual(row.sale_currency, "USD")
 
@@ -223,7 +226,7 @@ class ProductSalesFlowTests(TestCase):
             unit_secondary="",
             conversion_factor=None,
         )
-        prod.default_cost_syp = Decimal("1.2500")
+        prod.default_cost_syp = Decimal("1.25")
         prod.default_sale_currency = "SYP"
         prod.save(update_fields=["default_cost_syp", "default_sale_currency"])
 
@@ -245,7 +248,7 @@ class ProductSalesFlowTests(TestCase):
                     "number": str(prod.id),
                     "qty": "1",
                     "uom_index": 1,
-                    "unit_price": "2.000",
+                    "unit_price": "2.00",
                     "currency": "SYP",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -259,9 +262,10 @@ class ProductSalesFlowTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
-        self.assertEqual(row.unit_cost_at_txn, Decimal("1.2500"))
+        self.assertEqual(row.unit_cost_at_txn, Decimal("1.25"))
         self.assertEqual(row.cost_currency_at_txn, "SYP")
 
 

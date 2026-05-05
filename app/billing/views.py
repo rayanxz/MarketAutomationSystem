@@ -23,7 +23,7 @@ from financials.models import Currency, MoneyContainer
 from financials import services as FinSV
 from core.public_ids import peek_next_public_id
 from core.date_filters import parse_filter_date
-from core.formatters import format_quantity
+from core.formatters import format_quantity, round_money
 
 
 DEC2 = Decimal("0.01")
@@ -315,6 +315,19 @@ def _dec(val, default: str = "0") -> Decimal:
         return d
     except (InvalidOperation, ValueError):
         return Decimal(default)
+
+
+def _money_has_more_than_2_decimals(value: Decimal) -> bool:
+    return Decimal(value).as_tuple().exponent < -2
+
+
+def _parse_money_input(val, default: str = "0", *, field_name: str = "amount") -> Decimal:
+    amount = _dec(val, default)
+    if not amount.is_finite():
+        raise ValueError(f"Invalid {field_name}")
+    if _money_has_more_than_2_decimals(amount):
+        raise ValueError(f"{field_name} supports at most 2 decimal digits")
+    return round_money(amount)
 
 
 def _q_money(currency_code: str, amount: Decimal) -> Decimal:
@@ -688,9 +701,12 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
         and ("amount_syp" not in pay)
         and ("amount_usd" not in pay)
     )
-    amount_syp = _dec(pay.get("amount_syp"), "0")
-    amount_usd = _dec(pay.get("amount_usd"), "0")
-    paid_amount = _dec(pay.get("paid_amount"), "0")
+    try:
+        amount_syp = _parse_money_input(pay.get("amount_syp"), "0", field_name="amount_syp")
+        amount_usd = _parse_money_input(pay.get("amount_usd"), "0", field_name="amount_usd")
+        paid_amount = _parse_money_input(pay.get("paid_amount"), "0", field_name="paid_amount")
+    except ValueError as ve:
+        return _bad(str(ve), 400)
     fx_rate_raw = pay.get("fx_rate")
     if fx_rate_raw in (None, ""):
         fx_rate_raw = payload.get("fx_rate")
@@ -744,18 +760,6 @@ def api_bill_save(request: HttpRequest) -> JsonResponse:
             user=request.user,
             container_id=money_container_id,
         )
-        if not mc:
-            mc = (
-                MoneyContainer.objects
-                .filter(
-                    id=money_container_id,
-                    is_active=True,
-                    features__code=PURCHASE_BILLS_FEATURE_CODE,
-                    features__is_active=True,
-                )
-                .distinct()
-                .first()
-            )
         if not mc:
             return _bad("money container is not allowed for purchase bills", 400)
         required_payment_currencies = set()
@@ -1680,16 +1684,17 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
 
                 raw_cost = (r.get("ret_cost_raw") or "").strip()
                 if raw_cost:
-                    try:
-                        cost = q4(Decimal(raw_cost))
-                    except Exception:
-                        raise ValueError(f"Invalid return cost for '{prod.name}'.")
+                    cost = _parse_money_input(
+                        raw_cost,
+                        "0",
+                        field_name=f"return cost for '{prod.name}'",
+                    )
                 else:
                     cost = purchase_cost
                 if cost < DEC0:
                     raise ValueError(f"Invalid negative return cost for '{prod.name}'.")
 
-                line_total_raw = (cost * q3(qty_total)).quantize(DEC2, rounding=ROUND_HALF_UP)
+                line_total_raw = round_money(cost * q3(qty_total))
                 line_total = _q_money(item_currency, line_total_raw)
                 if item_currency == "USD":
                     total_return_usd = _q_money("USD", total_return_usd + line_total)
@@ -1749,7 +1754,11 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
             if raw_status not in {"paid", "unpaid", "partial"}:
                 raise ValueError("Return status must be selected.")
 
-            paid_amount = _dec(return_paid_amount_raw or "0", "0")
+            paid_amount = _parse_money_input(
+                return_paid_amount_raw or "0",
+                "0",
+                field_name="return_paid_amount",
+            )
             if paid_amount < DEC0:
                 paid_amount = -paid_amount
             paid_amount = _q_money(settlement_currency_selected, paid_amount)
@@ -1876,8 +1885,8 @@ def pay_debt_full(request: HttpRequest, bill_id: str) -> JsonResponse:
 def pay_debt_batch(request: HttpRequest, bill_id: str) -> JsonResponse:
     amount_raw = (request.POST.get("amount") or "").strip()
     try:
-        amount = Decimal(amount_raw)
-    except Exception:
+        amount = _parse_money_input(amount_raw, "0", field_name="amount")
+    except ValueError:
         return _bad("Enter a positive amount.")
     if amount <= 0:
         return _bad("Enter a positive amount.")
@@ -2039,8 +2048,8 @@ def collect_return_full(request: HttpRequest, ret_id: str) -> JsonResponse:
 def collect_return_batch(request: HttpRequest, ret_id: str) -> JsonResponse:
     amount_raw = (request.POST.get("amount") or "").strip()
     try:
-        amount = Decimal(amount_raw)
-    except Exception:
+        amount = _parse_money_input(amount_raw, "0", field_name="amount")
+    except ValueError:
         return _bad("Enter a positive amount.")
     if amount <= 0:
         return _bad("Enter a positive amount.")

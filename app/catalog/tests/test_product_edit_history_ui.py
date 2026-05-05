@@ -36,8 +36,8 @@ class ProductEditHistoryUiTests(TestCase):
             product=product,
             qty_primary=Decimal("0"),
             unit_index=1,
-            unit_cost=Decimal("0.0000"),
-            total_cost=Decimal("0.000"),
+            unit_cost=Decimal("0.00"),
+            total_cost=Decimal("0.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model="ProductEditHistoryUiTests",
@@ -106,8 +106,8 @@ class ProductEditHistoryUiTests(TestCase):
             allow_syp_purchasing="on",
             default_purchase_currency="SYP",
             default_sale_currency="SYP",
-            default_cost_syp="7.5000",
-            default_price_syp="11.2500",
+            default_cost_syp="7.50",
+            default_price_syp="11.25",
             notes="updated note",
         )
         payload["unit_primary_ids[]"] = ["UID-1"]
@@ -117,8 +117,8 @@ class ProductEditHistoryUiTests(TestCase):
 
         self.assertEqual(resp.status_code, 302)
         product.refresh_from_db()
-        self.assertEqual(product.default_cost_syp, Decimal("7.5000"))
-        self.assertEqual(product.default_price_syp, Decimal("11.2500"))
+        self.assertEqual(product.default_cost_syp, Decimal("7.50"))
+        self.assertEqual(product.default_price_syp, Decimal("11.25"))
         self.assertEqual(product.notes, "updated note")
 
     def test_edit_with_history_blocks_locked_change_with_clear_message(self):

@@ -66,14 +66,14 @@ class ProductSnapshotImmutabilityTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 2,
                     "qty_raw": "3",
-                    "cost": "5.0000",
-                    "price": "9.0000",
+                    "cost": "5.00",
+                    "price": "9.00",
                     "currency": "SYP",
                 }
             ],
@@ -96,14 +96,14 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertEqual(item.unit_2_label_at_txn, original_unit2)
         self.assertEqual(item.conv_factor_at_txn, original_conv)
         self.assertEqual(item.qty_used_at_txn, Decimal("3"))
-        self.assertEqual(item.qty_primary, Decimal("6.000"))
+        self.assertEqual(item.qty_primary, Decimal("6.00"))
 
         self.assertEqual(mv.product_name_at_txn, original_name)
         self.assertEqual(mv.unit_1_label_at_txn, original_unit1)
         self.assertEqual(mv.unit_2_label_at_txn, original_unit2)
         self.assertEqual(mv.conversion_factor_at_txn, original_conv)
         self.assertEqual(mv.qty_used_at_txn, Decimal("3"))
-        self.assertEqual(mv.qty_primary_at_txn, Decimal("6.000"))
+        self.assertEqual(mv.qty_primary_at_txn, Decimal("6.00"))
         self.assertGreaterEqual(mv.qty_used_at_txn, Decimal("0"))
         self.assertGreaterEqual(mv.qty_primary_at_txn, Decimal("0"))
 
@@ -182,7 +182,11 @@ class ProductSnapshotImmutabilityTests(TestCase):
         data = resp.json()
         self.assertTrue(data.get("ok"))
 
-        bill = SalesBill.objects.get(pk=data["bill"]["id"])
+        bill_ref = str(data["bill"]["id"])
+        if bill_ref.upper().startswith("PS-"):
+            bill = SalesBill.objects.get(public_id__iexact=bill_ref)
+        else:
+            bill = SalesBill.objects.get(pk=int(bill_ref))
         row = SalesBillRow.objects.get(bill=bill, product_id=prod.id)
         mv = ProductMovement.objects.get(
             source_app="pos",
@@ -195,13 +199,13 @@ class ProductSnapshotImmutabilityTests(TestCase):
         self.assertEqual(row.unit_1_label_at_txn, original_unit1)
         self.assertEqual(row.unit_2_label_at_txn, original_unit2)
         self.assertEqual(row.conv_factor_at_txn, original_conv)
-        self.assertEqual(row.qty_primary_at_txn, Decimal("6.000"))
+        self.assertEqual(row.qty_primary_at_txn, Decimal("6.00"))
 
         self.assertEqual(mv.product_name_at_txn, original_name)
         self.assertEqual(mv.unit_1_label_at_txn, original_unit1)
         self.assertEqual(mv.unit_2_label_at_txn, original_unit2)
         self.assertEqual(mv.conversion_factor_at_txn, original_conv)
-        self.assertEqual(mv.qty_primary_at_txn, Decimal("6.000"))
+        self.assertEqual(mv.qty_primary_at_txn, Decimal("6.00"))
         self.assertGreaterEqual(mv.qty_used_at_txn, Decimal("0"))
         self.assertGreaterEqual(mv.qty_primary_at_txn, Decimal("0"))
 
@@ -280,7 +284,11 @@ class ProductSnapshotImmutabilityTests(TestCase):
         data = resp.json()
         self.assertTrue(data.get("ok"))
 
-        bill = SalesBill.objects.get(pk=data["bill"]["id"])
+        bill_ref = str(data["bill"]["id"])
+        if bill_ref.upper().startswith("PS-"):
+            bill = SalesBill.objects.get(public_id__iexact=bill_ref)
+        else:
+            bill = SalesBill.objects.get(pk=int(bill_ref))
         row = SalesBillRow.objects.get(bill=bill, product_id=prod.id)
 
         ret = ReturnSV.create_sales_return_draft(

@@ -82,7 +82,7 @@ class ManualEventApiPrecisionTests(TestCase):
         self.assertEqual(self.a.balance_syp, Decimal("20000"))
 
         receipt = Receipt.objects.get(pk=body["receipt_id"])
-        self.assertEqual(receipt.fx_syp_per_usd, Decimal("20000.000000"))
+        self.assertEqual(receipt.fx_syp_per_usd, Decimal("20000.00"))
 
     def test_manual_exchange_rejects_invalid_explicit_fx(self):
         ManualSV.post_manual_add(

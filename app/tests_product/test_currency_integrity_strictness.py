@@ -406,8 +406,8 @@ class CurrencyStrictnessPosTests(TestCase):
 
     def test_pos_row_seed_uses_usd_default_not_legacy_raw_cost(self):
         prod = self._mk_product("PosSeedUSD")
-        prod.default_cost_syp = Decimal("999.0000")
-        prod.default_cost_usd = Decimal("2.2500")
+        prod.default_cost_syp = Decimal("999.00")
+        prod.default_cost_usd = Decimal("2.25")
         prod.default_sale_currency = "USD"
         prod.allow_usd_sales = True
         prod.allow_usd_purchasing = True
@@ -430,7 +430,7 @@ class CurrencyStrictnessPosTests(TestCase):
                     "number": str(prod.id),
                     "qty": "1",
                     "uom_index": 1,
-                    "unit_price": "3.000",
+                    "unit_price": "3.00",
                     "currency": "USD",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -440,9 +440,10 @@ class CurrencyStrictnessPosTests(TestCase):
         }
         resp = self.client.post(reverse("pos:api_bill_save"), data=payload, content_type="application/json")
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
-        self.assertEqual(row.unit_cost_at_txn, Decimal("2.2500"))
+        self.assertEqual(row.unit_cost_at_txn, Decimal("2.25"))
         self.assertEqual(row.cost_currency_at_txn, "USD")
 
 
@@ -587,7 +588,7 @@ class CurrencyStrictnessBillingAndCatalogTests(TestCase):
             currency_code="SYP",
             valuation_mode="CURRENT_FX",
         )
-        self.assertEqual(pret.total, Decimal("40000.000"))
+        self.assertEqual(pret.total, Decimal("40000.00"))
 
     def test_product_edit_updates_currency_defaults(self):
         col = ProductCollection.objects.create(name="EditCostCol")
@@ -604,10 +605,10 @@ class CurrencyStrictnessBillingAndCatalogTests(TestCase):
             allow_usd_purchasing=True,
             default_purchase_currency="SYP",
             default_sale_currency="USD",
-            default_cost_syp=Decimal("10.0000"),
-            default_cost_usd=Decimal("1.0000"),
-            default_price_syp=Decimal("20.0000"),
-            default_price_usd=Decimal("2.0000"),
+            default_cost_syp=Decimal("10.00"),
+            default_cost_usd=Decimal("1.00"),
+            default_price_syp=Decimal("20.00"),
+            default_price_usd=Decimal("2.00"),
         )
         resp = self.client.post(
             reverse("manager_product_edit", kwargs={"pk": p.id}),
@@ -624,18 +625,18 @@ class CurrencyStrictnessBillingAndCatalogTests(TestCase):
                 "allow_usd_purchasing": "on",
                 "default_purchase_currency": "USD",
                 "default_sale_currency": "SYP",
-                "default_cost_syp": "11.0000",
-                "default_cost_usd": "3.0000",
-                "default_price_syp": "21.0000",
-                "default_price_usd": "4.0000",
+                "default_cost_syp": "11.00",
+                "default_cost_usd": "3.00",
+                "default_price_syp": "21.00",
+                "default_price_usd": "4.00",
                 "notes": "edited",
             },
         )
         self.assertEqual(resp.status_code, 302)
         p.refresh_from_db()
-        self.assertEqual(p.default_cost_syp, Decimal("11.0000"))
-        self.assertEqual(p.default_cost_usd, Decimal("3.0000"))
-        self.assertEqual(p.default_price_syp, Decimal("21.0000"))
-        self.assertEqual(p.default_price_usd, Decimal("4.0000"))
+        self.assertEqual(p.default_cost_syp, Decimal("11.00"))
+        self.assertEqual(p.default_cost_usd, Decimal("3.00"))
+        self.assertEqual(p.default_price_syp, Decimal("21.00"))
+        self.assertEqual(p.default_price_usd, Decimal("4.00"))
 
 

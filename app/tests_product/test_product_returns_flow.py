@@ -44,14 +44,14 @@ class ProductReturnsFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "10",
-                    "cost": "2.0000",
-                    "price": "3.0000",
+                    "cost": "2.00",
+                    "price": "3.00",
                     "currency": "SYP",
                 }
             ],
@@ -76,13 +76,13 @@ class ProductReturnsFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("2.000"),
+            paid_amount=Decimal("2.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 2,
                     "qty_raw": "2",
-                    "cost": "2.0000",
+                    "cost": "2.00",
                     "currency": "SYP",
                 }
             ],
@@ -134,7 +134,7 @@ class ProductReturnsFlowTests(TestCase):
                     "number": str(prod.id),
                     "qty": "4",
                     "uom_index": 2,
-                    "unit_price": "2.000",
+                    "unit_price": "2.00",
                     "currency": "SYP",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -149,7 +149,8 @@ class ProductReturnsFlowTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
 
         sold_qty_primary = (row.qty * row.conv_factor_at_txn) if row.uom_index == 2 else row.qty
@@ -192,7 +193,7 @@ class ProductReturnsFlowTests(TestCase):
                     "number": str(prod.id),
                     "qty": "4",
                     "uom_index": 2,
-                    "unit_price": "2.000",
+                    "unit_price": "2.00",
                     "currency": "SYP",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -205,7 +206,8 @@ class ProductReturnsFlowTests(TestCase):
             data=payload,
             content_type="application/json",
         )
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
 
         bill_row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         ret = PosReturnSV.create_sales_return_draft(
@@ -216,7 +218,7 @@ class ProductReturnsFlowTests(TestCase):
         )
         ret_row = ret.rows.first()
         self.assertIsNotNone(ret_row)
-        self.assertEqual(ret_row.qty_returned, Decimal("2.000"))
+        self.assertEqual(ret_row.qty_returned, Decimal("2.00"))
 
 
 

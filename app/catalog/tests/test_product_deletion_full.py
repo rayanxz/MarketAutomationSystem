@@ -74,10 +74,10 @@ class ProductDeletionTestMixin:
             allow_usd_purchasing=False,
             default_purchase_currency="SYP",
             default_sale_currency="SYP",
-            default_cost_syp=Decimal("1.0000"),
-            default_cost_usd=Decimal("0.0000"),
-            default_price_syp=Decimal("2.0000"),
-            default_price_usd=Decimal("0.0000"),
+            default_cost_syp=Decimal("1.00"),
+            default_cost_usd=Decimal("0.00"),
+            default_price_syp=Decimal("2.00"),
+            default_price_usd=Decimal("0.00"),
         )
 
     def add_stock(self, *, product: Product, container: ProductContainer, qty: str) -> None:
@@ -85,7 +85,7 @@ class ProductDeletionTestMixin:
             product=product,
             container=container,
             qty_remaining=Decimal(qty),
-            unit_cost=Decimal("1.0000"),
+            unit_cost=Decimal("1.00"),
             cost_currency="SYP",
         )
 
@@ -113,14 +113,14 @@ class ProductDeletionTestMixin:
             product=product,
             product_name_at_txn=product.name,
             unit_index=1,
-            conv_factor_at_txn=Decimal("1.0000"),
+            conv_factor_at_txn=Decimal("1.00"),
             unit_1_label_at_txn="piece",
             unit_2_label_at_txn="",
-            qty_used_at_txn=Decimal("1.000"),
-            qty_primary=Decimal("1.000"),
-            cost=Decimal("1.0000"),
-            price=Decimal("2.0000"),
-            line_total=Decimal("1.000"),
+            qty_used_at_txn=Decimal("1.00"),
+            qty_primary=Decimal("1.00"),
+            cost=Decimal("1.00"),
+            price=Decimal("2.00"),
+            line_total=Decimal("1.00"),
             currency="SYP",
         )
         return bill
@@ -201,8 +201,8 @@ class ProductReactivationTests(ProductDeletionTestMixin, TestCase):
             actor=self.user,
             product=p,
             unit_index=1,
-            qty_primary=Decimal("1.000"),
-            unit_cost=Decimal("1.0000"),
+            qty_primary=Decimal("1.00"),
+            unit_cost=Decimal("1.00"),
             cost_currency="SYP",
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
@@ -242,10 +242,10 @@ class ProductHardDeleteTests(ProductDeletionTestMixin, TestCase):
         p = self.create_product(name="HD-MOV")
         ProductMovement.objects.create(
             product=p,
-            qty_primary=Decimal("0.000"),
+            qty_primary=Decimal("0.00"),
             unit_index=1,
-            unit_cost=Decimal("0.0000"),
-            total_cost=Decimal("0.000"),
+            unit_cost=Decimal("0.00"),
+            total_cost=Decimal("0.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model="ProductHardDeleteTests",
@@ -267,9 +267,9 @@ class ProductHardDeleteTests(ProductDeletionTestMixin, TestCase):
             bill=bill,
             product_id=p.id,
             product_name=p.name,
-            qty=Decimal("1.000"),
+            qty=Decimal("1.00"),
             uom_index=1,
-            unit_price=Decimal("1.000"),
+            unit_price=Decimal("1.00"),
             sale_currency="SYP",
         )
         with self.assertRaises(DelSV.ProductHardDeleteBlockedError):
@@ -348,14 +348,14 @@ class OperationalGuardsTests(ProductDeletionTestMixin, TestCase):
                 actor=self.user,
                 provider_id=self.provider.id,
                 status="unpaid",
-                paid_amount=Decimal("0.000"),
+                paid_amount=Decimal("0.00"),
                 items=[
                     {
                         "product_id": self.product.id,
                         "unit_index": 1,
                         "qty_raw": "1",
-                        "cost": "1.0000",
-                        "price": "2.0000",
+                        "cost": "1.00",
+                        "price": "2.00",
                         "currency": "SYP",
                     }
                 ],
@@ -370,13 +370,13 @@ class OperationalGuardsTests(ProductDeletionTestMixin, TestCase):
                 actor=self.user,
                 provider_id=self.provider.id,
                 status="unpaid",
-                paid_amount=Decimal("0.000"),
+                paid_amount=Decimal("0.00"),
                 items=[
                     {
                         "product_id": self.product.id,
                         "unit_index": 1,
                         "qty_raw": "1.000",
-                        "cost": "1.0000",
+                        "cost": "1.00",
                         "currency": "SYP",
                     }
                 ],
@@ -389,8 +389,8 @@ class OperationalGuardsTests(ProductDeletionTestMixin, TestCase):
             finalized=True,
             parked=False,
             pay_status=SalesBill.PAY_NONE,
-            total_amount=Decimal("1.000"),
-            total_syp=Decimal("1.000"),
+            total_amount=Decimal("1.00"),
+            total_syp=Decimal("1.00"),
             settlement_mode=SalesBill.SETTLE_SPLIT,
             settlement_currency="SYP",
         )
@@ -398,9 +398,9 @@ class OperationalGuardsTests(ProductDeletionTestMixin, TestCase):
             bill=bill,
             product_id=self.product.id,
             product_name=self.product.name,
-            qty=Decimal("1.000"),
+            qty=Decimal("1.00"),
             uom_index=1,
-            unit_price=Decimal("1.000"),
+            unit_price=Decimal("1.00"),
             sale_currency="SYP",
         )
         with self.assertRaises(ValidationError):
@@ -412,8 +412,8 @@ class OperationalGuardsTests(ProductDeletionTestMixin, TestCase):
                 actor=self.user,
                 product=self.product,
                 unit_index=1,
-                qty_primary=Decimal("1.000"),
-                unit_cost=Decimal("1.0000"),
+                qty_primary=Decimal("1.00"),
+                unit_cost=Decimal("1.00"),
                 cost_currency="SYP",
                 movement_type=ProductMovement.MovementType.ADJUSTMENT,
                 source_app="tests",
@@ -441,8 +441,8 @@ class OperationalGuardsTests(ProductDeletionTestMixin, TestCase):
                     "product_id": self.product.id,
                     "unit_index": 1,
                     "qty_raw": "1",
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],

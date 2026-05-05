@@ -39,6 +39,7 @@ class PurchaseBillInputHardeningTests(TestCase):
             is_active=True,
             created_by=cls.user,
         )
+        cls.cash.allowed_users.add(cls.user)
         feature, _ = ContainerFeature.objects.get_or_create(
             code="purchase_bills",
             defaults={"name": "Purchase Bills", "is_active": True},

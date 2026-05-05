@@ -48,8 +48,8 @@ class ImportStockSnapshotMovementTests(TestCase):
                                 "unit_primary": UnitType.PIECE,
                                 "unit_secondary": "",
                                 "conversion_factor": "",
-                                "cost": "1.0000",
-                                "price": "2.0000",
+                                "cost": "1.00",
+                                "price": "2.00",
                                 "stock_qty": "5",
                                 "barcodes_u1": [],
                                 "barcodes_u2": [],
@@ -76,6 +76,6 @@ class ImportStockSnapshotMovementTests(TestCase):
             source_id="1",
         )
         self.assertEqual(mv.product_name_at_txn, "ImportedSnap")
-        self.assertEqual(mv.qty_primary_at_txn, Decimal("5.000"))
-        self.assertEqual(mv.qty_used_at_txn, Decimal("5.000"))
+        self.assertEqual(mv.qty_primary_at_txn, Decimal("5.00"))
+        self.assertEqual(mv.qty_used_at_txn, Decimal("5.00"))
         self.assertTrue(mv.unit_1_label_at_txn)

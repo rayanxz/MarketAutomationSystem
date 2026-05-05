@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 
 from accounts.models import AccountProfile
 from financials.models import MoneyContainer, Currency, ContainerFeature, FxSettings
+from core.formatters import parse_money_strict
 
 
 User = get_user_model()
@@ -102,15 +103,25 @@ class OpeningBalanceRowForm(forms.Form):
     amount = forms.DecimalField(
         required=False,
         max_digits=18,
-        decimal_places=6,
-        widget=forms.NumberInput(attrs={"class": "input numeric-math", "step": "any", "placeholder": "0"}),
+        decimal_places=2,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "input numeric-math",
+                "step": "0.01",
+                "data-math-max-decimals": "2",
+                "placeholder": "0.00",
+            }
+        ),
     )
 
     def clean_amount(self):
         v = self.cleaned_data.get("amount")
         if v is None:
             return Decimal("0")
-        return v
+        try:
+            return parse_money_strict(v, field_name="opening balance amount", error_cls=forms.ValidationError)
+        except forms.ValidationError:
+            raise
 
 
 def build_opening_formset(*, currencies: List[Currency], data=None):

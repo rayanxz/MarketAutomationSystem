@@ -238,11 +238,11 @@ class PosReturnSymmetryTests(TestCase):
         ).get()
         audit_after_p = AuditLog.objects.count()
 
-        self.assertEqual(stock_before_p, Decimal("10.000"))
-        self.assertEqual(stock_after_p, Decimal("8.000"))
+        self.assertEqual(stock_before_p, Decimal("10.00"))
+        self.assertEqual(stock_after_p, Decimal("8.00"))
         self.assertEqual(cash_before_p_usd, cash_after_p_usd)
         self.assertEqual(cash_before_p_syp, cash_after_p_syp)
-        self.assertEqual(debt_p.remaining, Decimal("30.000"))
+        self.assertEqual(debt_p.remaining, Decimal("30.00"))
         self.assertTrue(pret.status in {ProviderReturn.Status.UNPAID, ProviderReturn.Status.PAID, ProviderReturn.Status.PARTIAL})
         self.assertEqual(audit_after_p - audit_before_p, 1)
 
@@ -306,18 +306,18 @@ class PosReturnSymmetryTests(TestCase):
         ).get()
         audit_after_s = AuditLog.objects.count()
 
-        self.assertEqual(stock_before_s, Decimal("4.000"))
-        self.assertEqual(stock_after_s, Decimal("6.000"))
+        self.assertEqual(stock_before_s, Decimal("4.00"))
+        self.assertEqual(stock_after_s, Decimal("6.00"))
         self.assertEqual(cash_before_s_usd, cash_after_s_usd)
         self.assertEqual(cash_before_s_syp, cash_after_s_syp)
-        self.assertEqual(debt_before_s.remaining, Decimal("100.000"))
-        self.assertEqual(debt_after_s.remaining, Decimal("70.000"))
+        self.assertEqual(debt_before_s.remaining, Decimal("100.00"))
+        self.assertEqual(debt_after_s.remaining, Decimal("70.00"))
         self.assertEqual(ret.status, ret.Status.POSTED)
         self.assertEqual(audit_after_s - audit_before_s, 2)
 
         self.assertEqual(abs(stock_after_p - stock_before_p), abs(stock_after_s - stock_before_s))
         self.assertEqual(abs(cash_after_p_usd - cash_before_p_usd), abs(cash_after_s_usd - cash_before_s_usd))
-        self.assertEqual(abs(debt_p.remaining - Decimal("0.000")), abs(debt_after_s.remaining - debt_before_s.remaining))
+        self.assertEqual(abs(debt_p.remaining - Decimal("0.00")), abs(debt_after_s.remaining - debt_before_s.remaining))
 
     def test_cash_only_return_symmetry(self):
         prod_p = self._create_product("Provider Cash Item")
@@ -368,11 +368,11 @@ class PosReturnSymmetryTests(TestCase):
         ).get()
         audit_after_p = AuditLog.objects.count()
 
-        self.assertEqual(stock_before_p, Decimal("10.000"))
-        self.assertEqual(stock_after_p, Decimal("8.000"))
+        self.assertEqual(stock_before_p, Decimal("10.00"))
+        self.assertEqual(stock_after_p, Decimal("8.00"))
         self.assertEqual(cash_after_p_usd, cash_before_p_usd + Decimal("30"))
         self.assertEqual(cash_before_p_syp, cash_after_p_syp)
-        self.assertEqual(debt_p.remaining, Decimal("0.000"))
+        self.assertEqual(debt_p.remaining, Decimal("0.00"))
         self.assertTrue(pret.status in {ProviderReturn.Status.UNPAID, ProviderReturn.Status.PAID, ProviderReturn.Status.PARTIAL})
         self.assertEqual(audit_after_p - audit_before_p, 1)
 
@@ -404,8 +404,8 @@ class PosReturnSymmetryTests(TestCase):
         cash_after_s_syp = MoneyContainer.objects.get(pk=self.cash_sales.id).balance_syp
         audit_after_s = AuditLog.objects.count()
 
-        self.assertEqual(stock_before_s, Decimal("4.000"))
-        self.assertEqual(stock_after_s, Decimal("6.000"))
+        self.assertEqual(stock_before_s, Decimal("4.00"))
+        self.assertEqual(stock_after_s, Decimal("6.00"))
         self.assertEqual(cash_after_s_usd, cash_before_s_usd - Decimal("30"))
         self.assertEqual(cash_before_s_syp, cash_after_s_syp)
         self.assertEqual(ret.status, ret.Status.POSTED)
@@ -461,10 +461,10 @@ class PosReturnSymmetryTests(TestCase):
         ).get()
         audit_after_p = AuditLog.objects.count()
 
-        self.assertEqual(stock_before_p, Decimal("10.000"))
-        self.assertEqual(stock_after_p, Decimal("8.000"))
+        self.assertEqual(stock_before_p, Decimal("10.00"))
+        self.assertEqual(stock_after_p, Decimal("8.00"))
         self.assertEqual(cash_after_p_usd, cash_before_p_usd + Decimal("20"))
-        self.assertEqual(debt_p.remaining, Decimal("10.000"))
+        self.assertEqual(debt_p.remaining, Decimal("10.00"))
         self.assertTrue(pret.status in {ProviderReturn.Status.UNPAID, ProviderReturn.Status.PAID, ProviderReturn.Status.PARTIAL})
         self.assertEqual(audit_after_p - audit_before_p, 1)
 
@@ -526,17 +526,17 @@ class PosReturnSymmetryTests(TestCase):
         ).get()
         audit_after_s = AuditLog.objects.count()
 
-        self.assertEqual(stock_before_s, Decimal("4.000"))
-        self.assertEqual(stock_after_s, Decimal("6.000"))
+        self.assertEqual(stock_before_s, Decimal("4.00"))
+        self.assertEqual(stock_after_s, Decimal("6.00"))
         self.assertEqual(cash_after_s_usd, cash_before_s_usd - Decimal("20"))
-        self.assertEqual(debt_before_s.remaining, Decimal("10.000"))
-        self.assertEqual(debt_after_s.remaining, Decimal("0.000"))
+        self.assertEqual(debt_before_s.remaining, Decimal("10.00"))
+        self.assertEqual(debt_after_s.remaining, Decimal("0.00"))
         self.assertEqual(ret.status, ret.Status.POSTED)
         self.assertEqual(audit_after_s - audit_before_s, 2)
 
         self.assertEqual(abs(stock_after_p - stock_before_p), abs(stock_after_s - stock_before_s))
         self.assertEqual(abs(cash_after_p_usd - cash_before_p_usd), abs(cash_after_s_usd - cash_before_s_usd))
-        self.assertEqual(abs(debt_p.remaining - Decimal("0.000")), abs(debt_after_s.remaining - debt_before_s.remaining))
+        self.assertEqual(abs(debt_p.remaining - Decimal("0.00")), abs(debt_after_s.remaining - debt_before_s.remaining))
 
     def test_over_return_rejection_symmetry(self):
         prod_p = self._create_product("Provider Over Item")

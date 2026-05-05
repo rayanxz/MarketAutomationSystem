@@ -260,15 +260,15 @@ class FinancialsCoreTests(TestCase):
             currency_code="SYP",
             amount=D("10.6"),
         )
-        self.assertEqual(self._bal_container(self.c1.id).get("SYP"), D("11"))
+        self.assertEqual(self._bal_container(self.c1.id).get("SYP"), D("10.60"))
 
-        FSV.post_cash_add(
-            actor=self.actor,
-            container_id=self.c1.id,
-            currency_code="USD",
-            amount=D("1.235"),
-        )
-        self.assertEqual(self._bal_container(self.c1.id).get("USD"), D("1.24"))
+        with self.assertRaisesRegex(ValueError, "at most 2 decimal digits"):
+            FSV.post_cash_add(
+                actor=self.actor,
+                container_id=self.c1.id,
+                currency_code="USD",
+                amount=D("1.235"),
+            )
 
     def test_80_reversal_creates_negating_lines_and_marks_original(self):
         # Start baseline

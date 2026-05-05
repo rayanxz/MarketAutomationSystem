@@ -68,8 +68,8 @@ class StockTransferPathNumericIntegrityTests(TestCase):
 
     def test_transfer_from_batch_moves_fifo_and_stock_entries_consistently(self):
         store_entry_before = StockEntry.objects.get(product=self.product, container=self.store)
-        self.assertEqual(q3(store_entry_before.qty_primary), Decimal("10.000"))
-        self.assertEqual(q3(self.product.stock_qty), Decimal("10.000"))
+        self.assertEqual(q3(store_entry_before.qty_primary), Decimal("10.00"))
+        self.assertEqual(q3(self.product.stock_qty), Decimal("10.00"))
 
         batch = self._store_batch()
         self.assertIsNotNone(batch)
@@ -87,7 +87,7 @@ class StockTransferPathNumericIntegrityTests(TestCase):
         )
 
         batch.refresh_from_db()
-        self.assertEqual(q3(batch.qty_remaining), Decimal("6.000"))
+        self.assertEqual(q3(batch.qty_remaining), Decimal("6.00"))
 
         dest_layer = (
             StockFifoLayer.objects
@@ -96,22 +96,22 @@ class StockTransferPathNumericIntegrityTests(TestCase):
             .first()
         )
         self.assertIsNotNone(dest_layer)
-        self.assertEqual(q3(dest_layer.qty_remaining), Decimal("4.000"))
-        self.assertEqual(dest_layer.unit_cost, Decimal("5.0000"))
+        self.assertEqual(q3(dest_layer.qty_remaining), Decimal("4.00"))
+        self.assertEqual(dest_layer.unit_cost, Decimal("5.00"))
         self.assertEqual(dest_layer.cost_currency, "USD")
         self.assertEqual(dest_layer.source_app, source_app)
         self.assertEqual(dest_layer.source_model, source_model)
 
         store_entry_after = StockEntry.objects.get(product=self.product, container=self.store)
         wh1_entry_after = StockEntry.objects.get(product=self.product, container=self.wh1)
-        self.assertEqual(q3(store_entry_after.qty_primary), Decimal("6.000"))
-        self.assertEqual(q3(wh1_entry_after.qty_primary), Decimal("4.000"))
+        self.assertEqual(q3(store_entry_after.qty_primary), Decimal("6.00"))
+        self.assertEqual(q3(wh1_entry_after.qty_primary), Decimal("4.00"))
 
         self.product.refresh_from_db(fields=["stock_qty"])
-        self.assertEqual(q3(self.product.stock_qty), Decimal("10.000"))
+        self.assertEqual(q3(self.product.stock_qty), Decimal("10.00"))
 
-        self.assertEqual(q3(mv_out.qty_primary), Decimal("-4.000"))
-        self.assertEqual(q3(mv_in.qty_primary), Decimal("4.000"))
+        self.assertEqual(q3(mv_out.qty_primary), Decimal("-4.00"))
+        self.assertEqual(q3(mv_in.qty_primary), Decimal("4.00"))
 
     def test_transfer_then_sale_from_destination_keeps_fifo_cost_traceable(self):
         batch = self._store_batch()
@@ -147,11 +147,11 @@ class StockTransferPathNumericIntegrityTests(TestCase):
         self.assertGreater(len(sale_parts), 0)
         self.assertEqual(
             q3(sum((p.qty_primary for p in sale_parts), Decimal("0"))),
-            Decimal("3.000"),
+            Decimal("3.00"),
         )
         self.assertEqual(
             q3(sum((p.total_cost for p in sale_parts), Decimal("0"))),
-            Decimal("15.000"),
+            Decimal("15.00"),
         )
         self.assertTrue(all(p.fifo_layer.cost_currency == "USD" for p in sale_parts))
         self.assertTrue(
@@ -165,8 +165,8 @@ class StockTransferPathNumericIntegrityTests(TestCase):
 
         store_entry = StockEntry.objects.get(product=self.product, container=self.store)
         wh1_entry = StockEntry.objects.get(product=self.product, container=self.wh1)
-        self.assertEqual(q3(store_entry.qty_primary), Decimal("6.000"))
-        self.assertEqual(q3(wh1_entry.qty_primary), Decimal("1.000"))
+        self.assertEqual(q3(store_entry.qty_primary), Decimal("6.00"))
+        self.assertEqual(q3(wh1_entry.qty_primary), Decimal("1.00"))
 
         self.product.refresh_from_db(fields=["stock_qty"])
-        self.assertEqual(q3(self.product.stock_qty), Decimal("7.000"))
+        self.assertEqual(q3(self.product.stock_qty), Decimal("7.00"))

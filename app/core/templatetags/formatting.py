@@ -1,6 +1,7 @@
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation
 
 from django import template
+from core.formatters import round_money
 
 register = template.Library()
 
@@ -9,8 +10,8 @@ register = template.Library()
 def human_number(val):
     """
     Global formatter:
-    - Decimal-like values keep fixed precision and thousand separators.
-    - Minimum displayed fractional digits is 2.
+    - Decimal-like values use thousand separators.
+    - Fractional trailing zeros are trimmed.
     - Integer inputs remain integer-style with thousand separators.
     """
     if val is None:
@@ -29,8 +30,8 @@ def human_number(val):
         return val  # not a number
 
     if d == 0:
-        return "0.00"
-    s = format(d, "f")
+        return "0"
+    s = format(d.normalize(), "f")
 
     sign = ""
     if s.startswith("-"):
@@ -43,10 +44,9 @@ def human_number(val):
         int_part, frac = s, ""
 
     int_part_fmt = f"{int(int_part or '0'):,}"
+    frac = frac.rstrip("0")
     if not frac:
-        frac = "00"
-    elif len(frac) == 1:
-        frac = f"{frac}0"
+        return f"{sign}{int_part_fmt}"
     return f"{sign}{int_part_fmt}.{frac}"
 
 
@@ -74,7 +74,7 @@ def money_number(val):
         return val  # not a number
 
     # Normalize money display to 2dp with explicit HALF_UP rounding.
-    d = d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    d = round_money(d)
     if d == 0:
         return "0"
 

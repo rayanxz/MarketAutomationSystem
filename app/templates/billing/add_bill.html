@@ -583,7 +583,7 @@
               <div class="muted">مبلغ الدفع بالليرة</div>
               <div class="money-inline">
                 <span class="money-chip">SYP</span>
-                <input id="paySypOnly" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+                <input id="paySypOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0">
               </div>
             </div>
           </div>
@@ -593,7 +593,7 @@
               <div class="muted">مبلغ الدفع بالدولار</div>
               <div class="money-inline">
                 <span class="money-chip">USD</span>
-                <input id="payUsdOnly" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+                <input id="payUsdOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0">
               </div>
             </div>
           </div>
@@ -603,11 +603,11 @@
               <div class="muted">دفع إجمالي الفاتورة كل عملة على حدة</div>
               <div class="money-inline">
                 <span class="money-chip">SYP</span>
-                <input id="paySeparateSyp" class="input numeric-math" data-math-display-max-decimals="2" type="number" readonly>
+                <input id="paySeparateSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
               </div>
               <div class="money-inline">
                 <span class="money-chip">USD</span>
-                <input id="paySeparateUsd" class="input numeric-math" data-math-display-max-decimals="2" type="number" readonly>
+                <input id="paySeparateUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
               </div>
             </div>
           </div>
@@ -617,11 +617,11 @@
               <div class="muted">دفع مختلط (SYP + USD)</div>
               <div class="money-inline">
                 <span class="money-chip">SYP</span>
-                <input id="payMixedSyp" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+                <input id="payMixedSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0">
               </div>
               <div class="money-inline">
                 <span class="money-chip">USD</span>
-                <input id="payMixedUsd" class="input numeric-math" data-math-display-max-decimals="2" type="number" min="0" step="0.0001" placeholder="0">
+                <input id="payMixedUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0">
               </div>
             </div>
           </div>

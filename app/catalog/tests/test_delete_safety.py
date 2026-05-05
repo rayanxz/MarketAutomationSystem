@@ -37,10 +37,10 @@ class StrictHierarchyHardDeleteTests(TestCase):
     def _add_movement(self, product: Product) -> None:
         ProductMovement.objects.create(
             product=product,
-            qty_primary=Decimal("0.000"),
+            qty_primary=Decimal("0.00"),
             unit_index=1,
-            unit_cost=Decimal("0.0000"),
-            total_cost=Decimal("0.000"),
+            unit_cost=Decimal("0.00"),
+            total_cost=Decimal("0.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model="StrictHierarchyHardDeleteTests",

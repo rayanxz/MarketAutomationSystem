@@ -12,6 +12,7 @@ from accounts.models import AccountProfile
 from financials.models import MoneyContainer
 from financials import services as FSV
 from financials import manual_events as ManualSV
+from core.formatters import round_money
 
 
 @require_GET
@@ -49,6 +50,11 @@ def manual_event(request: HttpRequest) -> JsonResponse:
             return Decimal("0")
 
     amount = _dec(request.POST.get("amount"))
+    if not amount.is_finite():
+        return JsonResponse({"ok": False, "error": "INVALID_AMOUNT"}, status=400)
+    if amount.as_tuple().exponent < -2:
+        return JsonResponse({"ok": False, "error": "AMOUNT_MAX_2_DECIMALS"}, status=400)
+    amount = round_money(amount)
     if amount <= 0:
         return JsonResponse({"ok": False, "error": "INVALID_AMOUNT"}, status=400)
 

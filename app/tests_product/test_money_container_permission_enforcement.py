@@ -254,7 +254,7 @@ class MoneyContainerPermissionEnforcementTests(TestCase):
 
         self._login(self.forbidden_mgr)
         wiz = self.client.get(
-            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.id}),
+            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.public_id}),
             data={"items": str(item.id)},
         )
         wiz_ids = {c.id for c in wiz.context["money_containers"]}
@@ -329,7 +329,7 @@ class MoneyContainerPermissionEnforcementTests(TestCase):
         )
         self.assertEqual(ok.status_code, 200, ok.content.decode("utf-8"))
         self.assertTrue(ok.json().get("ok"))
-        self.assertTrue(SalesBill.objects.filter(pk=ok.json()["bill"]["id"]).exists())
+        self.assertTrue(SalesBill.objects.filter(public_id=ok.json()["bill"]["id"]).exists())
 
     def test_manual_event_and_debt_payment_reject_forbidden_container(self):
         self._login(self.forbidden_mgr)

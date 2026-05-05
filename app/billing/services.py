@@ -45,15 +45,14 @@ from audit_log.services import (
 
 from financials import services as FinSV
 from financials.models import Currency, Counterparty, CounterpartyType, MoneyContainer, Receipt, ReceiptStatus
+from core.formatters import round_money
 
 
 
 
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
-DEC2 = Decimal("0.01")
 DEC3 = Decimal("0.001")
-DEC4 = Decimal("0.01")
 FEATURE_PURCHASE_BILLS = "purchase_bills"
 FEATURE_PROVIDER_RETURNS = ("provider_returns", FEATURE_PURCHASE_BILLS)
 
@@ -61,10 +60,10 @@ def q3(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC3, rounding=ROUND_HALF_UP)
 
 def q2(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC2, rounding=ROUND_HALF_UP)
+    return round_money(x)
 
 def q4(x: Decimal) -> Decimal:
-    return (x or DEC0).quantize(DEC4, rounding=ROUND_HALF_UP)
+    return round_money(x)
 
 
 def _row_suffix(row_idx: int | None) -> str:
@@ -90,6 +89,26 @@ def _parse_decimal_value(
     if not val.is_finite():
         raise ValidationError(f"Invalid {field_name}{_row_suffix(row_idx)}")
     return val
+
+
+def _parse_money_value(
+    *,
+    raw: Any,
+    field_name: str,
+    row_idx: int | None = None,
+    allow_empty: bool = False,
+) -> Decimal | None:
+    value = _parse_decimal_value(
+        raw=raw,
+        field_name=field_name,
+        row_idx=row_idx,
+        allow_empty=allow_empty,
+    )
+    if value is None:
+        return None
+    if value.as_tuple().exponent < -2:
+        raise ValidationError(f"{field_name} supports at most 2 decimal digits{_row_suffix(row_idx)}")
+    return round_money(value)
 
 
 def _quantize_value(
@@ -683,7 +702,7 @@ def create_bill(
     if status_norm not in {"paid", "unpaid", "partial"}:
         raise ValidationError("Invalid payment status")
 
-    legacy_paid_amount = _parse_decimal_value(
+    legacy_paid_amount = _parse_money_value(
         raw=paid_amount,
         field_name="paid_amount",
         allow_empty=True,
@@ -691,7 +710,7 @@ def create_bill(
     if legacy_paid_amount is not None and legacy_paid_amount < 0:
         raise ValidationError("paid_amount must be >= 0")
 
-    input_paid_syp = _parse_decimal_value(
+    input_paid_syp = _parse_money_value(
         raw=paid_syp,
         field_name="paid_syp",
         allow_empty=True,
@@ -699,7 +718,7 @@ def create_bill(
     if input_paid_syp is not None and input_paid_syp < 0:
         raise ValidationError("paid_syp must be >= 0")
 
-    input_paid_usd = _parse_decimal_value(
+    input_paid_usd = _parse_money_value(
         raw=paid_usd,
         field_name="paid_usd",
         allow_empty=True,
@@ -807,12 +826,12 @@ def create_bill(
         if qty_raw <= 0:
             raise ValueError(f"qty must be > 0 at row {idx}")
 
-        cost_raw = _parse_decimal_value(raw=row.get("cost"), field_name="cost", row_idx=idx) or DEC0
+        cost_raw = _parse_money_value(raw=row.get("cost"), field_name="cost", row_idx=idx) or DEC0
         if cost_raw < 0:
             raise ValidationError(f"cost must be >= 0 at row {idx}")
-        cost_u1 = _quantize_value(raw=cost_raw, exp=DEC4, field_name="cost", row_idx=idx)
+        cost_u1 = round_money(cost_raw)
 
-        price_syp_raw = _parse_decimal_value(
+        price_syp_raw = _parse_money_value(
             raw=row.get("price_syp"),
             field_name="price_syp",
             row_idx=idx,
@@ -821,12 +840,12 @@ def create_bill(
         if price_syp_raw is not None and price_syp_raw < 0:
             raise ValidationError(f"price_syp must be >= 0 at row {idx}")
         price_syp_val = (
-            _quantize_value(raw=price_syp_raw, exp=DEC4, field_name="price_syp", row_idx=idx)
+            round_money(price_syp_raw)
             if price_syp_raw is not None
             else None
         )
 
-        price_usd_raw = _parse_decimal_value(
+        price_usd_raw = _parse_money_value(
             raw=row.get("price_usd"),
             field_name="price_usd",
             row_idx=idx,
@@ -835,7 +854,7 @@ def create_bill(
         if price_usd_raw is not None and price_usd_raw < 0:
             raise ValidationError(f"price_usd must be >= 0 at row {idx}")
         price_usd_val = (
-            _quantize_value(raw=price_usd_raw, exp=DEC4, field_name="price_usd", row_idx=idx)
+            round_money(price_usd_raw)
             if price_usd_raw is not None
             else None
         )
@@ -846,7 +865,7 @@ def create_bill(
             raise ValidationError(f"USD sales not enabled for product at row {idx}")
 
         price_fallback = price_usd_val if item_currency == "USD" else price_syp_val
-        price_raw = _parse_decimal_value(
+        price_raw = _parse_money_value(
             raw=row.get("price"),
             field_name="price",
             row_idx=idx,
@@ -856,11 +875,11 @@ def create_bill(
             price_raw = price_fallback if price_fallback is not None else DEC0
         if price_raw < 0:
             raise ValidationError(f"price must be >= 0 at row {idx}")
-        price_u1 = _quantize_value(raw=price_raw, exp=DEC4, field_name="price", row_idx=idx)
+        price_u1 = round_money(price_raw)
 
         total_override_raw = row.get("total_cost")
         total_override = (
-            _parse_decimal_value(raw=total_override_raw, field_name="total_cost", row_idx=idx)
+            _parse_money_value(raw=total_override_raw, field_name="total_cost", row_idx=idx)
             if total_override_raw not in (None, "")
             else None
         )
@@ -889,9 +908,9 @@ def create_bill(
 
         # ---- line total (in ITEM currency)
         line_total_raw = (
-            _quantize_value(raw=total_override, exp=DEC2, field_name="total_cost", row_idx=idx)
+            round_money(total_override)
             if total_override and total_override > 0
-            else _quantize_value(raw=(cost_u1 * qty_primary), exp=DEC2, field_name="line_total", row_idx=idx)
+            else round_money(cost_u1 * qty_primary)
         )
         line_total = _q_money(item_currency, line_total_raw)
 
@@ -1620,7 +1639,8 @@ def create_return(
     if container is None and not any((row.get("container_splits") or []) for row in items):
         container = ProductContainer.objects.select_for_update().get(code="store")
 
-    intended_paid = _q_money(settlement_currency, paid_amount)
+    parsed_paid_amount = _parse_money_value(raw=paid_amount, field_name="paid_amount")
+    intended_paid = _q_money(settlement_currency, parsed_paid_amount or DEC0)
 
     pret = ProviderReturn(
         provider=provider,
@@ -1688,6 +1708,8 @@ def create_return(
         unit_idx = 1 if single_unit else (2 if int(row.get("unit_index") or 1) == 2 else 1)
         total_override_raw = row.get("total_cost")
         total_override = Decimal(str(total_override_raw)) if total_override_raw not in (None, "") else None
+        if total_override is not None and total_override.as_tuple().exponent < -2:
+            raise ValidationError(f"total_cost supports at most 2 decimal digits at row {idx}")
 
         cf = getattr(product, "conversion_factor", None)
         try:
@@ -1712,7 +1734,10 @@ def create_return(
         if bill_item is not None:
             cost_u1 = q4(Decimal(str(bill_item.cost or DEC0)))
         else:
-            cost_u1 = q4(Decimal(str(row.get("cost") or "0")))
+            raw_cost = Decimal(str(row.get("cost") or "0"))
+            if raw_cost.as_tuple().exponent < -2:
+                raise ValidationError(f"cost supports at most 2 decimal digits at row {idx}")
+            cost_u1 = q4(raw_cost)
 
         # ----- determine qty_primary -----
         if container_splits:
@@ -2407,7 +2432,8 @@ def pay_full(*, actor, bill_id: int, money_container_id: Optional[int] = None, c
 def pay_partial(*, actor, bill_id: int, amount: Decimal, money_container_id: Optional[int] = None, currency_code: str = "SYP") -> Bill:
     bill = Bill.objects.select_for_update().get(pk=bill_id)
     cur = _normalize_supported_currency(currency_code)
-    amt = _q_money(cur, amount or DEC0)
+    parsed_amount = _parse_money_value(raw=amount, field_name="amount")
+    amt = _q_money(cur, parsed_amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
 
@@ -2521,7 +2547,8 @@ def collect_full(*, actor, return_id: int, money_container_id: Optional[int] = N
 def collect_partial(*, actor, return_id: int, amount: Decimal, money_container_id: Optional[int] = None, currency_code: str = "SYP") -> ProviderReturn:
     pret = ProviderReturn.objects.select_for_update().get(pk=return_id)
     cur = _normalize_supported_currency(currency_code)
-    amt = _q_money(cur, amount or DEC0)
+    parsed_amount = _parse_money_value(raw=amount, field_name="amount")
+    amt = _q_money(cur, parsed_amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
 
@@ -2562,7 +2589,8 @@ def pay_manual_debt_full(*, actor, entry_id: int) -> DebtorDebt:
 @transaction.atomic
 def pay_manual_debt_partial(*, actor, entry_id: int, amount: Decimal) -> DebtorDebt:
     entry = DebtorDebt.objects.get(pk=entry_id)
-    amt = _q_money((entry.currency_code or "SYP"), amount or DEC0)
+    parsed_amount = _parse_money_value(raw=amount, field_name="amount")
+    amt = _q_money((entry.currency_code or "SYP"), parsed_amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
     return DebtSV.pay_debt(actor=actor, entry_id=entry_id, amount=amt, full=False)
@@ -2574,7 +2602,8 @@ def collect_manual_debt_full(*, actor, entry_id: int) -> CreditorDebt:
 @transaction.atomic
 def collect_manual_debt_partial(*, actor, entry_id: int, amount: Decimal) -> CreditorDebt:
     entry = CreditorDebt.objects.get(pk=entry_id)
-    amt = _q_money((entry.currency_code or "SYP"), amount or DEC0)
+    parsed_amount = _parse_money_value(raw=amount, field_name="amount")
+    amt = _q_money((entry.currency_code or "SYP"), parsed_amount or DEC0)
     if amt <= 0:
         raise ValueError("amount must be positive")
     return DebtSV.collect_debt(actor=actor, entry_id=entry_id, amount=amt, full=False)

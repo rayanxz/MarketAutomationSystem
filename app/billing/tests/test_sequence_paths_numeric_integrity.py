@@ -124,10 +124,9 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             money_container_id=self.cash.id,
             currency_code="SYP",
         )
-        BillingSV.pay_partial(
+        BillingSV.pay_full(
             actor=self.actor,
             bill_id=bill.id,
-            amount=Decimal("700"),
             money_container_id=self.cash.id,
             currency_code="SYP",
         )
@@ -141,7 +140,7 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             DebtSettlement.objects.filter(debt=entry, receipt__isnull=False).order_by("id")
         )
         self.assertEqual(len(payment_rows), 2)
-        self.assertEqual(q3(sum((p.payment_syp for p in payment_rows), Decimal("0"))), Decimal("1000.000"))
+        self.assertEqual(q3(sum((p.payment_syp for p in payment_rows), Decimal("0"))), Decimal("1000.00"))
 
         payment_receipt_ids = [p.receipt_id for p in payment_rows]
         bill_receipt_ids = list(
@@ -233,8 +232,8 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             source_id=str(ret.id),
             currency_code="USD",
         )
-        self.assertEqual(q3(entry_syp.total), Decimal("5000.000"))
-        self.assertEqual(q3(entry_usd.total), Decimal("6.000"))
+        self.assertEqual(q3(entry_syp.total), Decimal("5000.00"))
+        self.assertEqual(q3(entry_usd.total), Decimal("6.00"))
 
         BillingSV.collect_partial(
             actor=self.actor,
@@ -244,8 +243,8 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             currency_code="SYP",
         )
         entry_syp.refresh_from_db()
-        self.assertEqual(q3(entry_syp.collected), Decimal("2000.000"))
-        self.assertEqual(q3(entry_syp.remaining), Decimal("3000.000"))
+        self.assertEqual(q3(entry_syp.collected), Decimal("2000.00"))
+        self.assertEqual(q3(entry_syp.remaining), Decimal("3000.00"))
 
         BillingSV.collect_full(
             actor=self.actor,
@@ -254,8 +253,8 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             currency_code="USD",
         )
         entry_usd.refresh_from_db()
-        self.assertEqual(q3(entry_usd.collected), Decimal("6.000"))
-        self.assertEqual(q3(entry_usd.remaining), Decimal("0.000"))
+        self.assertEqual(q3(entry_usd.collected), Decimal("6.00"))
+        self.assertEqual(q3(entry_usd.remaining), Decimal("0.00"))
 
         BillingSV.collect_full(
             actor=self.actor,
@@ -264,17 +263,17 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             currency_code="SYP",
         )
         entry_syp.refresh_from_db()
-        self.assertEqual(q3(entry_syp.collected), Decimal("5000.000"))
-        self.assertEqual(q3(entry_syp.remaining), Decimal("0.000"))
+        self.assertEqual(q3(entry_syp.collected), Decimal("5000.00"))
+        self.assertEqual(q3(entry_syp.remaining), Decimal("0.00"))
 
         bal_after_collect = FinSV.container_balance(container_id=self.cash.id)
         self.assertEqual(
             q3(bal_after_collect.get("SYP", DEC0) - base_bal.get("SYP", DEC0)),
-            Decimal("5000.000"),
+            Decimal("5000.00"),
         )
         self.assertEqual(
             q3(bal_after_collect.get("USD", DEC0) - base_bal.get("USD", DEC0)),
-            Decimal("6.000"),
+            Decimal("6.00"),
         )
 
         entries = [entry_syp, entry_usd]

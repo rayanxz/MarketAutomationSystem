@@ -22,15 +22,33 @@ from .views import _resolve_sales_bill_from_ref
 from accounts.decorators import role_required_api
 from accounts.models import AccountProfile
 from accounts.utils import has_role
+from core.formatters import round_money
 
 from audit_log import services as AuditSV
 from audit_log.models import AuditAction
+
 
 def _parse_decimal(x):
     try:
         return Decimal(str(x or "0"))
     except Exception:
         return Decimal("0")
+
+
+def _money_has_more_than_2_decimals(value: Decimal) -> bool:
+    return Decimal(value).as_tuple().exponent < -2
+
+
+def _parse_money_decimal(x, *, field_name: str = "amount") -> Decimal:
+    try:
+        value = Decimal(str(x or "0"))
+    except Exception as exc:
+        raise ValueError(f"Invalid {field_name}") from exc
+    if not value.is_finite():
+        raise ValueError(f"Invalid {field_name}")
+    if _money_has_more_than_2_decimals(value):
+        raise ValueError(f"{field_name} supports at most 2 decimal digits")
+    return round_money(value)
 
 
 def _q_money(currency_code: str, amount: Decimal) -> Decimal:
@@ -44,7 +62,7 @@ def _q_fx(value: Decimal) -> Decimal:
 def _calc_row_total(*, product: Product, row: dict) -> Decimal:
     qty = _parse_decimal(row.get("qty"))
     uom_index = int(row.get("uom_index") or 1)
-    unit_price = _parse_decimal(row.get("unit_price"))
+    unit_price = _parse_money_decimal(row.get("unit_price"), field_name="unit_price")
 
     if product.is_single_unit:
         uom_index = 1
@@ -57,7 +75,7 @@ def _calc_row_total(*, product: Product, row: dict) -> Decimal:
 
     base = q2(qty_primary * unit_price)
 
-    disc_amt = _parse_decimal(row.get("disc_amount"))
+    disc_amt = _parse_money_decimal(row.get("disc_amount"), field_name="disc_amount")
     disc_pct = _parse_decimal(row.get("disc_pct"))
     if disc_amt <= 0 and disc_pct > 0 and base > 0:
         disc_amt = q2((base * disc_pct) / Decimal("100"))
@@ -254,8 +272,11 @@ def api_bill_save(request: HttpRequest):
         bill_id = str(payload.get("id") or "").strip()
         parked = bool(payload.get("parked"))
         pay_status = payload.get("pay_status") or SalesBill.PAY_FULL
-        total_amount = _parse_decimal(payload.get("total_amount"))
-        paid_amount = _parse_decimal(payload.get("paid_amount"))
+        try:
+            total_amount = _parse_money_decimal(payload.get("total_amount"), field_name="total_amount")
+            paid_amount = _parse_money_decimal(payload.get("paid_amount"), field_name="paid_amount")
+        except ValueError as e:
+            return JsonResponse({"ok": False, "error": str(e)}, status=400)
         settlement_mode = (payload.get("settlement_mode") or SalesBill.SETTLE_SPLIT).lower()
         money_container_id = payload.get("money_container_id")
         customer_name = (payload.get("customer_name") or "").strip()
@@ -334,11 +355,17 @@ def api_bill_save(request: HttpRequest):
                 return JsonResponse({"ok": False, "error": "USD_NOT_ALLOWED"}, status=400)
 
             if row_currency == USD:
-                unit_price = _parse_decimal(r.get("unit_price"))
+                try:
+                    unit_price = _parse_money_decimal(r.get("unit_price"), field_name="unit_price")
+                except ValueError as e:
+                    return JsonResponse({"ok": False, "error": str(e)}, status=400)
                 if (product.default_price_usd or DEC0) <= 0 and unit_price <= 0:
                     return JsonResponse({"ok": False, "error": "USD_PRICE_MISSING"}, status=400)
 
-            row_total = _calc_row_total(product=product, row=r)
+            try:
+                row_total = _calc_row_total(product=product, row=r)
+            except ValueError as e:
+                return JsonResponse({"ok": False, "error": str(e)}, status=400)
             if row_currency == USD:
                 total_usd = _q_money(USD, total_usd + row_total)
             else:
@@ -565,12 +592,12 @@ def api_bill_save(request: HttpRequest):
                 qty_primary_at_txn=qty_primary,
                 qty=qty_used,
                 uom_index=uom_index,
-                unit_price=_parse_decimal(r.get("unit_price")),
+                unit_price=_parse_money_decimal(r.get("unit_price"), field_name="unit_price"),
                 sale_currency=row_currency,
                 unit_cost_at_txn=cost_hint,
                 cost_currency_at_txn=(row_currency if cost_hint is not None else None),
                 fx_rate_at_txn=fx_rate,
-                disc_amount=q2(_parse_decimal(r.get("disc_amount"))),
+                disc_amount=_parse_money_decimal(r.get("disc_amount"), field_name="disc_amount"),
                 disc_pct=_parse_decimal(r.get("disc_pct") or 0),
                 notes=r.get("notes") or "",
             )

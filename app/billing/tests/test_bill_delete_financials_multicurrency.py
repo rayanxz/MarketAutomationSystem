@@ -299,8 +299,8 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
             source_app="billing",
             source_model="Bill",
             source_id=f"{bill.id}:USD",
-            total=Decimal("999.000"),
-            paid_amount=Decimal("0.000"),
+            total=Decimal("999.00"),
+            paid_amount=Decimal("0.00"),
             status=DebtorDebt.Status.OPEN,
             party_type=PartyType.PROVIDER,
             party_name=self.provider.name,
@@ -319,8 +319,8 @@ class PurchaseBillDeleteFinancialsTests(TestCase):
 
         central.refresh_from_db()
         legacy.refresh_from_db()
-        self.assertEqual(q3(central.remaining_usd), q3(Decimal("19.000")))
-        self.assertEqual(q3(legacy.paid_amount), q3(Decimal("0.000")))
+        self.assertEqual(q3(central.remaining_usd), q3(Decimal("19.00")))
+        self.assertEqual(q3(legacy.paid_amount), q3(Decimal("0.00")))
 
         BillingSV.delete_bill(actor=self.actor, bill_id=bill.id)
         self.assertFalse(

@@ -48,14 +48,14 @@ class ProductSingleUnitTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 2,
                     "qty_raw": "3",
-                    "cost": "5.0000",
-                    "price": "9.0000",
+                    "cost": "5.00",
+                    "price": "9.00",
                     "currency": "SYP",
                 }
             ],
@@ -68,7 +68,7 @@ class ProductSingleUnitTests(TestCase):
         item = BillItem.objects.get(bill=bill, product=prod)
         self.assertEqual(item.unit_index, 1)
         self.assertEqual(item.conv_factor_at_txn, Decimal("1"))
-        self.assertEqual(item.qty_primary, Decimal("3.000"))
+        self.assertEqual(item.qty_primary, Decimal("3.00"))
 
         mv = ProductMovement.objects.filter(
             source_app="billing",
@@ -92,14 +92,14 @@ class ProductSingleUnitTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 2,
                     "qty_raw": "3",
-                    "cost": "5.0000",
-                    "price": "9.0000",
+                    "cost": "5.00",
+                    "price": "9.00",
                     "currency": "SYP",
                 }
             ],
@@ -112,7 +112,7 @@ class ProductSingleUnitTests(TestCase):
         item = BillItem.objects.get(bill=bill, product=prod)
         self.assertEqual(item.unit_index, 1)
         self.assertEqual(item.conv_factor_at_txn, Decimal("1"))
-        self.assertEqual(item.qty_primary, Decimal("3.000"))
+        self.assertEqual(item.qty_primary, Decimal("3.00"))
 
         mv = ProductMovement.objects.filter(
             source_app="billing",
@@ -136,14 +136,14 @@ class ProductSingleUnitTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 2,
                     "qty_raw": "2",
-                    "cost": "5.0000",
-                    "price": "9.0000",
+                    "cost": "5.00",
+                    "price": "9.00",
                     "currency": "SYP",
                 }
             ],
@@ -178,14 +178,14 @@ class ProductSingleUnitTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "10",
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],
@@ -213,7 +213,7 @@ class ProductSingleUnitTests(TestCase):
                     "number": str(prod.id),
                     "qty": "3",
                     "uom_index": 2,
-                    "unit_price": "2.000",
+                    "unit_price": "2.00",
                     "currency": "SYP",
                     "disc_amount": "0",
                     "disc_pct": "0",
@@ -228,7 +228,8 @@ class ProductSingleUnitTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 200)
-        bill_id = resp.json()["bill"]["id"]
+        bill_public_id = resp.json()["bill"]["id"]
+        bill_id = SalesBill.objects.get(public_id=bill_public_id).id
 
         row = SalesBillRow.objects.get(bill_id=bill_id, product_id=prod.id)
         self.assertEqual(row.uom_index, 1)
@@ -251,7 +252,7 @@ class ProductSingleUnitTests(TestCase):
         ret_row = ret.rows.first()
         self.assertIsNotNone(ret_row)
         self.assertEqual(ret_row.uom_index, 1)
-        self.assertEqual(ret_row.qty_returned, Decimal("1.000"))
+        self.assertEqual(ret_row.qty_returned, Decimal("1.00"))
 
 
 

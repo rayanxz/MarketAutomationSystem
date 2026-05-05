@@ -45,6 +45,10 @@ def create_money_container(*, name: str, user, enable_syp=True, enable_usd=True,
         if not feat:
             feat = ContainerFeature.objects.create(code="pos_sales", name="POS Sales", is_active=True)
         mc.features.add(feat)
+        feat_ret = ContainerFeature.objects.filter(code="pos_returns").first()
+        if not feat_ret:
+            feat_ret = ContainerFeature.objects.create(code="pos_returns", name="POS Returns", is_active=True)
+        mc.features.add(feat_ret)
     syp = ensure_currency("SYP", "SYP")
     usd = ensure_currency("USD", "USD")
     MoneyContainerCurrency.objects.get_or_create(container=mc, currency=syp, defaults={"is_enabled": bool(enable_syp)})
@@ -53,6 +57,8 @@ def create_money_container(*, name: str, user, enable_syp=True, enable_usd=True,
         MoneyContainerCurrency.objects.filter(container=mc, currency=syp).update(is_enabled=True)
     if enable_usd:
         MoneyContainerCurrency.objects.filter(container=mc, currency=usd).update(is_enabled=True)
+    if user is not None:
+        mc.allowed_users.add(user)
     return mc
 
 
@@ -83,8 +89,8 @@ def create_product(
     unit_primary: str = UnitType.PIECE,
     unit_secondary: str = "",
     conversion_factor: Optional[Decimal] = None,
-    cost: Decimal = Decimal("10.0000"),
-    price: Decimal = Decimal("15.0000"),
+    cost: Decimal = Decimal("10.00"),
+    price: Decimal = Decimal("15.00"),
 ):
     prod = Product(
         name=name,

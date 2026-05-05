@@ -817,13 +817,13 @@ class PosMultiCurrencySalesTests(TestCase):
                 break
         self.assertEqual(notnull, 0, "billing_debtorentry.provider_id must be nullable")
 
-    def test_usd_row_amounts_are_quantized_to_currency_precision(self):
+    def test_usd_row_amounts_reject_more_than_2_decimals(self):
         p_usd = self._create_product(
             name="USD Precision",
             allow_syp=False,
             allow_usd=True,
             default_syp="0",
-            default_usd="1.005",
+            default_usd="1.01",
         )
         self._seed_stock(p_usd)
 
@@ -850,12 +850,8 @@ class PosMultiCurrencySalesTests(TestCase):
             ],
         }
         resp = self._post_pos_bill(payload)
-        self.assertEqual(resp.status_code, 200, resp.content.decode())
-        bill = self._saved_bill_from_response(resp.json())
-
-        self.assertEqual(bill.total_usd, Decimal("1.01"))
-        self.cash.refresh_from_db()
-        self.assertEqual(self.cash.balance_usd, Decimal("1.01"))
+        self.assertEqual(resp.status_code, 400, resp.content.decode())
+        self.assertIn("unit_price supports at most 2 decimal digits", resp.content.decode())
 
 
 

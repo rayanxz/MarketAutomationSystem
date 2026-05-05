@@ -75,7 +75,7 @@ class ProductModelIntegrityTests(TestCase):
             set=pset,
             unit_primary=UnitType.PIECE,
             unit_secondary=UnitType.GRAM,
-            conversion_factor=Decimal("0.0000"),
+            conversion_factor=Decimal("0.00"),
         )
         with self.assertRaises(ValidationError):
             p.full_clean()
@@ -88,12 +88,12 @@ class ProductModelIntegrityTests(TestCase):
             unit_primary=UnitType.PIECE,
             unit_secondary="",
             conversion_factor=None,
-            cost=Decimal("1.2345"),
-            price=Decimal("9.8765"),
+            cost=Decimal("1.23"),
+            price=Decimal("9.87"),
         )
         p.refresh_from_db()
-        self.assertEqual(p.default_cost_syp, Decimal("1.2345"))
-        self.assertEqual(p.default_price_syp, Decimal("9.8765"))
+        self.assertEqual(p.default_cost_syp, Decimal("1.23"))
+        self.assertEqual(p.default_price_syp, Decimal("9.87"))
 
         p_bad = Product(
             name="ProdPrecBad",
@@ -136,14 +136,14 @@ class ProductModelIntegrityTests(TestCase):
             actor=user,
             provider_id=provider.id,
             status="paid",
-            paid_amount=Decimal("1.000"),
+            paid_amount=Decimal("1.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "1",
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],

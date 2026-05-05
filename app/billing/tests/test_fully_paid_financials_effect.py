@@ -22,7 +22,7 @@ def q3(x: Optional[Decimal]) -> Decimal:
     try:
         return (x or Decimal("0")).quantize(Decimal("0.001"))
     except Exception:
-        return Decimal("0.000")
+        return Decimal("0.00")
 
 
 def _safe_getattr(obj: Any, name: str, default=None):

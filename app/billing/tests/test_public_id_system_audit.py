@@ -41,10 +41,10 @@ def _new_debt(*, cause_id: str, public_id: str | None = None) -> DebtRecord:
         "source_app": "debts",
         "other_party_type": OtherPartyType.OTHER,
         "other_party_id": f"party-{cause_id}",
-        "total_syp": Decimal("100.000"),
-        "total_usd": Decimal("0.000"),
-        "remaining_syp": Decimal("100.000"),
-        "remaining_usd": Decimal("0.000"),
+        "total_syp": Decimal("100.00"),
+        "total_usd": Decimal("0.00"),
+        "remaining_syp": Decimal("100.00"),
+        "remaining_usd": Decimal("0.00"),
         "status": DebtStatus.OPEN,
     }
     if public_id is not None:
@@ -182,10 +182,10 @@ class PublicIdSearchAndRoutingAuditTests(TestCase):
             other_party_type=OtherPartyType.PROVIDER,
             other_party_id=str(cls.provider.id),
             provider=cls.provider,
-            total_syp=Decimal("250.000"),
-            total_usd=Decimal("0.000"),
-            remaining_syp=Decimal("250.000"),
-            remaining_usd=Decimal("0.000"),
+            total_syp=Decimal("250.00"),
+            total_usd=Decimal("0.00"),
+            remaining_syp=Decimal("250.00"),
+            remaining_usd=Decimal("0.00"),
             status=DebtStatus.OPEN,
         )
 
@@ -276,10 +276,10 @@ class PublicIdApiLeakAuditTests(TestCase):
             other_party_type=OtherPartyType.PROVIDER,
             other_party_id=str(cls.provider.id),
             provider=cls.provider,
-            total_syp=Decimal("120.000"),
-            total_usd=Decimal("0.000"),
-            remaining_syp=Decimal("120.000"),
-            remaining_usd=Decimal("0.000"),
+            total_syp=Decimal("120.00"),
+            total_usd=Decimal("0.00"),
+            remaining_syp=Decimal("120.00"),
+            remaining_usd=Decimal("0.00"),
             status=DebtStatus.OPEN,
         )
 

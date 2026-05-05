@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from django.db import transaction
 
+from core.formatters import parse_money_strict
 from financials import services as FSV
 from financials.models import MoneyContainer, MoneyContainerCurrency, Currency, Receipt, ReceiptKind
 
@@ -26,6 +27,15 @@ def _balance_for(container: MoneyContainer, currency_code: str) -> Decimal:
 
 def _quantize(currency_code: str, amount: Decimal) -> Decimal:
     return FSV.q_money(amount=Decimal(amount or 0), currency_code=currency_code)
+
+
+def _parse_money_input_strict(value: Decimal, *, field_name: str) -> Decimal:
+    return parse_money_strict(value, field_name=field_name, error_cls=ValueError)
+
+
+def _parse_and_quantize_money(currency_code: str, amount: Decimal, *, field_name: str) -> Decimal:
+    parsed = _parse_money_input_strict(amount, field_name=field_name)
+    return _quantize(currency_code, parsed)
 
 
 def _assert_sufficient(*, container: MoneyContainer, currency_code: str, amount: Decimal) -> None:
@@ -58,15 +68,16 @@ def post_manual_withdraw(*, actor, container_id: int, currency_code: str, amount
     FSV.require_money_container_for_user(user=actor, container_id=container_id)
     if not _currency_enabled(container_id=container_id, currency_code=currency_code):
         raise ValueError("CURRENCY_DISABLED")
+    amount_q = _parse_and_quantize_money(currency_code, amount, field_name=f"amount ({currency_code})")
     container = MoneyContainer.objects.select_for_update().get(pk=container_id)
     FSV.assert_money_container_access(user=actor, container=container)
-    _assert_sufficient(container=container, currency_code=currency_code, amount=amount)
+    _assert_sufficient(container=container, currency_code=currency_code, amount=amount_q)
     src = f"WITHDRAW:{uuid4().hex}"
     return FSV.post_cash_withdraw(
         actor=actor,
         container_id=container_id,
         currency_code=currency_code,
-        amount=amount,
+        amount=amount_q,
         note=note or "Manual withdraw",
         source_app="financials",
         source_model="ManualContainerEvent",
@@ -84,6 +95,7 @@ def post_manual_transfer(
     amount: Decimal,
     note: str = "",
 ) -> Receipt:
+    amount_q = _parse_and_quantize_money(currency_code, amount, field_name=f"amount ({currency_code})")
     FSV.require_money_container_for_user(user=actor, container_id=from_container_id)
     FSV.require_money_container_for_user(user=actor, container_id=to_container_id)
     if not _currency_enabled(container_id=from_container_id, currency_code=currency_code):
@@ -94,14 +106,14 @@ def post_manual_transfer(
     to_container = MoneyContainer.objects.select_for_update().get(pk=to_container_id)
     FSV.assert_money_container_access(user=actor, container=from_container)
     FSV.assert_money_container_access(user=actor, container=to_container)
-    _assert_sufficient(container=from_container, currency_code=currency_code, amount=amount)
+    _assert_sufficient(container=from_container, currency_code=currency_code, amount=amount_q)
     src = f"TRANSFER:{uuid4().hex}"
     return FSV.post_transfer(
         actor=actor,
         from_container_id=from_container_id,
         to_container_id=to_container_id,
         currency_code=currency_code,
-        amount=amount,
+        amount=amount_q,
         note=note or "Manual transfer",
         source_app="financials",
         source_model="ManualContainerEvent",
@@ -141,7 +153,7 @@ def post_manual_exchange(
     if fx <= 0:
         raise ValueError("FX_REQUIRED")
 
-    amt_from = _quantize(cur_from, amount_from)
+    amt_from = _parse_and_quantize_money(cur_from, amount_from, field_name=f"amount ({cur_from})")
     if amt_from <= 0:
         raise ValueError("AMOUNT_REQUIRED")
 

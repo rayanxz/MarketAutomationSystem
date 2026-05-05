@@ -12,7 +12,7 @@ from billing.models import Bill, Provider, ProviderReturn
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from debts.models import CreditorDebt
 from financials import services as FinSV
-from financials.models import Currency, MoneyContainer, MoneyContainerCurrency
+from financials.models import ContainerFeature, Currency, MoneyContainer, MoneyContainerCurrency
 from stock.models import ProductContainer
 
 
@@ -49,6 +49,15 @@ class ReturnWizardPrecisionParityTests(TestCase):
             is_active=True,
             created_by=cls.user,
         )
+        cls.cash.allowed_users.add(cls.user)
+        feature, _ = ContainerFeature.objects.get_or_create(
+            code="provider_returns",
+            defaults={"name": "Provider Returns", "is_active": True},
+        )
+        if not feature.is_active:
+            feature.is_active = True
+            feature.save(update_fields=["is_active"])
+        cls.cash.features.add(feature)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.cash,
             currency=cls.syp,
@@ -90,7 +99,7 @@ class ReturnWizardPrecisionParityTests(TestCase):
                     "product_id": self.product.id,
                     "unit_index": 1,
                     "qty_raw": "1",
-                    "cost": "1.005",
+                    "cost": "1.01",
                     "currency": "USD",
                 }
             ],
@@ -99,16 +108,16 @@ class ReturnWizardPrecisionParityTests(TestCase):
             settlement_currency="USD",
         )
 
-    def _post_wizard(self, *, bill: Bill, paid_amount: str):
+    def _post_wizard(self, *, bill: Bill, paid_amount: str, ret_cost: str = "1.01"):
         item = bill.items.get()
         return self.client.post(
-            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.id}),
+            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.public_id}),
             data={
                 "items_ids": str(item.id),
                 f"ret_store_{item.id}": "1",
                 f"ret_wh1_{item.id}": "0",
                 f"ret_wh2_{item.id}": "0",
-                f"ret_cost_{item.id}": "1.005",
+                f"ret_cost_{item.id}": ret_cost,
                 "return_status": "partial",
                 "return_paid_amount": paid_amount,
                 "valuation_mode": "HISTORICAL",
@@ -117,10 +126,10 @@ class ReturnWizardPrecisionParityTests(TestCase):
             },
         )
 
-    def test_wizard_accepts_paid_amount_that_rounds_to_total(self):
+    def test_wizard_accepts_valid_2dp_paid_amount(self):
         bill = self._create_usd_bill()
 
-        resp = self._post_wizard(bill=bill, paid_amount="1.011")
+        resp = self._post_wizard(bill=bill, paid_amount="1.00")
         self.assertEqual(resp.status_code, 302, resp.content.decode("utf-8"))
         self.assertIn(reverse("billing_returns_list"), resp["Location"])
 
@@ -134,13 +143,21 @@ class ReturnWizardPrecisionParityTests(TestCase):
             currency_code="USD",
         )
         self.assertEqual(entry.total, Decimal("1.01"))
-        self.assertEqual(entry.collected, Decimal("1.01"))
-        self.assertEqual(entry.remaining, Decimal("0.00"))
+        self.assertEqual(entry.collected, Decimal("1.00"))
+        self.assertEqual(entry.remaining, Decimal("0.01"))
 
-    def test_wizard_rejects_paid_amount_that_quantizes_above_total(self):
+    def test_wizard_rejects_paid_amount_more_than_2_decimals(self):
         bill = self._create_usd_bill()
 
         resp = self._post_wizard(bill=bill, paid_amount="1.015")
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
-        self.assertContains(resp, "Paid amount exceeds return total.")
+        self.assertContains(resp, "return_paid_amount supports at most 2 decimal digits")
+        self.assertFalse(ProviderReturn.objects.exists())
+
+    def test_wizard_rejects_return_cost_more_than_2_decimals(self):
+        bill = self._create_usd_bill()
+
+        resp = self._post_wizard(bill=bill, paid_amount="0.50", ret_cost="1.005")
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        self.assertContains(resp, "return cost for")
         self.assertFalse(ProviderReturn.objects.exists())

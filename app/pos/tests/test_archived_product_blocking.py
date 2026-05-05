@@ -95,9 +95,9 @@ class PosArchivedProductBlockingTests(TestCase):
             parked=False,
             finalized=True,
             pay_status=SalesBill.PAY_FULL,
-            total_amount=Decimal("1.000"),
-            total_syp=Decimal("1.000"),
-            paid_amount=Decimal("1.000"),
+            total_amount=Decimal("1.00"),
+            total_syp=Decimal("1.00"),
+            paid_amount=Decimal("1.00"),
             settlement_mode=SalesBill.SETTLE_SPLIT,
         )
         row = SalesBillRow.objects.create(
@@ -105,12 +105,12 @@ class PosArchivedProductBlockingTests(TestCase):
             product_id=prod.id,
             product_name=prod.name,
             product_number=str(prod.id),
-            conv_factor_at_txn=Decimal("1.0000"),
+            conv_factor_at_txn=Decimal("1.00"),
             unit_1_label_at_txn=prod.get_unit_primary_display(),
             unit_2_label_at_txn="",
-            qty=Decimal("1.000"),
+            qty=Decimal("1.00"),
             uom_index=1,
-            unit_price=Decimal("1.000"),
+            unit_price=Decimal("1.00"),
             sale_currency="SYP",
         )
 
@@ -129,9 +129,9 @@ class PosArchivedProductBlockingTests(TestCase):
             parked=False,
             finalized=True,
             pay_status=SalesBill.PAY_FULL,
-            total_amount=Decimal("1.000"),
-            total_syp=Decimal("1.000"),
-            paid_amount=Decimal("1.000"),
+            total_amount=Decimal("1.00"),
+            total_syp=Decimal("1.00"),
+            paid_amount=Decimal("1.00"),
             settlement_mode=SalesBill.SETTLE_SPLIT,
         )
         sale_row = SalesBillRow.objects.create(
@@ -139,12 +139,12 @@ class PosArchivedProductBlockingTests(TestCase):
             product_id=prod.id,
             product_name=prod.name,
             product_number=str(prod.id),
-            conv_factor_at_txn=Decimal("1.0000"),
+            conv_factor_at_txn=Decimal("1.00"),
             unit_1_label_at_txn=prod.get_unit_primary_display(),
             unit_2_label_at_txn="",
-            qty=Decimal("1.000"),
+            qty=Decimal("1.00"),
             uom_index=1,
-            unit_price=Decimal("1.000"),
+            unit_price=Decimal("1.00"),
             sale_currency="SYP",
         )
 
@@ -154,21 +154,21 @@ class PosArchivedProductBlockingTests(TestCase):
             stock_container=self.store,
             status=SalesReturn.Status.DRAFT,
             created_by=self.user,
-            total_syp=Decimal("0.000"),
-            total_usd=Decimal("0.000"),
+            total_syp=Decimal("0.00"),
+            total_usd=Decimal("0.00"),
         )
         SalesReturnRow.objects.create(
             ret=ret,
             sale_row=sale_row,
             product=prod,
             uom_index=1,
-            conv_factor_at_txn=Decimal("1.0000"),
+            conv_factor_at_txn=Decimal("1.00"),
             unit_1_label_at_txn=prod.get_unit_primary_display(),
             unit_2_label_at_txn="",
-            qty_returned=Decimal("1.000"),
+            qty_returned=Decimal("1.00"),
             currency_code="SYP",
-            unit_price_at_sale=Decimal("1.000"),
-            line_total=Decimal("1.000"),
+            unit_price_at_sale=Decimal("1.00"),
+            line_total=Decimal("1.00"),
         )
 
         with self.assertRaises(ValueError):

@@ -77,7 +77,7 @@
 
             <div>
               <div class="muted" style="font-size:11px; margin-top:2px;">مبلغ</div>
-              <input class="input numeric-math" id="discAmt" type="number" min="0" step="0.001" placeholder="قيمة" />
+              <input class="input numeric-math" id="discAmt" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="قيمة" />
             </div>
 
           </div>
@@ -170,7 +170,7 @@
       <!-- Paid / left -->
       <div class="pay-part">
         <label for="partAmt" class="muted">المبلغ المدفوع</label>
-        <input id="partAmt" class="input numeric-math" type="number" min="0" step="0.001" placeholder="0" style="width:140px" />
+        <input id="partAmt" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" style="width:140px" />
         <span class="muted">المتبقي:</span>
         <span class="left-amount" id="leftAmount">0.000</span>
       </div>

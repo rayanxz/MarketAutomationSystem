@@ -8,7 +8,7 @@ from financials.models import FxSettings
 
 class FxSettingsDisplayFormattingTests(TestCase):
     def test_unbound_form_trims_trailing_zeros_for_display(self):
-        fx = FxSettings(rate_syp_per_usd=Decimal("10000.000000"))
+        fx = FxSettings(rate_syp_per_usd=Decimal("10000.00"))
         form = FxSettingsForm(instance=fx)
         self.assertEqual(str(form["rate_syp_per_usd"].value()), "10000")
 

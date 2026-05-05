@@ -154,10 +154,9 @@ class PostStabilizationSystemPathTests(TestCase):
         mid_bal = FinSV.container_balance(container_id=self.cash.id)
         self.assertEqual(mid_bal.get("SYP", DEC0), Decimal("-300"))
 
-        BillingSV.pay_partial(
+        BillingSV.pay_full(
             actor=self.actor,
             bill_id=bill.id,
-            amount=Decimal("700"),
             money_container_id=self.cash.id,
             currency_code="SYP",
         )

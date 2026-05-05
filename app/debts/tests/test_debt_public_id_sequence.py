@@ -24,10 +24,10 @@ def _create_manual_like_debt(*, cause_id: str, public_id: str | None = None) -> 
         "source_app": "debts",
         "other_party_type": OtherPartyType.OTHER,
         "other_party_id": f"party-{cause_id}",
-        "total_syp": Decimal("100.000"),
-        "total_usd": Decimal("0.000"),
-        "remaining_syp": Decimal("100.000"),
-        "remaining_usd": Decimal("0.000"),
+        "total_syp": Decimal("100.00"),
+        "total_usd": Decimal("0.00"),
+        "remaining_syp": Decimal("100.00"),
+        "remaining_usd": Decimal("0.00"),
         "status": DebtStatus.OPEN,
     }
     if public_id is not None:

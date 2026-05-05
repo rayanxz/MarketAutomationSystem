@@ -11,3 +11,7 @@ class CoreConfig(AppConfig):
         except Exception:
             # In dev we don't block; in prod you can raise SystemExit
             pass
+
+        from .money_precision_guards import register_money_precision_guards
+
+        register_money_precision_guards()

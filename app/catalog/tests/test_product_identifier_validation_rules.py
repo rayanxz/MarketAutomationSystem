@@ -33,10 +33,10 @@ class ProductIdentifierValidationRulesTests(TestCase):
             "allow_usd_purchasing": "",
             "default_purchase_currency": "SYP",
             "default_sale_currency": "SYP",
-            "default_cost_syp": "1.0000",
-            "default_cost_usd": "0.0000",
-            "default_price_syp": "2.0000",
-            "default_price_usd": "0.0000",
+            "default_cost_syp": "1.00",
+            "default_cost_usd": "0.00",
+            "default_price_syp": "2.00",
+            "default_price_usd": "0.00",
             "notes": "",
         }
 

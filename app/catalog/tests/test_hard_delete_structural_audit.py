@@ -44,10 +44,10 @@ class HardDeleteStructuralAuditTests(TestCase):
     def _movement(self, *, p: Product, source_id: str) -> ProductMovement:
         return ProductMovement.objects.create(
             product=p,
-            qty_primary=Decimal("0.000"),
+            qty_primary=Decimal("0.00"),
             unit_index=1,
-            unit_cost=Decimal("0.0000"),
-            total_cost=Decimal("0.000"),
+            unit_cost=Decimal("0.00"),
+            total_cost=Decimal("0.00"),
             movement_type=ProductMovement.MovementType.ADJUSTMENT,
             source_app="tests",
             source_model="HardDeleteStructuralAuditTests",
@@ -94,9 +94,9 @@ class HardDeleteStructuralAuditTests(TestCase):
             bill=bill,
             product_id=999999999,
             product_name="orphan-product-id",
-            qty=Decimal("1.000"),
+            qty=Decimal("1.00"),
             uom_index=1,
-            unit_price=Decimal("1.000"),
+            unit_price=Decimal("1.00"),
             sale_currency="SYP",
         )
 

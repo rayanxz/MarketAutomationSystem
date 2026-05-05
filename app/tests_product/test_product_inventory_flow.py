@@ -37,14 +37,14 @@ class ProductInventoryFlowTests(TestCase):
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("10.000"),
+            paid_amount=Decimal("10.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": qty,
-                    "cost": "1.0000",
-                    "price": "2.0000",
+                    "cost": "1.00",
+                    "price": "2.00",
                     "currency": "SYP",
                 }
             ],
@@ -70,7 +70,7 @@ class ProductInventoryFlowTests(TestCase):
             movement_type=ProductMovement.MovementType.PURCHASE,
         ).first()
         self.assertIsNotNone(mv)
-        self.assertEqual(mv.qty_primary, Decimal("10.000"))
+        self.assertEqual(mv.qty_primary, Decimal("10.00"))
 
         stock_before = StockSV.total_stock_primary(prod)
 
@@ -99,7 +99,7 @@ class ProductInventoryFlowTests(TestCase):
             actor=self.user,
             batch=layer,
             to_container=self.wh1,
-            qty_primary=Decimal("2.000"),
+            qty_primary=Decimal("2.00"),
             ref="TXTEST",
             line_no=1,
         )
@@ -111,7 +111,7 @@ class ProductInventoryFlowTests(TestCase):
         )
         self.assertEqual(mvs.count(), 2)
         qtys = sorted([q3(mv.qty_primary) for mv in mvs])
-        self.assertEqual(qtys, [Decimal("-2.000"), Decimal("2.000")])
+        self.assertEqual(qtys, [Decimal("-2.00"), Decimal("2.00")])
 
     def test_fifo_rebuild_preserves_cost_currency(self):
         _, pset = create_collection_set("C-I3", "S-I3")
@@ -124,21 +124,21 @@ class ProductInventoryFlowTests(TestCase):
         )
         prod.allow_usd_purchasing = True
         prod.default_purchase_currency = "USD"
-        prod.default_cost_usd = Decimal("3.5000")
+        prod.default_cost_usd = Decimal("3.50")
         prod.save(update_fields=["allow_usd_purchasing", "default_purchase_currency", "default_cost_usd"])
 
         BillingSV.create_bill(
             actor=self.user,
             provider_id=self.provider.id,
             status="paid",
-            paid_amount=Decimal("7.000"),
+            paid_amount=Decimal("7.00"),
             items=[
                 {
                     "product_id": prod.id,
                     "unit_index": 1,
                     "qty_raw": "2",
-                    "cost": "3.5000",
-                    "price": "4.0000",
+                    "cost": "3.50",
+                    "price": "4.00",
                     "currency": "USD",
                 }
             ],
@@ -171,5 +171,5 @@ class ProductInventoryFlowTests(TestCase):
             StockSV.fifo_consume(
                 product=prod,
                 container=self.container,
-                qty_out_primary=Decimal("1.000"),
+                qty_out_primary=Decimal("1.00"),
             )

@@ -28,6 +28,7 @@ from debts.source_identity import source_identity_base
 from financials.models import Receipt, ReceiptKind, MoneyContainer
 from financials import services as FinSV
 from core.date_filters import parse_filter_date
+from core.formatters import round_money
 from . import selectors as S
 from .serializers import debtor_row, creditor_row, central_debt_row
 from debts import services as SV
@@ -215,6 +216,19 @@ def _dec(val, default="0") -> Decimal:
         return Decimal(str((val if val is not None else default)).replace(",", "."))
     except Exception:
         return Decimal(default)
+
+
+def _money_has_more_than_2_decimals(value: Decimal) -> bool:
+    return Decimal(value).as_tuple().exponent < -2
+
+
+def _parse_money_input(val, default: str = "0", *, field_name: str = "amount") -> Decimal:
+    amount = _dec(val, default)
+    if not amount.is_finite():
+        raise ValueError(f"Invalid {field_name}")
+    if _money_has_more_than_2_decimals(amount):
+        raise ValueError(f"{field_name} supports at most 2 decimal digits")
+    return round_money(amount)
 
 def _date(val):
     return parse_filter_date(val)
@@ -679,8 +693,11 @@ def api_central_debt_settle(request: HttpRequest, debt_ref: str) -> JsonResponse
     if money_container_id is None:
         return _bad("money_container_id is required")
 
-    paid_syp = _dec(payload.get("paid_syp"), "0")
-    paid_usd = _dec(payload.get("paid_usd"), "0")
+    try:
+        paid_syp = _parse_money_input(payload.get("paid_syp"), "0", field_name="paid_syp")
+        paid_usd = _parse_money_input(payload.get("paid_usd"), "0", field_name="paid_usd")
+    except ValueError as ve:
+        return _bad(str(ve), 400)
     if paid_syp < DEC0 or paid_usd < DEC0:
         return _bad("payment amounts cannot be negative")
 
@@ -747,9 +764,16 @@ def api_manual_debt_save(request: HttpRequest) -> JsonResponse:
     if not party_name and payload.get("party_name"):
         party_name = (payload.get("party_name") or "").strip()
 
-    amount   = _dec(payload.get("amount"), "0")
+    try:
+        amount = _parse_money_input(payload.get("amount"), "0", field_name="amount")
+        initial_payment = _parse_money_input(
+            payload.get("initial_payment"),
+            "0",
+            field_name="initial_payment",
+        )
+    except ValueError as ve:
+        return _bad(str(ve), 400)
     currency_code = (payload.get("currency_code") or "SYP").strip().upper()
-    initial_payment = _dec(payload.get("initial_payment"), "0")
     money_container_id = _int_or_none(payload.get("money_container_id"))
     due_date = _date(payload.get("due_date"))
 
@@ -803,8 +827,8 @@ def api_manual_debt_pay_full(request: HttpRequest, entry_id: int) -> JsonRespons
 @role_required(AccountProfile.Role.MANAGER)
 def api_manual_debt_pay_batch(request: HttpRequest, entry_id: int) -> JsonResponse:
     try:
-        amount = _dec(request.POST.get("amount"), "0")
-    except Exception:
+        amount = _parse_money_input(request.POST.get("amount"), "0", field_name="amount")
+    except ValueError:
         return _bad("invalid amount", 400)
 
     if amount <= 0:
@@ -853,8 +877,8 @@ def api_manual_creditor_collect_full(request: HttpRequest, entry_id: int) -> Jso
 @role_required(AccountProfile.Role.MANAGER)
 def api_manual_creditor_collect_batch(request: HttpRequest, entry_id: int) -> JsonResponse:
     try:
-        amount = _dec(request.POST.get("amount"), "0")
-    except Exception:
+        amount = _parse_money_input(request.POST.get("amount"), "0", field_name="amount")
+    except ValueError:
         return _bad("invalid amount")
     if amount <= 0:
         return _bad("Enter a positive amount." , 400)
@@ -925,8 +949,8 @@ def api_entry_pay_full(request: HttpRequest, direction: str, entry_id: int) -> J
 def api_entry_pay_batch(request: HttpRequest, direction: str, entry_id: int) -> JsonResponse:
     direction = (direction or "").lower().strip()
     try:
-        amount = _dec(request.POST.get("amount"), "0")
-    except Exception:
+        amount = _parse_money_input(request.POST.get("amount"), "0", field_name="amount")
+    except ValueError:
         return _bad("invalid amount", 400)
     if amount <= 0:
         return _bad("Enter a positive amount.", 400)

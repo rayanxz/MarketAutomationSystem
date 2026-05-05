@@ -53,6 +53,7 @@ class CounterpartyIdentityRuntimeTests(TestCase):
             is_active=True,
             created_by=cls.actor,
         )
+        cls.container.allowed_users.add(cls.actor)
         MoneyContainerCurrency.objects.get_or_create(
             container=cls.container,
             currency=cls.syp,

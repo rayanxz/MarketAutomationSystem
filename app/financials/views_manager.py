@@ -35,6 +35,7 @@ from financials.models import MoneyContainerCurrency
 
 from django.db import IntegrityError
 from core.date_filters import parse_filter_date
+from core.formatters import parse_money_strict
 
 
 logger = logging.getLogger(__name__)
@@ -209,30 +210,32 @@ def container_create(request: HttpRequest) -> HttpResponse:
         # even if user posts amounts for unchecked currencies, we IGNORE them
         amounts: Dict[str, Decimal] = {}
         raw_amounts: Dict[str, Decimal] = {}
-        quantized_amounts: Dict[str, Decimal] = {}
         any_nonzero = False
-        currency_by_code = {c.code: c for c in all_currencies}
 
         for f in opening_forms:
             code = f.cleaned_data["currency_code"]
             amt = Decimal(f.cleaned_data.get("amount") or 0)
             raw_amounts[code] = amt
 
-            # extra safety: ignore unchecked currency amounts
+            # Extra safety: ignore unchecked currency amounts.
             if code not in selected_codes:
                 amt = Decimal("0")
 
-            quantized = FSV.q_currency(amt, currency=currency_by_code[code])
-            quantized_amounts[code] = quantized
-            if quantized != 0:
+            # Strict rule: opening amounts must already be <= 2 decimals.
+            # No silent normalization in this flow.
+            normalized_amt = parse_money_strict(
+                amt,
+                field_name=f"opening balance amount ({code})",
+                error_cls=ValueError,
+            )
+            if normalized_amt != 0:
                 any_nonzero = True
 
-            amounts[code] = quantized
+            amounts[code] = normalized_amt
 
         logger.info(
-            "container_create opening amounts raw=%s quantized=%s amounts_for_post=%s any_nonzero=%s selected_codes=%s",
+            "container_create opening amounts raw=%s amounts_for_post=%s any_nonzero=%s selected_codes=%s",
             raw_amounts,
-            quantized_amounts,
             amounts,
             any_nonzero,
             sorted(selected_codes),

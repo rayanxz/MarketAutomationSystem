@@ -33,6 +33,7 @@ from financials.models import (
     Receipt,
 )
 from inventory.models import DEC0
+from core.formatters import parse_money_strict
 
 from django.db.models import Q
 from debts.source_identity import (
@@ -45,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 def _q_money(*, amount: Decimal, currency_code: str) -> Decimal:
     return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or "SYP").upper())
+
+
+def _parse_money_input_strict(value, *, field_name: str = "amount") -> Decimal:
+    return parse_money_strict(value, field_name=field_name, error_cls=ValueError)
 
 
 def _canonical_source_identity(*, source_id: str, currency_code: str) -> tuple[str, str, str]:
@@ -514,8 +519,10 @@ def _resolve_component_payment_for_settlement(
     if method and method not in {"syp_only", "usd_only", "mixed", "separate"}:
         raise ValueError("invalid payment method")
 
-    pay_syp = _q_syp(payment_syp or DEC0)
-    pay_usd = _q_usd(payment_usd or DEC0)
+    pay_syp_raw = _parse_money_input_strict(payment_syp, field_name="payment_syp") if payment_syp is not None else DEC0
+    pay_usd_raw = _parse_money_input_strict(payment_usd, field_name="payment_usd") if payment_usd is not None else DEC0
+    pay_syp = _q_syp(pay_syp_raw)
+    pay_usd = _q_usd(pay_usd_raw)
 
     if pay_syp < DEC0 or pay_usd < DEC0:
         raise ValueError("payment amounts cannot be negative")
@@ -600,7 +607,10 @@ def settle_central_debt(
             pay_syp = _q_syp(rem_syp_before + (rem_usd_before * fx)) if cur == "SYP" else DEC0
             pay_usd = _q_usd(rem_usd_before + (rem_syp_before / fx)) if cur == "USD" else DEC0
         else:
-            amt = _q_money(amount=amount or DEC0, currency_code=cur)
+            amt = _q_money(
+                amount=_parse_money_input_strict(amount, field_name="amount"),
+                currency_code=cur,
+            )
             if amt <= DEC0:
                 raise ValueError("amount must be positive")
             pay_syp = amt if cur == "SYP" else DEC0
@@ -734,8 +744,14 @@ def create_debtor_entry(
         source_id=source_id,
         currency_code=currency_code,
     )
-    total = _q_money(amount=total, currency_code=cur)
-    paid = _q_money(amount=paid_amount or DEC0, currency_code=cur)
+    total = _q_money(
+        amount=_parse_money_input_strict(total, field_name="total"),
+        currency_code=cur,
+    )
+    paid = _q_money(
+        amount=_parse_money_input_strict(paid_amount or DEC0, field_name="paid_amount"),
+        currency_code=cur,
+    )
     if paid > total:
         paid = total
     remaining = total - paid
@@ -787,8 +803,14 @@ def create_creditor_entry(
         source_id=source_id,
         currency_code=currency_code,
     )
-    total = _q_money(amount=total, currency_code=cur)
-    collected = _q_money(amount=collected or DEC0, currency_code=cur)
+    total = _q_money(
+        amount=_parse_money_input_strict(total, field_name="total"),
+        currency_code=cur,
+    )
+    collected = _q_money(
+        amount=_parse_money_input_strict(collected or DEC0, field_name="collected"),
+        currency_code=cur,
+    )
     if collected > total:
         collected = total
     remaining = total - collected
@@ -930,7 +952,10 @@ def create_manual_debt(
     currency_code = (currency_code or "SYP").upper()
     if currency_code not in {"SYP", "USD"}:
         raise ValueError("invalid currency")
-    amt = _q_money(amount=amount or DEC0, currency_code=currency_code)
+    amt = _q_money(
+        amount=_parse_money_input_strict(amount, field_name="amount"),
+        currency_code=currency_code,
+    )
     if amt <= 0:
         raise ValueError("amount must be positive")
 
@@ -1067,7 +1092,10 @@ def pay_debt(
     if rem <= 0:
         return entry
 
-    amt = rem if full else _q_money(amount=amount or DEC0, currency_code=cur)
+    amt = rem if full else _q_money(
+        amount=_parse_money_input_strict(amount, field_name="amount"),
+        currency_code=cur,
+    )
     if amt <= 0:
         raise ValueError("amount must be positive")
     if amt > rem:
@@ -1169,7 +1197,10 @@ def collect_debt(
     if rem <= 0:
         return entry
 
-    amt = rem if full else _q_money(amount=amount or DEC0, currency_code=cur)
+    amt = rem if full else _q_money(
+        amount=_parse_money_input_strict(amount, field_name="amount"),
+        currency_code=cur,
+    )
     if amt <= 0:
         raise ValueError("amount must be positive")
     if amt > rem:
