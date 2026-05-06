@@ -319,7 +319,7 @@ class PostingLine(models.Model):
     )
 
     currency = models.ForeignKey(Currency, on_delete=models.PROTECT, related_name="posting_lines")
-    amount = models.DecimalField(max_digits=18, decimal_places=6)
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
     meta_json = models.TextField(blank=True, default="")
 
     class Meta:

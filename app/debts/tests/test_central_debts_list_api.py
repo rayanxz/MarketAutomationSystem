@@ -225,7 +225,8 @@ class CentralDebtsListApiTests(TestCase):
         self.assertEqual(len(items_numeric), 0)
 
     def test_date_filters_accept_dd_mm_yyyy(self):
-        target_day = (timezone.now() - timedelta(days=5)).date().strftime("%d/%m/%Y")
+        self.debt_return.refresh_from_db()
+        target_day = timezone.localtime(self.debt_return.created_at).date().strftime("%d/%m/%Y")
         resp = self._get("/manager/debts/api/records/", date_from=target_day, date_to=target_day)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()

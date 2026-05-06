@@ -242,8 +242,8 @@ class SalesBill(models.Model):
     )
     paid_amount = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
     )
     settlement_mode = models.CharField(
         max_length=12,

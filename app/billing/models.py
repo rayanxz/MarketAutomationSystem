@@ -154,14 +154,14 @@ class Bill(models.Model):
     )
     creation_paid_syp = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
         validators=[MinValueValidator(0)],
     )
     creation_paid_usd = models.DecimalField(
         max_digits=14,
-        decimal_places=3,
-        default=Decimal("0.000"),
+        decimal_places=2,
+        default=Decimal("0.00"),
         validators=[MinValueValidator(0)],
     )
 
@@ -605,7 +605,7 @@ class ProviderReturn(models.Model):
         default=ValuationMode.HISTORICAL,
         db_index=True,
     )
-    initial_paid   = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"),
+    initial_paid   = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"),
                                          validators=[MinValueValidator(0)])
     initial_status = models.CharField(max_length=8, choices=Bill.Status.choices, default=Bill.Status.UNPAID)
 

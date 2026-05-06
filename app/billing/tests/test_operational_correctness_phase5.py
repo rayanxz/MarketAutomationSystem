@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import AccountProfile
 from billing import services as BillingSV
@@ -152,7 +153,8 @@ class BillingOperationalCorrectnessPhase5Tests(TestCase):
 
     def test_bills_list_date_filters_accept_dd_mm_yyyy(self):
         bill = self._create_bill(status="paid")
-        bill_day = bill.created_at.date().strftime("%d/%m/%Y")
+        bill.refresh_from_db()
+        bill_day = timezone.localtime(bill.created_at).date().strftime("%d/%m/%Y")
         url = reverse("billing_api_bills_list")
 
         resp = self.client.get(url, {"date_from": bill_day, "date_to": bill_day, "page_size": "20"})
@@ -170,7 +172,8 @@ class BillingOperationalCorrectnessPhase5Tests(TestCase):
             total_usd=Decimal("0"),
             settlement_currency="SYP",
         )
-        ret_day = ret.created_at.date().strftime("%d/%m/%Y")
+        ret.refresh_from_db()
+        ret_day = timezone.localtime(ret.created_at).date().strftime("%d/%m/%Y")
         url = reverse("billing_api_returns_list")
 
         resp = self.client.get(url, {"date_from": ret_day, "date_to": ret_day, "page_size": "20"})

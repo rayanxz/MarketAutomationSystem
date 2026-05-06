@@ -135,10 +135,10 @@ class DebtRecord(models.Model):
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     actor_username = models.CharField(max_length=150, blank=True, default="")
 
-    total_syp = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    total_usd = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    remaining_syp = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    remaining_usd = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    total_syp = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    total_usd = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    remaining_syp = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    remaining_usd = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     fx_syp_per_usd_at_creation = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     status = models.CharField(max_length=8, choices=DebtStatus.choices, default=DebtStatus.OPEN, db_index=True)
 
@@ -182,10 +182,10 @@ class DebtSettlement(models.Model):
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     actor_username = models.CharField(max_length=150, blank=True, default="")
 
-    payment_syp = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    payment_usd = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    applied_syp = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    applied_usd = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    payment_syp = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    payment_usd = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    applied_syp = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    applied_usd = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     fx_syp_per_usd_used = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 
     receipt = models.ForeignKey("financials.Receipt", null=True, blank=True, on_delete=models.PROTECT, related_name="debt_settlements")
@@ -233,8 +233,8 @@ class DebtorDebt(models.Model):
 
     currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
 
-    total       = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    paid_amount = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    total       = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    paid_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     status      = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
 
     # manual/meta
@@ -267,7 +267,7 @@ class DebtorDebt(models.Model):
 class DebtorPayment(models.Model):
     entry      = models.ForeignKey(DebtorDebt, on_delete=models.CASCADE, related_name="payments")
     created_at = models.DateTimeField(default=timezone.now)
-    amount     = models.DecimalField(max_digits=14, decimal_places=3)
+    amount     = models.DecimalField(max_digits=14, decimal_places=2)
     journal_entry_id = models.IntegerField(null=True, blank=True)
     currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
     receipt = models.ForeignKey("financials.Receipt", null=True, blank=True, on_delete=models.PROTECT, related_name="debtor_payments")
@@ -298,8 +298,8 @@ class CreditorDebt(models.Model):
 
     currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
 
-    total     = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
-    collected = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
+    total     = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    collected = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     status    = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
 
     # manual/meta
@@ -332,7 +332,7 @@ class CreditorDebt(models.Model):
 class CreditorReceipt(models.Model):
     entry      = models.ForeignKey(CreditorDebt, on_delete=models.CASCADE, related_name="receipts")
     created_at = models.DateTimeField(default=timezone.now)
-    amount     = models.DecimalField(max_digits=14, decimal_places=3)
+    amount     = models.DecimalField(max_digits=14, decimal_places=2)
     journal_entry_id = models.IntegerField(null=True, blank=True)
     currency_code = models.CharField(max_length=3, choices=CURRENCY_CHOICES, default=SYP)
     receipt = models.ForeignKey("financials.Receipt", null=True, blank=True, on_delete=models.PROTECT, related_name="creditor_receipts")
