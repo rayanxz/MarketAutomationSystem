@@ -1347,8 +1347,16 @@
       if (!state) return;
       state.total_qty = getRowQtyTotal(state.itemId);
       state.current_value = money2(state.current_value);
+      const totalSource = state.edit_source === "total";
+      if (state.total_qty <= BIG_ZERO) {
+        state.total_value = BIG_ZERO;
+      } else if (totalSource) {
+        state.total_value = money2(state.total_value);
+        state.current_value = divRoundHalfUpSigned(state.total_value * POW10_QTY, state.total_qty);
+      } else {
+        state.total_value = divRoundHalfUpSigned(state.current_value * state.total_qty, POW10_QTY);
+      }
       state.current_value_syp = toSyp(state.current_value, state.current_currency);
-      state.total_value = divRoundHalfUpSigned(state.current_value * state.total_qty, POW10_QTY);
       state.total_value_syp = toSyp(state.total_value, state.current_currency);
       state.is_overridden = !sameCost(state.current_value_syp, state.original_purchase_cost_syp);
       state.isOverridden = state.is_overridden;
@@ -1507,7 +1515,17 @@
         state.editors.total.input.reportValidity();
         return;
       }
-      activeEdit = { itemId: state.itemId, field: field };
+      activeEdit = {
+        itemId: state.itemId,
+        field: field,
+        backup: {
+          edit_source: state.edit_source,
+          current_value: state.current_value,
+          current_currency: state.current_currency,
+          total_value: state.total_value,
+        },
+      };
+      state.edit_source = field;
       applyEditLocking();
       renderRowState(state);
       const editor = state.editors[field];
@@ -1528,6 +1546,12 @@
     function cancelActiveEdit() {
       if (!activeEdit) return;
       const state = rowStateByItemId.get(activeEdit.itemId);
+      if (state && activeEdit.backup) {
+        state.edit_source = activeEdit.backup.edit_source || "unit";
+        state.current_value = money2(activeEdit.backup.current_value);
+        state.current_currency = normalizeCurrency(activeEdit.backup.current_currency, state.current_currency);
+        state.total_value = money2(activeEdit.backup.total_value);
+      }
       activeEdit = null;
       applyEditLocking();
       if (state) {
@@ -1568,15 +1592,19 @@
 
       const committedValue = money2(parsed);
       if (field === "unit") {
+        state.edit_source = "unit";
         state.current_value = committedValue;
         state.current_currency = committedCurrency;
+        state.total_value = divRoundHalfUpSigned(state.current_value * state.total_qty, POW10_QTY);
       } else {
         if (state.total_qty <= BIG_ZERO) {
           editor.input.setCustomValidity("لا يمكن تعديل الكلفة الإجمالية عندما الكمية صفر.");
           editor.input.reportValidity();
           return false;
         }
+        state.edit_source = "total";
         state.current_currency = committedCurrency;
+        state.total_value = committedValue;
         state.current_value = divRoundHalfUpSigned(committedValue * POW10_QTY, state.total_qty);
       }
 
@@ -1636,6 +1664,7 @@
           total_qty: BIG_ZERO,
           total_value: BIG_ZERO,
           total_value_syp: BIG_ZERO,
+          edit_source: "unit",
           is_overridden: false,
           isOverridden: false,
           editors: {
@@ -1683,6 +1712,16 @@
             const opposite = editorObj.kind === "unit" ? state.editors.total : state.editors.unit;
             opposite.select.value = nextCurrency;
             opposite.select.dataset.prevCurrency = nextCurrency;
+            state.current_currency = nextCurrency;
+            if (editorObj.kind === "total") {
+              state.total_value = money2(converted);
+              if (state.total_qty > BIG_ZERO) {
+                state.current_value = divRoundHalfUpSigned(state.total_value * POW10_QTY, state.total_qty);
+              }
+            } else {
+              state.current_value = money2(converted);
+              state.total_value = divRoundHalfUpSigned(state.current_value * state.total_qty, POW10_QTY);
+            }
             previewRowWhileEditing(state, editorObj.kind);
           });
 
@@ -1733,7 +1772,9 @@
 
         const unitCost = money2(state.current_value);
         const cur = normalizeCurrency(state.current_currency, "SYP");
-        const lineTotal = divRoundHalfUpSigned(qtyTotal * unitCost, POW10_QTY);
+        const lineTotal = (state.edit_source === "total")
+          ? money2(state.total_value)
+          : divRoundHalfUpSigned(qtyTotal * unitCost, POW10_QTY);
 
         if (cur === "USD") {
           totalUsd = money2(totalUsd + lineTotal);
