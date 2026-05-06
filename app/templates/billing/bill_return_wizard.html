@@ -592,7 +592,6 @@
     text-align:left;
     font-variant-numeric:tabular-nums;
   }
-
   .bill-side-stack{
     display:grid;
     gap:10px;
@@ -716,7 +715,6 @@
 <form id="retForm" method="post" dir="rtl">
   {% csrf_token %}
   <input type="hidden" name="items_ids" value="{{ items_ids }}">
-  <input type="hidden" name="fx_at_return_creation" id="fxAtReturnCreation" value="">
 
   <div class="bill-wrap ret-wizard ret-collapse-store ret-collapse-wh1 ret-collapse-wh2">
     <div class="bill-main">
@@ -980,15 +978,8 @@
 
         <div class="bill-side-stack">
           <div class="bill-side-section">
-            <div class="bill-side-title">خيارات التقييم والتسوية</div>
+            <div class="bill-side-title">خيارات التسوية</div>
             <div class="bill-side-card">
-              <div class="bill-side-row">
-                <label class="bill-side-label" for="valuationMode">وضع التقييم</label>
-                <select class="input" name="valuation_mode" id="valuationMode">
-                  <option value="HISTORICAL" {% if valuation_mode_selected == "HISTORICAL" %}selected{% endif %}>حسب سعر الفاتورة</option>
-                  <option value="CURRENT_FX" {% if valuation_mode_selected == "CURRENT_FX" %}selected{% endif %}>حسب السعر الحالي</option>
-                </select>
-              </div>
               <div class="bill-side-row">
                 <label class="bill-side-label" for="settlementCurrency">عملة التسوية</label>
                 <select class="input" name="settlement_currency" id="settlementCurrency">
@@ -1065,6 +1056,7 @@
     const totalUsdBox = document.getElementById("retTotalUsd");
     const totalSettlementBox = document.getElementById("retTotalSettlement");
     const settlementLabel = document.getElementById("retSettleCurLabel");
+    const currentFxValueBox = document.getElementById("retCurrentFxValue");
     const selectedProductsCountBox = document.getElementById("retSelectedProductsCount");
     const returnAutoPublicIdBox = document.getElementById("returnAutoPublicId");
     const returnNextSerialUrl = "{% url 'billing_api_return_next_serial' %}";
@@ -1093,7 +1085,6 @@
 
     const settlementCurrency = document.getElementById("settlementCurrency");
     const moneyContainer = document.getElementById("moneyContainer");
-    const fxAtReturnCreationInput = document.getElementById("fxAtReturnCreation");
 
     const SCALE_MONEY = 2;
     const SCALE_QTY = 3;
@@ -1194,15 +1185,17 @@
       return parsed;
     }
 
-    const fxCurrentRaw = "{{ fx_current|default_if_none:''|unlocalize }}";
-    const fxBillRaw = "{{ fx_bill|default_if_none:''|unlocalize }}";
-    const fxCurrent = parseScaledStrict(fxCurrentRaw, SCALE_FX);
-    const fxBill = parseScaledStrict(fxBillRaw, SCALE_FX);
-    const fxAtReturnCreation = (fxCurrent !== null && fxCurrent > BIG_ZERO)
-      ? fxCurrent
-      : ((fxBill !== null && fxBill > BIG_ZERO) ? fxBill : BIG_ZERO);
-    if (fxAtReturnCreationInput) {
-      fxAtReturnCreationInput.value = fxAtReturnCreation > BIG_ZERO ? scaledToString(fxAtReturnCreation, SCALE_FX, false) : "";
+    const fxRateUsedRaw = "{{ fx_rate_used|default_if_none:''|unlocalize }}";
+    const fxParsed = parseScaledStrict(fxRateUsedRaw, SCALE_FX);
+    const state = {
+      fx_rate_used: (fxParsed !== null && fxParsed > BIG_ZERO) ? fxParsed : BIG_ZERO,
+    };
+    if (currentFxValueBox) {
+      const fxText = state.fx_rate_used > BIG_ZERO
+        ? ("1$ = " + formatMoney(scaledToString(state.fx_rate_used, SCALE_FX, false)) + " SYP")
+        : "1$ = - SYP";
+      currentFxValueBox.textContent = fxText;
+      currentFxValueBox.setAttribute("title", fxText);
     }
 
     function getCurrentStatus() {
@@ -1233,33 +1226,28 @@
       return scaledToString(money2(num), SCALE_MONEY, true);
     }
 
-    function convertUsdCentsToSypCents(valueCents) {
-      if (fxAtReturnCreation <= BIG_ZERO) return BIG_ZERO;
-      return divRoundHalfUpSigned(money2(valueCents) * fxAtReturnCreation, POW10_FX);
-    }
-
-    function convertSypCentsToUsdCents(valueCents) {
-      if (fxAtReturnCreation <= BIG_ZERO) return BIG_ZERO;
-      return divRoundHalfUpSigned(money2(valueCents) * POW10_FX, fxAtReturnCreation);
+    function convertBetweenCurrencies(valueCents, fromCurrency, toCurrency) {
+      const fromCur = normalizeCurrency(fromCurrency, "SYP");
+      const toCur = normalizeCurrency(toCurrency, "SYP");
+      const amount = money2(valueCents);
+      if (fromCur === toCur) return amount;
+      if (state.fx_rate_used <= BIG_ZERO) return null;
+      if (fromCur === "SYP" && toCur === "USD") {
+        return divRoundHalfUpSigned(amount * POW10_FX, state.fx_rate_used);
+      }
+      if (fromCur === "USD" && toCur === "SYP") {
+        return divRoundHalfUpSigned(amount * state.fx_rate_used, POW10_FX);
+      }
+      return amount;
     }
 
     function toSyp(valueCents, currency) {
       const amount = money2(valueCents);
       const cur = normalizeCurrency(currency, "SYP");
       if (cur === "USD") {
-        return convertUsdCentsToSypCents(amount);
+        const converted = convertBetweenCurrencies(amount, "USD", "SYP");
+        return converted === null ? BIG_ZERO : money2(converted);
       }
-      return amount;
-    }
-
-    function convertBetweenCurrencies(valueCents, fromCurrency, toCurrency) {
-      const fromCur = normalizeCurrency(fromCurrency, "SYP");
-      const toCur = normalizeCurrency(toCurrency, "SYP");
-      const amount = money2(valueCents);
-      if (fromCur === toCur) return amount;
-      if (fxAtReturnCreation <= BIG_ZERO) return amount;
-      if (fromCur === "SYP" && toCur === "USD") return convertSypCentsToUsdCents(amount);
-      if (fromCur === "USD" && toCur === "SYP") return convertUsdCentsToSypCents(amount);
       return amount;
     }
 
@@ -1584,7 +1572,7 @@
       editor.input.setCustomValidity("");
 
       const committedCurrency = normalizeCurrency(editor.select.value, state.current_currency);
-      if (committedCurrency === "USD" && fxAtReturnCreation <= BIG_ZERO) {
+      if (committedCurrency === "USD" && state.fx_rate_used <= BIG_ZERO) {
         editor.input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
         editor.input.reportValidity();
         return false;
@@ -1692,7 +1680,7 @@
               editorObj.select.dataset.prevCurrency = nextCurrency;
               return;
             }
-            if (fxAtReturnCreation <= BIG_ZERO) {
+            if (state.fx_rate_used <= BIG_ZERO) {
               editorObj.select.value = prevCurrency;
               editorObj.input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
               editorObj.input.reportValidity();
@@ -1707,6 +1695,12 @@
             }
             editorObj.input.setCustomValidity("");
             const converted = convertBetweenCurrencies(typedValue, prevCurrency, nextCurrency);
+            if (converted === null) {
+              editorObj.select.value = prevCurrency;
+              editorObj.input.setCustomValidity("لا يتوفر سعر صرف صالح لتحويل الكلفة.");
+              editorObj.input.reportValidity();
+              return;
+            }
             editorObj.input.value = fmtCost2(converted);
             editorObj.select.dataset.prevCurrency = nextCurrency;
             const opposite = editorObj.kind === "unit" ? state.editors.total : state.editors.unit;
@@ -1756,7 +1750,6 @@
     function recalcTotals() {
       let totalSyp = BIG_ZERO;
       let totalUsd = BIG_ZERO;
-      let totalSypNormalized = BIG_ZERO;
       let selectedRowsCount = 0;
 
       const rows = form.querySelectorAll("tbody tr");
@@ -1778,10 +1771,8 @@
 
         if (cur === "USD") {
           totalUsd = money2(totalUsd + lineTotal);
-          totalSypNormalized = money2(totalSypNormalized + convertUsdCentsToSypCents(lineTotal));
         } else {
           totalSyp = money2(totalSyp + lineTotal);
-          totalSypNormalized = money2(totalSypNormalized + lineTotal);
         }
       });
 
@@ -1797,12 +1788,23 @@
       if (settlementLabel) settlementLabel.textContent = settlementCur;
 
       let settlementTotal = BIG_ZERO;
+      const needsSypToUsd = settlementCur === "USD" && totalSyp > BIG_ZERO;
+      const needsUsdToSyp = settlementCur === "SYP" && totalUsd > BIG_ZERO;
       if (settlementCur === "SYP") {
-        settlementTotal = totalSypNormalized;
+        if (needsUsdToSyp) {
+          const convertedUsd = convertBetweenCurrencies(totalUsd, "USD", "SYP");
+          settlementTotal = convertedUsd === null ? BIG_ZERO : money2(totalSyp + convertedUsd);
+        } else {
+          settlementTotal = money2(totalSyp);
+        }
       } else {
-        settlementTotal = convertSypCentsToUsdCents(totalSypNormalized);
+        if (needsSypToUsd) {
+          const convertedSyp = convertBetweenCurrencies(totalSyp, "SYP", "USD");
+          settlementTotal = convertedSyp === null ? BIG_ZERO : money2(totalUsd + convertedSyp);
+        } else {
+          settlementTotal = money2(totalUsd);
+        }
       }
-      settlementTotal = money2(settlementTotal);
 
       renderMoney(totalSettlementBox, settlementTotal);
       return { totalSyp, totalUsd, settlementTotal };

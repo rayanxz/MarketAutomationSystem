@@ -1440,12 +1440,13 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         .order_by("id")
     )
 
+    current_fx: Decimal | None
     try:
-        fx_current = FinSV.get_current_fx_syp_per_usd()
+        fx_raw = FinSV.get_current_fx_syp_per_usd()
+        fx_q = _q_fx(_dec(str(fx_raw), "0"))
+        current_fx = fx_q if fx_q > DEC0 else None
     except Exception:
-        fx_current = None
-
-    fx_bill = getattr(bill, "fx_rate_usd_to_syp_used", None) or getattr(bill, "fx_usd_syp", None)
+        current_fx = None
 
     # ----- base queryset -----
     item_qs = bill.items.all().select_related("product")
@@ -1599,14 +1600,12 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
     if request.method == "POST":
         return_status_selected = (request.POST.get("return_status") or "").lower().strip()
         return_paid_amount_raw = (request.POST.get("return_paid_amount") or "").strip()
-        valuation_mode_selected = (request.POST.get("valuation_mode") or "HISTORICAL").upper().strip()
         settlement_currency_selected = (request.POST.get("settlement_currency") or getattr(bill, "settlement_currency", "SYP")).upper().strip()
         money_container_id_raw = (request.POST.get("money_container_id") or "").strip()
     else:
         # initial GET - nothing chosen, box empty
         return_status_selected = ""
         return_paid_amount_raw = ""
-        valuation_mode_selected = "HISTORICAL"
         settlement_currency_selected = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()
         money_container_id_raw = ""
 
@@ -1635,14 +1634,6 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         try:
             if settlement_currency_selected not in {"SYP", "USD"}:
                 raise ValueError("Invalid settlement currency.")
-            if valuation_mode_selected not in {"HISTORICAL", "CURRENT_FX"}:
-                raise ValueError("Invalid valuation mode.")
-
-            fx_hist = None
-            if fx_bill is not None:
-                fx_hist = _q_fx(_dec(str(fx_bill), "0"))
-            elif fx_current is not None:
-                fx_hist = _q_fx(_dec(str(fx_current), "0"))
 
             for r in rows:
                 iid = r["item_id"]
@@ -1701,30 +1692,6 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 else:
                     total_return_syp = _q_money("SYP", total_return_syp + line_total)
 
-                # settlement total (convert if needed)
-                if settlement_currency_selected == item_currency:
-                    total_return_settlement = _q_money(
-                        settlement_currency_selected,
-                        total_return_settlement + line_total,
-                    )
-                else:
-                    fx_use = fx_hist if valuation_mode_selected == "HISTORICAL" else fx_current
-                    if fx_use is None:
-                        raise ValueError("FX rate is required to settle this return.")
-                    fx_use = _q_fx(_dec(str(fx_use), "0"))
-                    if fx_use <= 0:
-                        raise ValueError("FX rate is required to settle this return.")
-                    if settlement_currency_selected == "SYP" and item_currency == "USD":
-                        total_return_settlement = _q_money(
-                            "SYP",
-                            total_return_settlement + (line_total * fx_use),
-                        )
-                    elif settlement_currency_selected == "USD" and item_currency == "SYP":
-                        total_return_settlement = _q_money(
-                            "USD",
-                            total_return_settlement + (line_total / fx_use),
-                        )
-
                 container_splits: list[dict[str, str]] = []
                 if q_store > DEC0:
                     container_splits.append({"code": "store", "qty_primary": str(q_store)})
@@ -1747,6 +1714,23 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
 
             if not items_payload:
                 raise ValueError("No return items were selected.")
+
+            fx_rate_used = current_fx
+            if settlement_currency_selected == "SYP":
+                settlement_total_raw = total_return_syp
+                if total_return_usd > DEC0:
+                    if fx_rate_used is None or fx_rate_used <= DEC0:
+                        raise ValueError("FX rate is required to settle this return.")
+                    settlement_total_raw = settlement_total_raw + (total_return_usd * fx_rate_used)
+                total_return_settlement = _q_money("SYP", settlement_total_raw)
+            else:
+                settlement_total_raw = total_return_usd
+                if total_return_syp > DEC0:
+                    if fx_rate_used is None or fx_rate_used <= DEC0:
+                        raise ValueError("FX rate is required to settle this return.")
+                    settlement_total_raw = settlement_total_raw + (total_return_syp / fx_rate_used)
+                total_return_settlement = _q_money("USD", settlement_total_raw)
+
             is_zero_total_return = (total_return_syp <= DEC0) and (total_return_usd <= DEC0)
 
             # 3) pay status + amount validation
@@ -1808,7 +1792,7 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                     else None
                 ),
                 currency_code=settlement_currency_selected,
-                valuation_mode=valuation_mode_selected,
+                valuation_mode="CURRENT_FX",
             )
 
             return redirect("billing_returns_list")
@@ -1839,14 +1823,12 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         "items_ids": selected_ids_str,
         "return_status_selected": return_status_selected,
         "return_paid_amount_raw": return_paid_amount_raw,
-        "valuation_mode_selected": valuation_mode_selected,
         "settlement_currency_selected": settlement_currency_selected,
         "money_container_id_raw": money_container_id_raw,
         "total_return_syp": total_return_syp,
         "total_return_usd": total_return_usd,
         "total_return_settlement": total_return_settlement,
-        "fx_current": fx_current,
-        "fx_bill": fx_bill,
+        "fx_rate_used": current_fx,
         "money_containers": money_containers,
         "return_public_id_preview": return_public_id_preview,
     }

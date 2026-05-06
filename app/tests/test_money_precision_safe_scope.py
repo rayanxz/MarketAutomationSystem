@@ -108,9 +108,9 @@ class MoneyPrecisionSafeScopeTests(SimpleTestCase):
         self.assertIn("tdPrice.textContent = fmtPrice(r.price);", pos_js)
         self.assertIn("function roundTo2(v)", product_tpl)
 
-        # Guard rail: transactional/accounting precision remains untouched.
-        self.assertEqual(Bill._meta.get_field("total").decimal_places, 3)
-        self.assertEqual(Bill._meta.get_field("creation_paid_syp").decimal_places, 3)
-        self.assertEqual(SalesBill._meta.get_field("total_amount").decimal_places, 3)
-        self.assertEqual(PostingLine._meta.get_field("amount").decimal_places, 6)
+        # Guard rail: transactional money precision is 2dp system-wide.
+        self.assertEqual(Bill._meta.get_field("total").decimal_places, 2)
+        self.assertEqual(Bill._meta.get_field("creation_paid_syp").decimal_places, 2)
+        self.assertEqual(SalesBill._meta.get_field("total_amount").decimal_places, 2)
+        self.assertEqual(PostingLine._meta.get_field("amount").decimal_places, 2)
         self.assertEqual(Receipt._meta.get_field("fx_syp_per_usd").decimal_places, 6)
