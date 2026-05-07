@@ -139,6 +139,9 @@
     min-width:0;
     align-items:stretch;
   }
+  .ret-head-fields-purchase{
+    grid-template-columns:repeat(4, minmax(0,1fr));
+  }
   .ret-head-field{
     border:1px solid #e5e7eb;
     border-radius:10px;
@@ -194,6 +197,9 @@
     font-size:13px;
     line-height:34px;
     margin:0;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .ret-head-count{
     direction:ltr;
@@ -742,7 +748,7 @@
         <div class="ret-head-grid">
           <div class="ret-head-row">
             <div class="ret-head-title">فاتورة المشتريات:</div>
-            <div class="ret-head-fields">
+            <div class="ret-head-fields ret-head-fields-purchase">
               <div class="ret-head-field">
                 <span class="ret-head-inline-label">رقم الفاتورة</span>
                 <span class="ret-head-inline-sep">:</span>
@@ -757,6 +763,17 @@
                 <span class="ret-head-inline-label">تاريخ الإنشاء</span>
                 <span class="ret-head-inline-sep">:</span>
                 <span class="ret-head-inline-value" title="{{ bill.created_at|date:'Y-m-d H:i' }}">{{ bill.created_at|date:"Y-m-d H:i" }}</span>
+              </div>
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">سعر الصرف عند الانشاء</span>
+                <span class="ret-head-inline-sep">:</span>
+                {% with purchase_fx_at_creation=bill.fx_rate_usd_to_syp_used|default_if_none:bill.fx_usd_syp %}
+                  {% if purchase_fx_at_creation %}
+                    <span class="ret-head-inline-value" title="1$ = {{ purchase_fx_at_creation|money_number }} SYP">1$ = {{ purchase_fx_at_creation|money_number }} SYP</span>
+                  {% else %}
+                    <span class="ret-head-inline-value" title="—">—</span>
+                  {% endif %}
+                {% endwith %}
               </div>
             </div>
           </div>
@@ -2092,6 +2109,13 @@
       updateRemainingLabel();
     }
 
+    function updateMoneyContainerTitle() {
+      if (!moneyContainer) return;
+      const selected = moneyContainer.options[moneyContainer.selectedIndex] || null;
+      const title = selected ? String(selected.text || "").trim() : "";
+      moneyContainer.setAttribute("title", title || "—");
+    }
+
     function refreshRowStatesAfterQtyChange() {
       rowStateByItemId.forEach(function (state) {
         renderRowState(state);
@@ -2220,6 +2244,10 @@
 
     if (settlementCurrency) {
       settlementCurrency.addEventListener("change", updateRemainingLabel);
+    }
+    if (moneyContainer) {
+      moneyContainer.addEventListener("change", updateMoneyContainerTitle);
+      updateMoneyContainerTitle();
     }
 
     [statusPaid, statusPartial, statusUnpaid].forEach(function (radio) {
