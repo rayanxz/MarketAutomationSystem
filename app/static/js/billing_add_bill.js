@@ -154,6 +154,112 @@
     const n = Number(value);
     input.value = Number.isFinite(n) ? fmt2(n) : "0.00";
   };
+  const MONEY_DECIMALS = 2;
+  const QTY_DECIMALS = 3;
+
+  const sanitizeDecimalForInput = (rawValue, maxDecimals, options = {}) => {
+    const preserveTrailingDot = !!options.preserveTrailingDot;
+    const allowNegative = !!options.allowNegative;
+    const decimals = Math.max(0, Number(maxDecimals) || 0);
+    let value = String(rawValue ?? "");
+    if (!value) return "";
+    value = value
+      .replace(/\u066B/g, ".")
+      .replace(/,/g, ".")
+      .replace(/\s+/g, "");
+
+    let negative = false;
+    if (allowNegative && value.startsWith("-")) {
+      negative = true;
+      value = value.slice(1);
+    }
+    value = value.replace(/-/g, "");
+    value = value.replace(/[^\d.]/g, "");
+
+    const dotIndex = value.indexOf(".");
+    if (dotIndex >= 0) {
+      value = value.slice(0, dotIndex + 1) + value.slice(dotIndex + 1).replace(/\./g, "");
+    }
+    if (value.startsWith(".")) value = `0${value}`;
+    const hasDot = value.includes(".");
+    const trailingDot = preserveTrailingDot && hasDot && value.endsWith(".");
+    if (hasDot) {
+      const split = value.split(".");
+      const intPart = split[0] || "0";
+      const fracPart = (split[1] || "").slice(0, decimals);
+      value = fracPart.length ? `${intPart}.${fracPart}` : intPart;
+      if (trailingDot && fracPart.length === 0 && decimals > 0) value = `${intPart}.`;
+    }
+    if (negative && value) value = `-${value}`;
+    return value;
+  };
+
+  const sanitizeInputValue = (input, maxDecimals, options = {}) => {
+    if (!input) return false;
+    const before = String(input.value ?? "");
+    const start = typeof input.selectionStart === "number" ? input.selectionStart : before.length;
+    const end = typeof input.selectionEnd === "number" ? input.selectionEnd : start;
+    const after = sanitizeDecimalForInput(before, maxDecimals, options);
+    if (after === before) return false;
+
+    const left = before.slice(0, start);
+    const rightStart = before.slice(0, end);
+    const nextLeft = sanitizeDecimalForInput(left, maxDecimals, options);
+    const nextRightStart = sanitizeDecimalForInput(rightStart, maxDecimals, options);
+    input.value = after;
+    try {
+      input.setSelectionRange(nextLeft.length, nextRightStart.length);
+    } catch (_err) {
+      // no-op
+    }
+    return true;
+  };
+
+  const attachDecimalLimiter = (input, maxDecimals) => {
+    if (!input || input.dataset.localDecimalLimiterAttached === "1") return;
+    input.dataset.localDecimalLimiterAttached = "1";
+
+    input.addEventListener("input", () => {
+      sanitizeInputValue(input, maxDecimals, { preserveTrailingDot: true, allowNegative: false });
+    });
+
+    input.addEventListener("paste", (evt) => {
+      const data = evt.clipboardData || window.clipboardData;
+      if (!data) return;
+      const pastedText = data.getData("text");
+      if (pastedText == null) return;
+      evt.preventDefault();
+
+      const before = String(input.value ?? "");
+      const start = typeof input.selectionStart === "number" ? input.selectionStart : before.length;
+      const end = typeof input.selectionEnd === "number" ? input.selectionEnd : start;
+      const merged = before.slice(0, start) + String(pastedText) + before.slice(end);
+      const nextValue = sanitizeDecimalForInput(merged, maxDecimals, { preserveTrailingDot: true, allowNegative: false });
+      const caretProbe = before.slice(0, start) + String(pastedText);
+      const nextCaret = sanitizeDecimalForInput(caretProbe, maxDecimals, { preserveTrailingDot: true, allowNegative: false });
+      input.value = nextValue;
+      try {
+        input.setSelectionRange(nextCaret.length, nextCaret.length);
+      } catch (_err) {
+        // no-op
+      }
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    input.addEventListener("blur", () => {
+      const changed = sanitizeInputValue(input, maxDecimals, { preserveTrailingDot: false, allowNegative: false });
+      if (changed) input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  const bindRowDecimalLimiters = (tr) => {
+    if (!tr) return;
+    attachDecimalLimiter(tr.querySelector('input[name="qty[]"]'), QTY_DECIMALS);
+    attachDecimalLimiter(tr.querySelector('input[name="cost[]"]'), MONEY_DECIMALS);
+    attachDecimalLimiter(tr.querySelector('input[name="price_syp[]"]'), MONEY_DECIMALS);
+    attachDecimalLimiter(tr.querySelector('input[name="price_usd[]"]'), MONEY_DECIMALS);
+    attachDecimalLimiter(tr.querySelector('input[name="total_cost[]"]'), MONEY_DECIMALS);
+  };
 
   const looksLikeProduct = (x) => x && typeof x === "object" && ("id" in x) && ("name" in x);
 
@@ -742,7 +848,7 @@ refreshAutoSerial();
       </td>
       <td class="qty-cell">
         <div style="display:flex; gap:6px; align-items:center;">
-          <input name="qty[]" class="input numeric-math" type="number" step="0.001" min="0" placeholder="0">
+          <input name="qty[]" class="input numeric-math" data-math-max-decimals="3" type="number" step="0.001" min="0" placeholder="0">
           <select name="qty_unit[]" class="input" style="max-width:160px;" ${lockSelect ? "disabled" : ""}>
             ${showU1 ? `<option value="u1">${u1Label}</option>` : ``}
             ${showU2 ? `<option value="u2">${u2Label}</option>` : ``}
@@ -779,6 +885,7 @@ refreshAutoSerial();
     const priceSypInput = tr.querySelector('input[name="price_syp[]"]');
     const priceUsdInput = tr.querySelector('input[name="price_usd[]"]');
     const totalCostInput = tr.querySelector('input[name="total_cost[]"]');
+    bindRowDecimalLimiters(tr);
     const curSelect = tr.querySelector('select.cur-ui');
     const curHidden = tr.querySelector('input.cur-hidden');
     if (costInput) costInput.dataset.auto = "1";
@@ -1253,7 +1360,11 @@ refreshAutoSerial();
   paySypOnlyInput?.addEventListener("input", syncPayUI);
   payUsdOnlyInput?.addEventListener("input", syncPayUI);
   payCurrency?.addEventListener("change", recalcBillTotal);
+  [paySypOnlyInput, payUsdOnlyInput, payMixedSypInput, payMixedUsdInput].forEach((input) => {
+    attachDecimalLimiter(input, MONEY_DECIMALS);
+  });
   tbody?.querySelectorAll("tr").forEach((tr) => {
+    bindRowDecimalLimiters(tr);
     updateRowQtyWarning(tr);
     updateRowCostWarning(tr);
   });

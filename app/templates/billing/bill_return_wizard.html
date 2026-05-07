@@ -925,6 +925,7 @@
                       type="number"
                       class="input ret-qty input-store numeric-math {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
                       name="ret_store_{{ r.item_id }}"
+                      data-math-max-decimals="3"
                       min="0"
                       step="0.001"
                       data-max-qty="{{ r.store_qty|unlocalize }}"
@@ -945,6 +946,7 @@
                       type="number"
                       class="input ret-qty input-wh1 numeric-math {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
                       name="ret_wh1_{{ r.item_id }}"
+                      data-math-max-decimals="3"
                       min="0"
                       step="0.001"
                       data-max-qty="{{ r.wh1_qty|unlocalize }}"
@@ -965,6 +967,7 @@
                       type="number"
                       class="input ret-qty input-wh2 numeric-math {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
                       name="ret_wh2_{{ r.item_id }}"
+                      data-math-max-decimals="3"
                       min="0"
                       step="0.001"
                       data-max-qty="{{ r.wh2_qty|unlocalize }}"
@@ -1093,6 +1096,7 @@
     const costWarnLowerMsg = "التكلفة المحددة للمنتج اقل من التكلفة المستخدمة عند الشراء";
     const pairToggleButtons = Array.from(form.querySelectorAll(".ret-pair-toggle"));
     const qtyInputs = Array.from(form.querySelectorAll(".ret-qty"));
+    const costInputs = Array.from(form.querySelectorAll(".ret-cost-input"));
     const qtyErrNegativeMsg = "لا يمكن إدخال كمية سالبة";
     const qtyErrNumberMsg = "يرجى إدخال رقم صحيح";
     const qtyErrPrecisionMsg = "الحد الأقصى 3 منازل عشرية";
@@ -1138,10 +1142,107 @@
       return String(raw == null ? "" : raw).trim().replace(/,/g, "");
     }
 
+    function sanitizeDecimalForInput(rawValue, maxDecimals, options) {
+      const opts = options || {};
+      const preserveTrailingDot = !!opts.preserveTrailingDot;
+      const allowNegative = !!opts.allowNegative;
+      const decimals = Math.max(0, Number(maxDecimals) || 0);
+      let value = String(rawValue == null ? "" : rawValue);
+      if (!value) return "";
+      value = value
+        .replace(/\u066B/g, ".")
+        .replace(/,/g, ".")
+        .replace(/\s+/g, "");
+
+      let negative = false;
+      if (allowNegative && value.startsWith("-")) {
+        negative = true;
+        value = value.slice(1);
+      }
+      value = value.replace(/-/g, "");
+      value = value.replace(/[^\d.]/g, "");
+
+      const dotIndex = value.indexOf(".");
+      if (dotIndex >= 0) {
+        value = value.slice(0, dotIndex + 1) + value.slice(dotIndex + 1).replace(/\./g, "");
+      }
+      if (value.startsWith(".")) value = "0" + value;
+      const hasDot = value.includes(".");
+      const trailingDot = preserveTrailingDot && hasDot && value.endsWith(".");
+      if (hasDot) {
+        const split = value.split(".");
+        const intPart = split[0] || "0";
+        const fracPart = (split[1] || "").slice(0, decimals);
+        value = fracPart.length ? (intPart + "." + fracPart) : intPart;
+        if (trailingDot && fracPart.length === 0 && decimals > 0) value = intPart + ".";
+      }
+      if (negative && value) value = "-" + value;
+      return value;
+    }
+
+    function sanitizeInputValue(input, maxDecimals, options) {
+      if (!input) return false;
+      const before = String(input.value ?? "");
+      const start = typeof input.selectionStart === "number" ? input.selectionStart : before.length;
+      const end = typeof input.selectionEnd === "number" ? input.selectionEnd : start;
+      const after = sanitizeDecimalForInput(before, maxDecimals, options);
+      if (after === before) return false;
+
+      const left = before.slice(0, start);
+      const rightStart = before.slice(0, end);
+      const nextLeft = sanitizeDecimalForInput(left, maxDecimals, options);
+      const nextRightStart = sanitizeDecimalForInput(rightStart, maxDecimals, options);
+      input.value = after;
+      try {
+        input.setSelectionRange(nextLeft.length, nextRightStart.length);
+      } catch (_err) {
+      }
+      return true;
+    }
+
+    function attachDecimalLimiter(input, maxDecimals) {
+      if (!input || input.dataset.localDecimalLimiterAttached === "1") return;
+      input.dataset.localDecimalLimiterAttached = "1";
+
+      input.addEventListener("input", function () {
+        sanitizeInputValue(input, maxDecimals, { preserveTrailingDot: true, allowNegative: false });
+      });
+
+      input.addEventListener("paste", function (evt) {
+        const data = evt.clipboardData || window.clipboardData;
+        if (!data) return;
+        const pastedText = data.getData("text");
+        if (pastedText == null) return;
+        evt.preventDefault();
+
+        const before = String(input.value ?? "");
+        const start = typeof input.selectionStart === "number" ? input.selectionStart : before.length;
+        const end = typeof input.selectionEnd === "number" ? input.selectionEnd : start;
+        const merged = before.slice(0, start) + String(pastedText) + before.slice(end);
+        const nextValue = sanitizeDecimalForInput(merged, maxDecimals, { preserveTrailingDot: true, allowNegative: false });
+        const caretProbe = before.slice(0, start) + String(pastedText);
+        const nextCaret = sanitizeDecimalForInput(caretProbe, maxDecimals, { preserveTrailingDot: true, allowNegative: false });
+        input.value = nextValue;
+        try {
+          input.setSelectionRange(nextCaret.length, nextCaret.length);
+        } catch (_err) {
+        }
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      input.addEventListener("blur", function () {
+        const changed = sanitizeInputValue(input, maxDecimals, { preserveTrailingDot: false, allowNegative: false });
+        if (changed) input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+
+    qtyInputs.forEach(function (input) { attachDecimalLimiter(input, SCALE_QTY); });
+    costInputs.forEach(function (input) { attachDecimalLimiter(input, SCALE_MONEY); });
+
     function parseDecimalToken(raw) {
       const text = normalizeDecimalInput(raw);
       if (!text) return null;
-      if (!/^[+-]?(?:\d+|\d*\.\d+)$/.test(text)) return null;
+      if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(text)) return null;
       const negative = text.startsWith("-");
       const unsigned = text.startsWith("+") || text.startsWith("-") ? text.slice(1) : text;
       const parts = unsigned.split(".");
