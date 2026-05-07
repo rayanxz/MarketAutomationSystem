@@ -426,6 +426,22 @@
     text-align:left;
     font-variant-numeric:tabular-nums;
   }
+  .ret-qty-wrap{
+    display:grid;
+    gap:4px;
+  }
+  .ret-qty.ret-qty-invalid{
+    border-color:#ef4444;
+    box-shadow:0 0 0 1px #ef4444;
+    background:#fff7f7;
+  }
+  .ret-qty-error{
+    min-height:14px;
+    color:#b91c1c;
+    font-size:11px;
+    line-height:1.3;
+    font-weight:600;
+  }
   .ret-input-disabled{
     background:#f3f4f6;
     cursor:not-allowed;
@@ -597,6 +613,12 @@
     gap:10px;
     margin-top:8px;
   }
+  .pay-head{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+    align-items:end;
+  }
   .bill-side-section{
     display:grid;
     gap:6px;
@@ -636,13 +658,6 @@
     white-space:nowrap;
     font-variant-numeric:tabular-nums;
   }
-  .bill-side-separator{
-    height:1px;
-    background:#e5e7eb;
-    border:0;
-    margin:4px 0;
-  }
-
   .pay-status-list{
     display:grid;
     gap:6px;
@@ -905,44 +920,62 @@
                 <td class="col-qty col-qty-main ret-col-total-remaining">{{ r.left_qty_str }}</td>
                 <td class="col-qty col-qty-main col-store">{{ r.store_qty_str }}</td>
                 <td class="col-qty col-qty-return col-store ret-return-col ret-return-store">
-                  <input
-                    type="number"
-                    class="input ret-qty input-store numeric-math {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
-                    name="ret_store_{{ r.item_id }}"
-                    min="0"
-                    step="0.001"
-                    {% if r.store_qty <= 0 %}disabled{% endif %}
-                    placeholder="0.000"
-                    value="{{ r.ret_store_raw|default_if_none:'' }}"
-                  >
+                  <div class="ret-qty-wrap">
+                    <input
+                      type="number"
+                      class="input ret-qty input-store numeric-math {% if r.store_qty <= 0 %}ret-input-disabled{% endif %}"
+                      name="ret_store_{{ r.item_id }}"
+                      min="0"
+                      step="0.001"
+                      data-max-qty="{{ r.store_qty|unlocalize }}"
+                      data-qty-role="store"
+                      aria-describedby="ret_store_err_{{ r.item_id }}"
+                      {% if r.store_qty <= 0 %}disabled{% endif %}
+                      placeholder="0.000"
+                      value="{{ r.ret_store_raw|default_if_none:'' }}"
+                    >
+                    <div id="ret_store_err_{{ r.item_id }}" class="ret-qty-error" aria-live="polite"></div>
+                  </div>
                 </td>
 
                 <td class="col-qty col-qty-main col-wh1">{{ r.wh1_qty_str }}</td>
                 <td class="col-qty col-qty-return col-wh1 ret-return-col ret-return-wh1">
-                  <input
-                    type="number"
-                    class="input ret-qty input-wh1 numeric-math {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
-                    name="ret_wh1_{{ r.item_id }}"
-                    min="0"
-                    step="0.001"
-                    {% if r.wh1_qty <= 0 %}disabled{% endif %}
-                    placeholder="0.000"
-                    value="{{ r.ret_wh1_raw|default_if_none:'' }}"
-                  >
+                  <div class="ret-qty-wrap">
+                    <input
+                      type="number"
+                      class="input ret-qty input-wh1 numeric-math {% if r.wh1_qty <= 0 %}ret-input-disabled{% endif %}"
+                      name="ret_wh1_{{ r.item_id }}"
+                      min="0"
+                      step="0.001"
+                      data-max-qty="{{ r.wh1_qty|unlocalize }}"
+                      data-qty-role="wh1"
+                      aria-describedby="ret_wh1_err_{{ r.item_id }}"
+                      {% if r.wh1_qty <= 0 %}disabled{% endif %}
+                      placeholder="0.000"
+                      value="{{ r.ret_wh1_raw|default_if_none:'' }}"
+                    >
+                    <div id="ret_wh1_err_{{ r.item_id }}" class="ret-qty-error" aria-live="polite"></div>
+                  </div>
                 </td>
 
                 <td class="col-qty col-qty-main col-wh2">{{ r.wh2_qty_str }}</td>
                 <td class="col-qty col-qty-return col-wh2 ret-return-col ret-return-wh2">
-                  <input
-                    type="number"
-                    class="input ret-qty input-wh2 numeric-math {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
-                    name="ret_wh2_{{ r.item_id }}"
-                    min="0"
-                    step="0.001"
-                    {% if r.wh2_qty <= 0 %}disabled{% endif %}
-                    placeholder="0.000"
-                    value="{{ r.ret_wh2_raw|default_if_none:'' }}"
-                  >
+                  <div class="ret-qty-wrap">
+                    <input
+                      type="number"
+                      class="input ret-qty input-wh2 numeric-math {% if r.wh2_qty <= 0 %}ret-input-disabled{% endif %}"
+                      name="ret_wh2_{{ r.item_id }}"
+                      min="0"
+                      step="0.001"
+                      data-max-qty="{{ r.wh2_qty|unlocalize }}"
+                      data-qty-role="wh2"
+                      aria-describedby="ret_wh2_err_{{ r.item_id }}"
+                      {% if r.wh2_qty <= 0 %}disabled{% endif %}
+                      placeholder="0.000"
+                      value="{{ r.ret_wh2_raw|default_if_none:'' }}"
+                    >
+                    <div id="ret_wh2_err_{{ r.item_id }}" class="ret-qty-error" aria-live="polite"></div>
+                  </div>
                 </td>
 
               </tr>
@@ -977,20 +1010,15 @@
         </div>
 
         <div class="bill-side-stack">
-          <div class="bill-side-section">
-            <div class="bill-side-title">خيارات التسوية</div>
-            <div class="bill-side-card">
-              <div class="bill-side-row">
-                <label class="bill-side-label" for="settlementCurrency">عملة التسوية</label>
-                <select class="input" name="settlement_currency" id="settlementCurrency">
-                  <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
-                  <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
-                </select>
-              </div>
+          <div class="pay-head">
+            <div class="field">
+              <label class="muted" for="settlementCurrency">عملة التسوية</label>
+              <select class="input" name="settlement_currency" id="settlementCurrency">
+                <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
+                <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
+              </select>
             </div>
           </div>
-
-          <div class="bill-side-separator" aria-hidden="true"></div>
 
           <div class="bill-side-section">
             <div class="bill-side-title">حالة دفع المرتجع</div>
@@ -1065,6 +1093,10 @@
     const costWarnLowerMsg = "التكلفة المحددة للمنتج اقل من التكلفة المستخدمة عند الشراء";
     const pairToggleButtons = Array.from(form.querySelectorAll(".ret-pair-toggle"));
     const qtyInputs = Array.from(form.querySelectorAll(".ret-qty"));
+    const qtyErrNegativeMsg = "لا يمكن إدخال كمية سالبة";
+    const qtyErrNumberMsg = "يرجى إدخال رقم صحيح";
+    const qtyErrPrecisionMsg = "الحد الأقصى 3 منازل عشرية";
+    const qtyValidationBlockedMsg = "يرجى تصحيح كميات المرتجع غير الصحيحة أولاً.";
     const returnColumnMeta = {
       store: { collapseClass: "ret-collapse-store", label: "مرتجع المتجر" },
       wh1: { collapseClass: "ret-collapse-wh1", label: "مرتجع مستودع 1" },
@@ -1181,8 +1213,81 @@
 
     function parseQtyMills(value) {
       const parsed = parseScaledStrict(value, SCALE_QTY);
-      if (parsed === null || parsed < BIG_ZERO) return BIG_ZERO;
+      if (parsed === null || parsed < BIG_ZERO) return null;
       return parsed;
+    }
+
+    function setQtyInputError(input, message) {
+      if (!input) return;
+      const hasError = !!message;
+      input.classList.toggle("ret-qty-invalid", hasError);
+      input.setAttribute("aria-invalid", hasError ? "true" : "false");
+      const wrap = input.closest(".ret-qty-wrap");
+      const errBox = wrap ? wrap.querySelector(".ret-qty-error") : null;
+      if (errBox) errBox.textContent = message || "";
+    }
+
+    function validateQtyInput(input, options) {
+      const opts = options || {};
+      const autoClamp = !!opts.autoClampToMax;
+      if (!input) return true;
+      if (input.disabled) {
+        setQtyInputError(input, "");
+        return true;
+      }
+      if (input.validity && input.validity.badInput) {
+        setQtyInputError(input, qtyErrNumberMsg);
+        return false;
+      }
+      const raw = normalizeDecimalInput(input.value);
+      if (!raw) {
+        setQtyInputError(input, "");
+        return true;
+      }
+
+      const token = parseDecimalToken(raw);
+      if (!token) {
+        setQtyInputError(input, qtyErrNumberMsg);
+        return false;
+      }
+      if (token.negative) {
+        setQtyInputError(input, qtyErrNegativeMsg);
+        return false;
+      }
+      if (token.fracLen > SCALE_QTY) {
+        setQtyInputError(input, qtyErrPrecisionMsg);
+        return false;
+      }
+
+      const parsed = parseScaledStrict(raw, SCALE_QTY);
+      if (parsed === null) {
+        setQtyInputError(input, qtyErrPrecisionMsg);
+        return false;
+      }
+
+      const maxRaw = normalizeDecimalInput(input.getAttribute("data-max-qty") || "0");
+      const maxParsed = parseScaledStrict(maxRaw, SCALE_QTY);
+      const maxQty = (maxParsed === null || maxParsed < BIG_ZERO) ? BIG_ZERO : maxParsed;
+      if (parsed > maxQty) {
+        if (autoClamp) {
+          input.value = scaledToString(maxQty, SCALE_QTY, false);
+          setQtyInputError(input, "");
+          return true;
+        }
+        setQtyInputError(input, qtyValidationBlockedMsg);
+        return false;
+      }
+
+      setQtyInputError(input, "");
+      return true;
+    }
+
+    function validateAllQtyInputs(options) {
+      let allValid = true;
+      qtyInputs.forEach(function (input) {
+        if (!validateQtyInput(input, options)) allValid = false;
+      });
+      return allValid;
     }
 
     const fxRateUsedRaw = "{{ fx_rate_used|default_if_none:''|unlocalize }}";
@@ -1295,9 +1400,9 @@
     }
 
     function getRowQtyTotal(itemId) {
-      const qStore = parseQtyNumber(form["ret_store_" + itemId]?.value || "0");
-      const qWh1 = parseQtyNumber(form["ret_wh1_" + itemId]?.value || "0");
-      const qWh2 = parseQtyNumber(form["ret_wh2_" + itemId]?.value || "0");
+      const qStore = parseQtyNumber(form["ret_store_" + itemId]?.value || "0") ?? BIG_ZERO;
+      const qWh1 = parseQtyNumber(form["ret_wh1_" + itemId]?.value || "0") ?? BIG_ZERO;
+      const qWh2 = parseQtyNumber(form["ret_wh2_" + itemId]?.value || "0") ?? BIG_ZERO;
       return qty3(qStore + qWh1 + qWh2);
     }
 
@@ -1441,6 +1546,7 @@
         } else {
           input.disabled = input.dataset.baseDisabled === "1";
         }
+        validateQtyInput(input, { autoClampToMax: true });
       });
 
       pairToggleButtons.forEach(function (btn) {
@@ -1811,6 +1917,10 @@
     }
 
     function updateRemainingLabel() {
+      if (!validateAllQtyInputs({ autoClampToMax: true })) {
+        if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+        return;
+      }
       const totals = recalcTotals();
       const zeroTotal = isZeroFinancialTotal(totals);
 
@@ -1888,8 +1998,42 @@
       applyEditLocking();
     }
 
+    qtyInputs.forEach(function (input) {
+      input.addEventListener("keydown", function (evt) {
+        if (evt.key === "-" || evt.key === "+" || evt.key === "e" || evt.key === "E") {
+          evt.preventDefault();
+        }
+      });
+      input.addEventListener("change", function () {
+        const valid = validateQtyInput(input, { autoClampToMax: true });
+        if (!valid) {
+          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+          return;
+        }
+        refreshRowStatesAfterQtyChange();
+        updateRemainingLabel();
+      });
+      input.addEventListener("blur", function () {
+        const valid = validateQtyInput(input, { autoClampToMax: true });
+        if (!valid) {
+          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+          return;
+        }
+        refreshRowStatesAfterQtyChange();
+        updateRemainingLabel();
+      });
+    });
+
     form.addEventListener("input", function (e) {
       if (e.target.classList.contains("ret-qty")) {
+        if (!validateQtyInput(e.target, { autoClampToMax: true })) {
+          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+          return;
+        }
+        if (!validateAllQtyInputs({ autoClampToMax: true })) {
+          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+          return;
+        }
         refreshRowStatesAfterQtyChange();
         updateRemainingLabel();
         return;
@@ -1900,6 +2044,15 @@
     });
 
     form.addEventListener("submit", function (e) {
+      if (!validateAllQtyInputs({ autoClampToMax: true })) {
+        const firstInvalidQty = qtyInputs.find(function (input) {
+          return input.classList.contains("ret-qty-invalid");
+        });
+        if (firstInvalidQty) firstInvalidQty.focus();
+        if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+        e.preventDefault();
+        return;
+      }
       if (!activeEdit) return;
       const state = rowStateByItemId.get(activeEdit.itemId);
       if (state && state.editors[activeEdit.field] && state.editors[activeEdit.field].input) {
@@ -1932,6 +2085,7 @@
 
     initCostEditors();
     syncCollapseState();
+    validateAllQtyInputs({ autoClampToMax: true });
     refreshReturnPublicIdPreview();
     handleStatusChange();
   })();

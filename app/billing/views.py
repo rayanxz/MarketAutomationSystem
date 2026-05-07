@@ -321,6 +321,10 @@ def _money_has_more_than_2_decimals(value: Decimal) -> bool:
     return Decimal(value).as_tuple().exponent < -2
 
 
+def _qty_has_more_than_3_decimals(value: Decimal) -> bool:
+    return Decimal(value).as_tuple().exponent < -3
+
+
 def _parse_money_input(val, default: str = "0", *, field_name: str = "amount") -> Decimal:
     amount = _dec(val, default)
     if not amount.is_finite():
@@ -328,6 +332,15 @@ def _parse_money_input(val, default: str = "0", *, field_name: str = "amount") -
     if _money_has_more_than_2_decimals(amount):
         raise ValueError(f"{field_name} supports at most 2 decimal digits")
     return round_money(amount)
+
+
+def _parse_qty_input(val, default: str = "0", *, field_name: str = "quantity") -> Decimal:
+    qty = _dec(val, default)
+    if not qty.is_finite():
+        raise ValueError(f"Invalid {field_name}")
+    if _qty_has_more_than_3_decimals(qty):
+        raise ValueError(f"{field_name} supports at most 3 decimal digits")
+    return q3(qty)
 
 
 def _q_money(currency_code: str, amount: Decimal) -> Decimal:
@@ -1641,9 +1654,21 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                 prod = it.product
 
                 # use the raw values we already copied into row
-                q_store = _dec(r.get("ret_store_raw"), "0")
-                q_wh1 = _dec(r.get("ret_wh1_raw"), "0")
-                q_wh2 = _dec(r.get("ret_wh2_raw"), "0")
+                q_store = _parse_qty_input(
+                    r.get("ret_store_raw"),
+                    "0",
+                    field_name=f"store return quantity for '{prod.name}'",
+                )
+                q_wh1 = _parse_qty_input(
+                    r.get("ret_wh1_raw"),
+                    "0",
+                    field_name=f"warehouse 1 return quantity for '{prod.name}'",
+                )
+                q_wh2 = _parse_qty_input(
+                    r.get("ret_wh2_raw"),
+                    "0",
+                    field_name=f"warehouse 2 return quantity for '{prod.name}'",
+                )
 
                 if q_store < DEC0 or q_wh1 < DEC0 or q_wh2 < DEC0:
                     raise ValueError("Invalid negative return quantity.")
