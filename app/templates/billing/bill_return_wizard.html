@@ -2099,6 +2099,35 @@
       applyEditLocking();
     }
 
+    function isTextareaElement(el) {
+      return !!(el && el.tagName === "TEXTAREA");
+    }
+
+    function isActiveCostEditInput(el) {
+      return !!(el && el.classList && el.classList.contains("ret-cost-input") && !!activeEdit);
+    }
+
+    function blurIfPossible(el) {
+      if (!el || typeof el.blur !== "function") return;
+      el.blur();
+    }
+
+    function requestSubmitByShortcut() {
+      if (form.dataset.shortcutSubmitting === "1") return;
+      form.dataset.shortcutSubmitting = "1";
+      try {
+        if (typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+      } finally {
+        window.setTimeout(function () {
+          form.dataset.shortcutSubmitting = "0";
+        }, 0);
+      }
+    }
+
     qtyInputs.forEach(function (input) {
       input.addEventListener("keydown", function (evt) {
         if (evt.key === "-" || evt.key === "+" || evt.key === "e" || evt.key === "E") {
@@ -2142,6 +2171,31 @@
       if (e.target === paidInput) {
         updateRemainingLabel();
       }
+    });
+
+    form.addEventListener("keydown", function (e) {
+      if (e.key !== "Enter") return;
+      if (e.isComposing) return;
+
+      const target = e.target;
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (e.repeat) return;
+        requestSubmitByShortcut();
+        return;
+      }
+
+      if (isTextareaElement(target)) return;
+      const wasAlreadyPrevented = e.defaultPrevented;
+      e.preventDefault();
+
+      if (activeEdit) {
+        if (wasAlreadyPrevented && isActiveCostEditInput(target)) return;
+        commitActiveEdit();
+        return;
+      }
+
+      blurIfPossible(target);
     });
 
     form.addEventListener("submit", function (e) {
