@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import hashlib
+import json
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_DOWN
 from typing import Iterable, Dict, Any, Optional
-from datetime import date
+from datetime import date, timedelta
 
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from inventory.models import ProductMovement
 
 from django.shortcuts import get_object_or_404
@@ -22,6 +25,7 @@ from billing.models import (
 
 from debts.models import (
     PartyType,
+    DebtStatus,
     DebtorDebt ,
     CreditorDebt ,
     CreditorReceipt,
@@ -53,8 +57,10 @@ from core.formatters import round_money
 # ====== Decimals / helpers ======
 DEC0 = Decimal("0")
 DEC3 = Decimal("0.001")
+DEC2 = Decimal("0.01")
 FEATURE_PURCHASE_BILLS = "purchase_bills"
-FEATURE_PROVIDER_RETURNS = ("provider_returns", FEATURE_PURCHASE_BILLS)
+FEATURE_PROVIDER_RETURNS = "provider_returns"
+PROVIDER_RETURN_IDEMPOTENCY_WINDOW_SECONDS = 30
 
 def q3(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC3, rounding=ROUND_HALF_UP)
@@ -149,8 +155,125 @@ def _q_money(currency_code: str, amount: Decimal) -> Decimal:
     return FinSV.q_money(amount=Decimal(amount or DEC0), currency_code=(currency_code or "SYP").upper())
 
 
+def _q_money_floor(currency_code: str, amount: Decimal) -> Decimal:
+    code = (currency_code or "SYP").upper()
+    dec = Decimal(amount or DEC0)
+    if dec <= DEC0:
+        return DEC0
+    floored = dec.quantize(DEC2, rounding=ROUND_DOWN)
+    return _q_money(code, floored)
+
+
 def _q_fx(value: Decimal) -> Decimal:
     return FinSV.q_fx(value)
+
+
+def _fingerprint_decimal_text(raw: Any, *, exp: Decimal | None = None) -> str:
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        return ""
+    try:
+        dec = Decimal(text)
+    except (InvalidOperation, TypeError, ValueError):
+        return text
+    if not dec.is_finite():
+        return text
+    if exp is not None:
+        try:
+            dec = dec.quantize(exp, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            return text
+    if dec == DEC0:
+        dec = DEC0
+    return format(dec, "f")
+
+
+def _fingerprint_int(raw: Any) -> int | str | None:
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return text
+
+
+def _normalize_return_items_for_fingerprint(items: Iterable[Dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in list(items):
+        splits: list[dict[str, Any]] = []
+        for split in row.get("container_splits") or []:
+            splits.append(
+                {
+                    "code": str(split.get("code") or "").strip().lower(),
+                    "qty_primary": _fingerprint_decimal_text(split.get("qty_primary"), exp=DEC3),
+                }
+            )
+        splits.sort(key=lambda s: (str(s.get("code") or ""), str(s.get("qty_primary") or "")))
+        rows.append(
+            {
+                "bill_item_id": _fingerprint_int(row.get("bill_item_id")),
+                "product_id": _fingerprint_int(row.get("product_id")),
+                "unit_index": _fingerprint_int(row.get("unit_index")),
+                "qty_raw": _fingerprint_decimal_text(row.get("qty_raw"), exp=DEC3),
+                "qty_primary": _fingerprint_decimal_text(row.get("qty_primary"), exp=DEC3),
+                "cost": _fingerprint_decimal_text(row.get("cost"), exp=DEC2),
+                "total_cost": _fingerprint_decimal_text(row.get("total_cost"), exp=DEC2),
+                "currency": str(row.get("currency") or "").strip().upper(),
+                "container_splits": splits,
+            }
+        )
+    rows.sort(
+        key=lambda r: (
+            str(r.get("bill_item_id")),
+            str(r.get("product_id")),
+            str(r.get("unit_index")),
+            str(r.get("qty_primary")),
+            str(r.get("qty_raw")),
+            str(r.get("cost")),
+            str(r.get("currency")),
+            json.dumps(r.get("container_splits") or [], sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+        )
+    )
+    return rows
+
+
+def build_provider_return_idempotency_key(
+    *,
+    provider_id: int,
+    source_bill_serial: int | None,
+    source_bill_public_id: str | None,
+    status: str | None,
+    settlement_currency: str | None,
+    valuation_mode: str | None,
+    payment_method: str | None,
+    paid_amount: Decimal | None,
+    paid_syp: Decimal | None,
+    paid_usd: Decimal | None,
+    settle_purchase_debt: bool,
+    debt_settlement_amount: Decimal | None,
+    money_container_id: int | None,
+    items: Iterable[Dict[str, Any]],
+) -> str:
+    payload = {
+        "v": 1,
+        "provider_id": int(provider_id),
+        "source_bill_serial": _fingerprint_int(source_bill_serial),
+        "source_bill_public_id": str(source_bill_public_id or "").strip().upper(),
+        "status": str(status or "").strip().lower(),
+        "settlement_currency": str(settlement_currency or "").strip().upper(),
+        "valuation_mode": str(valuation_mode or "").strip().upper(),
+        "payment_method": str(payment_method or "").strip().lower(),
+        "paid_amount": _fingerprint_decimal_text(paid_amount, exp=DEC2),
+        "paid_syp": _fingerprint_decimal_text(paid_syp, exp=DEC2),
+        "paid_usd": _fingerprint_decimal_text(paid_usd, exp=DEC2),
+        "settle_purchase_debt": bool(settle_purchase_debt),
+        "debt_settlement_amount": _fingerprint_decimal_text(debt_settlement_amount, exp=DEC2),
+        "money_container_id": _fingerprint_int(money_container_id),
+        "items": _normalize_return_items_for_fingerprint(items),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _resolve_paid_amount(status: str, intended_paid: Decimal, total: Decimal, *, currency_code: str) -> Decimal:
@@ -203,35 +326,55 @@ def _allocate_paid_to_debt_buckets(
     Same-currency debt is consumed first, then any overflow is FX-converted
     into the other debt bucket.
     """
-    rem_syp = Decimal(total_syp or DEC0)
-    rem_usd = Decimal(total_usd or DEC0)
-    pool_syp = Decimal(actual_paid_syp or DEC0)
-    pool_usd = Decimal(actual_paid_usd or DEC0)
+    rem_syp = _q_money("SYP", total_syp or DEC0)
+    rem_usd = _q_money("USD", total_usd or DEC0)
+    pool_syp = _q_money("SYP", actual_paid_syp or DEC0)
+    pool_usd = _q_money("USD", actual_paid_usd or DEC0)
 
-    paid_entry_syp = min(pool_syp, rem_syp)
-    rem_syp -= paid_entry_syp
-    pool_syp -= paid_entry_syp
+    paid_entry_syp = _q_money("SYP", min(pool_syp, rem_syp))
+    rem_syp = _q_money("SYP", rem_syp - paid_entry_syp)
+    pool_syp = _q_money("SYP", pool_syp - paid_entry_syp)
 
-    paid_entry_usd = min(pool_usd, rem_usd)
-    rem_usd -= paid_entry_usd
-    pool_usd -= paid_entry_usd
+    paid_entry_usd = _q_money("USD", min(pool_usd, rem_usd))
+    rem_usd = _q_money("USD", rem_usd - paid_entry_usd)
+    pool_usd = _q_money("USD", pool_usd - paid_entry_usd)
 
     if pool_syp > DEC0 and rem_usd > DEC0:
-        usd_from_syp = pool_syp / fx_snapshot
-        usd_extra = min(rem_usd, usd_from_syp)
-        paid_entry_usd += usd_extra
-        rem_usd -= usd_extra
-        pool_syp -= (usd_extra * fx_snapshot)
+        max_usd_by_pool = _q_money_floor("USD", pool_syp / fx_snapshot)
+        usd_extra = _q_money("USD", min(rem_usd, max_usd_by_pool))
+        if usd_extra > DEC0:
+            syp_consumed = _q_money("SYP", usd_extra * fx_snapshot)
+            while usd_extra > DEC0 and syp_consumed > pool_syp:
+                usd_extra = _q_money("USD", usd_extra - DEC2)
+                if usd_extra <= DEC0:
+                    usd_extra = DEC0
+                    syp_consumed = DEC0
+                    break
+                syp_consumed = _q_money("SYP", usd_extra * fx_snapshot)
+            if usd_extra > DEC0 and syp_consumed > DEC0:
+                paid_entry_usd = _q_money("USD", paid_entry_usd + usd_extra)
+                rem_usd = _q_money("USD", rem_usd - usd_extra)
+                pool_syp = _q_money("SYP", pool_syp - syp_consumed)
 
     if pool_usd > DEC0 and rem_syp > DEC0:
-        syp_from_usd = pool_usd * fx_snapshot
-        syp_extra = min(rem_syp, syp_from_usd)
-        paid_entry_syp += syp_extra
-        rem_syp -= syp_extra
-        pool_usd -= (syp_extra / fx_snapshot)
+        max_syp_by_pool = _q_money_floor("SYP", pool_usd * fx_snapshot)
+        syp_extra = _q_money("SYP", min(rem_syp, max_syp_by_pool))
+        if syp_extra > DEC0:
+            usd_consumed = _q_money("USD", syp_extra / fx_snapshot)
+            while syp_extra > DEC0 and usd_consumed > pool_usd:
+                syp_extra = _q_money("SYP", syp_extra - DEC2)
+                if syp_extra <= DEC0:
+                    syp_extra = DEC0
+                    usd_consumed = DEC0
+                    break
+                usd_consumed = _q_money("USD", syp_extra / fx_snapshot)
+            if syp_extra > DEC0 and usd_consumed > DEC0:
+                paid_entry_syp = _q_money("SYP", paid_entry_syp + syp_extra)
+                rem_syp = _q_money("SYP", rem_syp - syp_extra)
+                pool_usd = _q_money("USD", pool_usd - usd_consumed)
 
-    paid_entry_syp = _q_money("SYP", max(DEC0, min(total_syp, paid_entry_syp)))
-    paid_entry_usd = _q_money("USD", max(DEC0, min(total_usd, paid_entry_usd)))
+    paid_entry_syp = _q_money("SYP", max(DEC0, min(_q_money("SYP", total_syp or DEC0), paid_entry_syp)))
+    paid_entry_usd = _q_money("USD", max(DEC0, min(_q_money("USD", total_usd or DEC0), paid_entry_usd)))
     return paid_entry_syp, paid_entry_usd
 
 
@@ -285,6 +428,7 @@ def _resolve_creation_payment_plan(
     paid_syp: Decimal | None,
     paid_usd: Decimal | None,
     legacy_paid_amount: Decimal | None,
+    enforce_value_conservation: bool = False,
 ) -> dict[str, Decimal | str]:
     status_norm = (status or "").lower().strip()
     if status_norm not in {"paid", "unpaid", "partial"}:
@@ -422,6 +566,29 @@ def _resolve_creation_payment_plan(
             actual_paid_usd=actual_paid_usd,
             fx_snapshot=fx_snapshot,
         )
+
+    if enforce_value_conservation and status_norm in {"partial", "paid"}:
+        allocated_settlement = _settlement_amount_from_components(
+            settlement_currency=settle,
+            paid_syp=paid_entry_syp,
+            paid_usd=paid_entry_usd,
+            fx_snapshot=fx_snapshot,
+        )
+        if allocated_settlement <= DEC0 and settlement_paid > DEC0:
+            raise ValidationError("payment is too small after FX conversion/rounding")
+        if status_norm == "partial":
+            if allocated_settlement >= settlement_total:
+                raise ValidationError(
+                    "partial payment cannot settle full amount after FX rounding; "
+                    "adjust payment or choose full payment"
+                )
+            if allocated_settlement != settlement_paid:
+                raise ValidationError(
+                    "payment cannot be represented exactly after FX conversion/rounding; "
+                    "adjust payment amount"
+                )
+        elif allocated_settlement != settlement_total:
+            raise ValidationError("full payment cannot be represented exactly after FX conversion/rounding")
 
     return {
         "status": status_norm,
@@ -1589,6 +1756,12 @@ def create_return(
     money_container_id: int | None = None,
     currency_code: str = "SYP",
     valuation_mode: str = "HISTORICAL",
+    payment_method: str | None = None,
+    paid_syp: Decimal | None = None,
+    paid_usd: Decimal | None = None,
+    settle_purchase_debt: bool = False,
+    debt_settlement_amount: Decimal | None = None,
+    idempotency_key: str | None = None,
 ) -> ProviderReturn:
     """
     Create a ProviderReturn, decrease stock via inventory movements, post GL, and register CreditorDebt.
@@ -1635,12 +1808,74 @@ def create_return(
     if valuation_mode_norm not in ("HISTORICAL", "CURRENT_FX"):
         raise ValueError("Invalid valuation mode")
 
+    fx_snapshot_for_save: Decimal | None = None
+    try:
+        fx_snapshot_for_save = _q_fx(FinSV.get_current_fx_syp_per_usd())
+    except Exception:
+        fx_snapshot_for_save = None
+
     # legacy mode needs a container (FIFO requires container)
     if container is None and not any((row.get("container_splits") or []) for row in items):
         container = ProductContainer.objects.select_for_update().get(code="store")
 
     parsed_paid_amount = _parse_money_value(raw=paid_amount, field_name="paid_amount")
     intended_paid = _q_money(settlement_currency, parsed_paid_amount or DEC0)
+    input_paid_syp = _parse_money_value(
+        raw=paid_syp,
+        field_name="paid_syp",
+        allow_empty=True,
+    )
+    if input_paid_syp is not None and input_paid_syp < DEC0:
+        raise ValidationError("paid_syp must be >= 0")
+    input_paid_usd = _parse_money_value(
+        raw=paid_usd,
+        field_name="paid_usd",
+        allow_empty=True,
+    )
+    if input_paid_usd is not None and input_paid_usd < DEC0:
+        raise ValidationError("paid_usd must be >= 0")
+    input_method = (payment_method or "").lower().strip() if payment_method is not None else None
+    settle_debt_flag = bool(settle_purchase_debt)
+    input_debt_settlement_amount = _parse_money_value(
+        raw=debt_settlement_amount,
+        field_name="debt_settlement_amount",
+        allow_empty=True,
+    )
+    if input_debt_settlement_amount is not None and input_debt_settlement_amount < DEC0:
+        raise ValidationError("debt_settlement_amount must be >= 0")
+
+    request_fingerprint = (idempotency_key or "").strip()
+    if not request_fingerprint:
+        request_fingerprint = build_provider_return_idempotency_key(
+            provider_id=provider.id,
+            source_bill_serial=source_bill_serial,
+            source_bill_public_id=source_bill_public_ref,
+            status=status,
+            settlement_currency=settlement_currency,
+            valuation_mode=valuation_mode_norm,
+            payment_method=input_method,
+            paid_amount=parsed_paid_amount,
+            paid_syp=input_paid_syp,
+            paid_usd=input_paid_usd,
+            settle_purchase_debt=settle_debt_flag,
+            debt_settlement_amount=input_debt_settlement_amount,
+            money_container_id=money_container_id,
+            items=items,
+        )
+    idempotency_window_start = timezone.now() - timedelta(seconds=PROVIDER_RETURN_IDEMPOTENCY_WINDOW_SECONDS)
+    duplicate_recent = (
+        ProviderReturn.objects
+        .select_for_update()
+        .filter(
+            provider=provider,
+            request_fingerprint=request_fingerprint,
+            created_at__gte=idempotency_window_start,
+        )
+        .order_by("-id")
+        .first()
+    )
+    if duplicate_recent is not None:
+        return duplicate_recent
 
     pret = ProviderReturn(
         provider=provider,
@@ -1651,6 +1886,7 @@ def create_return(
         valuation_mode=valuation_mode_norm,
         source_bill_serial=source_bill_serial,
         source_bill_public_id=source_bill_public_ref,
+        request_fingerprint=request_fingerprint,
         created_by=actor,
     )
     pret.save()
@@ -1727,16 +1963,32 @@ def create_return(
         bill_item_id = row.get("bill_item_id")
         bill_item = bill_items.get(int(bill_item_id)) if bill_item_id else None
 
-        item_currency = (getattr(bill_item, "currency", None) or row.get("currency") or settlement_currency or "SYP").upper()
+        submitted_currency = str(row.get("currency") or "").strip().upper()
+        if submitted_currency:
+            item_currency = submitted_currency
+        elif bill_item is not None:
+            item_currency = (getattr(bill_item, "currency", None) or settlement_currency or "SYP").upper()
+        else:
+            item_currency = (settlement_currency or "SYP").upper()
         if item_currency not in ("SYP", "USD"):
             raise ValueError(f"Invalid item currency at row {idx}")
 
-        if bill_item is not None:
+        submitted_cost_raw = row.get("cost")
+        if submitted_cost_raw not in (None, ""):
+            submitted_cost = Decimal(str(submitted_cost_raw))
+            if submitted_cost.as_tuple().exponent < -2:
+                raise ValidationError(f"cost supports at most 2 decimal digits at row {idx}")
+            if submitted_cost < DEC0:
+                raise ValidationError(f"cost must be >= 0 at row {idx}")
+            cost_u1 = q4(submitted_cost)
+        elif bill_item is not None:
             cost_u1 = q4(Decimal(str(bill_item.cost or DEC0)))
         else:
             raw_cost = Decimal(str(row.get("cost") or "0"))
             if raw_cost.as_tuple().exponent < -2:
                 raise ValidationError(f"cost supports at most 2 decimal digits at row {idx}")
+            if raw_cost < DEC0:
+                raise ValidationError(f"cost must be >= 0 at row {idx}")
             cost_u1 = q4(raw_cost)
 
         # ----- determine qty_primary -----
@@ -1784,7 +2036,9 @@ def create_return(
                     b = getattr(bill_item, "bill", None)
                     fx_used = getattr(b, "fx_rate_usd_to_syp_used", None) or getattr(b, "fx_usd_syp", None)
             if fx_used is None:
-                fx_used = FinSV.get_current_fx_syp_per_usd()
+                if fx_snapshot_for_save is None:
+                    fx_snapshot_for_save = _q_fx(FinSV.get_current_fx_syp_per_usd())
+                fx_used = fx_snapshot_for_save
 
             fx_used = _q_fx(Decimal(str(fx_used)))
             if fx_used <= 0:
@@ -1886,26 +2140,36 @@ def create_return(
     pret.fx_rate_used = fx_rate_used
     pret.save(update_fields=["total", "total_syp", "total_usd", "fx_rate_used", "settlement_currency", "valuation_mode"])
 
-    # ----- Create debt -----
+    # ----- Payment plan (bill_add-aligned parser/validation) -----
     status_norm = (status or "").lower().strip()
-    fx_for_plan = _q_fx(pret.fx_rate_used or FinSV.get_current_fx_syp_per_usd())
-    collection_plan = _resolve_return_collection_plan(
+    if fx_snapshot_for_save is None:
+        fx_snapshot_for_save = _q_fx(FinSV.get_current_fx_syp_per_usd())
+    fx_for_plan = _q_fx(fx_snapshot_for_save)
+    payment_plan = _resolve_creation_payment_plan(
         status=status_norm,
         settlement_currency=settlement_currency,
         total_syp=pret.total_syp,
         total_usd=pret.total_usd,
         fx_snapshot=fx_for_plan,
-        intended_collected=intended_paid,
+        payment_method=input_method,
+        paid_syp=input_paid_syp,
+        paid_usd=input_paid_usd,
+        legacy_paid_amount=intended_paid,
+        enforce_value_conservation=True,
     )
-    status_norm = str(collection_plan["status"])
-    final_collected = _q_money(settlement_currency, collection_plan["settlement_collected"])
-    actual_collected_syp = _q_money("SYP", collection_plan["actual_collected_syp"])
-    actual_collected_usd = _q_money("USD", collection_plan["actual_collected_usd"])
-    entry_collected_syp = _q_money("SYP", collection_plan["entry_collected_syp"])
-    entry_collected_usd = _q_money("USD", collection_plan["entry_collected_usd"])
+    status_norm = str(payment_plan["status"])
+    payment_method_norm = str(payment_plan["method"])
+    final_collected = _q_money(settlement_currency, payment_plan["settlement_paid"])
+    actual_collected_syp = _q_money("SYP", payment_plan["actual_paid_syp"])
+    actual_collected_usd = _q_money("USD", payment_plan["actual_paid_usd"])
+    entry_collected_syp = _q_money("SYP", payment_plan["entry_paid_syp"])
+    entry_collected_usd = _q_money("USD", payment_plan["entry_paid_usd"])
     pret.initial_status = status_norm
     pret.initial_paid = final_collected
     pret.save(update_fields=["initial_status", "initial_paid"])
+
+    if settle_debt_flag and final_collected <= DEC0:
+        raise ValidationError("debt settlement requires collected payment > 0")
 
     # Zero-total provider returns are non-financial: no debts, no receipts, no cash movement.
     if pret.total_syp <= DEC0 and pret.total_usd <= DEC0:
@@ -1935,6 +2199,7 @@ def create_return(
                     "legacy_container": (getattr(container, "code", None) if container else None),
                     "wizard_mode": is_wizard,
                     "is_non_financial_zero_total": True,
+                    "payment_method": payment_method_norm,
                 },
                 "financials": {
                     "currency": settlement_currency,
@@ -1942,6 +2207,7 @@ def create_return(
                     "receipt_ids": [],
                     "receipt_serials": [],
                     "is_non_financial_zero_total": True,
+                    "debt_settlement_id": None,
                 },
             },
             after={
@@ -1991,11 +2257,11 @@ def create_return(
     if has_any_collection:
         if not money_container_id:
             raise ValueError("money container is required for paid returns")
-        cash_container = (
-            MoneyContainer.objects
-            .select_for_update()
-            .filter(id=money_container_id, is_active=True)
-            .first()
+        cash_container = FinSV.require_money_container_for_user(
+            user=actor,
+            container_id=money_container_id,
+            feature_code=FEATURE_PROVIDER_RETURNS,
+            for_update=True,
         )
         if cash_container is None:
             raise ValueError("money container is not allowed for provider returns")
@@ -2054,6 +2320,89 @@ def create_return(
             fx_syp_per_usd_used=fx_for_receipt,
         )
 
+    debt_settlement = None
+    debt_settlement_amount_applied = DEC0
+    source_debt_before_settlement = None
+    source_debt_remaining_before = DEC0
+    source_debt_remaining_after = DEC0
+    if settle_debt_flag:
+        if cash_container is None:
+            raise ValueError("money container is required when debt settlement is enabled")
+        FinSV.require_money_container_for_user(
+            user=actor,
+            container_id=cash_container.id,
+            feature_code=FEATURE_PURCHASE_BILLS,
+            for_update=True,
+        )
+        if not source_bill_public_ref and not source_bill_serial:
+            raise ValueError("source bill reference is required for debt settlement")
+        purchase_bill_ref = source_bill_public_ref or str(source_bill_serial or "")
+        source_debt = DebtSV.resolve_purchase_bill_debt(
+            bill_id=purchase_bill_ref,
+            for_update=True,
+        )
+        if source_debt is None or source_debt.status != DebtStatus.OPEN:
+            raise ValueError("no payable debt available for source purchase bill")
+
+        source_debt_before_settlement = source_debt
+        source_debt_remaining_before = _settlement_amount_from_components(
+            settlement_currency=settlement_currency,
+            paid_syp=_q_money("SYP", source_debt.remaining_syp or DEC0),
+            paid_usd=_q_money("USD", source_debt.remaining_usd or DEC0),
+            fx_snapshot=fx_for_plan,
+        )
+        if source_debt_remaining_before <= DEC0:
+            raise ValueError("source purchase bill has no payable debt")
+
+        settlement_amount = _q_money(
+            settlement_currency,
+            input_debt_settlement_amount or DEC0,
+        )
+        if settlement_amount <= DEC0:
+            raise ValueError("debt settlement amount must be > 0")
+        if settlement_amount > final_collected:
+            raise ValueError("debt settlement amount cannot exceed collected payment")
+        collected_in_settlement_currency = _q_money(
+            settlement_currency,
+            actual_collected_usd if settlement_currency == "USD" else actual_collected_syp,
+        )
+        if settlement_amount > collected_in_settlement_currency:
+            raise ValueError("debt settlement amount cannot exceed collected payment in settlement currency")
+        if settlement_amount > source_debt_remaining_before:
+            raise ValueError("debt settlement amount cannot exceed payable debt")
+
+        full_settlement = settlement_amount == source_debt_remaining_before
+        settlement_method = "usd_only" if settlement_currency == "USD" else "syp_only"
+        settlement_payment_syp = settlement_amount if settlement_currency == "SYP" else DEC0
+        settlement_payment_usd = settlement_amount if settlement_currency == "USD" else DEC0
+        settled_debt, debt_settlement = DebtSV.settle_central_debt(
+            actor=actor,
+            debt_id=source_debt.id,
+            full=full_settlement,
+            money_container_id=cash_container.id,
+            payment_method=settlement_method,
+            payment_syp=settlement_payment_syp,
+            payment_usd=settlement_payment_usd,
+            fx_syp_per_usd_override=fx_for_plan,
+            derive_cash_from_applied=True,
+            required_feature_code=FEATURE_PURCHASE_BILLS,
+            note=f"Provider return #{pret.serial} debt settlement for bill #{purchase_bill_ref}",
+        )
+        debt_settlement_amount_applied = _settlement_amount_from_components(
+            settlement_currency=settlement_currency,
+            paid_syp=_q_money("SYP", getattr(debt_settlement, "applied_syp", DEC0) or DEC0),
+            paid_usd=_q_money("USD", getattr(debt_settlement, "applied_usd", DEC0) or DEC0),
+            fx_snapshot=fx_for_plan,
+        )
+        source_debt_remaining_after = _settlement_amount_from_components(
+            settlement_currency=settlement_currency,
+            paid_syp=_q_money("SYP", settled_debt.remaining_syp or DEC0),
+            paid_usd=_q_money("USD", settled_debt.remaining_usd or DEC0),
+            fx_snapshot=fx_for_plan,
+        )
+        if debt_settlement and debt_settlement.receipt_id:
+            receipts.append(debt_settlement.receipt)
+
     # ----- AUDIT -----
     is_wizard = bool(any((row.get("container_splits") or []) for row in items))
 
@@ -2070,10 +2419,12 @@ def create_return(
                 "provider_id": provider.id,
                 "provider_name": provider.name,
                 "status": status_norm,
+                "payment_method": payment_method_norm,
                 "total": str(q3(pret.total)),
                 "total_syp": str(q3(pret.total_syp)),
                 "total_usd": str(q3(pret.total_usd)),
                 "collected_amount": str(q3(final_collected)),
+                "debt_settlement_amount": str(q3(debt_settlement_amount_applied)),
                 "items_count": len(items),
                 "source_bill_serial": source_bill_serial,
                 "settlement_currency": settlement_currency,
@@ -2087,6 +2438,13 @@ def create_return(
                 "money_container_id": cash_container.id if cash_container else None,
                 "receipt_ids": [r.id for r in receipts],
                 "receipt_serials": [r.serial for r in receipts],
+                "debt_settlement_id": (debt_settlement.id if debt_settlement else None),
+                "source_debt_public_id": (
+                    source_debt_before_settlement.public_id
+                    if source_debt_before_settlement else ""
+                ),
+                "source_debt_remaining_before": str(q3(source_debt_remaining_before)),
+                "source_debt_remaining_after": str(q3(source_debt_remaining_after)),
             },
         },
         after={
@@ -2094,7 +2452,9 @@ def create_return(
             "provider_id": provider.id,
             "provider_name": provider.name,
             "status": status_norm,
+            "payment_method": payment_method_norm,
             "collected_amount": str(final_collected),
+            "debt_settlement_amount": str(debt_settlement_amount_applied),
             "total": str(pret.total),
             "total_syp": str(pret.total_syp),
             "total_usd": str(pret.total_usd),

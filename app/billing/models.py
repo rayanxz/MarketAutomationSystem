@@ -608,11 +608,16 @@ class ProviderReturn(models.Model):
     initial_paid   = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"),
                                          validators=[MinValueValidator(0)])
     initial_status = models.CharField(max_length=8, choices=Bill.Status.choices, default=Bill.Status.UNPAID)
+    # Stable idempotency fingerprint for wizard/service create requests.
+    request_fingerprint = models.CharField(max_length=64, blank=True, default="", db_index=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-id"]
+        indexes = [
+            models.Index(fields=["provider", "request_fingerprint", "created_at"]),
+        ]
         constraints = [
             models.CheckConstraint(check=Q(total__gte=0), name="pret_total_non_negative"),
         ]

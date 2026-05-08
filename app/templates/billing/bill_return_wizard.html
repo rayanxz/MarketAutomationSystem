@@ -35,7 +35,7 @@
 
   .bill-wrap{
     display:grid;
-    grid-template-columns:minmax(0,1fr) 320px;
+    grid-template-columns:minmax(0,1fr) 360px;
     gap:12px;
     width:100%;
     max-width:1560px;
@@ -53,9 +53,9 @@
     display:flex;
     flex-direction:column;
     gap:12px;
-    width:320px;
-    min-width:320px;
-    max-width:320px;
+    width:360px;
+    min-width:360px;
+    max-width:360px;
     min-height:100%;
     align-self:stretch;
   }
@@ -664,15 +664,92 @@
     white-space:nowrap;
     font-variant-numeric:tabular-nums;
   }
-  .pay-status-list{
+  .pay-layout{
     display:grid;
-    gap:6px;
+    gap:10px;
   }
+  .pay-status-card,
+  .pay-methods{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    padding:10px;
+  }
+  .pay-status-list,
+  .pay-method-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-top:8px;
+  }
+  .pay-status-list label,
+  .pay-method-list label,
   .pay-status-item{
     display:flex;
     align-items:center;
     gap:8px;
     font-size:13px;
+  }
+  .pay-methods legend{
+    padding:0 6px;
+    color:#6b7280;
+    font-size:12px;
+  }
+  .pay-methods.is-disabled{
+    opacity:.55;
+    filter:saturate(.75);
+  }
+  .pay-method-panel{
+    display:none;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px dashed #d1d5db;
+  }
+  .pay-method-panel.active{
+    display:block;
+  }
+  .pay-grid{
+    display:grid;
+    gap:8px;
+  }
+  .money-inline{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    direction:ltr;
+    width:100%;
+  }
+  .money-inline .input{
+    flex:1 1 auto;
+    min-width:0;
+  }
+  .money-chip{
+    flex:0 0 auto;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    background:#fff;
+    color:#334155;
+    font-size:11px;
+    font-weight:700;
+    line-height:1;
+    padding:4px 6px;
+    min-width:38px;
+    text-align:center;
+  }
+  .pay-note{
+    color:#6b7280;
+    font-size:12px;
+    margin-top:6px;
+  }
+  .pay-status-item{
+    margin:0;
+  }
+  .debt-settle-fields{
+    display:grid;
+    gap:8px;
+  }
+  .debt-settle-fields.is-hidden{
+    display:none;
   }
   .pay-amount-wrap{
     display:grid;
@@ -799,18 +876,6 @@
                   class="ret-head-inline-value ret-head-count"
                   title="{{ rows|length|human_number }}"
                 >{{ rows|length|human_number }}</span>
-              </div>
-              <div class="ret-head-field">
-                <label class="ret-head-inline-label" for="moneyContainer">حاوية المال</label>
-                <span class="ret-head-inline-sep">:</span>
-                <select class="ret-head-inline-input" name="money_container_id" id="moneyContainer">
-                  <option value="">اختر الحاوية</option>
-                  {% for mc in money_containers %}
-                    <option value="{{ mc.id }}" {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}>{{ mc.name }}</option>
-                  {% empty %}
-                    <option value="" disabled>لا توجد حاويات متاحة</option>
-                  {% endfor %}
-                </select>
               </div>
             </div>
           </div>
@@ -1025,7 +1090,7 @@
           <div id="retTotalUsd" class="total-amt" title="{{ total_return_usd|default:0|money_number }}">{{ total_return_usd|default:0|money_number }}</div>
         </div>
         <div class="total-box">
-          <div class="muted">إجمالي التسوية (<span id="retSettleCurLabel">{{ settlement_currency_selected|default:"SYP" }}</span>)</div>
+          <div class="muted">الإجمالي بعد التسوية (<span id="retSettleCurLabel">{{ settlement_currency_selected|default:"SYP" }}</span>)</div>
           <div id="retTotalSettlement" class="total-amt" title="{{ total_return_settlement|default:0|money_number }}">{{ total_return_settlement|default:0|money_number }}</div>
         </div>
 
@@ -1041,46 +1106,152 @@
           </div>
 
           <div class="bill-side-section">
-            <div class="bill-side-title">حالة دفع المرتجع</div>
-            <div class="bill-side-card">
-              <fieldset style="margin:0; padding:0; border:0;">
-                <legend class="muted" style="margin-bottom:6px;">اختر حالة الدفع</legend>
+            <div class="bill-side-title">الدفع</div>
+            <div class="pay-layout">
+              <div class="pay-status-card">
+                <div class="muted">حالة الدفع</div>
                 <div class="pay-status-list">
-                  <label class="pay-status-item">
-                    <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
-                    <span>مدفوعة بالكامل</span>
-                  </label>
-                  <label class="pay-status-item">
-                    <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
-                    <span>مدفوعة جزئياً</span>
-                  </label>
-                  <label class="pay-status-item">
+                  <label>
                     <input type="radio" name="return_status" id="retUnpaid" value="unpaid" {% if return_status_selected == "unpaid" %}checked{% endif %}>
                     <span>غير مدفوعة</span>
                   </label>
+                  <label>
+                    <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
+                    <span>دفع جزئي</span>
+                  </label>
+                  <label>
+                    <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
+                    <span>دفع كامل</span>
+                  </label>
                 </div>
+              </div>
+
+              <fieldset id="retPayMethodsFieldset" class="pay-methods">
+                <legend>خيارات التسديد</legend>
+                <div class="pay-method-list">
+                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSyp" value="syp_only" {% if return_payment_method_selected == "syp_only" %}checked{% endif %}> دفع بالليرة فقط</label>
+                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodUsd" value="usd_only" {% if return_payment_method_selected == "usd_only" %}checked{% endif %}> دفع بالدولار فقط</label>
+                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSeparate" value="separate" {% if return_payment_method_selected == "separate" %}checked{% endif %}> دفع منفصل (SYP + USD)</label>
+                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodMixed" value="mixed" {% if return_payment_method_selected == "mixed" %}checked{% endif %}> دفع مختلط</label>
+                </div>
+
+                <div class="pay-method-panel" data-method-panel="syp_only">
+                  <div class="pay-grid">
+                    <div class="muted">مبلغ الدفع بالليرة</div>
+                    <div class="money-inline">
+                      <span class="money-chip">SYP</span>
+                      <input id="retPaySypOnly" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'syp_only' %}{{ return_pay_syp_raw }}{% endif %}">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pay-method-panel" data-method-panel="usd_only">
+                  <div class="pay-grid">
+                    <div class="muted">مبلغ الدفع بالدولار</div>
+                    <div class="money-inline">
+                      <span class="money-chip">USD</span>
+                      <input id="retPayUsdOnly" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'usd_only' %}{{ return_pay_usd_raw }}{% endif %}">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pay-method-panel" data-method-panel="separate">
+                  <div class="pay-grid">
+                    <div class="muted">دفع إجمالي المرتجع لكل عملة</div>
+                    <div class="money-inline">
+                      <span class="money-chip">SYP</span>
+                      <input id="retPaySeparateSyp" class="input numeric-math" data-math-max-decimals="2" type="number" readonly>
+                    </div>
+                    <div class="money-inline">
+                      <span class="money-chip">USD</span>
+                      <input id="retPaySeparateUsd" class="input numeric-math" data-math-max-decimals="2" type="number" readonly>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pay-method-panel" data-method-panel="mixed">
+                  <div class="pay-grid">
+                    <div class="muted">دفع مختلط (SYP + USD)</div>
+                    <div class="money-inline">
+                      <span class="money-chip">SYP</span>
+                      <input id="retPayMixedSyp" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_syp_raw }}{% endif %}">
+                    </div>
+                    <div class="money-inline">
+                      <span class="money-chip">USD</span>
+                      <input id="retPayMixedUsd" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_usd_raw }}{% endif %}">
+                    </div>
+                  </div>
+                </div>
+
+                <div id="retPayMethodHint" class="pay-note"></div>
               </fieldset>
 
-              <div class="pay-amount-wrap">
-                <label class="bill-side-label" for="returnPaidAmount">المبلغ المدفوع</label>
-                <input
-                  type="number"
-                  id="returnPaidAmount"
-                  name="return_paid_amount"
-                  class="input numeric-math"
-                  data-math-max-decimals="2"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value="{{ return_paid_amount_raw }}"
-                  {% if return_status_selected != "partial" %}disabled{% endif %}
-                >
+              <div class="bill-side-card">
+                <div class="field">
+                  <label class="muted" for="moneyContainer">حاوية المال</label>
+                  <select class="input" name="money_container_id" id="moneyContainer">
+                    <option value="">اختر الحاوية</option>
+                    {% for mc in money_containers %}
+                      <option
+                        value="{{ mc.id }}"
+                        data-settlement-ok="{% if mc.id in settlement_eligible_container_ids %}1{% else %}0{% endif %}"
+                        {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}
+                      >{{ mc.name }}</option>
+                    {% empty %}
+                      <option value="" disabled>لا توجد حاويات متاحة</option>
+                    {% endfor %}
+                  </select>
+                </div>
                 <span id="retRemainingLabel"></span>
               </div>
             </div>
           </div>
-        </div>
 
+          {% if has_source_bill_payable_debt %}
+          <div class="bill-side-section">
+            <div class="bill-side-title">تسوية الدين</div>
+            <div class="bill-side-card debt-settle-card">
+              <label class="pay-status-item">
+                <input type="checkbox" id="retDebtSettlementToggle" name="settle_purchase_debt" value="1" {% if settle_purchase_debt_enabled %}checked{% endif %}>
+                <span>تسوية الدين من الدفعة</span>
+              </label>
+              {% if source_debt_public_id %}
+              <div class="muted">مرجع الدين: {{ source_debt_public_id }}</div>
+              {% endif %}
+              <div id="retDebtSettlementSection" class="debt-settle-fields{% if not settle_purchase_debt_enabled %} is-hidden{% endif %}">
+                <div class="bill-side-row">
+                  <span class="bill-side-label">الدين الحالي</span>
+                  <span id="retSourceDebtValue" class="bill-side-value">0.00</span>
+                </div>
+                <div class="pay-amount-wrap">
+                  <label class="bill-side-label" for="retDebtSettlementAmount">مبلغ التسوية من الدفعة</label>
+                  <input
+                    type="number"
+                    id="retDebtSettlementAmount"
+                    name="debt_settlement_amount"
+                    class="input numeric-math"
+                    data-math-max-decimals="2"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value="{{ debt_settlement_amount_raw }}"
+                  >
+                </div>
+                <div class="bill-side-row">
+                  <span class="bill-side-label">سيتم تسويته</span>
+                  <span id="retDebtWillSettleValue" class="bill-side-value">0.00</span>
+                </div>
+                <div id="retDebtHint" class="pay-note"></div>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          <input type="hidden" name="return_payment_method" id="returnPaymentMethod" value="{{ return_payment_method_selected }}">
+          <input type="hidden" name="return_pay_syp" id="returnPaySyp" value="{{ return_pay_syp_raw }}">
+          <input type="hidden" name="return_pay_usd" id="returnPayUsd" value="{{ return_pay_usd_raw }}">
+          <input type="hidden" name="return_paid_amount" id="returnPaidAmount" value="{{ return_paid_amount_raw }}">
+        </div>
         <div class="ret-actions">
           <button type="submit" class="btn btn-primary">حفظ المرتجع</button>
           <a class="btn" href="{% url 'billing_bill_view' bill.public_id %}?items={{ items_ids }}">رجوع إلى الفاتورة</a>
@@ -1129,15 +1300,44 @@
       input.dataset.baseDisabled = input.disabled ? "1" : "0";
     });
 
-    const paidInput = document.getElementById("returnPaidAmount");
     const lblRemaining = document.getElementById("retRemainingLabel");
 
     const statusPaid = document.getElementById("retPaid");
     const statusPartial = document.getElementById("retPartial");
     const statusUnpaid = document.getElementById("retUnpaid");
+    const statusRadios = [statusPaid, statusPartial, statusUnpaid].filter(Boolean);
 
     const settlementCurrency = document.getElementById("settlementCurrency");
     const moneyContainer = document.getElementById("moneyContainer");
+
+    const payMethodsFieldset = document.getElementById("retPayMethodsFieldset");
+    const payMethodHint = document.getElementById("retPayMethodHint");
+    const payMethodRadios = Array.from(form.querySelectorAll('input[name=\"return_payment_method_ui\"]'));
+    const payMethodSyp = document.getElementById("retPayMethodSyp");
+    const payMethodUsd = document.getElementById("retPayMethodUsd");
+    const payMethodSeparate = document.getElementById("retPayMethodSeparate");
+    const payMethodMixed = document.getElementById("retPayMethodMixed");
+    const paySypOnlyInput = document.getElementById("retPaySypOnly");
+    const payUsdOnlyInput = document.getElementById("retPayUsdOnly");
+    const paySeparateSypInput = document.getElementById("retPaySeparateSyp");
+    const paySeparateUsdInput = document.getElementById("retPaySeparateUsd");
+    const payMixedSypInput = document.getElementById("retPayMixedSyp");
+    const payMixedUsdInput = document.getElementById("retPayMixedUsd");
+
+    const hiddenPayMethodInput = document.getElementById("returnPaymentMethod");
+    const hiddenPaySypInput = document.getElementById("returnPaySyp");
+    const hiddenPayUsdInput = document.getElementById("returnPayUsd");
+    const hiddenPaidAmountInput = document.getElementById("returnPaidAmount");
+
+    const debtToggle = document.getElementById("retDebtSettlementToggle");
+    const debtSection = document.getElementById("retDebtSettlementSection");
+    const debtAmountInput = document.getElementById("retDebtSettlementAmount");
+    const debtCurrentValueBox = document.getElementById("retSourceDebtValue");
+    const debtWillSettleValueBox = document.getElementById("retDebtWillSettleValue");
+    const debtHint = document.getElementById("retDebtHint");
+    const moneyContainerOptions = moneyContainer ? Array.from(moneyContainer.options || []) : [];
+    const submitButton = form.querySelector('button[type="submit"]');
+    let submitInFlight = false;
 
     const SCALE_MONEY = 2;
     const SCALE_QTY = 3;
@@ -1154,6 +1354,10 @@
     const POW10_MONEY = pow10(SCALE_MONEY);
     const POW10_QTY = pow10(SCALE_QTY);
     const POW10_FX = pow10(SCALE_FX);
+    const payState = {
+      mixedLastEdited: "syp",
+      syncingMixed: false,
+    };
 
     function normalizeDecimalInput(raw) {
       return String(raw == null ? "" : raw).trim().replace(/,/g, "");
@@ -1255,6 +1459,17 @@
 
     qtyInputs.forEach(function (input) { attachDecimalLimiter(input, SCALE_QTY); });
     costInputs.forEach(function (input) { attachDecimalLimiter(input, SCALE_MONEY); });
+    [
+      paySypOnlyInput,
+      payUsdOnlyInput,
+      paySeparateSypInput,
+      paySeparateUsdInput,
+      payMixedSypInput,
+      payMixedUsdInput,
+      debtAmountInput,
+    ].forEach(function (input) {
+      attachDecimalLimiter(input, SCALE_MONEY);
+    });
 
     function parseDecimalToken(raw) {
       const text = normalizeDecimalInput(raw);
@@ -1426,6 +1641,17 @@
       if (statusUnpaid && statusUnpaid.checked) return "unpaid";
       if (statusPartial && statusPartial.checked) return "partial";
       return "none";
+    }
+
+    function getCurrentPayMethod() {
+      const checked = payMethodRadios.find(function (radio) { return !!radio.checked; });
+      return checked ? String(checked.value || "").trim().toLowerCase() : "syp_only";
+    }
+
+    function showActivePayMethodPanel(method) {
+      form.querySelectorAll("[data-method-panel]").forEach(function (panel) {
+        panel.classList.toggle("active", panel.getAttribute("data-method-panel") === method);
+      });
     }
 
     function sameCost(a, b) {
@@ -2011,102 +2237,409 @@
       const settlementCur = (settlementCurrency ? settlementCurrency.value : "SYP").toUpperCase();
       if (settlementLabel) settlementLabel.textContent = settlementCur;
 
-      let settlementTotal = BIG_ZERO;
-      const needsSypToUsd = settlementCur === "USD" && totalSyp > BIG_ZERO;
-      const needsUsdToSyp = settlementCur === "SYP" && totalUsd > BIG_ZERO;
-      if (settlementCur === "SYP") {
-        if (needsUsdToSyp) {
-          const convertedUsd = convertBetweenCurrencies(totalUsd, "USD", "SYP");
-          settlementTotal = convertedUsd === null ? BIG_ZERO : money2(totalSyp + convertedUsd);
-        } else {
-          settlementTotal = money2(totalSyp);
+      let settlementTotalSyp = money2(totalSyp);
+      if (totalUsd > BIG_ZERO) {
+        const convertedUsd = convertBetweenCurrencies(totalUsd, "USD", "SYP");
+        settlementTotalSyp = convertedUsd === null ? null : money2(totalSyp + convertedUsd);
+      }
+      let settlementTotalUsd = money2(totalUsd);
+      if (totalSyp > BIG_ZERO) {
+        const convertedSyp = convertBetweenCurrencies(totalSyp, "SYP", "USD");
+        settlementTotalUsd = convertedSyp === null ? null : money2(totalUsd + convertedSyp);
+      }
+
+      const settlementTotalSelected = settlementCur === "USD" ? settlementTotalUsd : settlementTotalSyp;
+      if (settlementTotalSelected === null) {
+        if (totalSettlementBox) {
+          totalSettlementBox.textContent = "—";
+          totalSettlementBox.setAttribute("title", "—");
         }
       } else {
-        if (needsSypToUsd) {
-          const convertedSyp = convertBetweenCurrencies(totalSyp, "SYP", "USD");
-          settlementTotal = convertedSyp === null ? BIG_ZERO : money2(totalUsd + convertedSyp);
-        } else {
-          settlementTotal = money2(totalUsd);
+        renderMoney(totalSettlementBox, settlementTotalSelected);
+      }
+      return {
+        totalSyp,
+        totalUsd,
+        settlementCurrency: settlementCur,
+        settlementTotalSyp,
+        settlementTotalUsd,
+        settlementTotalSelected,
+      };
+    }
+
+    function setNumericInputValue(input, valueCents) {
+      if (!input) return;
+      input.value = fmtCost2(valueCents);
+    }
+
+    function readMoneyFromInput(input) {
+      const parsed = parseMoneyCentsStrict(input ? input.value : "0");
+      if (parsed === null || parsed < BIG_ZERO) return BIG_ZERO;
+      return money2(parsed);
+    }
+
+    function toSettlementAmount(amountSyp, amountUsd, settlementCur) {
+      const syp = money2(amountSyp);
+      const usd = money2(amountUsd);
+      if (settlementCur === "USD") {
+        if (syp > BIG_ZERO) {
+          const converted = convertBetweenCurrencies(syp, "SYP", "USD");
+          if (converted === null) return null;
+          return money2(usd + converted);
+        }
+        return usd;
+      }
+      if (usd > BIG_ZERO) {
+        const converted = convertBetweenCurrencies(usd, "USD", "SYP");
+        if (converted === null) return null;
+        return money2(syp + converted);
+      }
+      return syp;
+    }
+
+    function syncMixedFullFrom(source, totals) {
+      if (payState.syncingMixed) return;
+      if (totals.settlementTotalSyp === null || totals.settlementTotalUsd === null) return;
+      payState.syncingMixed = true;
+      const targetSyp = money2(totals.settlementTotalSyp);
+      const targetUsd = money2(totals.settlementTotalUsd);
+      if (source === "usd") {
+        let usd = readMoneyFromInput(payMixedUsdInput);
+        if (usd > targetUsd) usd = targetUsd;
+        const convertedToSyp = convertBetweenCurrencies(usd, "USD", "SYP");
+        const syp = convertedToSyp === null ? BIG_ZERO : (targetSyp > convertedToSyp ? money2(targetSyp - convertedToSyp) : BIG_ZERO);
+        setNumericInputValue(payMixedUsdInput, usd);
+        setNumericInputValue(payMixedSypInput, syp);
+      } else {
+        let syp = readMoneyFromInput(payMixedSypInput);
+        if (syp > targetSyp) syp = targetSyp;
+        const remainingSyp = targetSyp > syp ? money2(targetSyp - syp) : BIG_ZERO;
+        const usd = convertBetweenCurrencies(remainingSyp, "SYP", "USD");
+        setNumericInputValue(payMixedSypInput, syp);
+        setNumericInputValue(payMixedUsdInput, usd === null ? BIG_ZERO : money2(usd));
+      }
+      payState.syncingMixed = false;
+    }
+
+    function buildPaymentDraft(totals) {
+      const zeroTotal = isZeroFinancialTotal(totals);
+      if (zeroTotal) {
+        return {
+          ok: true,
+          status: "unpaid",
+          method: "none",
+          amountSyp: BIG_ZERO,
+          amountUsd: BIG_ZERO,
+          paidSettlement: BIG_ZERO,
+          settlementTotal: BIG_ZERO,
+          message: "الإجمالي صفري: المرتجع غير مالي ولا يوجد أي دفع.",
+        };
+      }
+      if (totals.settlementTotalSelected === null) {
+        return { ok: false, error: "لا يمكن حساب إجمالي التسوية بدون سعر صرف صحيح." };
+      }
+
+      let status = getCurrentStatus();
+      if (!["paid", "partial", "unpaid"].includes(status)) status = "unpaid";
+      const method = getCurrentPayMethod();
+      const settlementCur = totals.settlementCurrency;
+      const settlementTotal = money2(totals.settlementTotalSelected);
+      let amountSyp = BIG_ZERO;
+      let amountUsd = BIG_ZERO;
+
+      if (status === "unpaid") {
+        return {
+          ok: true,
+          status: "unpaid",
+          method: "none",
+          amountSyp: BIG_ZERO,
+          amountUsd: BIG_ZERO,
+          paidSettlement: BIG_ZERO,
+          settlementTotal,
+          message: "حالة غير مدفوعة: التسديد غير مفعل.",
+        };
+      }
+
+      if (!["syp_only", "usd_only", "separate", "mixed"].includes(method)) {
+        return { ok: false, error: "يرجى اختيار طريقة دفع صالحة." };
+      }
+      if (status === "partial" && method === "separate") {
+        return { ok: false, error: "خيار الدفع المنفصل متاح للدفع الكامل فقط." };
+      }
+
+      if (method === "syp_only") {
+        amountSyp = status === "paid"
+          ? (totals.settlementTotalSyp === null ? BIG_ZERO : money2(totals.settlementTotalSyp))
+          : readMoneyFromInput(paySypOnlyInput);
+      } else if (method === "usd_only") {
+        amountUsd = status === "paid"
+          ? (totals.settlementTotalUsd === null ? BIG_ZERO : money2(totals.settlementTotalUsd))
+          : readMoneyFromInput(payUsdOnlyInput);
+      } else if (method === "separate") {
+        amountSyp = money2(totals.totalSyp);
+        amountUsd = money2(totals.totalUsd);
+      } else {
+        amountSyp = readMoneyFromInput(payMixedSypInput);
+        amountUsd = readMoneyFromInput(payMixedUsdInput);
+      }
+
+      const paidSettlement = toSettlementAmount(amountSyp, amountUsd, settlementCur);
+      if (paidSettlement === null) {
+        return { ok: false, error: "تعذر تحويل مبالغ الدفع بين العملات." };
+      }
+
+      if (status === "partial") {
+        if (method === "mixed") {
+          if (!(money2(totals.totalSyp) > BIG_ZERO) || !(money2(totals.totalUsd) > BIG_ZERO)) {
+            return { ok: false, error: "الدفع المختلط الجزئي يتطلب وجود إجمالي بعملتي SYP و USD." };
+          }
+          if (!(amountSyp > BIG_ZERO) || !(amountUsd > BIG_ZERO)) {
+            return { ok: false, error: "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر." };
+          }
+        }
+        if (!(paidSettlement > BIG_ZERO)) {
+          return { ok: false, error: "الدفع الجزئي يتطلب مبلغاً أكبر من الصفر." };
+        }
+        if (paidSettlement > settlementTotal) {
+          return { ok: false, error: "مبلغ الدفع لا يمكن أن يتجاوز إجمالي التسوية." };
+        }
+        if (paidSettlement === settlementTotal) {
+          return { ok: false, error: "هذه تسوية كاملة، اختر حالة دفع كامل." };
         }
       }
 
-      renderMoney(totalSettlementBox, settlementTotal);
-      return { totalSyp, totalUsd, settlementTotal };
+      if (status === "paid" && paidSettlement !== settlementTotal) {
+        return { ok: false, error: "الدفع الكامل يتطلب تغطية كامل إجمالي التسوية." };
+      }
+      if (status !== "paid" && paidSettlement > settlementTotal) {
+        return { ok: false, error: "مبلغ الدفع لا يمكن أن يتجاوز إجمالي التسوية." };
+      }
+
+      return {
+        ok: true,
+        status,
+        method,
+        amountSyp,
+        amountUsd,
+        paidSettlement,
+        settlementTotal,
+      };
     }
 
-    function updateRemainingLabel() {
-      if (!validateAllQtyInputs({ autoClampToMax: true })) {
-        if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
+    const sourceDebtSypRaw = "{{ source_debt_remaining_syp|default:0|unlocalize }}";
+    const sourceDebtUsdRaw = "{{ source_debt_remaining_usd|default:0|unlocalize }}";
+    const sourceDebtSyp = parseMoneyCentsStrict(sourceDebtSypRaw) ?? BIG_ZERO;
+    const sourceDebtUsd = parseMoneyCentsStrict(sourceDebtUsdRaw) ?? BIG_ZERO;
+
+    function sourceDebtInSettlementCurrency(settlementCur) {
+      const debtSyp = money2(sourceDebtSyp);
+      const debtUsd = money2(sourceDebtUsd);
+      if (settlementCur === "USD") {
+        if (debtSyp > BIG_ZERO) {
+          const converted = convertBetweenCurrencies(debtSyp, "SYP", "USD");
+          if (converted === null) return null;
+          return money2(debtUsd + converted);
+        }
+        return debtUsd;
+      }
+      if (debtUsd > BIG_ZERO) {
+        const converted = convertBetweenCurrencies(debtUsd, "USD", "SYP");
+        if (converted === null) return null;
+        return money2(debtSyp + converted);
+      }
+      return debtSyp;
+    }
+
+    function paidComponentInSettlementCurrency(paymentDraft, settlementCur) {
+      if (!paymentDraft || !paymentDraft.ok) return BIG_ZERO;
+      if (settlementCur === "USD") return money2(paymentDraft.amountUsd || BIG_ZERO);
+      return money2(paymentDraft.amountSyp || BIG_ZERO);
+    }
+
+    function setSubmitInFlight(locked) {
+      submitInFlight = !!locked;
+      form.dataset.submitInFlight = submitInFlight ? "1" : "0";
+      if (submitButton) submitButton.disabled = submitInFlight;
+    }
+
+    function syncDebtSettlementUI(totals, paymentDraft) {
+      if (!debtToggle) return;
+      const debtTotal = sourceDebtInSettlementCurrency(totals.settlementCurrency);
+      if (debtCurrentValueBox) {
+        if (debtTotal === null) {
+          debtCurrentValueBox.textContent = "—";
+          debtCurrentValueBox.setAttribute("title", "—");
+        } else {
+          renderMoney(debtCurrentValueBox, debtTotal);
+        }
+      }
+
+      const checked = !!debtToggle.checked;
+      if (!debtSection) return;
+      if (!checked) {
+        debtSection.classList.add("is-hidden");
+        if (debtAmountInput) debtAmountInput.disabled = true;
+        if (debtWillSettleValueBox) renderMoney(debtWillSettleValueBox, BIG_ZERO);
+        if (debtHint) debtHint.textContent = "";
         return;
       }
+
+      debtSection.classList.remove("is-hidden");
+      const paymentSettlement = paidComponentInSettlementCurrency(paymentDraft, totals.settlementCurrency);
+      const canCompute = debtTotal !== null;
+      const maxSettlement = (!canCompute || paymentSettlement <= BIG_ZERO)
+        ? BIG_ZERO
+        : (paymentSettlement < debtTotal ? paymentSettlement : debtTotal);
+
+      if (debtAmountInput) {
+        debtAmountInput.disabled = maxSettlement <= BIG_ZERO;
+        const raw = normalizeDecimalInput(debtAmountInput.value);
+        if (!raw && maxSettlement > BIG_ZERO) {
+          setNumericInputValue(debtAmountInput, maxSettlement);
+        }
+      }
+
+      let requested = readMoneyFromInput(debtAmountInput);
+      if (requested > maxSettlement) {
+        requested = maxSettlement;
+        setNumericInputValue(debtAmountInput, requested);
+      }
+      if (requested < BIG_ZERO) requested = BIG_ZERO;
+      if (debtWillSettleValueBox) renderMoney(debtWillSettleValueBox, requested);
+      if (debtHint) {
+        if (debtTotal === null) {
+          debtHint.textContent = "لا يمكن احتساب الدين الحالي بدون سعر صرف صحيح.";
+        } else if (maxSettlement <= BIG_ZERO) {
+          debtHint.textContent = "فعّل دفعاً أكبر من الصفر لاستخدام تسوية الدين.";
+        } else {
+          debtHint.textContent = "الحد الأقصى للتسوية من الدفعة الحالية: " + fmt(maxSettlement);
+        }
+      }
+    }
+
+    function syncPaymentUI() {
       const totals = recalcTotals();
       const zeroTotal = isZeroFinancialTotal(totals);
-
-      if (statusPaid) statusPaid.disabled = zeroTotal;
-      if (statusPartial) statusPartial.disabled = zeroTotal;
-      if (statusUnpaid) statusUnpaid.disabled = zeroTotal;
+      const status = getCurrentStatus();
+      if (!payMethodRadios.some(function (radio) { return !!radio.checked; }) && payMethodSyp) {
+        payMethodSyp.checked = true;
+      }
+      let method = getCurrentPayMethod();
 
       if (zeroTotal) {
         if (statusUnpaid) statusUnpaid.checked = true;
-        if (paidInput) {
-          paidInput.value = "";
-          paidInput.disabled = true;
+        statusRadios.forEach(function (radio) { radio.disabled = true; });
+        payMethodRadios.forEach(function (radio) { radio.disabled = true; });
+        if (payMethodsFieldset) {
+          payMethodsFieldset.disabled = true;
+          payMethodsFieldset.classList.add("is-disabled");
         }
+        [
+          paySypOnlyInput,
+          payUsdOnlyInput,
+          paySeparateSypInput,
+          paySeparateUsdInput,
+          payMixedSypInput,
+          payMixedUsdInput,
+        ].forEach(function (input) {
+          setNumericInputValue(input, BIG_ZERO);
+          if (input) input.disabled = true;
+        });
         if (moneyContainer) {
           moneyContainer.value = "";
           moneyContainer.disabled = true;
         }
-        if (lblRemaining) {
-          lblRemaining.textContent = "الإجمالي صفري: المرتجع غير مالي ولا يوجد أي دفع.";
-        }
-        return;
+        const draftZero = buildPaymentDraft(totals);
+        if (lblRemaining) lblRemaining.textContent = draftZero.message || "";
+        if (payMethodHint) payMethodHint.textContent = draftZero.message || "";
+        if (hiddenPayMethodInput) hiddenPayMethodInput.value = "none";
+        if (hiddenPaySypInput) hiddenPaySypInput.value = "0.00";
+        if (hiddenPayUsdInput) hiddenPayUsdInput.value = "0.00";
+        if (hiddenPaidAmountInput) hiddenPaidAmountInput.value = "0.00";
+        syncDebtSettlementUI(totals, draftZero);
+        return { totals, draft: draftZero };
       }
 
-      let remaining = totals.settlementTotal;
-      const status = getCurrentStatus();
-      let paid = BIG_ZERO;
+      statusRadios.forEach(function (radio) { radio.disabled = false; });
+      payMethodRadios.forEach(function (radio) { radio.disabled = false; });
+      if (payMethodsFieldset) {
+        payMethodsFieldset.disabled = (status === "unpaid");
+        payMethodsFieldset.classList.toggle("is-disabled", status === "unpaid");
+      }
+      if (payMethodSeparate) {
+        payMethodSeparate.disabled = (status === "partial");
+        if (status === "partial" && method === "separate") {
+          if (payMethodMixed) payMethodMixed.checked = true;
+          else if (payMethodSyp) payMethodSyp.checked = true;
+          method = getCurrentPayMethod();
+        }
+      }
+
+      showActivePayMethodPanel(method);
+      setNumericInputValue(paySeparateSypInput, totals.totalSyp);
+      setNumericInputValue(paySeparateUsdInput, totals.totalUsd);
 
       if (status === "paid") {
-        paid = totals.settlementTotal;
-        if (paidInput) paidInput.value = fmtCost2(totals.settlementTotal);
-      } else if (status === "partial") {
-        if (paidInput) {
-          const parsedPaid = parseMoneyCentsStrict(paidInput.value || "0");
-          paid = (parsedPaid === null || parsedPaid < BIG_ZERO) ? BIG_ZERO : money2(parsedPaid);
+        if (totals.settlementTotalSyp !== null) setNumericInputValue(paySypOnlyInput, totals.settlementTotalSyp);
+        if (totals.settlementTotalUsd !== null) setNumericInputValue(payUsdOnlyInput, totals.settlementTotalUsd);
+        if (method === "mixed") {
+          if (readMoneyFromInput(payMixedSypInput) === BIG_ZERO && readMoneyFromInput(payMixedUsdInput) === BIG_ZERO && totals.settlementTotalSyp !== null) {
+            setNumericInputValue(payMixedSypInput, totals.settlementTotalSyp);
+            setNumericInputValue(payMixedUsdInput, BIG_ZERO);
+          }
+          syncMixedFullFrom(payState.mixedLastEdited === "usd" ? "usd" : "syp", totals);
         }
       }
 
-      remaining = money2(totals.settlementTotal - paid);
-      if (remaining < BIG_ZERO) remaining = BIG_ZERO;
+      [paySypOnlyInput, payUsdOnlyInput, payMixedSypInput, payMixedUsdInput].forEach(function (input) {
+        if (!input) return;
+        input.disabled = (status === "unpaid");
+      });
+      if (paySeparateSypInput) paySeparateSypInput.disabled = true;
+      if (paySeparateUsdInput) paySeparateUsdInput.disabled = true;
 
-      if (lblRemaining) {
-        if (totals.settlementTotal <= BIG_ZERO) {
-          lblRemaining.textContent = "";
-        } else {
-          lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);
+      const draft = buildPaymentDraft(totals);
+      if (draft.ok) {
+        if (hiddenPayMethodInput) hiddenPayMethodInput.value = draft.method;
+        if (hiddenPaySypInput) hiddenPaySypInput.value = fmtCost2(draft.amountSyp);
+        if (hiddenPayUsdInput) hiddenPayUsdInput.value = fmtCost2(draft.amountUsd);
+        if (hiddenPaidAmountInput) hiddenPaidAmountInput.value = fmtCost2(draft.paidSettlement);
+        const remaining = draft.settlementTotal > draft.paidSettlement
+          ? money2(draft.settlementTotal - draft.paidSettlement)
+          : BIG_ZERO;
+        if (lblRemaining) lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);
+        if (payMethodHint) {
+          if (status === "paid") {
+            payMethodHint.textContent = "في الدفع الكامل يجب تغطية كامل إجمالي التسوية.";
+          } else if (status === "partial") {
+            payMethodHint.textContent = "في الدفع الجزئي يجب أن تبقى قيمة متبقية بعد الدفع.";
+          } else {
+            payMethodHint.textContent = "حالة غير مدفوعة: التسديد غير مفعل.";
+          }
         }
-      }
-    }
-
-    function handleStatusChange() {
-      const status = getCurrentStatus();
-      if (!paidInput) {
-        updateRemainingLabel();
-        return;
-      }
-
-      if (status === "partial") {
-        paidInput.disabled = false;
       } else {
-        paidInput.value = "";
-        paidInput.disabled = true;
+        if (payMethodHint) payMethodHint.textContent = draft.error || "";
+        if (lblRemaining) lblRemaining.textContent = draft.error || "";
+        if (hiddenPayMethodInput) hiddenPayMethodInput.value = "none";
+        if (hiddenPaySypInput) hiddenPaySypInput.value = "0.00";
+        if (hiddenPayUsdInput) hiddenPayUsdInput.value = "0.00";
+        if (hiddenPaidAmountInput) hiddenPaidAmountInput.value = "0.00";
       }
 
       if (moneyContainer) {
-        moneyContainer.disabled = !(status === "paid" || status === "partial");
+        moneyContainer.disabled = !(draft.ok && draft.paidSettlement > BIG_ZERO);
       }
+      syncMoneyContainerEligibilityForSettlement();
+      syncDebtSettlementUI(totals, draft);
+      return { totals, draft };
+    }
 
-      updateRemainingLabel();
+    function handleStatusChange() {
+      syncPaymentUI();
+    }
+
+    function updateRemainingLabel() {
+      syncPaymentUI();
     }
 
     function updateMoneyContainerTitle() {
@@ -2114,6 +2647,26 @@
       const selected = moneyContainer.options[moneyContainer.selectedIndex] || null;
       const title = selected ? String(selected.text || "").trim() : "";
       moneyContainer.setAttribute("title", title || "—");
+    }
+
+    function syncMoneyContainerEligibilityForSettlement() {
+      if (!moneyContainer || !moneyContainerOptions.length) return true;
+      const settlementEnabled = !!(debtToggle && debtToggle.checked);
+      let selectedIsEligible = true;
+      moneyContainerOptions.forEach(function (opt) {
+        if (!opt || !String(opt.value || "").trim()) return;
+        const eligible = String(opt.dataset.settlementOk || "0") === "1";
+        const shouldDisable = settlementEnabled && !eligible;
+        opt.disabled = !!shouldDisable;
+        if (shouldDisable && opt.selected) {
+          selectedIsEligible = false;
+        }
+      });
+      if (!selectedIsEligible) {
+        moneyContainer.value = "";
+      }
+      updateMoneyContainerTitle();
+      return selectedIsEligible;
     }
 
     function refreshRowStatesAfterQtyChange() {
@@ -2137,11 +2690,14 @@
     }
 
     function requestSubmitByShortcut() {
+      if (submitInFlight) return;
       if (form.dataset.shortcutSubmitting === "1") return;
       form.dataset.shortcutSubmitting = "1";
       try {
         if (typeof form.requestSubmit === "function") {
           form.requestSubmit();
+        } else if (submitButton && typeof submitButton.click === "function") {
+          submitButton.click();
         } else {
           form.submit();
         }
@@ -2192,8 +2748,14 @@
         updateRemainingLabel();
         return;
       }
-      if (e.target === paidInput) {
-        updateRemainingLabel();
+      if (
+        e.target === paySypOnlyInput
+        || e.target === payUsdOnlyInput
+        || e.target === payMixedSypInput
+        || e.target === payMixedUsdInput
+        || e.target === debtAmountInput
+      ) {
+        syncPaymentUI();
       }
     });
 
@@ -2223,6 +2785,10 @@
     });
 
     form.addEventListener("submit", function (e) {
+      if (submitInFlight) {
+        e.preventDefault();
+        return;
+      }
       if (!validateAllQtyInputs({ autoClampToMax: true })) {
         const firstInvalidQty = qtyInputs.find(function (input) {
           return input.classList.contains("ret-qty-invalid");
@@ -2232,7 +2798,68 @@
         e.preventDefault();
         return;
       }
-      if (!activeEdit) return;
+      const paymentStateSnapshot = syncPaymentUI();
+      const draft = paymentStateSnapshot && paymentStateSnapshot.draft ? paymentStateSnapshot.draft : null;
+      const totals = paymentStateSnapshot && paymentStateSnapshot.totals ? paymentStateSnapshot.totals : recalcTotals();
+      if (!draft || !draft.ok) {
+        e.preventDefault();
+        if (lblRemaining) lblRemaining.textContent = (draft && draft.error) ? draft.error : "تعذر التحقق من الدفع.";
+        return;
+      }
+      if (draft.paidSettlement > BIG_ZERO && moneyContainer && !String(moneyContainer.value || "").trim()) {
+        e.preventDefault();
+        if (lblRemaining) lblRemaining.textContent = "يرجى اختيار حاوية مال عند وجود دفع.";
+        moneyContainer.focus();
+        return;
+      }
+      if (debtToggle && debtToggle.checked) {
+        const selectedContainerOption = moneyContainer && moneyContainer.selectedIndex >= 0
+          ? moneyContainer.options[moneyContainer.selectedIndex]
+          : null;
+        if (selectedContainerOption && String(selectedContainerOption.value || "").trim()) {
+          const settlementAllowed = String(selectedContainerOption.dataset.settlementOk || "0") === "1";
+          if (!settlementAllowed) {
+            e.preventDefault();
+            if (debtHint) debtHint.textContent = "الحاوية المختارة لا تدعم تسوية دين فاتورة شراء.";
+            if (moneyContainer) moneyContainer.focus();
+            return;
+          }
+        }
+        const debtTotal = sourceDebtInSettlementCurrency(totals.settlementCurrency);
+        if (draft.paidSettlement <= BIG_ZERO) {
+          e.preventDefault();
+          if (debtHint) debtHint.textContent = "لا يمكن تسوية الدين بدون دفعة.";
+          return;
+        }
+        if (debtTotal === null || debtTotal <= BIG_ZERO) {
+          e.preventDefault();
+          if (debtHint) debtHint.textContent = "لا يوجد دين قابل للتسوية حالياً.";
+          return;
+        }
+        const settleAmount = readMoneyFromInput(debtAmountInput);
+        const paidSettlementComponent = paidComponentInSettlementCurrency(draft, totals.settlementCurrency);
+        if (settleAmount <= BIG_ZERO) {
+          e.preventDefault();
+          if (debtHint) debtHint.textContent = "مبلغ التسوية يجب أن يكون أكبر من الصفر.";
+          if (debtAmountInput) debtAmountInput.focus();
+          return;
+        }
+        if (settleAmount > paidSettlementComponent) {
+          e.preventDefault();
+          if (debtHint) debtHint.textContent = "مبلغ التسوية لا يمكن أن يتجاوز جزء الدفعة بنفس عملة التسوية.";
+          return;
+        }
+        if (settleAmount > debtTotal) {
+          e.preventDefault();
+          if (debtHint) debtHint.textContent = "مبلغ التسوية لا يمكن أن يتجاوز الدين الحالي.";
+          return;
+        }
+        if (debtAmountInput) debtAmountInput.value = fmtCost2(settleAmount);
+      }
+      if (!activeEdit) {
+        setSubmitInFlight(true);
+        return;
+      }
       const state = rowStateByItemId.get(activeEdit.itemId);
       if (state && state.editors[activeEdit.field] && state.editors[activeEdit.field].input) {
         const activeInput = state.editors[activeEdit.field].input;
@@ -2240,6 +2867,7 @@
         activeInput.reportValidity();
       }
       e.preventDefault();
+      return;
     });
 
     if (settlementCurrency) {
@@ -2254,6 +2882,39 @@
       if (!radio) return;
       radio.addEventListener("change", handleStatusChange);
     });
+    payMethodRadios.forEach(function (radio) {
+      radio.addEventListener("change", syncPaymentUI);
+    });
+    [paySypOnlyInput, payUsdOnlyInput].forEach(function (input) {
+      if (!input) return;
+      input.addEventListener("input", syncPaymentUI);
+    });
+    if (payMixedSypInput) {
+      payMixedSypInput.addEventListener("input", function () {
+        payState.mixedLastEdited = "syp";
+        const totals = recalcTotals();
+        if (getCurrentStatus() === "paid" && getCurrentPayMethod() === "mixed") {
+          syncMixedFullFrom("syp", totals);
+        }
+        syncPaymentUI();
+      });
+    }
+    if (payMixedUsdInput) {
+      payMixedUsdInput.addEventListener("input", function () {
+        payState.mixedLastEdited = "usd";
+        const totals = recalcTotals();
+        if (getCurrentStatus() === "paid" && getCurrentPayMethod() === "mixed") {
+          syncMixedFullFrom("usd", totals);
+        }
+        syncPaymentUI();
+      });
+    }
+    if (debtToggle) {
+      debtToggle.addEventListener("change", syncPaymentUI);
+    }
+    if (debtAmountInput) {
+      debtAmountInput.addEventListener("input", syncPaymentUI);
+    }
 
     pairToggleButtons.forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -2270,6 +2931,11 @@
     syncCollapseState();
     validateAllQtyInputs({ autoClampToMax: true });
     refreshReturnPublicIdPreview();
+    setSubmitInFlight(false);
+    window.addEventListener("pageshow", function () {
+      setSubmitInFlight(false);
+      form.dataset.shortcutSubmitting = "0";
+    });
     handleStatusChange();
   })();
 </script>

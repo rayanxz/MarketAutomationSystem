@@ -90,7 +90,7 @@ from django.conf import settings
 # ---------- Page views ----------
 
 PURCHASE_BILLS_FEATURE_CODE = "purchase_bills"
-PROVIDER_RETURNS_FEATURE_CODES = ("provider_returns", "purchase_bills")
+PROVIDER_RETURNS_FEATURE_CODE = "provider_returns"
 
 
 def _purchase_money_containers_qs_for_user(user):
@@ -1448,9 +1448,17 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
     money_containers = (
         FinSV.money_containers_for_user_qs(
             user=request.user,
-            feature_code=PROVIDER_RETURNS_FEATURE_CODES,
+            feature_code=PROVIDER_RETURNS_FEATURE_CODE,
         )
         .order_by("id")
+    )
+    money_container_ids = list(money_containers.values_list("id", flat=True))
+    settlement_eligible_container_ids = set(
+        MoneyContainer.objects.filter(
+            id__in=money_container_ids,
+            features__code=PURCHASE_BILLS_FEATURE_CODE,
+            features__is_active=True,
+        ).values_list("id", flat=True)
     )
 
     current_fx: Decimal | None
@@ -1460,6 +1468,31 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         current_fx = fx_q if fx_q > DEC0 else None
     except Exception:
         current_fx = None
+
+    source_bill_debt = (
+        DebtRecord.objects
+        .filter(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id__in=[(bill.public_id or "").strip(), str(bill.id)],
+            status=DebtStatus.OPEN,
+        )
+        .only("id", "public_id", "remaining_syp", "remaining_usd")
+        .order_by("id")
+        .first()
+    )
+    source_debt_remaining_syp = _q_money(
+        "SYP",
+        getattr(source_bill_debt, "remaining_syp", DEC0) or DEC0,
+    )
+    source_debt_remaining_usd = _q_money(
+        "USD",
+        getattr(source_bill_debt, "remaining_usd", DEC0) or DEC0,
+    )
+    has_source_bill_payable_debt = bool(
+        source_bill_debt
+        and (source_debt_remaining_syp > DEC0 or source_debt_remaining_usd > DEC0)
+    )
 
     # ----- base queryset -----
     item_qs = bill.items.all().select_related("product")
@@ -1609,18 +1642,27 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
     total_return_usd = DEC0
     total_return_settlement = DEC0
 
-    # keep what user selected for status / amount (so we can re-fill on error)
+    # keep user selections to re-fill on validation errors
     if request.method == "POST":
         return_status_selected = (request.POST.get("return_status") or "").lower().strip()
         return_paid_amount_raw = (request.POST.get("return_paid_amount") or "").strip()
+        return_payment_method_selected = (request.POST.get("return_payment_method") or "").lower().strip()
+        return_pay_syp_raw = (request.POST.get("return_pay_syp") or "").strip()
+        return_pay_usd_raw = (request.POST.get("return_pay_usd") or "").strip()
         settlement_currency_selected = (request.POST.get("settlement_currency") or getattr(bill, "settlement_currency", "SYP")).upper().strip()
         money_container_id_raw = (request.POST.get("money_container_id") or "").strip()
+        settle_purchase_debt_enabled = (request.POST.get("settle_purchase_debt") in {"1", "true", "on", "yes"})
+        debt_settlement_amount_raw = (request.POST.get("debt_settlement_amount") or "").strip()
     else:
-        # initial GET - nothing chosen, box empty
-        return_status_selected = ""
-        return_paid_amount_raw = ""
+        return_status_selected = "unpaid"
+        return_paid_amount_raw = "0"
+        return_payment_method_selected = "syp_only"
+        return_pay_syp_raw = ""
+        return_pay_usd_raw = ""
         settlement_currency_selected = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()
         money_container_id_raw = ""
+        settle_purchase_debt_enabled = False
+        debt_settlement_amount_raw = ""
 
     if request.method == "POST":
         # 1) copy all raw inputs from POST into rows so we can re-render them on error
@@ -1756,72 +1798,99 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
                     settlement_total_raw = settlement_total_raw + (total_return_syp / fx_rate_used)
                 total_return_settlement = _q_money("USD", settlement_total_raw)
 
-            is_zero_total_return = (total_return_syp <= DEC0) and (total_return_usd <= DEC0)
-
-            # 3) pay status + amount validation
-            raw_status = (return_status_selected or "").lower()
-            if raw_status not in {"paid", "unpaid", "partial"}:
-                raise ValueError("Return status must be selected.")
-
-            paid_amount = _parse_money_input(
+            # 3) payment + optional debt settlement parsing (validated canonically in services)
+            paid_amount_legacy = _parse_money_input(
                 return_paid_amount_raw or "0",
                 "0",
                 field_name="return_paid_amount",
             )
-            if paid_amount < DEC0:
-                paid_amount = -paid_amount
-            paid_amount = _q_money(settlement_currency_selected, paid_amount)
+            if paid_amount_legacy < DEC0:
+                raise ValueError("return_paid_amount must be >= 0")
+            paid_amount_legacy = _q_money(settlement_currency_selected, paid_amount_legacy)
 
-            status = raw_status
+            paid_syp = None
+            if return_pay_syp_raw not in {"", None}:
+                paid_syp = _parse_money_input(
+                    return_pay_syp_raw,
+                    "0",
+                    field_name="return_pay_syp",
+                )
+                if paid_syp < DEC0:
+                    raise ValueError("return_pay_syp must be >= 0")
+                paid_syp = _q_money("SYP", paid_syp)
 
-            if is_zero_total_return:
-                if status in {"paid", "partial"} or paid_amount > DEC0:
-                    raise ValueError("Zero-total returns are non-financial and cannot include payment.")
-                status = "unpaid"
-                paid_amount = DEC0
-            elif status == "partial":
-                if paid_amount <= DEC0:
-                    status = "unpaid"
-                    paid_amount = DEC0
-                else:
-                    if total_return_settlement <= DEC0:
-                        raise ValueError("Return total must be > 0.")
-                    if paid_amount > total_return_settlement:
-                        raise ValueError("Paid amount exceeds return total.")
-                    if paid_amount == total_return_settlement:
-                        status = "paid"
-            elif status == "paid":
-                if total_return_settlement <= DEC0:
-                    raise ValueError("Return total must be > 0.")
-                if paid_amount == DEC0:
-                    paid_amount = total_return_settlement
-                elif paid_amount > total_return_settlement:
-                    raise ValueError("Paid amount exceeds return total.")
-            else:
-                paid_amount = DEC0
+            paid_usd = None
+            if return_pay_usd_raw not in {"", None}:
+                paid_usd = _parse_money_input(
+                    return_pay_usd_raw,
+                    "0",
+                    field_name="return_pay_usd",
+                )
+                if paid_usd < DEC0:
+                    raise ValueError("return_pay_usd must be >= 0")
+                paid_usd = _q_money("USD", paid_usd)
 
-            # 4) create ProviderReturn
+            debt_settlement_amount = None
+            if debt_settlement_amount_raw not in {"", None}:
+                debt_settlement_amount = _parse_money_input(
+                    debt_settlement_amount_raw,
+                    "0",
+                    field_name="debt_settlement_amount",
+                )
+                if debt_settlement_amount < DEC0:
+                    raise ValueError("debt_settlement_amount must be >= 0")
+                debt_settlement_amount = _q_money(settlement_currency_selected, debt_settlement_amount)
+
+            request_idempotency_key = SV.build_provider_return_idempotency_key(
+                provider_id=bill.provider_id,
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+                status=return_status_selected or "unpaid",
+                settlement_currency=settlement_currency_selected,
+                valuation_mode="CURRENT_FX",
+                payment_method=(return_payment_method_selected or None),
+                paid_amount=paid_amount_legacy,
+                paid_syp=paid_syp,
+                paid_usd=paid_usd,
+                settle_purchase_debt=bool(settle_purchase_debt_enabled),
+                debt_settlement_amount=debt_settlement_amount,
+                money_container_id=(
+                    int(money_container_id_raw)
+                    if money_container_id_raw
+                    else None
+                ),
+                items=items_payload,
+            )
 
             pret = SV.create_return(
                 actor=request.user,
                 provider_id=bill.provider_id,
-                status=status,
-                paid_amount=paid_amount,
+                status=return_status_selected or "unpaid",
+                paid_amount=paid_amount_legacy,
                 items=items_payload,
                 container=None,  # using per-item container_splits
                 source_bill_serial=bill.serial,
                 source_bill_public_id=bill.public_id,
                 money_container_id=(
                     int(money_container_id_raw)
-                    if (money_container_id_raw and paid_amount > DEC0)
+                    if money_container_id_raw
                     else None
                 ),
                 currency_code=settlement_currency_selected,
                 valuation_mode="CURRENT_FX",
+                payment_method=(return_payment_method_selected or None),
+                paid_syp=paid_syp,
+                paid_usd=paid_usd,
+                settle_purchase_debt=bool(settle_purchase_debt_enabled),
+                debt_settlement_amount=debt_settlement_amount,
+                idempotency_key=request_idempotency_key,
             )
 
             return redirect("billing_returns_list")
 
+        except ValidationError as ve:
+            msg = "; ".join(getattr(ve, "messages", []) or [])
+            error_msg = msg or str(ve)
         except ValueError as ve:
             error_msg = str(ve)
         except Exception:
@@ -1847,14 +1916,24 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         "error_msg": error_msg,
         "items_ids": selected_ids_str,
         "return_status_selected": return_status_selected,
+        "return_payment_method_selected": return_payment_method_selected,
+        "return_pay_syp_raw": return_pay_syp_raw,
+        "return_pay_usd_raw": return_pay_usd_raw,
         "return_paid_amount_raw": return_paid_amount_raw,
         "settlement_currency_selected": settlement_currency_selected,
         "money_container_id_raw": money_container_id_raw,
+        "settle_purchase_debt_enabled": settle_purchase_debt_enabled,
+        "debt_settlement_amount_raw": debt_settlement_amount_raw,
         "total_return_syp": total_return_syp,
         "total_return_usd": total_return_usd,
         "total_return_settlement": total_return_settlement,
+        "has_source_bill_payable_debt": has_source_bill_payable_debt,
+        "source_debt_public_id": (getattr(source_bill_debt, "public_id", "") or ""),
+        "source_debt_remaining_syp": source_debt_remaining_syp,
+        "source_debt_remaining_usd": source_debt_remaining_usd,
         "fx_rate_used": current_fx,
         "money_containers": money_containers,
+        "settlement_eligible_container_ids": settlement_eligible_container_ids,
         "return_public_id_preview": return_public_id_preview,
     }
 

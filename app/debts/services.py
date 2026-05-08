@@ -1,6 +1,6 @@
 # app/debts/services.py
 from __future__ import annotations
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from datetime import date
 from typing import Optional, Any
 import logging
@@ -42,6 +42,7 @@ from debts.source_identity import (
 )
 
 logger = logging.getLogger(__name__)
+DEC2 = Decimal("0.01")
 
 
 def _q_money(*, amount: Decimal, currency_code: str) -> Decimal:
@@ -475,28 +476,50 @@ def _apply_payment_to_central_remaining(
     rem_syp_before = _q_syp(remaining_syp or DEC0)
     rem_usd_before = _q_usd(remaining_usd or DEC0)
 
-    rem_syp = Decimal(rem_syp_before)
-    rem_usd = Decimal(rem_usd_before)
-    pool_syp = Decimal(_q_syp(pay_syp or DEC0))
-    pool_usd = Decimal(_q_usd(pay_usd or DEC0))
+    rem_syp = _q_syp(rem_syp_before)
+    rem_usd = _q_usd(rem_usd_before)
+    pool_syp = _q_syp(pay_syp or DEC0)
+    pool_usd = _q_usd(pay_usd or DEC0)
 
-    pay_syp_native = min(pool_syp, rem_syp)
-    rem_syp -= pay_syp_native
-    pool_syp -= pay_syp_native
+    pay_syp_native = _q_syp(min(pool_syp, rem_syp))
+    rem_syp = _q_syp(rem_syp - pay_syp_native)
+    pool_syp = _q_syp(pool_syp - pay_syp_native)
 
-    pay_usd_native = min(pool_usd, rem_usd)
-    rem_usd -= pay_usd_native
-    pool_usd -= pay_usd_native
+    pay_usd_native = _q_usd(min(pool_usd, rem_usd))
+    rem_usd = _q_usd(rem_usd - pay_usd_native)
+    pool_usd = _q_usd(pool_usd - pay_usd_native)
 
     if pool_syp > DEC0 and rem_usd > DEC0:
-        usd_extra = min(rem_usd, (pool_syp / fx_syp_per_usd))
-        rem_usd -= usd_extra
-        pool_syp -= (usd_extra * fx_syp_per_usd)
+        max_usd_by_pool = _q_usd((pool_syp / fx_syp_per_usd).quantize(DEC2, rounding=ROUND_DOWN))
+        usd_extra = _q_usd(min(rem_usd, max_usd_by_pool))
+        if usd_extra > DEC0:
+            syp_consumed = _q_syp(usd_extra * fx_syp_per_usd)
+            while usd_extra > DEC0 and syp_consumed > pool_syp:
+                usd_extra = _q_usd(usd_extra - DEC2)
+                if usd_extra <= DEC0:
+                    usd_extra = DEC0
+                    syp_consumed = DEC0
+                    break
+                syp_consumed = _q_syp(usd_extra * fx_syp_per_usd)
+            if usd_extra > DEC0 and syp_consumed > DEC0:
+                rem_usd = _q_usd(rem_usd - usd_extra)
+                pool_syp = _q_syp(pool_syp - syp_consumed)
 
     if pool_usd > DEC0 and rem_syp > DEC0:
-        syp_extra = min(rem_syp, (pool_usd * fx_syp_per_usd))
-        rem_syp -= syp_extra
-        pool_usd -= (syp_extra / fx_syp_per_usd)
+        max_syp_by_pool = _q_syp((pool_usd * fx_syp_per_usd).quantize(DEC2, rounding=ROUND_DOWN))
+        syp_extra = _q_syp(min(rem_syp, max_syp_by_pool))
+        if syp_extra > DEC0:
+            usd_consumed = _q_usd(syp_extra / fx_syp_per_usd)
+            while syp_extra > DEC0 and usd_consumed > pool_usd:
+                syp_extra = _q_syp(syp_extra - DEC2)
+                if syp_extra <= DEC0:
+                    syp_extra = DEC0
+                    usd_consumed = DEC0
+                    break
+                usd_consumed = _q_usd(syp_extra / fx_syp_per_usd)
+            if syp_extra > DEC0 and usd_consumed > DEC0:
+                rem_syp = _q_syp(rem_syp - syp_extra)
+                pool_usd = _q_usd(pool_usd - usd_consumed)
 
     rem_syp_after = _q_syp(max(DEC0, rem_syp))
     rem_usd_after = _q_usd(max(DEC0, rem_usd))
@@ -558,6 +581,27 @@ def _resolve_component_payment_for_settlement(
     return pay_syp, pay_usd, method
 
 
+def _derive_cash_components_from_applied(
+    *,
+    payment_method: str | None,
+    applied_syp: Decimal,
+    applied_usd: Decimal,
+    fx_syp_per_usd: Decimal,
+) -> tuple[Decimal, Decimal]:
+    method = (payment_method or "").strip().lower()
+    applied_syp_q = _q_syp(applied_syp or DEC0)
+    applied_usd_q = _q_usd(applied_usd or DEC0)
+
+    if method == "usd_only":
+        return DEC0, _q_usd(applied_usd_q + (applied_syp_q / fx_syp_per_usd))
+    if method == "separate":
+        return applied_syp_q, applied_usd_q
+    if method == "mixed":
+        return applied_syp_q, applied_usd_q
+    # Default: syp_only and unknown methods.
+    return _q_syp(applied_syp_q + (applied_usd_q * fx_syp_per_usd)), DEC0
+
+
 @transaction.atomic
 def settle_central_debt(
     *,
@@ -570,6 +614,8 @@ def settle_central_debt(
     payment_syp: Optional[Decimal] = None,
     payment_usd: Optional[Decimal] = None,
     payment_method: str | None = None,
+    fx_syp_per_usd_override: Optional[Decimal] = None,
+    derive_cash_from_applied: bool = False,
     required_feature_code: Any = None,
     note: str = "",
 ) -> tuple[DebtRecord, DebtSettlement]:
@@ -582,7 +628,8 @@ def settle_central_debt(
     if rem_syp_before <= DEC0 and rem_usd_before <= DEC0:
         raise ValueError("debt is already closed")
 
-    fx = _q_fx(FinSV.get_current_fx_syp_per_usd())
+    fx_raw = fx_syp_per_usd_override if fx_syp_per_usd_override is not None else FinSV.get_current_fx_syp_per_usd()
+    fx = _q_fx(fx_raw)
     rem_settlement_syp = _debt_remaining_settlement_syp(
         remaining_syp=rem_syp_before,
         remaining_usd=rem_usd_before,
@@ -643,6 +690,9 @@ def settle_central_debt(
     elif rem_syp_after <= DEC0 and rem_usd_after <= DEC0:
         raise ValueError("partial settlement cannot equal full remaining")
 
+    if applied_syp <= DEC0 and applied_usd <= DEC0:
+        raise ValueError("payment is too small after FX conversion/rounding")
+
     if money_container_id is None:
         raise ValueError("money_container_id is required")
     container = MoneyContainer.objects.select_for_update().get(pk=money_container_id)
@@ -651,13 +701,25 @@ def settle_central_debt(
         container=container,
         required_feature_code=required_feature_code,
     )
-    if pay_syp > DEC0 and not MoneyContainerCurrency.objects.filter(
+    post_pay_syp = _q_syp(pay_syp)
+    post_pay_usd = _q_usd(pay_usd)
+    if derive_cash_from_applied:
+        post_pay_syp, post_pay_usd = _derive_cash_components_from_applied(
+            payment_method=payment_method,
+            applied_syp=applied_syp,
+            applied_usd=applied_usd,
+            fx_syp_per_usd=fx,
+        )
+        if post_pay_syp <= DEC0 and post_pay_usd <= DEC0:
+            raise ValueError("payment is too small after FX conversion/rounding")
+
+    if post_pay_syp > DEC0 and not MoneyContainerCurrency.objects.filter(
         container_id=container.id,
         currency__code="SYP",
         is_enabled=True,
     ).exists():
         raise ValueError("Currency SYP is disabled for this container")
-    if pay_usd > DEC0 and not MoneyContainerCurrency.objects.filter(
+    if post_pay_usd > DEC0 and not MoneyContainerCurrency.objects.filter(
         container_id=container.id,
         currency__code="USD",
         is_enabled=True,
@@ -667,10 +729,10 @@ def settle_central_debt(
     cp = _ensure_debt_counterparty(debt=debt)
     sign = -1 if debt.direction == DebtDirection.PAYABLE else 1
     cash_by_code_signed: dict[str, Decimal] = {}
-    if pay_syp > DEC0:
-        cash_by_code_signed["SYP"] = _q_syp(Decimal(sign) * pay_syp)
-    if pay_usd > DEC0:
-        cash_by_code_signed["USD"] = _q_usd(Decimal(sign) * pay_usd)
+    if post_pay_syp > DEC0:
+        cash_by_code_signed["SYP"] = _q_syp(Decimal(sign) * post_pay_syp)
+    if post_pay_usd > DEC0:
+        cash_by_code_signed["USD"] = _q_usd(Decimal(sign) * post_pay_usd)
 
     receipt = FinSV.post_settlement_components_with_fx(
         actor=actor,
@@ -695,8 +757,8 @@ def settle_central_debt(
     settlement = DebtSettlement.objects.create(
         debt=debt,
         actor_username=getattr(actor, "username", "") or "",
-        payment_syp=pay_syp,
-        payment_usd=pay_usd,
+        payment_syp=post_pay_syp,
+        payment_usd=post_pay_usd,
         applied_syp=applied_syp,
         applied_usd=applied_usd,
         fx_syp_per_usd_used=fx,

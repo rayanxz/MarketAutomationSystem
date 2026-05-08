@@ -12,7 +12,16 @@ from billing.models import Bill, Provider, ProviderReturn
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from debts.models import CreditorDebt
 from financials import services as FinSV
-from financials.models import ContainerFeature, Currency, MoneyContainer, MoneyContainerCurrency
+from financials.models import (
+    ContainerFeature,
+    Currency,
+    MoneyContainer,
+    MoneyContainerCurrency,
+    PostingTargetType,
+    Receipt,
+    ReceiptStatus,
+)
+from inventory.models import ProductMovement
 from stock.models import ProductContainer
 
 
@@ -108,22 +117,40 @@ class ReturnWizardPrecisionParityTests(TestCase):
             settlement_currency="USD",
         )
 
-    def _post_wizard(self, *, bill: Bill, paid_amount: str, ret_cost: str = "1.01"):
+    def _post_wizard(
+        self,
+        *,
+        bill: Bill,
+        paid_amount: str,
+        ret_cost: str = "1.01",
+        ret_currency: str = "USD",
+        payment_method: str | None = None,
+        pay_syp: str | None = None,
+        pay_usd: str | None = None,
+    ):
         item = bill.items.get()
+        payload = {
+            "items_ids": str(item.id),
+            f"ret_store_{item.id}": "1",
+            f"ret_wh1_{item.id}": "0",
+            f"ret_wh2_{item.id}": "0",
+            f"ret_cost_{item.id}": ret_cost,
+            f"ret_currency_{item.id}": ret_currency,
+            "return_status": "partial",
+            "return_paid_amount": paid_amount,
+            "valuation_mode": "HISTORICAL",
+            "settlement_currency": "USD",
+            "money_container_id": str(self.cash.id),
+        }
+        if payment_method is not None:
+            payload["return_payment_method"] = payment_method
+        if pay_syp is not None:
+            payload["return_pay_syp"] = pay_syp
+        if pay_usd is not None:
+            payload["return_pay_usd"] = pay_usd
         return self.client.post(
             reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.public_id}),
-            data={
-                "items_ids": str(item.id),
-                f"ret_store_{item.id}": "1",
-                f"ret_wh1_{item.id}": "0",
-                f"ret_wh2_{item.id}": "0",
-                f"ret_cost_{item.id}": ret_cost,
-                "return_status": "partial",
-                "return_paid_amount": paid_amount,
-                "valuation_mode": "HISTORICAL",
-                "settlement_currency": "USD",
-                "money_container_id": str(self.cash.id),
-            },
+            data=payload,
         )
 
     def test_wizard_accepts_valid_2dp_paid_amount(self):
@@ -161,3 +188,136 @@ class ReturnWizardPrecisionParityTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
         self.assertContains(resp, "return cost for")
         self.assertFalse(ProviderReturn.objects.exists())
+
+    def test_wizard_preview_totals_match_saved_return_debt_and_receipt(self):
+        bill = self._create_usd_bill()
+
+        resp = self._post_wizard(
+            bill=bill,
+            paid_amount="1.00",
+            ret_cost="1.75",
+            ret_currency="USD",
+            payment_method="usd_only",
+            pay_syp="0",
+            pay_usd="1.00",
+        )
+        self.assertEqual(resp.status_code, 302, resp.content.decode("utf-8"))
+
+        pret = ProviderReturn.objects.latest("id")
+        self.assertEqual(pret.total_usd, Decimal("1.75"))
+        self.assertEqual(pret.total_syp, Decimal("0.00"))
+
+        entry = CreditorDebt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="USD",
+        )
+        self.assertEqual(entry.total, Decimal("1.75"))
+        self.assertEqual(entry.collected, Decimal("1.00"))
+        self.assertEqual(entry.remaining, Decimal("0.75"))
+
+        receipt = Receipt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            status=ReceiptStatus.POSTED,
+        )
+        container_usd_sum = Decimal("0.00")
+        for ln in receipt.lines.select_related("currency").all():
+            if ln.target_type != PostingTargetType.CONTAINER:
+                continue
+            if (ln.currency.code or "").upper() == "USD":
+                container_usd_sum += Decimal(str(ln.amount or "0"))
+        self.assertEqual(container_usd_sum, Decimal("1.00"))
+
+    def test_wizard_uses_same_currency_settlement_cap_in_submit_validation(self):
+        bill = self._create_usd_bill()
+        item = bill.items.get()
+        resp = self.client.get(
+            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.public_id}),
+            {"items": str(item.id)},
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        html = resp.content.decode("utf-8")
+        self.assertIn(
+            "const paidSettlementComponent = paidComponentInSettlementCurrency(draft, totals.settlementCurrency);",
+            html,
+        )
+        self.assertIn("if (settleAmount > paidSettlementComponent) {", html)
+        self.assertNotIn("if (settleAmount > draft.paidSettlement) {", html)
+
+    def test_wizard_has_duplicate_submit_lock_guard(self):
+        bill = self._create_usd_bill()
+        item = bill.items.get()
+        resp = self.client.get(
+            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.public_id}),
+            {"items": str(item.id)},
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        html = resp.content.decode("utf-8")
+        self.assertIn("let submitInFlight = false;", html)
+        self.assertIn("if (submitInFlight) return;", html)
+        self.assertIn("if (submitInFlight) {", html)
+        self.assertIn("setSubmitInFlight(true);", html)
+
+    def test_wizard_duplicate_post_is_idempotent_backend(self):
+        bill = self._create_usd_bill()
+
+        first = self._post_wizard(
+            bill=bill,
+            paid_amount="1.00",
+            ret_cost="1.01",
+            ret_currency="USD",
+            payment_method="usd_only",
+            pay_syp="0",
+            pay_usd="1.00",
+        )
+        second = self._post_wizard(
+            bill=bill,
+            paid_amount="1.00",
+            ret_cost="1.01",
+            ret_currency="USD",
+            payment_method="usd_only",
+            pay_syp="0",
+            pay_usd="1.00",
+        )
+
+        self.assertEqual(first.status_code, 302, first.content.decode("utf-8"))
+        self.assertEqual(second.status_code, 302, second.content.decode("utf-8"))
+        self.assertEqual(ProviderReturn.objects.count(), 1)
+
+        pret = ProviderReturn.objects.get()
+        self.assertEqual(
+            ProductMovement.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+            ).values("source_id").distinct().count(),
+            1,
+        )
+        self.assertGreaterEqual(
+            ProductMovement.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=str(pret.id),
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CreditorDebt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+            ).values("source_id").distinct().count(),
+            1,
+        )
+        self.assertEqual(
+            Receipt.objects.filter(
+                source_app="billing",
+                source_model="ProviderReturn",
+                source_id=str(pret.id),
+                status=ReceiptStatus.POSTED,
+            ).count(),
+            1,
+        )

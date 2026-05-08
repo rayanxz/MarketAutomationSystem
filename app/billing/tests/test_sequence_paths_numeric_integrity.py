@@ -18,7 +18,14 @@ from debts.models import (
     DebtCauseType,
 )
 from financials import services as FinSV
-from financials.models import Currency, MoneyContainer, MoneyContainerCurrency, Receipt, ReceiptStatus
+from financials.models import (
+    ContainerFeature,
+    Currency,
+    MoneyContainer,
+    MoneyContainerCurrency,
+    Receipt,
+    ReceiptStatus,
+)
 from inventory.models import DEC0, q3
 from stock.models import ProductContainer
 
@@ -51,6 +58,15 @@ class BillingSequencePathNumericIntegrityTests(TestCase):
             created_by=cls.actor,
         )
         cls.cash.allowed_users.add(cls.actor)
+        for feature_code in ("purchase_bills", "provider_returns"):
+            feature, _ = ContainerFeature.objects.get_or_create(
+                code=feature_code,
+                defaults={"name": feature_code.replace("_", " ").title(), "is_active": True},
+            )
+            if not feature.is_active:
+                feature.is_active = True
+                feature.save(update_fields=["is_active"])
+            cls.cash.features.add(feature)
         MoneyContainerCurrency.objects.update_or_create(
             container=cls.cash,
             currency=cls.syp,

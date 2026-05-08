@@ -8,7 +8,8 @@ from django.contrib.auth import get_user_model
 
 from billing import services as BillingSV
 from billing.models import Provider, Bill, ProviderReturn
-from debts.models import CreditorDebt, CreditorReceipt
+from debts import services as DebtSV
+from debts.models import CreditorDebt, CreditorReceipt, DebtSettlement
 from audit_log.models import AuditLog
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
 from financials.models import (
@@ -120,6 +121,27 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
             settlement_currency=currency,
             fx_usd_syp=fx,
         )
+
+    def _create_cash_container(self, *, name: str, feature_codes: list[str]) -> MoneyContainer:
+        mc = MoneyContainer.objects.create(
+            name=name,
+            container_type=MoneyContainer.ContainerType.DRAWER,
+            is_active=True,
+            created_by=self.actor,
+        )
+        mc.allowed_users.add(self.actor)
+        for code in feature_codes:
+            feature, _ = ContainerFeature.objects.get_or_create(
+                code=code,
+                defaults={"name": code.replace("_", " ").title(), "is_active": True},
+            )
+            if not feature.is_active:
+                feature.is_active = True
+                feature.save(update_fields=["is_active"])
+            mc.features.add(feature)
+        _ensure_container_currency(mc, "SYP")
+        _ensure_container_currency(mc, "USD")
+        return mc
 
     def test_fifo_consumption_on_return(self):
         product = _create_min_product("P1")
@@ -311,6 +333,731 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         self.assertIsNotNone(receipt_row)
         self.assertIsNotNone(receipt_row.receipt_id)
 
+    def test_return_payment_with_full_purchase_debt_settlement(self):
+        product = _create_min_product("Settle-Full")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1200"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        source_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.public_id)
+        self.assertIsNotNone(source_debt)
+        self.assertEqual(q3(source_debt.remaining_syp), q3(Decimal("1200")))
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="paid",
+            paid_amount=Decimal("1200"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="syp_only",
+            paid_syp=Decimal("1200"),
+            paid_usd=Decimal("0"),
+            settle_purchase_debt=True,
+            debt_settlement_amount=Decimal("1200"),
+        )
+
+        source_debt.refresh_from_db()
+        self.assertEqual(q3(source_debt.remaining_syp), DEC0)
+        self.assertEqual(q3(source_debt.remaining_usd), DEC0)
+
+        settlement = DebtSettlement.objects.filter(debt=source_debt).order_by("-id").first()
+        self.assertIsNotNone(settlement)
+        self.assertEqual(q3(settlement.payment_syp), q3(Decimal("1200")))
+        self.assertEqual(q3(settlement.applied_syp), q3(Decimal("1200")))
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+
+        entry = CreditorDebt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="SYP",
+        )
+        self.assertEqual(q3(entry.collected), q3(Decimal("1200")))
+        self.assertEqual(q3(entry.remaining), DEC0)
+
+    def test_return_payment_with_partial_purchase_debt_settlement(self):
+        product = _create_min_product("Settle-Partial")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1200"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        source_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.public_id)
+        self.assertIsNotNone(source_debt)
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("900"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="syp_only",
+            paid_syp=Decimal("900"),
+            paid_usd=Decimal("0"),
+            settle_purchase_debt=True,
+            debt_settlement_amount=Decimal("400"),
+        )
+
+        source_debt.refresh_from_db()
+        self.assertEqual(q3(source_debt.remaining_syp), q3(Decimal("800")))
+
+        settlement = DebtSettlement.objects.filter(debt=source_debt).order_by("-id").first()
+        self.assertIsNotNone(settlement)
+        self.assertEqual(q3(settlement.payment_syp), q3(Decimal("400")))
+        self.assertEqual(q3(settlement.applied_syp), q3(Decimal("400")))
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), q3(Decimal("500")))
+
+        entry = CreditorDebt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="SYP",
+        )
+        self.assertEqual(q3(entry.collected), q3(Decimal("900")))
+        self.assertEqual(q3(entry.remaining), q3(Decimal("300")))
+
+    def test_debt_settlement_amount_cannot_exceed_purchase_debt(self):
+        product = _create_min_product("Settle-Over-Debt")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=Decimal("700"),
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+        )
+        source_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.public_id)
+        self.assertIsNotNone(source_debt)
+        self.assertEqual(q3(source_debt.remaining_syp), q3(Decimal("300")))
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        with self.assertRaisesMessage(ValueError, "cannot exceed payable debt"):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="partial",
+                paid_amount=Decimal("500"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+                money_container_id=self.cash.id,
+                currency_code="SYP",
+                valuation_mode="CURRENT_FX",
+                payment_method="syp_only",
+                paid_syp=Decimal("500"),
+                paid_usd=Decimal("0"),
+                settle_purchase_debt=True,
+                debt_settlement_amount=Decimal("350"),
+            )
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertFalse(ProviderReturn.objects.filter(source_bill_serial=bill.serial, source_bill_public_id=bill.public_id).exists())
+
+    def test_return_payment_can_exceed_purchase_debt_when_settlement_is_capped(self):
+        product = _create_min_product("Settle-Payment-Over-Debt")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        BillingSV.pay_partial(
+            actor=self.actor,
+            bill_id=bill.id,
+            amount=Decimal("800"),
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+        )
+        source_debt = DebtSV.resolve_purchase_bill_debt(bill_id=bill.public_id)
+        self.assertIsNotNone(source_debt)
+        self.assertEqual(q3(source_debt.remaining_syp), q3(Decimal("200")))
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("500"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="syp_only",
+            paid_syp=Decimal("500"),
+            paid_usd=Decimal("0"),
+            settle_purchase_debt=True,
+            debt_settlement_amount=Decimal("200"),
+        )
+
+        source_debt.refresh_from_db()
+        self.assertEqual(q3(source_debt.remaining_syp), DEC0)
+
+        settlement = DebtSettlement.objects.filter(debt=source_debt).order_by("-id").first()
+        self.assertIsNotNone(settlement)
+        self.assertEqual(q3(settlement.payment_syp), q3(Decimal("200")))
+        self.assertEqual(q3(settlement.applied_syp), q3(Decimal("200")))
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), q3(Decimal("300")))
+
+        entry = CreditorDebt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="SYP",
+        )
+        self.assertEqual(q3(entry.collected), q3(Decimal("500")))
+        self.assertEqual(q3(entry.remaining), q3(Decimal("500")))
+
+    def test_settlement_rejects_when_paid_component_missing_for_syp_settlement_currency(self):
+        product = _create_min_product("Settle-SYP-Mismatch")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("40000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        with self.assertRaisesMessage(ValueError, "cannot exceed collected payment in settlement currency"):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="partial",
+                paid_amount=Decimal("20000"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+                money_container_id=self.cash.id,
+                currency_code="SYP",
+                valuation_mode="CURRENT_FX",
+                payment_method="usd_only",
+                paid_syp=Decimal("0"),
+                paid_usd=Decimal("1"),
+                settle_purchase_debt=True,
+                debt_settlement_amount=Decimal("20000"),
+            )
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
+        self.assertFalse(
+            ProviderReturn.objects.filter(
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+            ).exists()
+        )
+
+    def test_settlement_rejects_when_paid_component_missing_for_usd_settlement_currency(self):
+        product = _create_min_product("Settle-USD-Mismatch")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("2"), currency="USD", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        with self.assertRaisesMessage(ValueError, "cannot exceed collected payment in settlement currency"):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="partial",
+                paid_amount=Decimal("1"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+                money_container_id=self.cash.id,
+                currency_code="USD",
+                valuation_mode="CURRENT_FX",
+                payment_method="syp_only",
+                paid_syp=Decimal("20000"),
+                paid_usd=Decimal("0"),
+                settle_purchase_debt=True,
+                debt_settlement_amount=Decimal("1"),
+            )
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
+        self.assertFalse(
+            ProviderReturn.objects.filter(
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+            ).exists()
+        )
+
+    def test_mixed_payment_settlement_only_deducts_selected_settlement_currency_component(self):
+        p_syp = _create_min_product("Settle-Mixed-No-Negative-Leg-SYP")
+        p_usd = _create_min_product("Settle-Mixed-No-Negative-Leg-USD")
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[
+                {"product_id": p_syp.id, "unit_index": 1, "qty_raw": "1", "cost": "20000", "currency": "SYP"},
+                {"product_id": p_usd.id, "unit_index": 1, "qty_raw": "1", "cost": "1", "currency": "USD"},
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+            fx_usd_syp=Decimal("15000"),
+        )
+        items = list(bill.items.order_by("id"))
+        self.assertEqual(len(items), 2)
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("30000"),
+            items=[
+                {
+                    "bill_item_id": items[0].id,
+                    "product_id": items[0].product_id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                },
+                {
+                    "bill_item_id": items[1].id,
+                    "product_id": items[1].product_id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                },
+            ],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="mixed",
+            paid_syp=Decimal("10000"),
+            paid_usd=Decimal("1"),
+            settle_purchase_debt=True,
+            debt_settlement_amount=Decimal("10000"),
+        )
+
+        settlement = (
+            DebtSettlement.objects
+            .filter(note__icontains=f"Provider return #{pret.serial} debt settlement")
+            .order_by("-id")
+            .first()
+        )
+        self.assertIsNotNone(settlement)
+        self.assertEqual(q3(settlement.payment_syp), q3(Decimal("10000")))
+        self.assertEqual(q3(settlement.payment_usd), DEC0)
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        delta_syp = q3(after.get("SYP", DEC0) - before.get("SYP", DEC0))
+        delta_usd = q3(after.get("USD", DEC0) - before.get("USD", DEC0))
+        self.assertEqual(delta_syp, DEC0)
+        self.assertEqual(delta_usd, q3(Decimal("1")))
+        self.assertGreaterEqual(delta_syp, DEC0)
+        self.assertGreaterEqual(delta_usd, DEC0)
+
+    def test_tiny_cross_currency_settlement_rejected_before_db_integrity_error(self):
+        product = _create_min_product("Settle-Tiny-Rounding")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1"), currency="USD", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        with self.assertRaisesMessage(ValueError, "too small after FX conversion/rounding"):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="partial",
+                paid_amount=Decimal("1"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "cost": "20000",
+                    "currency": "SYP",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+                money_container_id=self.cash.id,
+                currency_code="SYP",
+                valuation_mode="CURRENT_FX",
+                payment_method="syp_only",
+                paid_syp=Decimal("1"),
+                paid_usd=Decimal("0"),
+                settle_purchase_debt=True,
+                debt_settlement_amount=Decimal("1"),
+            )
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
+        self.assertEqual(DebtSettlement.objects.count(), 0)
+
+    def test_cross_currency_partial_payment_keeps_remaining_and_conserves_value(self):
+        product = _create_min_product("Conservation-Cross-Partial")
+        bill = self._create_bill(
+            product=product,
+            qty=Decimal("1"),
+            cost=Decimal("15000"),
+            currency="SYP",
+            fx=Decimal("20000"),
+        )
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("10000"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="usd_only",
+            paid_syp=Decimal("0"),
+            paid_usd=Decimal("0.50"),
+        )
+        after = FinSV.container_balance(container_id=self.cash.id)
+
+        entry = CreditorDebt.objects.get(
+            source_app="billing",
+            source_model="ProviderReturn",
+            source_id=str(pret.id),
+            currency_code="SYP",
+        )
+        self.assertEqual(q3(entry.total), q3(Decimal("15000")))
+        self.assertEqual(q3(entry.collected), q3(Decimal("10000")))
+        self.assertEqual(q3(entry.remaining), q3(Decimal("5000")))
+        self.assertGreater(entry.remaining, DEC0)
+
+        fx_now = Decimal(str(FinSV.get_current_fx_syp_per_usd()))
+        delta_syp = Decimal(str(after.get("SYP", DEC0) - before.get("SYP", DEC0)))
+        delta_usd = Decimal(str(after.get("USD", DEC0) - before.get("USD", DEC0)))
+        cash_in_settlement = q3(delta_syp + (delta_usd * fx_now))
+        self.assertEqual(q3(cash_in_settlement + entry.remaining), q3(entry.total))
+        self.assertEqual(q3(entry.collected + entry.remaining), q3(entry.total))
+
+    def test_small_cross_currency_settlement_derives_cash_from_applied_amount(self):
+        product = _create_min_product("Conservation-Tiny-Settlement")
+        bill = self._create_bill(
+            product=product,
+            qty=Decimal("1"),
+            cost=Decimal("1"),
+            currency="USD",
+            fx=Decimal("20000"),
+        )
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        source_debt_before = DebtSV.resolve_purchase_bill_debt(bill_id=bill.public_id)
+        self.assertIsNotNone(source_debt_before)
+        self.assertEqual(q3(source_debt_before.remaining_usd), q3(Decimal("1.00")))
+
+        before = FinSV.container_balance(container_id=self.cash.id)
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("200"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "cost": "1",
+                "currency": "USD",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=self.cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="syp_only",
+            paid_syp=Decimal("200"),
+            paid_usd=Decimal("0"),
+            settle_purchase_debt=True,
+            debt_settlement_amount=Decimal("200"),
+        )
+        after = FinSV.container_balance(container_id=self.cash.id)
+
+        settlement = (
+            DebtSettlement.objects
+            .filter(note__icontains=f"Provider return #{pret.serial} debt settlement")
+            .order_by("-id")
+            .first()
+        )
+        self.assertIsNotNone(settlement)
+        self.assertEqual(q3(settlement.payment_syp), q3(Decimal("200")))
+        self.assertEqual(q3(settlement.payment_usd), DEC0)
+        self.assertEqual(q3(settlement.applied_syp), DEC0)
+        self.assertEqual(q3(settlement.applied_usd), q3(Decimal("0.01")))
+
+        fx_used = Decimal(str(settlement.fx_syp_per_usd_used))
+        paid_settlement_syp = q3(settlement.payment_syp + (settlement.payment_usd * fx_used))
+        applied_settlement_syp = q3(settlement.applied_syp + (settlement.applied_usd * fx_used))
+        self.assertEqual(paid_settlement_syp, applied_settlement_syp)
+
+        source_debt_after = DebtSV.resolve_purchase_bill_debt(bill_id=bill.public_id)
+        self.assertIsNotNone(source_debt_after)
+        self.assertEqual(q3(source_debt_after.remaining_usd), q3(Decimal("0.99")))
+
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
+
+    def test_settlement_rejects_container_without_purchase_bill_feature(self):
+        provider_return_only_cash = self._create_cash_container(
+            name="Provider Return Only Cash",
+            feature_codes=["provider_returns"],
+        )
+        product = _create_min_product("Settle-Forbidden-Container")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        before = FinSV.container_balance(container_id=provider_return_only_cash.id)
+        with self.assertRaisesMessage(ValueError, "money container does not support this operation"):
+            BillingSV.create_return(
+                actor=self.actor,
+                provider_id=self.provider.id,
+                status="partial",
+                paid_amount=Decimal("500"),
+                items=[{
+                    "bill_item_id": item.id,
+                    "product_id": product.id,
+                    "unit_index": 1,
+                    "qty_primary": "1",
+                    "container_splits": [{"code": "store", "qty_primary": "1"}],
+                }],
+                container=None,
+                source_bill_serial=bill.serial,
+                source_bill_public_id=bill.public_id,
+                money_container_id=provider_return_only_cash.id,
+                currency_code="SYP",
+                valuation_mode="CURRENT_FX",
+                payment_method="syp_only",
+                paid_syp=Decimal("500"),
+                paid_usd=Decimal("0"),
+                settle_purchase_debt=True,
+                debt_settlement_amount=Decimal("100"),
+            )
+
+        after = FinSV.container_balance(container_id=provider_return_only_cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
+
+    def test_settlement_accepts_container_with_required_features(self):
+        fully_allowed_cash = self._create_cash_container(
+            name="Provider Return + Purchase Cash",
+            feature_codes=["provider_returns", "purchase_bills"],
+        )
+        product = _create_min_product("Settle-Allowed-Container")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        before = FinSV.container_balance(container_id=fully_allowed_cash.id)
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="partial",
+            paid_amount=Decimal("500"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            money_container_id=fully_allowed_cash.id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+            payment_method="syp_only",
+            paid_syp=Decimal("500"),
+            paid_usd=Decimal("0"),
+            settle_purchase_debt=True,
+            debt_settlement_amount=Decimal("100"),
+        )
+        self.assertIsNotNone(pret.id)
+
+        after = FinSV.container_balance(container_id=fully_allowed_cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), q3(Decimal("400")))
+
+    def test_return_uses_submitted_edited_syp_cost_even_with_bill_item_id(self):
+        product = _create_min_product("Edited-SYP-Cost")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "cost": "1500",
+                "currency": "SYP",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+        )
+
+        ret_item = pret.items.get()
+        self.assertEqual(q3(ret_item.cost), q3(Decimal("1500")))
+        self.assertEqual((ret_item.currency or "").upper(), "SYP")
+        self.assertEqual(q3(pret.total_syp), q3(Decimal("1500")))
+        self.assertEqual(q3(pret.total_usd), DEC0)
+
+    def test_return_uses_submitted_edited_usd_cost_even_with_bill_item_id(self):
+        product = _create_min_product("Edited-USD-Cost")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("2"), currency="USD", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "cost": "3",
+                "currency": "USD",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            currency_code="USD",
+            valuation_mode="CURRENT_FX",
+        )
+
+        ret_item = pret.items.get()
+        self.assertEqual(q3(ret_item.cost), q3(Decimal("3")))
+        self.assertEqual((ret_item.currency or "").upper(), "USD")
+        self.assertEqual(q3(pret.total_usd), q3(Decimal("3")))
+        self.assertEqual(q3(pret.total_syp), DEC0)
+
+    def test_return_uses_submitted_currency_change_even_with_bill_item_id(self):
+        product = _create_min_product("Edited-Currency-Change")
+        bill = self._create_bill(product=product, qty=Decimal("1"), cost=Decimal("1000"), currency="SYP", fx=Decimal("15000"))
+        item = bill.items.first()
+        self.assertIsNotNone(item)
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[{
+                "bill_item_id": item.id,
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_primary": "1",
+                "cost": "1",
+                "currency": "USD",
+                "container_splits": [{"code": "store", "qty_primary": "1"}],
+            }],
+            container=None,
+            source_bill_serial=bill.serial,
+            currency_code="USD",
+            valuation_mode="CURRENT_FX",
+        )
+
+        ret_item = pret.items.get()
+        self.assertEqual((ret_item.currency or "").upper(), "USD")
+        self.assertEqual(q3(ret_item.cost), q3(Decimal("1")))
+        self.assertEqual(q3(pret.total_usd), q3(Decimal("1")))
+        self.assertEqual(q3(pret.total_syp), DEC0)
+
     def test_paid_mixed_return_uses_one_receipt_and_settlement_currency_cash(self):
         p1 = _create_min_product("PaidMixSYP")
         p2 = _create_min_product("PaidMixUSD")
@@ -378,11 +1125,13 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
             code = ln.currency.code
             container_totals[code] = q3(container_totals.get(code, DEC0) + ln.amount)
 
-        self.assertEqual(q3(container_totals.get("SYP", DEC0)), q3(pret.total))
+        fx_now = Decimal(str(FinSV.get_current_fx_syp_per_usd()))
+        expected_cash_syp = q3((pret.total_syp or DEC0) + ((pret.total_usd or DEC0) * fx_now))
+        self.assertEqual(q3(container_totals.get("SYP", DEC0)), expected_cash_syp)
         self.assertEqual(q3(container_totals.get("USD", DEC0)), DEC0)
 
         after = FinSV.container_balance(container_id=self.cash.id)
-        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), q3(pret.total))
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), expected_cash_syp)
         self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
 
     def test_unpaid_return_creates_creditor_debts(self):
@@ -405,6 +1154,7 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         )
 
         items = list(bill.items.all())
+        before = FinSV.container_balance(container_id=self.cash.id)
 
         pret = BillingSV.create_return(
             actor=self.actor,
@@ -437,6 +1187,17 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         self.assertIsNotNone(usd_entry)
         self.assertEqual(q3(syp_entry.total), q3(pret.total_syp))
         self.assertEqual(q3(usd_entry.total), q3(pret.total_usd))
+        self.assertFalse(
+            CreditorReceipt.objects.filter(
+                entry__source_app="billing",
+                entry__source_model="ProviderReturn",
+                entry__source_id=str(pret.id),
+            ).exists()
+        )
+
+        after = FinSV.container_balance(container_id=self.cash.id)
+        self.assertEqual(q3(after.get("SYP", DEC0) - before.get("SYP", DEC0)), DEC0)
+        self.assertEqual(q3(after.get("USD", DEC0) - before.get("USD", DEC0)), DEC0)
 
     def test_delete_return_cleans_canonical_and_legacy_creditor_rows(self):
         product = _create_min_product("Delete-Collision")
