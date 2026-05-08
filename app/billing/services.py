@@ -1914,6 +1914,7 @@ def create_return(
     total_syp = DEC0
     total_usd = DEC0
     settlement_total = DEC0
+    settlement_fx_snapshot: Decimal | None = None
     conv_base_sum = DEC0
     conv_converted_sum = DEC0
 
@@ -2026,10 +2027,8 @@ def create_return(
         else:
             total_syp = _q_money("SYP", total_syp + line_total)
 
-        # ----- settlement total (with FX if needed) -----
-        if item_currency == settlement_currency:
-            settlement_total = _q_money(settlement_currency, settlement_total + line_total)
-        else:
+        # ----- FX snapshot for cross-currency valuation (row metadata only) -----
+        if item_currency != settlement_currency:
             fx_used = None
             if valuation_mode_norm == "HISTORICAL":
                 if bill_item is not None:
@@ -2044,15 +2043,14 @@ def create_return(
             if fx_used <= 0:
                 raise ValueError("FX rate is required for return valuation")
             fx_used_for_item = fx_used
-
+            if settlement_fx_snapshot is None:
+                settlement_fx_snapshot = fx_used
             if settlement_currency == "SYP" and item_currency == "USD":
                 converted = _q_money("SYP", line_total * fx_used)
-                settlement_total = _q_money("SYP", settlement_total + converted)
                 conv_base_sum = _q_money("USD", conv_base_sum + line_total)
                 conv_converted_sum = _q_money("SYP", conv_converted_sum + converted)
             elif settlement_currency == "USD" and item_currency == "SYP":
                 converted = _q_money("USD", line_total / fx_used)
-                settlement_total = _q_money("USD", settlement_total + converted)
                 conv_base_sum = _q_money("SYP", conv_base_sum + line_total)
                 conv_converted_sum = _q_money("USD", conv_converted_sum + converted)
 
@@ -2131,6 +2129,26 @@ def create_return(
 
     pret.total_syp = _q_money("SYP", total_syp)
     pret.total_usd = _q_money("USD", total_usd)
+
+    fx_for_total = fx_snapshot_for_save
+    if valuation_mode_norm == "HISTORICAL" and settlement_fx_snapshot is not None:
+        fx_for_total = settlement_fx_snapshot
+    if fx_for_total is None:
+        fx_for_total = _q_fx(FinSV.get_current_fx_syp_per_usd())
+    fx_for_total = _q_fx(fx_for_total)
+
+    if fx_snapshot_for_save is None:
+        fx_snapshot_for_save = _q_fx(FinSV.get_current_fx_syp_per_usd())
+    fx_for_plan = _q_fx(fx_snapshot_for_save)
+
+    # Settlement total must follow aggregate-first conversion:
+    # sum by source currency -> convert once -> round once.
+    settlement_total = _settlement_amount_from_components(
+        settlement_currency=settlement_currency,
+        paid_syp=pret.total_syp,
+        paid_usd=pret.total_usd,
+        fx_snapshot=fx_for_total,
+    )
     pret.total = _q_money(settlement_currency, settlement_total)
 
     fx_rate_used = None
@@ -2142,9 +2160,6 @@ def create_return(
 
     # ----- Payment plan (bill_add-aligned parser/validation) -----
     status_norm = (status or "").lower().strip()
-    if fx_snapshot_for_save is None:
-        fx_snapshot_for_save = _q_fx(FinSV.get_current_fx_syp_per_usd())
-    fx_for_plan = _q_fx(fx_snapshot_for_save)
     payment_plan = _resolve_creation_payment_plan(
         status=status_norm,
         settlement_currency=settlement_currency,

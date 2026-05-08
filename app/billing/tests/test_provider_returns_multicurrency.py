@@ -812,6 +812,135 @@ class ProviderReturnsMultiCurrencyTests(TestCase):
         self.assertEqual(q3(cash_in_settlement + entry.remaining), q3(entry.total))
         self.assertEqual(q3(entry.collected + entry.remaining), q3(entry.total))
 
+    def test_return_settlement_total_uses_aggregate_conversion_not_per_line_rounding(self):
+        FinSV.set_current_fx(actor=self.actor, rate_syp_per_usd=Decimal("40000"))
+        product = _create_min_product("Aggregate-Only-SYP")
+        bill = self._create_bill(
+            product=product,
+            qty=Decimal("100"),
+            cost=Decimal("5"),
+            currency="SYP",
+            fx=Decimal("40000"),
+        )
+
+        return_items = [
+            {
+                "product_id": product.id,
+                "unit_index": 1,
+                "qty_raw": "1",
+                "cost": "5",
+                "currency": "SYP",
+            }
+            for _ in range(100)
+        ]
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=return_items,
+            container=self.store,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            currency_code="USD",
+            valuation_mode="CURRENT_FX",
+        )
+
+        self.assertEqual(q3(pret.total_syp), q3(Decimal("500.00")))
+        self.assertEqual(q3(pret.total_usd), DEC0)
+        self.assertEqual(q3(pret.total), q3(Decimal("0.01")))
+
+        plan = BillingSV._resolve_creation_payment_plan(
+            status="unpaid",
+            settlement_currency="USD",
+            total_syp=pret.total_syp,
+            total_usd=pret.total_usd,
+            fx_snapshot=Decimal("40000"),
+            payment_method=None,
+            paid_syp=None,
+            paid_usd=None,
+            legacy_paid_amount=Decimal("0"),
+            enforce_value_conservation=True,
+        )
+        self.assertEqual(q3(plan["settlement_total"]), q3(pret.total))
+
+        per_line_converted = FinSV.q_money(amount=Decimal("5") / Decimal("40000"), currency_code="USD")
+        per_line_sum = sum((per_line_converted for _ in range(100)), Decimal("0"))
+        self.assertEqual(q3(per_line_sum), DEC0)
+        self.assertNotEqual(q3(pret.total), q3(per_line_sum))
+
+    def test_return_settlement_total_mixed_rows_uses_aggregate_conversion(self):
+        FinSV.set_current_fx(actor=self.actor, rate_syp_per_usd=Decimal("0.40"))
+        p_syp = _create_min_product("Aggregate-Mixed-SYP")
+        p_usd = _create_min_product("Aggregate-Mixed-USD")
+
+        bill = BillingSV.create_bill(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=[
+                {"product_id": p_syp.id, "unit_index": 1, "qty_raw": "1", "cost": "0.10", "currency": "SYP"},
+                {"product_id": p_usd.id, "unit_index": 1, "qty_raw": "100", "cost": "0.01", "currency": "USD"},
+            ],
+            container=self.store,
+            money_container_id=self.cash.id,
+            settlement_currency="SYP",
+            fx_usd_syp=Decimal("0.40"),
+        )
+
+        return_items = [
+            {
+                "product_id": p_syp.id,
+                "unit_index": 1,
+                "qty_raw": "1",
+                "cost": "0.10",
+                "currency": "SYP",
+            }
+        ]
+        return_items.extend(
+            [
+                {
+                    "product_id": p_usd.id,
+                    "unit_index": 1,
+                    "qty_raw": "1",
+                    "cost": "0.01",
+                    "currency": "USD",
+                }
+                for _ in range(100)
+            ]
+        )
+
+        pret = BillingSV.create_return(
+            actor=self.actor,
+            provider_id=self.provider.id,
+            status="unpaid",
+            paid_amount=Decimal("0"),
+            items=return_items,
+            container=self.store,
+            source_bill_serial=bill.serial,
+            source_bill_public_id=bill.public_id,
+            currency_code="SYP",
+            valuation_mode="CURRENT_FX",
+        )
+
+        self.assertEqual(q3(pret.total_syp), q3(Decimal("0.10")))
+        self.assertEqual(q3(pret.total_usd), q3(Decimal("1.00")))
+        self.assertEqual(q3(pret.total), q3(Decimal("0.50")))
+
+        plan = BillingSV._resolve_creation_payment_plan(
+            status="unpaid",
+            settlement_currency="SYP",
+            total_syp=pret.total_syp,
+            total_usd=pret.total_usd,
+            fx_snapshot=Decimal("0.40"),
+            payment_method=None,
+            paid_syp=None,
+            paid_usd=None,
+            legacy_paid_amount=Decimal("0"),
+            enforce_value_conservation=True,
+        )
+        self.assertEqual(q3(plan["settlement_total"]), q3(pret.total))
     def test_small_cross_currency_settlement_derives_cash_from_applied_amount(self):
         product = _create_min_product("Conservation-Tiny-Settlement")
         bill = self._create_bill(
