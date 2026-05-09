@@ -1140,7 +1140,7 @@
                     <div class="muted">مبلغ الدفع بالليرة</div>
                     <div class="money-inline">
                       <span class="money-chip">SYP</span>
-                      <input id="retPaySypOnly" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'syp_only' %}{{ return_pay_syp_raw }}{% endif %}">
+                      <input id="retPaySypOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'syp_only' %}{{ return_pay_syp_raw }}{% endif %}">
                     </div>
                   </div>
                 </div>
@@ -1150,7 +1150,7 @@
                     <div class="muted">مبلغ الدفع بالدولار</div>
                     <div class="money-inline">
                       <span class="money-chip">USD</span>
-                      <input id="retPayUsdOnly" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'usd_only' %}{{ return_pay_usd_raw }}{% endif %}">
+                      <input id="retPayUsdOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'usd_only' %}{{ return_pay_usd_raw }}{% endif %}">
                     </div>
                   </div>
                 </div>
@@ -1160,11 +1160,11 @@
                     <div class="muted">دفع إجمالي المرتجع لكل عملة</div>
                     <div class="money-inline">
                       <span class="money-chip">SYP</span>
-                      <input id="retPaySeparateSyp" class="input numeric-math" data-math-max-decimals="2" type="number" readonly>
+                      <input id="retPaySeparateSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
                     </div>
                     <div class="money-inline">
                       <span class="money-chip">USD</span>
-                      <input id="retPaySeparateUsd" class="input numeric-math" data-math-max-decimals="2" type="number" readonly>
+                      <input id="retPaySeparateUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
                     </div>
                   </div>
                 </div>
@@ -1174,11 +1174,11 @@
                     <div class="muted">دفع مختلط (SYP + USD)</div>
                     <div class="money-inline">
                       <span class="money-chip">SYP</span>
-                      <input id="retPayMixedSyp" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_syp_raw }}{% endif %}">
+                      <input id="retPayMixedSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_syp_raw }}{% endif %}">
                     </div>
                     <div class="money-inline">
                       <span class="money-chip">USD</span>
-                      <input id="retPayMixedUsd" class="input numeric-math" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_usd_raw }}{% endif %}">
+                      <input id="retPayMixedUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_usd_raw }}{% endif %}">
                     </div>
                   </div>
                 </div>
@@ -1640,7 +1640,7 @@
       if (statusPaid && statusPaid.checked) return "paid";
       if (statusUnpaid && statusUnpaid.checked) return "unpaid";
       if (statusPartial && statusPartial.checked) return "partial";
-      return "none";
+      return "unpaid";
     }
 
     function getCurrentPayMethod() {
@@ -1688,6 +1688,30 @@
         return divRoundHalfUpSigned(amount * state.fx_rate_used, POW10_FX);
       }
       return amount;
+    }
+
+    function maxSourceForSettlement(sourceCurrency, settlementCurrency, settlementTarget, upperBound) {
+      const sourceCur = normalizeCurrency(sourceCurrency, "SYP");
+      const settlementCur = normalizeCurrency(settlementCurrency, "SYP");
+      const target = money2(settlementTarget);
+      let hi = money2(upperBound);
+      if (target < BIG_ZERO || hi < BIG_ZERO) return BIG_ZERO;
+      if (sourceCur === settlementCur) return hi > target ? target : hi;
+      if (state.fx_rate_used <= BIG_ZERO) return BIG_ZERO;
+      let lo = BIG_ZERO;
+      let best = BIG_ZERO;
+      while (lo <= hi) {
+        const mid = (lo + hi) / 2n;
+        const converted = convertBetweenCurrencies(mid, sourceCur, settlementCur);
+        if (converted === null) break;
+        if (converted <= target) {
+          best = mid;
+          lo = mid + 1n;
+        } else {
+          hi = mid - 1n;
+        }
+      }
+      return best;
     }
 
     function toSyp(valueCents, currency) {
@@ -2301,24 +2325,51 @@
       if (payState.syncingMixed) return;
       if (totals.settlementTotalSyp === null || totals.settlementTotalUsd === null) return;
       payState.syncingMixed = true;
-      const targetSyp = money2(totals.settlementTotalSyp);
-      const targetUsd = money2(totals.settlementTotalUsd);
-      if (source === "usd") {
-        let usd = readMoneyFromInput(payMixedUsdInput);
-        if (usd > targetUsd) usd = targetUsd;
-        const convertedToSyp = convertBetweenCurrencies(usd, "USD", "SYP");
-        const syp = convertedToSyp === null ? BIG_ZERO : (targetSyp > convertedToSyp ? money2(targetSyp - convertedToSyp) : BIG_ZERO);
-        setNumericInputValue(payMixedUsdInput, usd);
-        setNumericInputValue(payMixedSypInput, syp);
-      } else {
-        let syp = readMoneyFromInput(payMixedSypInput);
-        if (syp > targetSyp) syp = targetSyp;
-        const remainingSyp = targetSyp > syp ? money2(targetSyp - syp) : BIG_ZERO;
-        const usd = convertBetweenCurrencies(remainingSyp, "SYP", "USD");
-        setNumericInputValue(payMixedSypInput, syp);
-        setNumericInputValue(payMixedUsdInput, usd === null ? BIG_ZERO : money2(usd));
+      try {
+        const targetSyp = money2(totals.settlementTotalSyp);
+        const targetUsd = money2(totals.settlementTotalUsd);
+        if (targetSyp < BIG_ZERO || targetUsd < BIG_ZERO) return;
+        const settlementCur = normalizeCurrency(totals.settlementCurrency || "SYP", "SYP");
+        if (source === "usd") {
+          const sourceActive = document.activeElement === payMixedUsdInput;
+          const originalUsd = readMoneyFromInput(payMixedUsdInput);
+          let usd = originalUsd;
+          if (usd < BIG_ZERO) usd = BIG_ZERO;
+          const maxUsd = maxSourceForSettlement(
+            "USD",
+            settlementCur,
+            settlementCur === "USD" ? targetUsd : targetSyp,
+            targetUsd > usd ? targetUsd : usd
+          );
+          if (usd > maxUsd) usd = maxUsd;
+          let convertedToSyp = convertBetweenCurrencies(usd, "USD", "SYP");
+          if (convertedToSyp === null) convertedToSyp = BIG_ZERO;
+          const syp = targetSyp > convertedToSyp ? money2(targetSyp - convertedToSyp) : BIG_ZERO;
+          if (!sourceActive || usd !== originalUsd) setNumericInputValue(payMixedUsdInput, usd);
+          setNumericInputValue(payMixedSypInput, syp);
+        } else {
+          const sourceActive = document.activeElement === payMixedSypInput;
+          const originalSyp = readMoneyFromInput(payMixedSypInput);
+          let syp = originalSyp;
+          if (syp < BIG_ZERO) syp = BIG_ZERO;
+          const maxSypByTarget = targetSyp > syp ? targetSyp : syp;
+          const maxSyp = maxSourceForSettlement(
+            "SYP",
+            settlementCur,
+            settlementCur === "USD" ? targetUsd : targetSyp,
+            maxSypByTarget
+          );
+          if (syp > maxSyp) syp = maxSyp;
+          const remainingSyp = targetSyp > syp ? money2(targetSyp - syp) : BIG_ZERO;
+          let usd = maxSourceForSettlement("USD", "SYP", remainingSyp, targetUsd);
+          usd = money2(usd);
+          if (usd > targetUsd) usd = targetUsd;
+          if (!sourceActive || syp !== originalSyp) setNumericInputValue(payMixedSypInput, syp);
+          setNumericInputValue(payMixedUsdInput, usd);
+        }
+      } finally {
+        payState.syncingMixed = false;
       }
-      payState.syncingMixed = false;
     }
 
     function buildPaymentDraft(totals) {
@@ -2591,10 +2642,14 @@
         }
       }
 
-      [paySypOnlyInput, payUsdOnlyInput, payMixedSypInput, payMixedUsdInput].forEach(function (input) {
+      const methodInputs = [paySypOnlyInput, payUsdOnlyInput, payMixedSypInput, payMixedUsdInput];
+      methodInputs.forEach(function (input) {
         if (!input) return;
+        input.readOnly = (status === "paid" && method !== "mixed");
         input.disabled = (status === "unpaid");
       });
+      if (payMixedSypInput) payMixedSypInput.readOnly = (status === "unpaid");
+      if (payMixedUsdInput) payMixedUsdInput.readOnly = (status === "unpaid");
       if (paySeparateSypInput) paySeparateSypInput.disabled = true;
       if (paySeparateUsdInput) paySeparateUsdInput.disabled = true;
 
@@ -2640,6 +2695,16 @@
 
     function updateRemainingLabel() {
       syncPaymentUI();
+    }
+
+    let paymentSyncQueued = false;
+    function scheduleSyncPaymentUI() {
+      if (paymentSyncQueued) return;
+      paymentSyncQueued = true;
+      window.setTimeout(function () {
+        paymentSyncQueued = false;
+        syncPaymentUI();
+      }, 0);
     }
 
     function updateMoneyContainerTitle() {
@@ -2747,15 +2812,6 @@
         refreshRowStatesAfterQtyChange();
         updateRemainingLabel();
         return;
-      }
-      if (
-        e.target === paySypOnlyInput
-        || e.target === payUsdOnlyInput
-        || e.target === payMixedSypInput
-        || e.target === payMixedUsdInput
-        || e.target === debtAmountInput
-      ) {
-        syncPaymentUI();
       }
     });
 
@@ -2887,33 +2943,39 @@
     });
     [paySypOnlyInput, payUsdOnlyInput].forEach(function (input) {
       if (!input) return;
-      input.addEventListener("input", syncPaymentUI);
+      input.addEventListener("input", scheduleSyncPaymentUI);
     });
     if (payMixedSypInput) {
+      payMixedSypInput.addEventListener("focus", function () {
+        if (getCurrentStatus() !== "paid" || getCurrentPayMethod() !== "mixed") return;
+        window.setTimeout(function () {
+          if (document.activeElement !== payMixedSypInput) return;
+          try { payMixedSypInput.select(); } catch (_err) {}
+        }, 0);
+      });
       payMixedSypInput.addEventListener("input", function () {
         payState.mixedLastEdited = "syp";
-        const totals = recalcTotals();
-        if (getCurrentStatus() === "paid" && getCurrentPayMethod() === "mixed") {
-          syncMixedFullFrom("syp", totals);
-        }
-        syncPaymentUI();
+        scheduleSyncPaymentUI();
       });
     }
     if (payMixedUsdInput) {
+      payMixedUsdInput.addEventListener("focus", function () {
+        if (getCurrentStatus() !== "paid" || getCurrentPayMethod() !== "mixed") return;
+        window.setTimeout(function () {
+          if (document.activeElement !== payMixedUsdInput) return;
+          try { payMixedUsdInput.select(); } catch (_err) {}
+        }, 0);
+      });
       payMixedUsdInput.addEventListener("input", function () {
         payState.mixedLastEdited = "usd";
-        const totals = recalcTotals();
-        if (getCurrentStatus() === "paid" && getCurrentPayMethod() === "mixed") {
-          syncMixedFullFrom("usd", totals);
-        }
-        syncPaymentUI();
+        scheduleSyncPaymentUI();
       });
     }
     if (debtToggle) {
       debtToggle.addEventListener("change", syncPaymentUI);
     }
     if (debtAmountInput) {
-      debtAmountInput.addEventListener("input", syncPaymentUI);
+      debtAmountInput.addEventListener("input", scheduleSyncPaymentUI);
     }
 
     pairToggleButtons.forEach(function (btn) {
