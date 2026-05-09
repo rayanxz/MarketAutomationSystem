@@ -298,6 +298,22 @@ class ReturnWizardPrecisionParityTests(TestCase):
                 container_usd_sum += Decimal(str(ln.amount or "0"))
         self.assertEqual(container_usd_sum, Decimal("1.00"))
 
+    def test_wizard_partial_mixed_template_normalizes_one_side_payload_method(self):
+        bill = self._create_usd_bill()
+        item = bill.items.get()
+        resp = self.client.get(
+            reverse("billing_bill_return_wizard", kwargs={"bill_id": bill.public_id}),
+            {"items": str(item.id)},
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200, resp.content.decode("utf-8"))
+        html = resp.content.decode("utf-8")
+        self.assertIn('if (selectedMethod === "mixed") {', html)
+        self.assertIn('method = "syp_only";', html)
+        self.assertIn('method = "usd_only";', html)
+        self.assertIn('method = "mixed";', html)
+        self.assertNotIn("في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر.", html)
+
     def test_wizard_uses_same_currency_settlement_cap_in_submit_validation(self):
         bill = self._create_usd_bill()
         item = bill.items.get()

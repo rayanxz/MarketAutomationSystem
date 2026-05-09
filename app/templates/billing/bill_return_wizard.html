@@ -2393,7 +2393,8 @@
 
       let status = getCurrentStatus();
       if (!["paid", "partial", "unpaid"].includes(status)) status = "unpaid";
-      const method = getCurrentPayMethod();
+      const selectedMethod = getCurrentPayMethod();
+      let method = selectedMethod;
       const settlementCur = totals.settlementCurrency;
       const settlementTotal = money2(totals.settlementTotalSelected);
       let amountSyp = BIG_ZERO;
@@ -2441,12 +2442,13 @@
       }
 
       if (status === "partial") {
-        if (method === "mixed") {
-          if (!(money2(totals.totalSyp) > BIG_ZERO) || !(money2(totals.totalUsd) > BIG_ZERO)) {
-            return { ok: false, error: "الدفع المختلط الجزئي يتطلب وجود إجمالي بعملتي SYP و USD." };
-          }
-          if (!(amountSyp > BIG_ZERO) || !(amountUsd > BIG_ZERO)) {
-            return { ok: false, error: "في الدفع المختلط الجزئي يجب إدخال مبلغين أكبر من الصفر." };
+        if (selectedMethod === "mixed") {
+          if (amountSyp > BIG_ZERO && amountUsd <= BIG_ZERO) {
+            method = "syp_only";
+          } else if (amountUsd > BIG_ZERO && amountSyp <= BIG_ZERO) {
+            method = "usd_only";
+          } else if (amountSyp > BIG_ZERO && amountUsd > BIG_ZERO) {
+            method = "mixed";
           }
         }
         if (!(paidSettlement > BIG_ZERO)) {
