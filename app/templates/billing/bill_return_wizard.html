@@ -1357,6 +1357,7 @@
     const payState = {
       mixedLastEdited: "syp",
       syncingMixed: false,
+      lastStatus: null,
     };
 
     function normalizeDecimalInput(raw) {
@@ -2572,6 +2573,8 @@
       const totals = recalcTotals();
       const zeroTotal = isZeroFinancialTotal(totals);
       const status = getCurrentStatus();
+      const previousStatus = payState.lastStatus;
+      const enteringPartial = status === "partial" && previousStatus !== null && previousStatus !== "partial";
       if (!payMethodRadios.some(function (radio) { return !!radio.checked; }) && payMethodSyp) {
         payMethodSyp.checked = true;
       }
@@ -2607,8 +2610,17 @@
         if (hiddenPaySypInput) hiddenPaySypInput.value = "0.00";
         if (hiddenPayUsdInput) hiddenPayUsdInput.value = "0.00";
         if (hiddenPaidAmountInput) hiddenPaidAmountInput.value = "0.00";
+        payState.lastStatus = "unpaid";
         syncDebtSettlementUI(totals, draftZero);
         return { totals, draft: draftZero };
+      }
+
+      if (enteringPartial) {
+        setNumericInputValue(paySypOnlyInput, BIG_ZERO);
+        setNumericInputValue(payUsdOnlyInput, BIG_ZERO);
+        setNumericInputValue(payMixedSypInput, BIG_ZERO);
+        setNumericInputValue(payMixedUsdInput, BIG_ZERO);
+        payState.mixedLastEdited = "syp";
       }
 
       statusRadios.forEach(function (radio) { radio.disabled = false; });
@@ -2619,6 +2631,7 @@
       }
       if (payMethodSeparate) {
         payMethodSeparate.disabled = (status === "partial");
+        payMethodSeparate.closest("label")?.classList.toggle("muted", status === "partial");
         if (status === "partial" && method === "separate") {
           if (payMethodMixed) payMethodMixed.checked = true;
           else if (payMethodSyp) payMethodSyp.checked = true;
@@ -2684,6 +2697,7 @@
       if (moneyContainer) {
         moneyContainer.disabled = !(draft.ok && draft.paidSettlement > BIG_ZERO);
       }
+      payState.lastStatus = status;
       syncMoneyContainerEligibilityForSettlement();
       syncDebtSettlementUI(totals, draft);
       return { totals, draft };
