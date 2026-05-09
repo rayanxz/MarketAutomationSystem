@@ -31,6 +31,11 @@
     --col-total-cost-width:var(--col-unit-cost-width);
     --col-fixed-width-total:calc(var(--col-product-width) + var(--col-unit-cost-width) + var(--col-total-cost-width));
     --col-qty-shared-width:calc((100% - var(--col-fixed-width-total)) / 4);
+    --ret-error-text:#b42318;
+    --ret-error-text-strong:#991b1b;
+    --ret-error-border:#ef4444;
+    --ret-error-bg:#fef2f2;
+    --ret-error-bg-soft:#fff1f2;
   }
 
   .bill-wrap{
@@ -58,6 +63,7 @@
     max-width:360px;
     min-height:100%;
     align-self:stretch;
+    contain:size;
   }
 
   .card{
@@ -200,6 +206,10 @@
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
+  }
+  .ret-head-inline-input:disabled{
+    background:#f3f4f6;
+    cursor:not-allowed;
   }
   .ret-head-count{
     direction:ltr;
@@ -437,13 +447,13 @@
     gap:4px;
   }
   .ret-qty.ret-qty-invalid{
-    border-color:#ef4444;
-    box-shadow:0 0 0 1px #ef4444;
-    background:#fff7f7;
+    border-color:var(--ret-error-border);
+    box-shadow:0 0 0 1px var(--ret-error-border);
+    background:var(--ret-error-bg-soft);
   }
   .ret-qty-error{
     min-height:14px;
-    color:#b91c1c;
+    color:var(--ret-error-text);
     font-size:11px;
     line-height:1.3;
     font-weight:600;
@@ -590,12 +600,38 @@
     padding:14px 12px;
     box-shadow:var(--card-shadow);
     height:100%;
-    min-height:100%;
+    min-height:0;
     box-sizing:border-box;
     display:flex;
     flex-direction:column;
     position:sticky;
     top:12px;
+    max-height:none;
+  }
+  .foot-left-scroll{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    scrollbar-gutter:stable;
+    scrollbar-width:thin;
+    scrollbar-color:#cbd5e1 transparent;
+    overscroll-behavior:contain;
+  }
+  .foot-left-scroll::-webkit-scrollbar{
+    width:10px;
+  }
+  .foot-left-scroll::-webkit-scrollbar-track{
+    background:transparent;
+  }
+  .foot-left-scroll::-webkit-scrollbar-thumb{
+    background:#cbd5e1;
+    border-radius:999px;
+    border:2px solid transparent;
+    background-clip:padding-box;
+  }
+  .foot-left-scroll::-webkit-scrollbar-thumb:hover{
+    background:#94a3b8;
   }
   .total-box{
     display:flex;
@@ -741,6 +777,9 @@
     font-size:12px;
     margin-top:6px;
   }
+  .pay-note.ret-msg-error{
+    color:var(--ret-error-text);
+  }
   .pay-status-item{
     margin:0;
   }
@@ -755,15 +794,10 @@
     display:grid;
     gap:6px;
   }
-  #retRemainingLabel{
-    color:#4b5563;
-    font-size:12px;
-    min-height:18px;
-  }
   .ret-error{
-    border:1px solid #fecaca;
-    background:#fef2f2;
-    color:#991b1b;
+    border:1px solid var(--ret-error-border);
+    background:var(--ret-error-bg);
+    color:var(--ret-error-text-strong);
     font-size:13px;
     font-weight:600;
   }
@@ -772,7 +806,19 @@
     padding-top:12px;
     border-top:1px solid #e5e7eb;
     display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
     gap:8px;
+  }
+  .ret-actions .btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:42px;
+    text-align:center;
+  }
+  .ret-actions .btn:disabled{
+    opacity:.65;
+    cursor:not-allowed;
   }
 
   @media (max-width:1100px){
@@ -787,11 +833,25 @@
       min-width:0;
       max-width:none;
       min-height:0;
+      height:auto;
+      max-height:none;
+      contain:none;
     }
     .foot-left{
       position:static;
       top:auto;
       min-height:0;
+      max-height:none;
+      height:auto;
+      overflow:visible;
+    }
+    .foot-left-scroll{
+      flex:0 1 auto;
+      min-height:auto;
+      max-height:none;
+      overflow:visible;
+      scrollbar-gutter:auto;
+      overscroll-behavior:auto;
     }
     .ret-head-fields{
       grid-template-columns:1fr;
@@ -876,6 +936,22 @@
                   class="ret-head-inline-value ret-head-count"
                   title="{{ rows|length|human_number }}"
                 >{{ rows|length|human_number }}</span>
+              </div>
+              <div class="ret-head-field">
+                <span class="ret-head-inline-label">حاوية المال</span>
+                <span class="ret-head-inline-sep">:</span>
+                <select class="ret-head-inline-input" name="money_container_id" id="moneyContainer" title="—" aria-label="حاوية المال">
+                  <option value="">اختر الحاوية</option>
+                  {% for mc in money_containers %}
+                    <option
+                      value="{{ mc.id }}"
+                      data-settlement-ok="{% if mc.id in settlement_eligible_container_ids %}1{% else %}0{% endif %}"
+                      {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}
+                    >{{ mc.name }}</option>
+                  {% empty %}
+                    <option value="" disabled>لا توجد حاويات متاحة</option>
+                  {% endfor %}
+                </select>
               </div>
             </div>
           </div>
@@ -1081,171 +1157,152 @@
 
     <aside class="bill-side">
       <section class="foot-left">
-        <div class="total-box">
-          <div class="muted">إجمالي المرتجع (SYP)</div>
-          <div id="retTotalSyp" class="total-amt" title="{{ total_return_syp|default:0|money_number }}">{{ total_return_syp|default:0|money_number }}</div>
-        </div>
-        <div class="total-box">
-          <div class="muted">إجمالي المرتجع (USD)</div>
-          <div id="retTotalUsd" class="total-amt" title="{{ total_return_usd|default:0|money_number }}">{{ total_return_usd|default:0|money_number }}</div>
-        </div>
-        <div class="total-box">
-          <div class="muted">الإجمالي بعد التسوية (<span id="retSettleCurLabel">{{ settlement_currency_selected|default:"SYP" }}</span>)</div>
-          <div id="retTotalSettlement" class="total-amt" title="{{ total_return_settlement|default:0|money_number }}">{{ total_return_settlement|default:0|money_number }}</div>
-        </div>
-
-        <div class="bill-side-stack">
-          <div class="pay-head">
-            <div class="field">
-              <label class="muted" for="settlementCurrency">عملة التسوية</label>
-              <select class="input" name="settlement_currency" id="settlementCurrency">
-                <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
-                <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
-              </select>
-            </div>
+        <div class="foot-left-scroll">
+          <div class="total-box">
+            <div class="muted">إجمالي المرتجع (SYP)</div>
+            <div id="retTotalSyp" class="total-amt" title="{{ total_return_syp|default:0|money_number }}">{{ total_return_syp|default:0|money_number }}</div>
+          </div>
+          <div class="total-box">
+            <div class="muted">إجمالي المرتجع (USD)</div>
+            <div id="retTotalUsd" class="total-amt" title="{{ total_return_usd|default:0|money_number }}">{{ total_return_usd|default:0|money_number }}</div>
+          </div>
+          <div class="total-box">
+            <div class="muted">الإجمالي بعد التسوية (<span id="retSettleCurLabel">{{ settlement_currency_selected|default:"SYP" }}</span>)</div>
+            <div id="retTotalSettlement" class="total-amt" title="{{ total_return_settlement|default:0|money_number }}">{{ total_return_settlement|default:0|money_number }}</div>
           </div>
 
-          <div class="bill-side-section">
-            <div class="bill-side-title">الدفع</div>
-            <div class="pay-layout">
-              <div class="pay-status-card">
-                <div class="muted">حالة الدفع</div>
-                <div class="pay-status-list">
-                  <label>
-                    <input type="radio" name="return_status" id="retUnpaid" value="unpaid" {% if return_status_selected == "unpaid" %}checked{% endif %}>
-                    <span>غير مدفوعة</span>
-                  </label>
-                  <label>
-                    <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
-                    <span>دفع جزئي</span>
-                  </label>
-                  <label>
-                    <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
-                    <span>دفع كامل</span>
-                  </label>
-                </div>
-              </div>
-
-              <fieldset id="retPayMethodsFieldset" class="pay-methods">
-                <legend>خيارات التسديد</legend>
-                <div class="pay-method-list">
-                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSyp" value="syp_only" {% if return_payment_method_selected == "syp_only" %}checked{% endif %}> دفع بالليرة فقط</label>
-                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodUsd" value="usd_only" {% if return_payment_method_selected == "usd_only" %}checked{% endif %}> دفع بالدولار فقط</label>
-                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSeparate" value="separate" {% if return_payment_method_selected == "separate" %}checked{% endif %}> دفع منفصل (SYP + USD)</label>
-                  <label><input type="radio" name="return_payment_method_ui" id="retPayMethodMixed" value="mixed" {% if return_payment_method_selected == "mixed" %}checked{% endif %}> دفع مختلط</label>
-                </div>
-
-                <div class="pay-method-panel" data-method-panel="syp_only">
-                  <div class="pay-grid">
-                    <div class="muted">مبلغ الدفع بالليرة</div>
-                    <div class="money-inline">
-                      <span class="money-chip">SYP</span>
-                      <input id="retPaySypOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'syp_only' %}{{ return_pay_syp_raw }}{% endif %}">
-                    </div>
-                  </div>
-                </div>
-
-                <div class="pay-method-panel" data-method-panel="usd_only">
-                  <div class="pay-grid">
-                    <div class="muted">مبلغ الدفع بالدولار</div>
-                    <div class="money-inline">
-                      <span class="money-chip">USD</span>
-                      <input id="retPayUsdOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'usd_only' %}{{ return_pay_usd_raw }}{% endif %}">
-                    </div>
-                  </div>
-                </div>
-
-                <div class="pay-method-panel" data-method-panel="separate">
-                  <div class="pay-grid">
-                    <div class="muted">دفع إجمالي المرتجع لكل عملة</div>
-                    <div class="money-inline">
-                      <span class="money-chip">SYP</span>
-                      <input id="retPaySeparateSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
-                    </div>
-                    <div class="money-inline">
-                      <span class="money-chip">USD</span>
-                      <input id="retPaySeparateUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="pay-method-panel" data-method-panel="mixed">
-                  <div class="pay-grid">
-                    <div class="muted">دفع مختلط (SYP + USD)</div>
-                    <div class="money-inline">
-                      <span class="money-chip">SYP</span>
-                      <input id="retPayMixedSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_syp_raw }}{% endif %}">
-                    </div>
-                    <div class="money-inline">
-                      <span class="money-chip">USD</span>
-                      <input id="retPayMixedUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_usd_raw }}{% endif %}">
-                    </div>
-                  </div>
-                </div>
-
-                <div id="retPayMethodHint" class="pay-note"></div>
-              </fieldset>
-
-              <div class="bill-side-card">
-                <div class="field">
-                  <label class="muted" for="moneyContainer">حاوية المال</label>
-                  <select class="input" name="money_container_id" id="moneyContainer">
-                    <option value="">اختر الحاوية</option>
-                    {% for mc in money_containers %}
-                      <option
-                        value="{{ mc.id }}"
-                        data-settlement-ok="{% if mc.id in settlement_eligible_container_ids %}1{% else %}0{% endif %}"
-                        {% if money_container_id_raw|default:'' == mc.id|stringformat:"s" %}selected{% endif %}
-                      >{{ mc.name }}</option>
-                    {% empty %}
-                      <option value="" disabled>لا توجد حاويات متاحة</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <span id="retRemainingLabel"></span>
+          <div class="bill-side-stack">
+            <div class="pay-head">
+              <div class="field">
+                <label class="muted" for="settlementCurrency">عملة التسوية</label>
+                <select class="input" name="settlement_currency" id="settlementCurrency">
+                  <option value="SYP" {% if settlement_currency_selected == "SYP" %}selected{% endif %}>SYP</option>
+                  <option value="USD" {% if settlement_currency_selected == "USD" %}selected{% endif %}>USD</option>
+                </select>
               </div>
             </div>
-          </div>
 
-          {% if has_source_bill_payable_debt %}
-          <div class="bill-side-section">
-            <div class="bill-side-title">تسوية الدين</div>
-            <div class="bill-side-card debt-settle-card">
-              <label class="pay-status-item">
-                <input type="checkbox" id="retDebtSettlementToggle" name="settle_purchase_debt" value="1" {% if settle_purchase_debt_enabled %}checked{% endif %}>
-                <span>تسوية الدين من الدفعة</span>
-              </label>
-              {% if source_debt_public_id %}
-              <div class="muted">مرجع الدين: {{ source_debt_public_id }}</div>
-              {% endif %}
-              <div id="retDebtSettlementSection" class="debt-settle-fields{% if not settle_purchase_debt_enabled %} is-hidden{% endif %}">
-                <div class="bill-side-row">
-                  <span class="bill-side-label">الدين الحالي</span>
-                  <span id="retSourceDebtValue" class="bill-side-value">0.00</span>
+            <div class="bill-side-section">
+              <div class="bill-side-title">الدفع</div>
+              <div class="pay-layout">
+                <div class="pay-status-card">
+                  <div class="muted">حالة الدفع</div>
+                  <div class="pay-status-list">
+                    <label>
+                      <input type="radio" name="return_status" id="retUnpaid" value="unpaid" {% if return_status_selected == "unpaid" %}checked{% endif %}>
+                      <span>غير مدفوعة</span>
+                    </label>
+                    <label>
+                      <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
+                      <span>دفع جزئي</span>
+                    </label>
+                    <label>
+                      <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
+                      <span>دفع كامل</span>
+                    </label>
+                  </div>
                 </div>
-                <div class="pay-amount-wrap">
-                  <label class="bill-side-label" for="retDebtSettlementAmount">مبلغ التسوية من الدفعة</label>
-                  <input
-                    type="number"
-                    id="retDebtSettlementAmount"
-                    name="debt_settlement_amount"
-                    class="input numeric-math"
-                    data-math-max-decimals="2"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value="{{ debt_settlement_amount_raw }}"
-                  >
-                </div>
-                <div class="bill-side-row">
-                  <span class="bill-side-label">سيتم تسويته</span>
-                  <span id="retDebtWillSettleValue" class="bill-side-value">0.00</span>
-                </div>
-                <div id="retDebtHint" class="pay-note"></div>
+
+                <fieldset id="retPayMethodsFieldset" class="pay-methods">
+                  <legend>خيارات التسديد</legend>
+                  <div class="pay-method-list">
+                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSyp" value="syp_only" {% if return_payment_method_selected == "syp_only" %}checked{% endif %}> دفع بالليرة فقط</label>
+                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodUsd" value="usd_only" {% if return_payment_method_selected == "usd_only" %}checked{% endif %}> دفع بالدولار فقط</label>
+                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSeparate" value="separate" {% if return_payment_method_selected == "separate" %}checked{% endif %}> دفع منفصل (SYP + USD)</label>
+                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodMixed" value="mixed" {% if return_payment_method_selected == "mixed" %}checked{% endif %}> دفع مختلط</label>
+                  </div>
+
+                  <div class="pay-method-panel" data-method-panel="syp_only">
+                    <div class="pay-grid">
+                      <div class="muted">مبلغ الدفع بالليرة</div>
+                      <div class="money-inline">
+                        <span class="money-chip">SYP</span>
+                        <input id="retPaySypOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'syp_only' %}{{ return_pay_syp_raw }}{% endif %}">
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="pay-method-panel" data-method-panel="usd_only">
+                    <div class="pay-grid">
+                      <div class="muted">مبلغ الدفع بالدولار</div>
+                      <div class="money-inline">
+                        <span class="money-chip">USD</span>
+                        <input id="retPayUsdOnly" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'usd_only' %}{{ return_pay_usd_raw }}{% endif %}">
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="pay-method-panel" data-method-panel="separate">
+                    <div class="pay-grid">
+                      <div class="muted">دفع إجمالي المرتجع لكل عملة</div>
+                      <div class="money-inline">
+                        <span class="money-chip">SYP</span>
+                        <input id="retPaySeparateSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
+                      </div>
+                      <div class="money-inline">
+                        <span class="money-chip">USD</span>
+                        <input id="retPaySeparateUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" readonly>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="pay-method-panel" data-method-panel="mixed">
+                    <div class="pay-grid">
+                      <div class="muted">دفع مختلط (SYP + USD)</div>
+                      <div class="money-inline">
+                        <span class="money-chip">SYP</span>
+                        <input id="retPayMixedSyp" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_syp_raw }}{% endif %}">
+                      </div>
+                      <div class="money-inline">
+                        <span class="money-chip">USD</span>
+                        <input id="retPayMixedUsd" class="input numeric-math" data-math-display-max-decimals="2" data-math-max-decimals="2" type="number" min="0" step="0.01" placeholder="0" value="{% if return_payment_method_selected == 'mixed' %}{{ return_pay_usd_raw }}{% endif %}">
+                      </div>
+                    </div>
+                  </div>
+
+                  <div id="retPayMethodHint" class="pay-note"></div>
+                </fieldset>
+
               </div>
             </div>
+
+            {% if has_source_bill_payable_debt %}
+            <div class="bill-side-section">
+              <div class="bill-side-title">تسوية الدين</div>
+              <div class="bill-side-card debt-settle-card">
+                <label class="pay-status-item">
+                  <input type="checkbox" id="retDebtSettlementToggle" name="settle_purchase_debt" value="1" {% if settle_purchase_debt_enabled %}checked{% endif %}>
+                  <span>تسوية الدين من الدفعة</span>
+                </label>
+                <div id="retDebtSettlementSection" class="debt-settle-fields{% if not settle_purchase_debt_enabled %} is-hidden{% endif %}">
+                  <div class="bill-side-row">
+                    <span class="bill-side-label">الدين الحالي</span>
+                    <span id="retSourceDebtValue" class="bill-side-value">0.00</span>
+                  </div>
+                  <div class="pay-amount-wrap">
+                    <label class="bill-side-label" for="retDebtSettlementAmount">مبلغ التسوية من الدفعة</label>
+                    <input
+                      type="number"
+                      id="retDebtSettlementAmount"
+                      name="debt_settlement_amount"
+                      class="input numeric-math"
+                      data-math-max-decimals="2"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value="{{ debt_settlement_amount_raw }}"
+                    >
+                  </div>
+                  <div class="bill-side-row">
+                    <span class="bill-side-label">سيتم تسويته</span>
+                    <span id="retDebtWillSettleValue" class="bill-side-value">0.00</span>
+                  </div>
+                  <div id="retDebtHint" class="pay-note"></div>
+                </div>
+              </div>
+            </div>
+            {% endif %}
           </div>
-          {% endif %}
 
           <input type="hidden" name="return_payment_method" id="returnPaymentMethod" value="{{ return_payment_method_selected }}">
           <input type="hidden" name="return_pay_syp" id="returnPaySyp" value="{{ return_pay_syp_raw }}">
@@ -1300,8 +1357,6 @@
       input.dataset.baseDisabled = input.disabled ? "1" : "0";
     });
 
-    const lblRemaining = document.getElementById("retRemainingLabel");
-
     const statusPaid = document.getElementById("retPaid");
     const statusPartial = document.getElementById("retPartial");
     const statusUnpaid = document.getElementById("retUnpaid");
@@ -1354,11 +1409,27 @@
     const POW10_MONEY = pow10(SCALE_MONEY);
     const POW10_QTY = pow10(SCALE_QTY);
     const POW10_FX = pow10(SCALE_FX);
+    const INLINE_ERROR_CLASS = "ret-msg-error";
     const payState = {
       mixedLastEdited: "syp",
       syncingMixed: false,
       lastStatus: null,
     };
+
+    function setInlineMessage(el, message, isError) {
+      if (!el) return;
+      const hasText = !!message;
+      el.textContent = hasText ? String(message) : "";
+      el.classList.toggle(INLINE_ERROR_CLASS, !!(hasText && isError));
+    }
+
+    function setPayMethodMessage(message, isError) {
+      setInlineMessage(payMethodHint, message, isError);
+    }
+
+    function setDebtMessage(message, isError) {
+      setInlineMessage(debtHint, message, isError);
+    }
 
     function normalizeDecimalInput(raw) {
       return String(raw == null ? "" : raw).trim().replace(/,/g, "");
@@ -2534,7 +2605,7 @@
         debtSection.classList.add("is-hidden");
         if (debtAmountInput) debtAmountInput.disabled = true;
         if (debtWillSettleValueBox) renderMoney(debtWillSettleValueBox, BIG_ZERO);
-        if (debtHint) debtHint.textContent = "";
+        setDebtMessage("", false);
         return;
       }
 
@@ -2560,14 +2631,12 @@
       }
       if (requested < BIG_ZERO) requested = BIG_ZERO;
       if (debtWillSettleValueBox) renderMoney(debtWillSettleValueBox, requested);
-      if (debtHint) {
-        if (debtTotal === null) {
-          debtHint.textContent = "لا يمكن احتساب الدين الحالي بدون سعر صرف صحيح.";
-        } else if (maxSettlement <= BIG_ZERO) {
-          debtHint.textContent = "فعّل دفعاً أكبر من الصفر لاستخدام تسوية الدين.";
-        } else {
-          debtHint.textContent = "الحد الأقصى للتسوية من الدفعة الحالية: " + fmt(maxSettlement);
-        }
+      if (debtTotal === null) {
+        setDebtMessage("لا يمكن احتساب الدين الحالي بدون سعر صرف صحيح.", true);
+      } else if (maxSettlement <= BIG_ZERO) {
+        setDebtMessage("فعّل دفعاً أكبر من الصفر لاستخدام تسوية الدين.", true);
+      } else {
+        setDebtMessage("الحد الأقصى للتسوية من الدفعة الحالية: " + fmt(maxSettlement), false);
       }
     }
 
@@ -2606,8 +2675,7 @@
           moneyContainer.disabled = true;
         }
         const draftZero = buildPaymentDraft(totals);
-        if (lblRemaining) lblRemaining.textContent = draftZero.message || "";
-        if (payMethodHint) payMethodHint.textContent = draftZero.message || "";
+        setPayMethodMessage(draftZero.message || "", false);
         if (hiddenPayMethodInput) hiddenPayMethodInput.value = "none";
         if (hiddenPaySypInput) hiddenPaySypInput.value = "0.00";
         if (hiddenPayUsdInput) hiddenPayUsdInput.value = "0.00";
@@ -2677,19 +2745,17 @@
         const remaining = draft.settlementTotal > draft.paidSettlement
           ? money2(draft.settlementTotal - draft.paidSettlement)
           : BIG_ZERO;
-        if (lblRemaining) lblRemaining.textContent = "المتبقي بعد الدفع: " + fmt(remaining);
         if (payMethodHint) {
           if (status === "paid") {
-            payMethodHint.textContent = "في الدفع الكامل يجب تغطية كامل إجمالي التسوية.";
+            setPayMethodMessage("في الدفع الكامل يجب تغطية كامل إجمالي التسوية.", false);
           } else if (status === "partial") {
-            payMethodHint.textContent = "في الدفع الجزئي يجب أن تبقى قيمة متبقية بعد الدفع.";
+            setPayMethodMessage("في الدفع الجزئي يجب أن تبقى قيمة متبقية بعد الدفع.", false);
           } else {
-            payMethodHint.textContent = "حالة غير مدفوعة: التسديد غير مفعل.";
+            setPayMethodMessage("حالة غير مدفوعة: التسديد غير مفعل.", false);
           }
         }
       } else {
-        if (payMethodHint) payMethodHint.textContent = draft.error || "";
-        if (lblRemaining) lblRemaining.textContent = draft.error || "";
+        setPayMethodMessage(draft.error || "", true);
         if (hiddenPayMethodInput) hiddenPayMethodInput.value = "none";
         if (hiddenPaySypInput) hiddenPaySypInput.value = "0.00";
         if (hiddenPayUsdInput) hiddenPayUsdInput.value = "0.00";
@@ -2798,7 +2864,6 @@
       input.addEventListener("change", function () {
         const valid = validateQtyInput(input, { autoClampToMax: true });
         if (!valid) {
-          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
           return;
         }
         refreshRowStatesAfterQtyChange();
@@ -2807,7 +2872,6 @@
       input.addEventListener("blur", function () {
         const valid = validateQtyInput(input, { autoClampToMax: true });
         if (!valid) {
-          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
           return;
         }
         refreshRowStatesAfterQtyChange();
@@ -2818,11 +2882,9 @@
     form.addEventListener("input", function (e) {
       if (e.target.classList.contains("ret-qty")) {
         if (!validateQtyInput(e.target, { autoClampToMax: true })) {
-          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
           return;
         }
         if (!validateAllQtyInputs({ autoClampToMax: true })) {
-          if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
           return;
         }
         refreshRowStatesAfterQtyChange();
@@ -2866,7 +2928,6 @@
           return input.classList.contains("ret-qty-invalid");
         });
         if (firstInvalidQty) firstInvalidQty.focus();
-        if (lblRemaining) lblRemaining.textContent = qtyValidationBlockedMsg;
         e.preventDefault();
         return;
       }
@@ -2875,12 +2936,12 @@
       const totals = paymentStateSnapshot && paymentStateSnapshot.totals ? paymentStateSnapshot.totals : recalcTotals();
       if (!draft || !draft.ok) {
         e.preventDefault();
-        if (lblRemaining) lblRemaining.textContent = (draft && draft.error) ? draft.error : "تعذر التحقق من الدفع.";
+        setPayMethodMessage((draft && draft.error) ? draft.error : "تعذر التحقق من الدفع.", true);
         return;
       }
       if (draft.paidSettlement > BIG_ZERO && moneyContainer && !String(moneyContainer.value || "").trim()) {
         e.preventDefault();
-        if (lblRemaining) lblRemaining.textContent = "يرجى اختيار حاوية مال عند وجود دفع.";
+        setPayMethodMessage("يرجى اختيار حاوية مال عند وجود دفع.", true);
         moneyContainer.focus();
         return;
       }
@@ -2892,7 +2953,7 @@
           const settlementAllowed = String(selectedContainerOption.dataset.settlementOk || "0") === "1";
           if (!settlementAllowed) {
             e.preventDefault();
-            if (debtHint) debtHint.textContent = "الحاوية المختارة لا تدعم تسوية دين فاتورة شراء.";
+            setDebtMessage("الحاوية المختارة لا تدعم تسوية دين فاتورة شراء.", true);
             if (moneyContainer) moneyContainer.focus();
             return;
           }
@@ -2900,30 +2961,30 @@
         const debtTotal = sourceDebtInSettlementCurrency(totals.settlementCurrency);
         if (draft.paidSettlement <= BIG_ZERO) {
           e.preventDefault();
-          if (debtHint) debtHint.textContent = "لا يمكن تسوية الدين بدون دفعة.";
+          setDebtMessage("لا يمكن تسوية الدين بدون دفعة.", true);
           return;
         }
         if (debtTotal === null || debtTotal <= BIG_ZERO) {
           e.preventDefault();
-          if (debtHint) debtHint.textContent = "لا يوجد دين قابل للتسوية حالياً.";
+          setDebtMessage("لا يوجد دين قابل للتسوية حالياً.", true);
           return;
         }
         const settleAmount = readMoneyFromInput(debtAmountInput);
         const paidSettlementComponent = paidComponentInSettlementCurrency(draft, totals.settlementCurrency);
         if (settleAmount <= BIG_ZERO) {
           e.preventDefault();
-          if (debtHint) debtHint.textContent = "مبلغ التسوية يجب أن يكون أكبر من الصفر.";
+          setDebtMessage("مبلغ التسوية يجب أن يكون أكبر من الصفر.", true);
           if (debtAmountInput) debtAmountInput.focus();
           return;
         }
         if (settleAmount > paidSettlementComponent) {
           e.preventDefault();
-          if (debtHint) debtHint.textContent = "مبلغ التسوية لا يمكن أن يتجاوز جزء الدفعة بنفس عملة التسوية.";
+          setDebtMessage("مبلغ التسوية لا يمكن أن يتجاوز جزء الدفعة بنفس عملة التسوية.", true);
           return;
         }
         if (settleAmount > debtTotal) {
           e.preventDefault();
-          if (debtHint) debtHint.textContent = "مبلغ التسوية لا يمكن أن يتجاوز الدين الحالي.";
+          setDebtMessage("مبلغ التسوية لا يمكن أن يتجاوز الدين الحالي.", true);
           return;
         }
         if (debtAmountInput) debtAmountInput.value = fmtCost2(settleAmount);
