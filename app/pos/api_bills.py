@@ -37,7 +37,7 @@ def _parse_decimal(x):
 
 def _money_has_more_than_2_decimals(value: Decimal) -> bool:
     return Decimal(value).as_tuple().exponent < -2
-
+    
 
 def _parse_money_decimal(x, *, field_name: str = "amount") -> Decimal:
     try:

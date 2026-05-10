@@ -1654,9 +1654,9 @@ def bill_return_wizard(request: HttpRequest, bill_id: str) -> HttpResponse:
         settle_purchase_debt_enabled = (request.POST.get("settle_purchase_debt") in {"1", "true", "on", "yes"})
         debt_settlement_amount_raw = (request.POST.get("debt_settlement_amount") or "").strip()
     else:
-        return_status_selected = "unpaid"
+        return_status_selected = ""
         return_paid_amount_raw = "0"
-        return_payment_method_selected = "syp_only"
+        return_payment_method_selected = ""
         return_pay_syp_raw = ""
         return_pay_usd_raw = ""
         settlement_currency_selected = (getattr(bill, "settlement_currency", "SYP") or "SYP").upper()

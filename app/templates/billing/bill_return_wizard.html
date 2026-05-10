@@ -731,6 +731,137 @@
     color:#6b7280;
     font-size:12px;
   }
+  .pay-section-card{
+    position:relative;
+  }
+  .pay-section-head{
+    position:relative;
+    min-height:24px;
+    padding-inline-end:32px;
+  }
+  .pay-section-toggle{
+    width:24px;
+    min-width:24px;
+    height:24px;
+    position:absolute;
+    inset-block-start:50%;
+    inset-inline-end:0;
+    transform:translateY(-50%);
+    padding:0;
+    border:0;
+    border-radius:999px;
+    background:transparent;
+    color:#64748b;
+    line-height:1;
+    cursor:pointer;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    transition:background-color .16s ease, color .16s ease;
+  }
+  .pay-section-toggle::before{
+    content:"";
+    width:8px;
+    height:8px;
+    border-right:2px solid currentColor;
+    border-bottom:2px solid currentColor;
+    transform:rotate(45deg);
+    transition:transform .2s ease;
+    transform-origin:center;
+    margin-top:-2px;
+  }
+  .pay-section-toggle.is-expanded::before{
+    transform:rotate(225deg);
+    margin-top:2px;
+  }
+  .pay-section-toggle:hover{
+    background:#e2e8f0;
+    color:#1f2937;
+  }
+  .pay-section-toggle:focus-visible{
+    outline:2px solid #93c5fd;
+    outline-offset:1px;
+  }
+  .pay-section-toggle:disabled{
+    opacity:.38;
+    cursor:not-allowed;
+    background:transparent;
+  }
+  .pay-section-summary{
+    display:none;
+    margin-top:4px;
+    padding-top:0;
+    border-top:0;
+  }
+  .pay-section-summary-line{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-items:center;
+  }
+  .pay-section-summary-radio{
+    width:14px;
+    min-width:14px;
+    height:14px;
+    border-radius:999px;
+    border:1.5px solid #2563eb;
+    background:#fff;
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    flex:0 0 auto;
+  }
+  .pay-section-summary-radio::after{
+    content:"";
+    width:7px;
+    height:7px;
+    border-radius:999px;
+    background:#2563eb;
+    display:block;
+  }
+  .pay-section-summary-key{
+    color:#334155;
+    font-size:12px;
+    font-weight:700;
+  }
+  .pay-section-summary-value{
+    color:#111827;
+    font-size:13px;
+    font-weight:700;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .pay-section-collapsible{
+    overflow:hidden;
+    max-height:280px;
+    opacity:1;
+    visibility:visible;
+    margin-top:8px;
+    transition:max-height .2s ease, opacity .16s ease, margin-top .2s ease, visibility .2s step-end;
+  }
+  .pay-section-collapsible .pay-status-list,
+  .pay-section-collapsible .pay-method-list{
+    margin-top:0;
+  }
+  .pay-section-card.is-collapsed .pay-section-summary{
+    display:block;
+  }
+  .pay-section-card.is-collapsed .pay-section-head{
+    min-height:24px;
+  }
+  .pay-section-card.is-collapsed .pay-section-head .muted{
+    visibility:hidden;
+    pointer-events:none;
+  }
+  .pay-section-card.is-collapsed .pay-section-collapsible{
+    max-height:0;
+    opacity:0;
+    visibility:hidden;
+    margin-top:0;
+    pointer-events:none;
+    transition:max-height .2s ease, opacity .16s ease, margin-top .2s ease, visibility 0s linear .2s;
+  }
   .pay-methods.is-disabled{
     opacity:.55;
     filter:saturate(.75);
@@ -743,6 +874,23 @@
   }
   .pay-method-panel.active{
     display:block;
+  }
+  .pay-methods.is-collapsed{
+    padding-top:8px;
+    padding-bottom:8px;
+  }
+  .pay-methods.is-collapsed legend{
+    display:none;
+  }
+  .pay-methods.is-collapsed .pay-method-panel{
+    margin-top:6px;
+    padding-top:6px;
+  }
+  .pay-methods.is-collapsed .pay-method-panel .pay-grid > .muted{
+    display:none;
+  }
+  .pay-methods.is-collapsed .pay-grid{
+    gap:6px;
   }
   .pay-grid{
     display:grid;
@@ -1185,31 +1333,56 @@
             <div class="bill-side-section">
               <div class="bill-side-title">الدفع</div>
               <div class="pay-layout">
-                <div class="pay-status-card">
-                  <div class="muted">حالة الدفع</div>
-                  <div class="pay-status-list">
-                    <label>
-                      <input type="radio" name="return_status" id="retUnpaid" value="unpaid" {% if return_status_selected == "unpaid" %}checked{% endif %}>
-                      <span>غير مدفوعة</span>
-                    </label>
-                    <label>
-                      <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
-                      <span>دفع جزئي</span>
-                    </label>
-                    <label>
-                      <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
-                      <span>دفع كامل</span>
-                    </label>
+                <div id="retPayStatusSection" class="pay-status-card pay-section-card is-expanded">
+                  <div class="pay-section-head">
+                    <div class="muted">حالة الدفع</div>
+                    <button type="button" id="retPayStatusToggle" class="pay-section-toggle is-expanded" aria-expanded="true" aria-controls="retPayStatusBody" title="طي القسم" aria-label="طي القسم"></button>
+                  </div>
+                  <div id="retPayStatusSummary" class="pay-section-summary" aria-live="polite">
+                    <div class="pay-section-summary-line">
+                      <span class="pay-section-summary-radio" aria-hidden="true"></span>
+                      <span class="pay-section-summary-key">نوع الدفع:</span>
+                      <span id="retPayStatusSummaryValue" class="pay-section-summary-value">—</span>
+                    </div>
+                  </div>
+                  <div id="retPayStatusBody" class="pay-section-collapsible" aria-hidden="false">
+                    <div class="pay-status-list">
+                      <label>
+                        <input type="radio" name="return_status" id="retUnpaid" value="unpaid" {% if return_status_selected == "unpaid" %}checked{% endif %}>
+                        <span>غير مدفوعة</span>
+                      </label>
+                      <label>
+                        <input type="radio" name="return_status" id="retPartial" value="partial" {% if return_status_selected == "partial" %}checked{% endif %}>
+                        <span>دفع جزئي</span>
+                      </label>
+                      <label>
+                        <input type="radio" name="return_status" id="retPaid" value="paid" {% if return_status_selected == "paid" %}checked{% endif %}>
+                        <span>دفع كامل</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
-                <fieldset id="retPayMethodsFieldset" class="pay-methods">
+                <fieldset id="retPayMethodsFieldset" class="pay-methods pay-section-card is-expanded">
                   <legend>خيارات التسديد</legend>
-                  <div class="pay-method-list">
-                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSyp" value="syp_only" {% if return_payment_method_selected == "syp_only" %}checked{% endif %}> دفع بالليرة فقط</label>
-                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodUsd" value="usd_only" {% if return_payment_method_selected == "usd_only" %}checked{% endif %}> دفع بالدولار فقط</label>
-                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSeparate" value="separate" {% if return_payment_method_selected == "separate" %}checked{% endif %}> دفع منفصل (SYP + USD)</label>
-                    <label><input type="radio" name="return_payment_method_ui" id="retPayMethodMixed" value="mixed" {% if return_payment_method_selected == "mixed" %}checked{% endif %}> دفع مختلط</label>
+                  <div class="pay-section-head">
+                    <div class="muted">طريقة الدفع</div>
+                    <button type="button" id="retPayMethodToggle" class="pay-section-toggle is-expanded" aria-expanded="true" aria-controls="retPayMethodChooser" title="طي القسم" aria-label="طي القسم"></button>
+                  </div>
+                  <div id="retPayMethodSummary" class="pay-section-summary" aria-live="polite">
+                    <div class="pay-section-summary-line">
+                      <span class="pay-section-summary-radio" aria-hidden="true"></span>
+                      <span class="pay-section-summary-key">طريقة الدفع:</span>
+                      <span id="retPayMethodSummaryValue" class="pay-section-summary-value">—</span>
+                    </div>
+                  </div>
+                  <div id="retPayMethodChooser" class="pay-section-collapsible" aria-hidden="false">
+                    <div class="pay-method-list">
+                      <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSyp" value="syp_only" {% if return_payment_method_selected == "syp_only" %}checked{% endif %}> دفع بالليرة فقط</label>
+                      <label><input type="radio" name="return_payment_method_ui" id="retPayMethodUsd" value="usd_only" {% if return_payment_method_selected == "usd_only" %}checked{% endif %}> دفع بالدولار فقط</label>
+                      <label><input type="radio" name="return_payment_method_ui" id="retPayMethodSeparate" value="separate" {% if return_payment_method_selected == "separate" %}checked{% endif %}> دفع منفصل (SYP + USD)</label>
+                      <label><input type="radio" name="return_payment_method_ui" id="retPayMethodMixed" value="mixed" {% if return_payment_method_selected == "mixed" %}checked{% endif %}> دفع مختلط</label>
+                    </div>
                   </div>
 
                   <div class="pay-method-panel" data-method-panel="syp_only">
@@ -1361,11 +1534,18 @@
     const statusPartial = document.getElementById("retPartial");
     const statusUnpaid = document.getElementById("retUnpaid");
     const statusRadios = [statusPaid, statusPartial, statusUnpaid].filter(Boolean);
+    const payStatusSection = document.getElementById("retPayStatusSection");
+    const payStatusBody = document.getElementById("retPayStatusBody");
+    const payStatusToggle = document.getElementById("retPayStatusToggle");
+    const payStatusSummaryValue = document.getElementById("retPayStatusSummaryValue");
 
     const settlementCurrency = document.getElementById("settlementCurrency");
     const moneyContainer = document.getElementById("moneyContainer");
 
     const payMethodsFieldset = document.getElementById("retPayMethodsFieldset");
+    const payMethodChooser = document.getElementById("retPayMethodChooser");
+    const payMethodToggle = document.getElementById("retPayMethodToggle");
+    const payMethodSummaryValue = document.getElementById("retPayMethodSummaryValue");
     const payMethodHint = document.getElementById("retPayMethodHint");
     const payMethodRadios = Array.from(form.querySelectorAll('input[name=\"return_payment_method_ui\"]'));
     const payMethodSyp = document.getElementById("retPayMethodSyp");
@@ -1415,6 +1595,72 @@
       syncingMixed: false,
       lastStatus: null,
     };
+    const statusLabelByCode = {
+      unpaid: "غير مدفوعة",
+      partial: "دفع جزئي",
+      paid: "دفع كامل",
+    };
+    const methodLabelByCode = {
+      syp_only: "دفع بالليرة فقط",
+      usd_only: "دفع بالدولار فقط",
+      separate: "دفع منفصل (SYP + USD)",
+      mixed: "دفع مختلط",
+    };
+    const paySectionState = {
+      status: { key: "status", root: payStatusSection, body: payStatusBody, toggle: payStatusToggle, expanded: true },
+      method: { key: "method", root: payMethodsFieldset, body: payMethodChooser, toggle: payMethodToggle, expanded: true },
+    };
+
+    function canCollapseStatusSection() {
+      return !!getCurrentStatus();
+    }
+
+    function canCollapseMethodSection() {
+      return !!getCurrentPayMethod();
+    }
+
+    function canCollapsePaySection(sectionKey) {
+      return sectionKey === "status" ? canCollapseStatusSection() : canCollapseMethodSection();
+    }
+
+    function setPaySectionExpanded(sectionKey, expand, options) {
+      const section = paySectionState[sectionKey];
+      if (!section || !section.root || !section.body || !section.toggle) return;
+      const opts = options || {};
+      const canCollapse = canCollapsePaySection(sectionKey);
+      if (!expand && !canCollapse && !opts.forceCollapse) return;
+
+      section.expanded = !!expand;
+      section.root.classList.toggle("is-collapsed", !section.expanded);
+      section.root.classList.toggle("is-expanded", section.expanded);
+      section.body.setAttribute("aria-hidden", section.expanded ? "false" : "true");
+      section.toggle.setAttribute("aria-expanded", section.expanded ? "true" : "false");
+      section.toggle.classList.toggle("is-expanded", section.expanded);
+      const title = section.expanded ? "طي القسم" : "توسيع القسم";
+      section.toggle.setAttribute("title", title);
+      section.toggle.setAttribute("aria-label", title);
+      section.toggle.disabled = section.expanded && !canCollapse;
+    }
+
+    function syncPaySectionCollapseState() {
+      Object.keys(paySectionState).forEach(function (sectionKey) {
+        const section = paySectionState[sectionKey];
+        if (!section) return;
+        const canCollapse = canCollapsePaySection(sectionKey);
+        if (!canCollapse && !section.expanded) {
+          setPaySectionExpanded(sectionKey, true);
+          return;
+        }
+        if (section.toggle) {
+          section.toggle.disabled = section.expanded && !canCollapse;
+        }
+      });
+    }
+
+    function autoCollapsePaySection(sectionKey) {
+      if (!canCollapsePaySection(sectionKey)) return;
+      setPaySectionExpanded(sectionKey, false);
+    }
 
     function setInlineMessage(el, message, isError) {
       if (!el) return;
@@ -1712,12 +1958,12 @@
       if (statusPaid && statusPaid.checked) return "paid";
       if (statusUnpaid && statusUnpaid.checked) return "unpaid";
       if (statusPartial && statusPartial.checked) return "partial";
-      return "unpaid";
+      return "";
     }
 
     function getCurrentPayMethod() {
       const checked = payMethodRadios.find(function (radio) { return !!radio.checked; });
-      return checked ? String(checked.value || "").trim().toLowerCase() : "syp_only";
+      return checked ? String(checked.value || "").trim().toLowerCase() : "";
     }
 
     function showActivePayMethodPanel(method) {
@@ -1805,6 +2051,24 @@
       const text = fmt(value);
       el.textContent = text;
       el.setAttribute("title", text);
+    }
+
+    function syncPaymentSectionSummaries(draft) {
+      const statusCode = getCurrentStatus();
+      const statusLabel = statusLabelByCode[statusCode] || "—";
+      if (payStatusSummaryValue) {
+        payStatusSummaryValue.textContent = statusLabel;
+        payStatusSummaryValue.setAttribute("title", statusLabel);
+      }
+
+      const methodCode = getCurrentPayMethod();
+      const methodLabel = methodLabelByCode[methodCode] || "—";
+      if (payMethodSummaryValue) {
+        payMethodSummaryValue.textContent = methodLabel;
+        payMethodSummaryValue.setAttribute("title", methodLabel);
+      }
+
+      syncPaySectionCollapseState();
     }
 
     function setReturnPublicIdPreview(value, isPlaceholder) {
@@ -2463,7 +2727,9 @@
       }
 
       let status = getCurrentStatus();
-      if (!["paid", "partial", "unpaid"].includes(status)) status = "unpaid";
+      if (!["paid", "partial", "unpaid"].includes(status)) {
+        return { ok: false, error: "يرجى اختيار نوع الدفع." };
+      }
       const selectedMethod = getCurrentPayMethod();
       let method = selectedMethod;
       const settlementCur = totals.settlementCurrency;
@@ -2484,6 +2750,9 @@
         };
       }
 
+      if (!method) {
+        return { ok: false, error: "يرجى اختيار طريقة الدفع." };
+      }
       if (!["syp_only", "usd_only", "separate", "mixed"].includes(method)) {
         return { ok: false, error: "يرجى اختيار طريقة دفع صالحة." };
       }
@@ -2646,13 +2915,9 @@
       const status = getCurrentStatus();
       const previousStatus = payState.lastStatus;
       const enteringPartial = status === "partial" && previousStatus !== null && previousStatus !== "partial";
-      if (!payMethodRadios.some(function (radio) { return !!radio.checked; }) && payMethodSyp) {
-        payMethodSyp.checked = true;
-      }
       let method = getCurrentPayMethod();
 
       if (zeroTotal) {
-        if (statusUnpaid) statusUnpaid.checked = true;
         statusRadios.forEach(function (radio) { radio.disabled = true; });
         payMethodRadios.forEach(function (radio) { radio.disabled = true; });
         if (payMethodsFieldset) {
@@ -2680,7 +2945,8 @@
         if (hiddenPaySypInput) hiddenPaySypInput.value = "0.00";
         if (hiddenPayUsdInput) hiddenPayUsdInput.value = "0.00";
         if (hiddenPaidAmountInput) hiddenPaidAmountInput.value = "0.00";
-        payState.lastStatus = "unpaid";
+        payState.lastStatus = status || null;
+        syncPaymentSectionSummaries(draftZero);
         syncDebtSettlementUI(totals, draftZero);
         return { totals, draft: draftZero };
       }
@@ -2694,17 +2960,18 @@
       }
 
       statusRadios.forEach(function (radio) { radio.disabled = false; });
-      payMethodRadios.forEach(function (radio) { radio.disabled = false; });
+      const methodSelectionDisabled = (status !== "paid" && status !== "partial");
+      payMethodRadios.forEach(function (radio) { radio.disabled = methodSelectionDisabled; });
       if (payMethodsFieldset) {
-        payMethodsFieldset.disabled = (status === "unpaid");
-        payMethodsFieldset.classList.toggle("is-disabled", status === "unpaid");
+        payMethodsFieldset.disabled = methodSelectionDisabled;
+        payMethodsFieldset.classList.toggle("is-disabled", methodSelectionDisabled);
       }
       if (payMethodSeparate) {
         payMethodSeparate.disabled = (status === "partial");
+        if (methodSelectionDisabled) payMethodSeparate.disabled = true;
         payMethodSeparate.closest("label")?.classList.toggle("muted", status === "partial");
         if (status === "partial" && method === "separate") {
           if (payMethodMixed) payMethodMixed.checked = true;
-          else if (payMethodSyp) payMethodSyp.checked = true;
           method = getCurrentPayMethod();
         }
       }
@@ -2729,10 +2996,14 @@
       methodInputs.forEach(function (input) {
         if (!input) return;
         input.readOnly = (status === "paid" && method !== "mixed");
-        input.disabled = (status === "unpaid");
+        input.disabled = methodSelectionDisabled;
       });
       if (payMixedSypInput) payMixedSypInput.readOnly = (status === "unpaid");
       if (payMixedUsdInput) payMixedUsdInput.readOnly = (status === "unpaid");
+      if (methodSelectionDisabled) {
+        if (payMixedSypInput) payMixedSypInput.readOnly = true;
+        if (payMixedUsdInput) payMixedUsdInput.readOnly = true;
+      }
       if (paySeparateSypInput) paySeparateSypInput.disabled = true;
       if (paySeparateUsdInput) paySeparateUsdInput.disabled = true;
 
@@ -2765,7 +3036,8 @@
       if (moneyContainer) {
         moneyContainer.disabled = !(draft.ok && draft.paidSettlement > BIG_ZERO);
       }
-      payState.lastStatus = status;
+      payState.lastStatus = status || null;
+      syncPaymentSectionSummaries(draft);
       syncMoneyContainerEligibilityForSettlement();
       syncDebtSettlementUI(totals, draft);
       return { totals, draft };
@@ -3011,12 +3283,33 @@
       updateMoneyContainerTitle();
     }
 
+    if (payStatusToggle) {
+      payStatusToggle.addEventListener("click", function () {
+        const section = paySectionState.status;
+        if (!section) return;
+        setPaySectionExpanded("status", !section.expanded);
+      });
+    }
+    if (payMethodToggle) {
+      payMethodToggle.addEventListener("click", function () {
+        const section = paySectionState.method;
+        if (!section) return;
+        setPaySectionExpanded("method", !section.expanded);
+      });
+    }
+
     [statusPaid, statusPartial, statusUnpaid].forEach(function (radio) {
       if (!radio) return;
-      radio.addEventListener("change", handleStatusChange);
+      radio.addEventListener("change", function () {
+        handleStatusChange();
+        autoCollapsePaySection("status");
+      });
     });
     payMethodRadios.forEach(function (radio) {
-      radio.addEventListener("change", syncPaymentUI);
+      radio.addEventListener("change", function () {
+        syncPaymentUI();
+        autoCollapsePaySection("method");
+      });
     });
     [paySypOnlyInput, payUsdOnlyInput].forEach(function (input) {
       if (!input) return;
@@ -3075,6 +3368,8 @@
       setSubmitInFlight(false);
       form.dataset.shortcutSubmitting = "0";
     });
+    setPaySectionExpanded("status", true);
+    setPaySectionExpanded("method", true);
     handleStatusChange();
   })();
 </script>
