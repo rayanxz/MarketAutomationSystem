@@ -1,23 +1,55 @@
 # app/billing/selectors.py
 from __future__ import annotations
 from typing import Optional
+from decimal import Decimal
 
 from django.db.models import (
-    Q, F, Value, DecimalField, Count, Sum, OuterRef, Subquery, IntegerField
+    Q, Value, Count
 )
 from django.db.models.functions import Coalesce, Lower
 
 from billing.models import Provider, Bill, ProviderReturn
 from debts.models import (
-    DebtorDebt as DebtorEntry,
-    CreditorDebt as CreditorEntry,
-    DebtRecord,
     DebtDirection,
-    DebtStatus,
 )
+from debts.provider_position import collect_provider_open_obligations_batch
+
+
+DEC0 = Decimal("0.00")
 
 
 # ---------- Providers ----------
+
+def _as_decimal(raw) -> Decimal:
+    if raw is None:
+        return DEC0
+    if isinstance(raw, Decimal):
+        return raw
+    return Decimal(str(raw))
+
+
+def _build_provider_payable_snapshot_from_obligations(*, obligations: list[dict]) -> tuple[int, Decimal, Decimal]:
+    """
+    Compatibility snapshot for provider-list totals:
+    - payable-only
+    - count rows with positive remaining in either currency
+    """
+    open_payable_count = 0
+    payable_syp = DEC0
+    payable_usd = DEC0
+
+    for row in obligations:
+        if str(row.get("direction") or "") != DebtDirection.PAYABLE:
+            continue
+        remaining_syp = _as_decimal(row.get("remaining_syp"))
+        remaining_usd = _as_decimal(row.get("remaining_usd"))
+        if remaining_syp <= DEC0 and remaining_usd <= DEC0:
+            continue
+        open_payable_count += 1
+        payable_syp += remaining_syp
+        payable_usd += remaining_usd
+
+    return open_payable_count, payable_syp, payable_usd
 
 def providers_qs_base():
     # active providers only, order newest first by id (for keyset)
@@ -33,90 +65,51 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
     base = providers_qs_base()
     if q:
         base = base.filter(name__icontains=q)
-
-    debt_dec = DecimalField(max_digits=14, decimal_places=3)
-    central_open = DebtRecord.objects.filter(
-        provider_id=OuterRef("pk"),
-        direction=DebtDirection.PAYABLE,
-        status=DebtStatus.OPEN,
-    )
-    central_count_sq = (
-        central_open.values("provider_id")
-        .annotate(c=Count("id"))
-        .values("c")[:1]
-    )
-    central_syp_sq = (
-        central_open.values("provider_id")
-        .annotate(s=Sum("remaining_syp", output_field=debt_dec))
-        .values("s")[:1]
-    )
-    central_usd_sq = (
-        central_open.values("provider_id")
-        .annotate(s=Sum("remaining_usd", output_field=debt_dec))
-        .values("s")[:1]
-    )
-
-    # Stats based on subledger:
-    # - bills_count: total bills
-    # - unpaid_bills_count: open debtor entries (one per bill)
-    # - debt totals are currency-separated to avoid mixed-currency aggregation
-    qs = (
-        base
-        .annotate(
-            bills_count=Coalesce(Count("bills", distinct=True), Value(0)),
-            legacy_unpaid_bills_count=Coalesce(
-                Count("debtor_entries", filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN), distinct=True),
-                Value(0),
-            ),
-            legacy_total_debt_syp=Coalesce(
-                Sum(
-                    F("debtor_entries__total") - F("debtor_entries__paid_amount"),
-                    filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN)
-                    & (Q(debtor_entries__currency_code="SYP") | Q(debtor_entries__currency_code__isnull=True) | Q(debtor_entries__currency_code="")),
-                    output_field=debt_dec,
-                ),
-                Value(0, output_field=debt_dec),
-                output_field=debt_dec,
-            ),
-            legacy_total_debt_usd=Coalesce(
-                Sum(
-                    F("debtor_entries__total") - F("debtor_entries__paid_amount"),
-                    filter=Q(debtor_entries__status=DebtorEntry.Status.OPEN) & Q(debtor_entries__currency_code="USD"),
-                    output_field=debt_dec,
-                ),
-                Value(0, output_field=debt_dec),
-                output_field=debt_dec,
-            ),
-            central_unpaid_bills_count=Coalesce(
-                Subquery(central_count_sq, output_field=IntegerField()),
-                Value(0),
-            ),
-            central_total_debt_syp=Coalesce(
-                Subquery(central_syp_sq, output_field=debt_dec),
-                Value(0, output_field=debt_dec),
-                output_field=debt_dec,
-            ),
-            central_total_debt_usd=Coalesce(
-                Subquery(central_usd_sq, output_field=debt_dec),
-                Value(0, output_field=debt_dec),
-                output_field=debt_dec,
-            ),
-        )
-        .annotate(
-            unpaid_bills_count=F("legacy_unpaid_bills_count") + F("central_unpaid_bills_count"),
-            total_debt_syp=F("legacy_total_debt_syp") + F("central_total_debt_syp"),
-            total_debt_usd=F("legacy_total_debt_usd") + F("central_total_debt_usd"),
-        )
-        .only("id", "name", "phone", "is_active")
-    )
-
     if cursor:
-        qs = qs.filter(id__lt=cursor)
+        base = base.filter(id__lt=cursor)
 
-    if not include_all:
-        qs = qs.filter(Q(bills_count__gt=0) | Q(unpaid_bills_count__gt=0))
+    scan_size = max(int(page_size or 0) * 3, 60)
+    results = []
+    scan_cursor = None
+    while len(results) < page_size:
+        chunk_qs = base
+        if scan_cursor is not None:
+            chunk_qs = chunk_qs.filter(id__lt=scan_cursor)
 
-    return qs[:page_size]
+        chunk = list(
+            chunk_qs
+            .annotate(
+                bills_count=Coalesce(Count("bills", distinct=True), Value(0)),
+            )
+            .only("id", "name", "phone", "is_active")[:scan_size]
+        )
+        if not chunk:
+            break
+
+        provider_ids = [int(provider.id) for provider in chunk]
+        collected_by_provider = collect_provider_open_obligations_batch(provider_ids=provider_ids)
+
+        for provider in chunk:
+            collected = collected_by_provider.get(
+                int(provider.id),
+                {"provider_id": int(provider.id), "obligations": []},
+            )
+            obligations = list(collected.get("obligations") or [])
+            unpaid_bills_count, total_debt_syp, total_debt_usd = _build_provider_payable_snapshot_from_obligations(
+                obligations=obligations
+            )
+            provider.unpaid_bills_count = int(unpaid_bills_count)
+            provider.total_debt_syp = total_debt_syp
+            provider.total_debt_usd = total_debt_usd
+
+            if include_all or int(provider.bills_count or 0) > 0 or unpaid_bills_count > 0:
+                results.append(provider)
+                if len(results) >= page_size:
+                    break
+
+        scan_cursor = int(chunk[-1].id)
+
+    return results[:page_size]
 
 def providers_ac(q: str):
     if not q:

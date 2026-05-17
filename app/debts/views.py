@@ -148,6 +148,8 @@ def _project_position_after_preview(
     before_bucket: dict[str, Decimal],
     preview: dict,
 ) -> dict[str, Decimal]:
+    # Preview-only presentation math for UI summaries.
+    # Canonical accounting remains debt/settlement records + provider projection service.
     action = str(preview.get("action") or "").strip().lower()
     total_applied = _dec_or_zero(preview.get("total_applied"))
     receivable_after = _dec_or_zero(before_bucket.get("receivable"))
