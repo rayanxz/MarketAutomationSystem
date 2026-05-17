@@ -162,6 +162,14 @@ class ProviderAccountSettlementExecuteApiPhase6ATests(TestCase):
             payload["preview_fingerprint"] = preview_fingerprint
         return payload
 
+    def test_execution_api_is_disabled_by_default_without_override(self):
+        response = self._post(str(self.provider.id), self._valid_payload())
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"ok": False, "error": "provider account settlement execution is disabled"},
+        )
+
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=False)
     def test_feature_flag_disabled_blocks_execution(self):
         debt = self._create_central_debt(direction=DebtDirection.PAYABLE, remaining_syp="500.00")

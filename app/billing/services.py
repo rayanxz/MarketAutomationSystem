@@ -34,6 +34,7 @@ from debts.models import (
     DebtDirection,
     DebtCauseType,
     OtherPartyType,
+    ProviderSettlementAllocation,
 )
 
 from catalog.models import Product
@@ -61,6 +62,10 @@ DEC2 = Decimal("0.01")
 FEATURE_PURCHASE_BILLS = "purchase_bills"
 FEATURE_PROVIDER_RETURNS = "provider_returns"
 PROVIDER_RETURN_IDEMPOTENCY_WINDOW_SECONDS = 30
+PROVIDER_SETTLEMENT_DELETE_CONFLICT_MESSAGE = (
+    "Cannot delete this document because it is linked to provider account settlement actions. "
+    "Reverse those actions first."
+)
 
 def q3(x: Decimal) -> Decimal:
     return (x or DEC0).quantize(DEC3, rounding=ROUND_HALF_UP)
@@ -70,6 +75,35 @@ def q2(x: Decimal) -> Decimal:
 
 def q4(x: Decimal) -> Decimal:
     return round_money(x)
+
+
+def _assert_not_linked_to_provider_settlement_allocations(
+    *,
+    central_debt_ids: list[int] | None = None,
+    legacy_debtor_ids: list[int] | None = None,
+    legacy_creditor_ids: list[int] | None = None,
+    debt_settlement_ids: list[int] | None = None,
+    debtor_payment_ids: list[int] | None = None,
+    creditor_receipt_ids: list[int] | None = None,
+) -> None:
+    """
+    Guard document delete/reverse paths from breaking provider account settlement traceability.
+    """
+
+    checks = (
+        ("central_debt_id__in", central_debt_ids),
+        ("legacy_debtor_debt_id__in", legacy_debtor_ids),
+        ("legacy_creditor_debt_id__in", legacy_creditor_ids),
+        ("debt_settlement_id__in", debt_settlement_ids),
+        ("debtor_payment_id__in", debtor_payment_ids),
+        ("creditor_receipt_id__in", creditor_receipt_ids),
+    )
+    for field_name, ids in checks:
+        id_list = [int(v) for v in (ids or []) if int(v) > 0]
+        if not id_list:
+            continue
+        if ProviderSettlementAllocation.objects.filter(**{field_name: id_list}).exists():
+            raise ValidationError(PROVIDER_SETTLEMENT_DELETE_CONFLICT_MESSAGE)
 
 
 def _row_suffix(row_idx: int | None) -> str:
@@ -1430,6 +1464,25 @@ def delete_bill(*, actor, bill_id: int) -> None:
         paid_syp = _q_money("SYP", entry_syp.paid_amount if entry_syp and entry_syp.paid_amount is not None else DEC0)
         paid_usd = _q_money("USD", entry_usd.paid_amount if entry_usd and entry_usd.paid_amount is not None else DEC0)
 
+    entry_ids = [int(e.id) for e in entries]
+    central_debt_ids = [int(central_debt.id)] if central_debt is not None else []
+    central_settlement_ids = list(
+        DebtSettlement.objects
+        .filter(debt_id__in=central_debt_ids)
+        .values_list("id", flat=True)
+    ) if central_debt_ids else []
+    debtor_payment_ids = list(
+        DebtorPayment.objects
+        .filter(entry_id__in=entry_ids)
+        .values_list("id", flat=True)
+    ) if entry_ids else []
+    _assert_not_linked_to_provider_settlement_allocations(
+        central_debt_ids=central_debt_ids,
+        legacy_debtor_ids=entry_ids,
+        debt_settlement_ids=central_settlement_ids,
+        debtor_payment_ids=debtor_payment_ids,
+    )
+
     total_syp = _q_money("SYP", getattr(bill, "total_syp", DEC0) or DEC0)
     total_usd = _q_money("USD", getattr(bill, "total_usd", DEC0) or DEC0)
     total_amount = _q_money((bill.settlement_currency or "SYP"), bill.total or DEC0)
@@ -2598,6 +2651,38 @@ def delete_return(*, actor, return_id: int) -> None:
         currency_code=None,
         for_update=True,
     )
+
+    entry_ids = [int(e.id) for e in entries]
+    cause_refs = [str(pret.id)]
+    public_ref = str(getattr(pret, "public_id", "") or "").strip()
+    if public_ref:
+        cause_refs.append(public_ref)
+    central_return_debt_ids = list(
+        DebtRecord.objects
+        .filter(
+            direction=DebtDirection.RECEIVABLE,
+            cause_type=DebtCauseType.PROVIDER_RETURN,
+            cause_id__in=cause_refs,
+        )
+        .values_list("id", flat=True)
+    )
+    central_settlement_ids = list(
+        DebtSettlement.objects
+        .filter(debt_id__in=central_return_debt_ids)
+        .values_list("id", flat=True)
+    ) if central_return_debt_ids else []
+    creditor_receipt_ids = list(
+        CreditorReceipt.objects
+        .filter(entry_id__in=entry_ids)
+        .values_list("id", flat=True)
+    ) if entry_ids else []
+    _assert_not_linked_to_provider_settlement_allocations(
+        central_debt_ids=[int(v) for v in central_return_debt_ids],
+        legacy_creditor_ids=entry_ids,
+        debt_settlement_ids=central_settlement_ids,
+        creditor_receipt_ids=creditor_receipt_ids,
+    )
+
     # ----- FINANCIALS reversal -----
     billing_fin_qs = (
         Receipt.objects

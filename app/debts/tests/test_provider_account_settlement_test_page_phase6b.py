@@ -49,6 +49,16 @@ class ProviderAccountSettlementTestPagePhase6BTests(TestCase):
     def _path(self, provider_ref: str) -> str:
         return f"/manager/debts/provider/{provider_ref}/account-settlement-test/"
 
+    def test_page_is_disabled_by_default_without_override(self):
+        self.client.force_login(self.manager)
+        response = self.client.get(self._path(str(self.provider.id)))
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response,
+            "provider account settlement execution is disabled",
+            status_code=403,
+        )
+
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=False)
     def test_page_disabled_when_feature_flag_off(self):
         self.client.force_login(self.manager)
