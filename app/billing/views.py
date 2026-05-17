@@ -5,6 +5,7 @@ import json
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+from django.conf import settings
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
@@ -176,7 +177,15 @@ def add_bill(request: HttpRequest) -> HttpResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 def providers_list(request: HttpRequest) -> HttpResponse:
-    return render(request, "billing/providers_list.html")
+    return render(
+        request,
+        "billing/providers_list.html",
+        {
+            "enable_provider_account_settlement_execution": bool(
+                getattr(settings, "ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION", False)
+            ),
+        },
+    )
 
 
 

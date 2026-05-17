@@ -37,6 +37,11 @@ _MODEL_MONEY_FIELDS: Dict[Tuple[str, str], Tuple[str, ...]] = {
     ("debts", "DebtorPayment"): ("amount",),
     ("debts", "CreditorDebt"): ("total", "collected"),
     ("debts", "CreditorReceipt"): ("amount",),
+    (
+        "debts",
+        "ProviderSettlementAction",
+    ): ("requested_amount", "eligible_total_remaining", "total_applied", "unallocated_amount"),
+    ("debts", "ProviderSettlementAllocation"): ("before_remaining", "applied", "after_remaining"),
 }
 
 

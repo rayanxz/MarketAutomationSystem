@@ -29,6 +29,13 @@
   .btn.ghost{ background:transparent; }
   .muted{ color:#6b7280; font-size:12px; }
   .err{ color:#b10000; font-size:12px; }
+  .internal-row-link{
+    font-size:12px;
+    color:#334155;
+    border-color:#cbd5e1;
+    text-decoration:none;
+    background:#f8fafc;
+  }
 
   .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
   table{ width:100%; border-collapse:collapse; }
@@ -95,7 +102,7 @@
           <th style="width:140px;" class="center">عدد الفواتير</th>
           <th style="width:140px;" class="center">فواتير غير مدفوعة</th>
           <th style="width:160px;">إجمالي الدين</th>
-          <th style="width:220px;" class="left"></th>
+          <th style="width:320px;" class="left"></th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
@@ -127,6 +134,9 @@
   const API_LIST   = "{% url 'billing_api_providers_list' %}";
   const API_CREATE = "{% url 'billing_api_provider_create' %}";
   const delUrl = (id) => "{% url 'billing_api_provider_delete' 999999 %}".replace("999999", String(id));
+  const ENABLE_SETTLEMENT_TEST = {{ enable_provider_account_settlement_execution|yesno:"true,false" }};
+  const SETTLEMENT_TEST_URL_BASE = "{% url 'debts_provider_account_settlement_test' 0 %}";
+  const SETTLEMENT_ROW_LINK_TMPL = {% if enable_provider_account_settlement_execution %}"<a class='btn ghost internal-row-link' href='__URL__' title='INTERNAL TEST · ACCOUNT SETTLEMENT'>اختبار التسوية</a>"{% else %}""{% endif %};
 
   const rows = document.getElementById('rows');
   const q    = document.getElementById('q');
@@ -171,6 +181,11 @@
   function rowHtml(p){
     const debt = debtLabel(p);
     const billsUrl = "{% url 'billing_list' %}" + "?q=" + encodeURIComponent(p.name);
+    let settlementLink = "";
+    if (ENABLE_SETTLEMENT_TEST) {
+      const settlementUrl = SETTLEMENT_TEST_URL_BASE.replace("/0/", `/${p.id}/`);
+      settlementLink = SETTLEMENT_ROW_LINK_TMPL.replace("__URL__", settlementUrl);
+    }
     return `
       <tr data-id="${p.id}" data-name="${p.name}">
         <td>${p.id}</td>
@@ -182,6 +197,7 @@
         <td class="left">
           <a class="btn" href="${billsUrl}">عرض الفواتير</a>
           <button class="btn" disabled title="قريباً">الديون</button>
+          ${settlementLink}
           <button class="btn danger" data-del="${p.id}">حذف</button>
         </td>
       </tr>

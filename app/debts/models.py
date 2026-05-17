@@ -2,6 +2,8 @@
 from __future__ import annotations
 import re
 from decimal import Decimal
+from uuid import uuid4
+from django.conf import settings
 from django.db import IntegrityError, models, transaction
 
 from core.currency import CURRENCY_CHOICES, SYP, USD
@@ -44,6 +46,10 @@ class DebtPublicIdSequence(models.Model):
 
     def __str__(self) -> str:
         return f"{self.key}:{self.next_value}"
+
+
+def _provider_settlement_action_public_id_default() -> str:
+    return f"PSA-{uuid4().hex[:12].upper()}"
 
 
 def _max_existing_sequential_public_id() -> int:
@@ -365,3 +371,212 @@ class DebtReminder(models.Model):
             models.Index(fields=["direction"]),
             models.Index(fields=["due_date"]),
         ]
+
+
+class ProviderSettlementActionType(models.TextChoices):
+    PAY_PROVIDER = "pay_provider", "Pay Provider"
+    RECEIVE_FROM_PROVIDER = "receive_from_provider", "Receive From Provider"
+
+
+class ProviderSettlementActionStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    COMMITTED = "committed", "Committed"
+    FAILED = "failed", "Failed"
+    REVERSED = "reversed", "Reversed"
+
+
+class ProviderSettlementAction(models.Model):
+    public_id = models.CharField(
+        max_length=24,
+        unique=True,
+        db_index=True,
+        default=_provider_settlement_action_public_id_default,
+        editable=False,
+    )
+    provider = models.ForeignKey(
+        "billing.Provider",
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_actions",
+    )
+    action = models.CharField(
+        max_length=32,
+        choices=ProviderSettlementActionType.choices,
+        db_index=True,
+    )
+    currency = models.CharField(max_length=3, choices=CURRENCY_CHOICES, db_index=True)
+
+    requested_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    eligible_total_remaining = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    total_applied = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    unallocated_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+
+    money_container = models.ForeignKey(
+        "financials.MoneyContainer",
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_actions",
+    )
+    receipt = models.ForeignKey(
+        "financials.Receipt",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_actions",
+    )
+
+    idempotency_key = models.CharField(max_length=180)
+    preview_fingerprint = models.CharField(max_length=160, blank=True, default="")
+
+    status = models.CharField(
+        max_length=16,
+        choices=ProviderSettlementActionStatus.choices,
+        default=ProviderSettlementActionStatus.PENDING,
+        db_index=True,
+    )
+    diagnostics = models.TextField(blank=True, default="")
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="debts_provider_settlement_actions",
+    )
+    reversed_by_action = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="reverses_actions",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "debts_providersettlementaction"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "idempotency_key"],
+                name="uniq_psa_provider_idempotency",
+            ),
+            models.CheckConstraint(check=models.Q(requested_amount__gte=0), name="psa_requested_amount_ge0"),
+            models.CheckConstraint(check=models.Q(eligible_total_remaining__gte=0), name="psa_eligible_total_ge0"),
+            models.CheckConstraint(check=models.Q(total_applied__gte=0), name="psa_total_applied_ge0"),
+            models.CheckConstraint(check=models.Q(unallocated_amount__gte=0), name="psa_unallocated_amount_ge0"),
+            models.CheckConstraint(
+                check=models.Q(total_applied__lte=models.F("requested_amount")),
+                name="psa_applied_lte_requested",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["provider", "status", "created_at"]),
+            models.Index(fields=["provider", "currency", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.public_id} {self.action} {self.currency} {self.requested_amount}"
+
+
+class ProviderSettlementDebtSource(models.TextChoices):
+    CENTRAL = "central", "Central"
+    LEGACY = "legacy", "Legacy"
+
+
+class ProviderSettlementAllocation(models.Model):
+    action = models.ForeignKey(
+        ProviderSettlementAction,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+    )
+    sequence = models.PositiveIntegerField(default=1)
+
+    debt_source = models.CharField(max_length=16, choices=ProviderSettlementDebtSource.choices, db_index=True)
+    direction = models.CharField(max_length=12, choices=DebtDirection.choices, db_index=True)
+    currency = models.CharField(max_length=3, choices=CURRENCY_CHOICES, db_index=True)
+
+    central_debt = models.ForeignKey(
+        DebtRecord,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_allocations",
+    )
+    legacy_debtor_debt = models.ForeignKey(
+        DebtorDebt,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_allocations",
+    )
+    legacy_creditor_debt = models.ForeignKey(
+        CreditorDebt,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_allocations",
+    )
+
+    debt_id = models.CharField(max_length=64, blank=True, default="")
+    debt_public_id = models.CharField(max_length=24, blank=True, default="")
+    cause_type = models.CharField(max_length=32, blank=True, default="")
+    source_identity = models.CharField(max_length=128, blank=True, default="")
+
+    before_remaining = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    applied = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    after_remaining = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    would_close = models.BooleanField(default=False)
+    closed_after = models.BooleanField(default=False)
+
+    debt_settlement = models.ForeignKey(
+        DebtSettlement,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_allocations",
+    )
+    debtor_payment = models.ForeignKey(
+        DebtorPayment,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_allocations",
+    )
+    creditor_receipt = models.ForeignKey(
+        CreditorReceipt,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="provider_settlement_allocations",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = "debts_providersettlementallocation"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["action", "sequence"],
+                name="uniq_psa_alloc_action_sequence",
+            ),
+            models.CheckConstraint(check=models.Q(before_remaining__gte=0), name="psa_alloc_before_ge0"),
+            models.CheckConstraint(check=models.Q(applied__gte=0), name="psa_alloc_applied_ge0"),
+            models.CheckConstraint(check=models.Q(after_remaining__gte=0), name="psa_alloc_after_ge0"),
+            models.CheckConstraint(
+                check=models.Q(applied__lte=models.F("before_remaining")),
+                name="psa_alloc_applied_lte_before",
+            ),
+            models.CheckConstraint(
+                check=models.Q(after_remaining=models.F("before_remaining") - models.F("applied")),
+                name="psa_alloc_after_matches_before_minus_applied",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["action", "sequence"]),
+            models.Index(fields=["debt_source", "direction", "currency"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"ProviderSettlementAllocation action={self.action_id} seq={self.sequence} "
+            f"{self.currency} applied={self.applied}"
+        )

@@ -4,6 +4,7 @@ import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import date as _date_cls
 
+from django.conf import settings
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
@@ -11,7 +12,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 from django.contrib.auth import get_user_model
 
 from accounts.models import AccountProfile
-from accounts.decorators import role_required
+from accounts.decorators import role_required, role_required_api
 
 from debts.models import (
     DebtorDebt as DebtorEntry,
@@ -22,9 +23,14 @@ from debts.models import (
     DebtCauseType,
     DebtStatus,
     OtherPartyType,
+    ProviderSettlementAction,
 )
 from debts.cause_refs import cause_ref_for_ui
 from debts.source_identity import source_identity_base
+from debts.provider_position import get_provider_net_position
+from debts.provider_account_allocator import simulate_provider_account_allocation
+from debts.provider_account_settlement_execution import execute_provider_account_settlement
+from debts.provider_account_settlement_execution import _allocation_fingerprint as settlement_preview_fingerprint
 from financials.models import Receipt, ReceiptKind, MoneyContainer
 from financials import services as FinSV
 from core.date_filters import parse_filter_date
@@ -111,6 +117,51 @@ def _dec_to_str(value: Decimal | None) -> str | None:
     if value is None:
         return None
     return format(value, "f")
+
+
+def _json_decimal_safe(value):
+    if isinstance(value, Decimal):
+        return _dec_to_str(value)
+    if isinstance(value, dict):
+        return {k: _json_decimal_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_decimal_safe(v) for v in value]
+    return value
+
+
+def _currency_position_bucket(*, position: dict, currency: str) -> dict[str, Decimal]:
+    code = (currency or "").strip().upper()
+    bucket = dict((position or {}).get("currencies", {}).get(code, {}) or {})
+    receivable = _dec_or_zero(bucket.get("receivable"))
+    payable = _dec_or_zero(bucket.get("payable"))
+    net = _dec_or_zero(bucket.get("net"))
+    return {
+        "currency": code,
+        "receivable": receivable,
+        "payable": payable,
+        "net": net,
+    }
+
+
+def _project_position_after_preview(
+    *,
+    before_bucket: dict[str, Decimal],
+    preview: dict,
+) -> dict[str, Decimal]:
+    action = str(preview.get("action") or "").strip().lower()
+    total_applied = _dec_or_zero(preview.get("total_applied"))
+    receivable_after = _dec_or_zero(before_bucket.get("receivable"))
+    payable_after = _dec_or_zero(before_bucket.get("payable"))
+    if action == "pay_provider":
+        payable_after = payable_after - total_applied
+    elif action == "receive_from_provider":
+        receivable_after = receivable_after - total_applied
+    return {
+        "currency": before_bucket.get("currency", "SYP"),
+        "receivable": receivable_after,
+        "payable": payable_after,
+        "net": receivable_after - payable_after,
+    }
 
 
 def _central_settlement_row_payload(settlement) -> dict[str, object]:
@@ -202,6 +253,31 @@ def view_central_debt(request: HttpRequest, debt_ref: str) -> HttpResponse:
             "source_url": source_url,
             "legacy_view_url": legacy_view_url,
             "settlements": settlements,
+            "money_containers": _allowed_containers(request.user),
+        },
+    )
+
+
+@require_GET
+@role_required(AccountProfile.Role.MANAGER)
+def provider_account_settlement_test_page(request: HttpRequest, provider_ref: str) -> HttpResponse:
+    if not bool(getattr(settings, "ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION", False)):
+        return HttpResponse("provider account settlement execution is disabled", status=403)
+
+    ref = str(provider_ref or "").strip()
+    provider_id = _int_or_none(ref)
+    if provider_id is None or provider_id <= 0:
+        return HttpResponse(status=404)
+
+    provider = Provider.objects.filter(id=provider_id).first()
+    if provider is None:
+        return HttpResponse(status=404)
+
+    return render(
+        request,
+        "debts/provider_account_settlement_test.html",
+        {
+            "provider": provider,
             "money_containers": _allowed_containers(request.user),
         },
     )
@@ -660,6 +736,185 @@ def api_other_party_suggest(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": True, "items": rows})
 
     return JsonResponse({"ok": True, "items": []})
+
+
+@require_GET
+@role_required_api(AccountProfile.Role.MANAGER)
+def api_provider_net_position(request: HttpRequest, provider_ref: str) -> JsonResponse:
+    ref = str(provider_ref or "").strip()
+    provider_id = _int_or_none(ref)
+    if provider_id is None or provider_id <= 0:
+        return _bad("invalid provider id", 400)
+
+    provider_exists = Provider.objects.filter(id=provider_id).exists()
+    if not provider_exists:
+        return _bad("provider not found", 404)
+
+    try:
+        projection = get_provider_net_position(provider_id=provider_id)
+    except Exception:
+        return _bad("server error", 500)
+
+    safe_projection = _json_decimal_safe(projection)
+    return JsonResponse({"ok": True, **safe_projection})
+
+
+@require_POST
+@role_required_api(AccountProfile.Role.MANAGER)
+def api_provider_account_allocation_preview(request: HttpRequest, provider_ref: str) -> JsonResponse:
+    ref = str(provider_ref or "").strip()
+    provider_id = _int_or_none(ref)
+    if provider_id is None or provider_id <= 0:
+        return _bad("invalid provider id", 400)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _bad("bad json", 400)
+
+    try:
+        preview = simulate_provider_account_allocation(
+            provider_id=provider_id,
+            action=payload.get("action"),
+            currency=payload.get("currency"),
+            amount=payload.get("amount"),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "provider not found":
+            return _bad(message, 404)
+        return _bad(message, 400)
+    except Exception:
+        return _bad("server error", 500)
+
+    include_summary = str(request.GET.get("include_position_summary") or "").strip().lower() in {"1", "true", "yes"}
+    if include_summary:
+        before_position = get_provider_net_position(provider_id=provider_id)
+        before_bucket = _currency_position_bucket(
+            position=before_position,
+            currency=str(preview.get("currency") or ""),
+        )
+        after_bucket = _project_position_after_preview(
+            before_bucket=before_bucket,
+            preview=preview,
+        )
+        preview["position_summary"] = {
+            "before": before_bucket,
+            "after": after_bucket,
+        }
+        preview["preview_fingerprint"] = settlement_preview_fingerprint(preview)
+
+    safe_preview = _json_decimal_safe(preview)
+    return JsonResponse({"ok": True, **safe_preview})
+
+
+@require_POST
+@role_required_api(AccountProfile.Role.MANAGER)
+def api_provider_account_settlement_execute(request: HttpRequest, provider_ref: str) -> JsonResponse:
+    if not bool(getattr(settings, "ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION", False)):
+        return _bad("provider account settlement execution is disabled", 403)
+
+    ref = str(provider_ref or "").strip()
+    provider_id = _int_or_none(ref)
+    if provider_id is None or provider_id <= 0:
+        return _bad("invalid provider id", 400)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return _bad("bad json", 400)
+
+    before_position = get_provider_net_position(provider_id=provider_id)
+    before_action_row = (
+        ProviderSettlementAction.objects
+        .filter(provider_id=provider_id, idempotency_key=(payload.get("idempotency_key") or ""))
+        .order_by("id")
+        .first()
+    )
+
+    try:
+        result = execute_provider_account_settlement(
+            provider_id=provider_id,
+            action=payload.get("action"),
+            currency=payload.get("currency"),
+            amount=payload.get("amount"),
+            money_container_id=payload.get("money_container_id"),
+            idempotency_key=payload.get("idempotency_key"),
+            preview_fingerprint=payload.get("preview_fingerprint"),
+            user=request.user,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "provider not found":
+            return _bad(message, 404)
+        return _bad(message, 400)
+    except Exception:
+        return _bad("server error", 500)
+
+    action_row = (
+        ProviderSettlementAction.objects
+        .select_related("receipt")
+        .filter(id=result.get("action_id"))
+        .first()
+    )
+    diagnostics = {}
+    if action_row is not None and getattr(action_row, "diagnostics", ""):
+        try:
+            diagnostics = json.loads(action_row.diagnostics or "{}")
+        except Exception:
+            diagnostics = {}
+
+    receipt_payload = {
+        "id": int(result.get("receipt_id") or 0),
+        "serial": "",
+        "status": "",
+    }
+    if action_row is not None and action_row.receipt_id:
+        receipt_payload["serial"] = action_row.receipt.serial or ""
+        receipt_payload["status"] = action_row.receipt.status or ""
+
+    currency_code = str(result.get("currency") or "").upper()
+    before_bucket = _currency_position_bucket(position=before_position, currency=currency_code)
+    after_position = get_provider_net_position(provider_id=provider_id)
+    after_bucket = _currency_position_bucket(position=after_position, currency=currency_code)
+    replay = (
+        before_action_row is not None
+        and int(before_action_row.id or 0) == int(result.get("action_id") or 0)
+        and str(before_action_row.status or "") in {"committed", "reversed"}
+        and bool(before_action_row.receipt_id)
+    )
+
+    response_payload = {
+        "ok": True,
+        "action": {
+            "id": int(result.get("action_id") or 0),
+            "public_id": (action_row.public_id if action_row is not None else ""),
+            "provider_id": int(result.get("provider_id") or 0),
+            "action": result.get("action"),
+            "currency": result.get("currency"),
+            "requested_amount": result.get("requested_amount"),
+            "eligible_total_remaining": result.get("eligible_total_remaining"),
+            "allocatable_amount": result.get("total_applied"),
+            "total_applied": result.get("total_applied"),
+            "unallocated_amount": (action_row.unallocated_amount if action_row is not None else Decimal("0.00")),
+            "allocation_count": int(result.get("allocation_count") or 0),
+            "idempotency_key": result.get("idempotency_key") or "",
+            "preview_fingerprint": result.get("preview_fingerprint"),
+            "status": (action_row.status if action_row is not None else ""),
+        },
+        "allocations": list(result.get("allocations") or []),
+        "receipt": receipt_payload,
+        "diagnostics": diagnostics,
+        "position_summary": {
+            "before": before_bucket,
+            "after": after_bucket,
+        },
+        "execution": {
+            "idempotent_replay": replay,
+            "label": ("IDEMPOTENT REPLAY RESULT" if replay else ""),
+        },
+    }
+    return JsonResponse(_json_decimal_safe(response_payload))
 
 
 @require_POST

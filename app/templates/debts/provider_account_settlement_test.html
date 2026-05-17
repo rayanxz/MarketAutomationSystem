@@ -1,0 +1,684 @@
+{% extends "manager/base_manager.html" %}
+
+{% block title %}اختبار تسوية حساب المورد{% endblock %}
+
+{% block extra_head %}
+<style>
+  .test-wrap{ direction:rtl; display:grid; gap:12px; }
+  .card{ background:#fff; border-radius:12px; box-shadow:var(--card-shadow); padding:12px; }
+  .warn{
+    border:1px solid #fecaca;
+    background:#fff1f2;
+    color:#7f1d1d;
+    border-radius:10px;
+    padding:10px 12px;
+    font-weight:700;
+  }
+  .warn-soft{
+    border:1px solid #fcd34d;
+    background:#fffbeb;
+    color:#92400e;
+    border-radius:10px;
+    padding:8px 10px;
+    font-weight:700;
+    margin-top:8px;
+  }
+  .warn-danger{
+    border-color:#fca5a5;
+    background:#fef2f2;
+    color:#991b1b;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap:10px;
+    align-items:end;
+  }
+  .field{ display:grid; gap:6px; }
+  .muted{ color:#64748b; font-size:12px; }
+  .input, .select{
+    width:100%;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:10px 12px;
+    background:#fff;
+  }
+  .actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .btn{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    background:#f8fafc;
+    padding:9px 12px;
+    cursor:pointer;
+  }
+  .btn.primary{
+    background:var(--brand);
+    border-color:var(--brand);
+    color:#fff;
+  }
+  .btn.danger{
+    background:#7f1d1d;
+    border-color:#7f1d1d;
+    color:#fff;
+  }
+  .btn:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+  }
+  .status{ font-size:13px; font-weight:700; margin-top:8px; }
+  .status.ok{ color:#166534; }
+  .status.err{ color:#b91c1c; }
+  .state-tag{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border-radius:999px;
+    padding:4px 10px;
+    font-size:12px;
+    font-weight:700;
+    border:1px solid #cbd5e1;
+    background:#f8fafc;
+    color:#334155;
+  }
+  .state-tag.stale{
+    border-color:#fca5a5;
+    background:#fef2f2;
+    color:#991b1b;
+  }
+  .state-tag.fresh{
+    border-color:#86efac;
+    background:#f0fdf4;
+    color:#166534;
+  }
+  .summary-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap:10px;
+  }
+  .summary-box{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:10px;
+    background:#f8fafc;
+  }
+  .summary-title{
+    margin:0 0 8px;
+    font-size:14px;
+    font-weight:800;
+    color:#0f172a;
+  }
+  .summary-row{
+    display:flex;
+    justify-content:space-between;
+    gap:8px;
+    border-bottom:1px dashed #dbe2ea;
+    padding:4px 0;
+    font-size:13px;
+  }
+  .summary-row:last-child{ border-bottom:0; }
+  .summary-row .label{ color:#475569; }
+  .summary-row .value{ font-weight:700; color:#0f172a; direction:ltr; text-align:left; }
+  .summary-row .value.center{ direction:rtl; text-align:right; }
+  .table-wrap{ overflow:auto; border:1px solid #e5e7eb; border-radius:10px; }
+  table{ width:100%; border-collapse:collapse; min-width:980px; }
+  th, td{ padding:8px 10px; border-bottom:1px solid #eef2f7; white-space:nowrap; text-align:center; }
+  th{ background:#f8fafc; }
+  td.num{ font-variant-numeric: tabular-nums; direction:ltr; text-align:right; }
+  tr.row-central td{ background:#eff6ff; }
+  tr.row-legacy td{ background:#f8fafc; }
+  .diag-grid{ display:grid; gap:8px; }
+  .diag-box{
+    border:1px solid #e5e7eb;
+    background:#f8fafc;
+    border-radius:10px;
+    padding:10px;
+  }
+  pre{
+    margin:0;
+    background:#0f172a;
+    color:#e2e8f0;
+    border-radius:8px;
+    padding:10px;
+    overflow:auto;
+    max-height:280px;
+    direction:ltr;
+    text-align:left;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div
+  id="providerSettlementTestRoot"
+  class="test-wrap"
+  data-phase="6c"
+  data-provider-id="{{ provider.id }}"
+  data-provider-name="{{ provider.name|escape }}"
+  data-net-position-url="{% url 'debts_api_provider_net_position' provider.id %}"
+  data-allocation-preview-url="{% url 'debts_api_provider_account_allocation_preview' provider.id %}"
+  data-settlement-execute-url="{% url 'debts_api_provider_account_settlement_execute' provider.id %}"
+>
+  <section class="card">
+    <div class="warn">INTERNAL TEST TOOL - Use for controlled manager testing only.</div>
+    <h2 style="margin:10px 0 0;">اختبار تسوية حساب المورد: {{ provider.name }} (ID: {{ provider.id }})</h2>
+  </section>
+
+  <section class="card">
+    <div class="grid">
+      <label class="field">
+        <span class="muted">الإجراء</span>
+        <select id="actionInput" class="select">
+          <option value="pay_provider">pay_provider</option>
+          <option value="receive_from_provider">receive_from_provider</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="muted">العملة</span>
+        <select id="currencyInput" class="select">
+          <option value="SYP">SYP</option>
+          <option value="USD">USD</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="muted">المبلغ</span>
+        <input id="amountInput" class="input" type="number" min="0" step="0.01" value="0.00">
+      </label>
+      <label class="field">
+        <span class="muted">الحافظة</span>
+        <select id="containerInput" class="select">
+          <option value="">اختر الحافظة</option>
+          {% for c in money_containers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="muted">idempotency_key (client-generated)</span>
+        <input id="idempotencyKeyInput" class="input" type="text">
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="regenKeyBtn" class="btn" type="button">Regenerate Key</button>
+      <button id="loadNetBtn" class="btn" type="button">Load Net Position</button>
+      <button id="previewBtn" class="btn primary" type="button">Preview Allocation</button>
+      <button id="executeBtn" class="btn danger" type="button" disabled>Execute Settlement</button>
+      <span id="previewStateTag" class="state-tag">No preview</span>
+      <span id="replayTag" class="state-tag" hidden>IDEMPOTENT REPLAY RESULT</span>
+    </div>
+    <div id="warningBlock" class="warn-soft" hidden></div>
+    <div id="statusLine" class="status"></div>
+  </section>
+
+  <section class="card" id="beforeAfterSummaryCard">
+    <h3 style="margin-top:0;">Before vs After (Selected Currency)</h3>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <h4 class="summary-title">Before</h4>
+        <div class="summary-row"><span class="label">Payable</span><span class="value" id="sumBeforePayable">-</span></div>
+        <div class="summary-row"><span class="label">Receivable</span><span class="value" id="sumBeforeReceivable">-</span></div>
+        <div class="summary-row"><span class="label">Net</span><span class="value" id="sumBeforeNet">-</span></div>
+      </div>
+      <div class="summary-box">
+        <h4 class="summary-title">After</h4>
+        <div class="summary-row"><span class="label">Payable</span><span class="value" id="sumAfterPayable">-</span></div>
+        <div class="summary-row"><span class="label">Receivable</span><span class="value" id="sumAfterReceivable">-</span></div>
+        <div class="summary-row"><span class="label">Net</span><span class="value" id="sumAfterNet">-</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="allocationTotalsCard">
+    <h3 style="margin-top:0;">Allocation Totals Summary</h3>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <div class="summary-row"><span class="label">Requested Amount</span><span class="value" id="totRequested">-</span></div>
+        <div class="summary-row"><span class="label">Allocatable Amount</span><span class="value" id="totAllocatable">-</span></div>
+        <div class="summary-row"><span class="label">Total Applied</span><span class="value" id="totApplied">-</span></div>
+      </div>
+      <div class="summary-box">
+        <div class="summary-row"><span class="label">Unallocated Amount</span><span class="value" id="totUnallocated">-</span></div>
+        <div class="summary-row"><span class="label">Eligible Debt Count</span><span class="value center" id="totEligibleCount">-</span></div>
+        <div class="summary-row"><span class="label">Allocated Debt Count</span><span class="value center" id="totAllocatedCount">-</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="executionSummaryCard">
+    <h3 style="margin-top:0;">Execution Summary</h3>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <div class="summary-row"><span class="label">Action Public ID</span><span class="value center" id="execActionPublicId">-</span></div>
+        <div class="summary-row"><span class="label">Execution Status</span><span class="value center" id="execStatus">-</span></div>
+        <div class="summary-row"><span class="label">Affected Debts Count</span><span class="value center" id="execAffectedCount">-</span></div>
+      </div>
+      <div class="summary-box">
+        <div class="summary-row"><span class="label">Receipt Reference</span><span class="value center" id="execReceiptRef">-</span></div>
+        <div class="summary-row"><span class="label">Total Applied</span><span class="value" id="execTotalApplied">-</span></div>
+        <div class="summary-row"><span class="label">Replay</span><span class="value center" id="execReplayLabel">-</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-top:0;">Allocations</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>source</th>
+            <th>debt_id</th>
+            <th>public_id</th>
+            <th>direction</th>
+            <th>cause_type</th>
+            <th>before</th>
+            <th>applied</th>
+            <th>after</th>
+            <th>would_close</th>
+          </tr>
+        </thead>
+        <tbody id="allocRows">
+          <tr><td colspan="9" class="muted">No allocations loaded.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="diagnosticsCard">
+    <h3 style="margin-top:0;">Diagnostics</h3>
+    <div class="diag-grid">
+      <div id="diagWarningCount" class="diag-box">dedup_warnings: 0</div>
+      <div id="diagUnresolvedCount" class="diag-box">unresolved_identities: 0</div>
+      <pre id="diagnosticsBox">{}</pre>
+    </div>
+  </section>
+
+  <section class="card" id="rawJsonCard">
+    <details id="rawJsonDetails" open>
+      <summary>Raw JSON Response</summary>
+      <pre id="rawJsonBox">{}</pre>
+    </details>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(() => {
+  const root = document.getElementById('providerSettlementTestRoot');
+  if (!root) return;
+
+  const providerId = root.dataset.providerId;
+  const providerName = root.dataset.providerName || '';
+  const netUrl = root.dataset.netPositionUrl;
+  const previewUrl = root.dataset.allocationPreviewUrl;
+  const executeUrl = root.dataset.settlementExecuteUrl;
+
+  const actionInput = document.getElementById('actionInput');
+  const currencyInput = document.getElementById('currencyInput');
+  const amountInput = document.getElementById('amountInput');
+  const containerInput = document.getElementById('containerInput');
+  const idempotencyKeyInput = document.getElementById('idempotencyKeyInput');
+  const executeBtn = document.getElementById('executeBtn');
+  const previewStateTag = document.getElementById('previewStateTag');
+  const replayTag = document.getElementById('replayTag');
+  const warningBlock = document.getElementById('warningBlock');
+  const statusLine = document.getElementById('statusLine');
+  const allocRows = document.getElementById('allocRows');
+  const diagnosticsBox = document.getElementById('diagnosticsBox');
+  const rawJsonBox = document.getElementById('rawJsonBox');
+  const diagWarningCount = document.getElementById('diagWarningCount');
+  const diagUnresolvedCount = document.getElementById('diagUnresolvedCount');
+
+  const summaryEls = {
+    beforePayable: document.getElementById('sumBeforePayable'),
+    beforeReceivable: document.getElementById('sumBeforeReceivable'),
+    beforeNet: document.getElementById('sumBeforeNet'),
+    afterPayable: document.getElementById('sumAfterPayable'),
+    afterReceivable: document.getElementById('sumAfterReceivable'),
+    afterNet: document.getElementById('sumAfterNet'),
+    req: document.getElementById('totRequested'),
+    allocatable: document.getElementById('totAllocatable'),
+    applied: document.getElementById('totApplied'),
+    unallocated: document.getElementById('totUnallocated'),
+    eligibleCount: document.getElementById('totEligibleCount'),
+    allocatedCount: document.getElementById('totAllocatedCount'),
+    execActionPublicId: document.getElementById('execActionPublicId'),
+    execStatus: document.getElementById('execStatus'),
+    execAffectedCount: document.getElementById('execAffectedCount'),
+    execReceiptRef: document.getElementById('execReceiptRef'),
+    execTotalApplied: document.getElementById('execTotalApplied'),
+    execReplayLabel: document.getElementById('execReplayLabel'),
+  };
+
+  let previewData = null;
+  let previewFresh = false;
+  let previewSignature = '';
+  let unresolvedBlocking = false;
+
+  function setStatus(message, ok = true){
+    statusLine.textContent = message || '';
+    statusLine.classList.remove('ok', 'err');
+    statusLine.classList.add(ok ? 'ok' : 'err');
+  }
+
+  function fmt(value){
+    if (value === null || value === undefined || value === '') return '-';
+    return String(value);
+  }
+
+  function setPreviewState(label, cls){
+    previewStateTag.textContent = label;
+    previewStateTag.classList.remove('fresh', 'stale');
+    if (cls) previewStateTag.classList.add(cls);
+  }
+
+  function getCookie(name){
+    const cookie = `; ${document.cookie}`;
+    const parts = cookie.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+  }
+
+  function newKey(){
+    const base = `provider-${providerId}-${actionInput.value}-${currencyInput.value}`;
+    let token = '';
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      token = window.crypto.randomUUID();
+    } else {
+      token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return `${base}-${token}`;
+  }
+
+  function refreshIdempotencyKey(){
+    idempotencyKeyInput.value = newKey();
+  }
+
+  function renderJson(target, data){
+    target.textContent = JSON.stringify(data || {}, null, 2);
+  }
+
+  function clearExecutionSummary(){
+    summaryEls.execActionPublicId.textContent = '-';
+    summaryEls.execStatus.textContent = '-';
+    summaryEls.execAffectedCount.textContent = '-';
+    summaryEls.execReceiptRef.textContent = '-';
+    summaryEls.execTotalApplied.textContent = '-';
+    summaryEls.execReplayLabel.textContent = '-';
+    replayTag.hidden = true;
+  }
+
+  function renderBeforeAfter(summary){
+    const before = (summary || {}).before || {};
+    const after = (summary || {}).after || {};
+    summaryEls.beforePayable.textContent = fmt(before.payable);
+    summaryEls.beforeReceivable.textContent = fmt(before.receivable);
+    summaryEls.beforeNet.textContent = fmt(before.net);
+    summaryEls.afterPayable.textContent = fmt(after.payable);
+    summaryEls.afterReceivable.textContent = fmt(after.receivable);
+    summaryEls.afterNet.textContent = fmt(after.net);
+  }
+
+  function renderTotals(source){
+    summaryEls.req.textContent = fmt(source.requested_amount);
+    summaryEls.allocatable.textContent = fmt(source.allocatable_amount);
+    summaryEls.applied.textContent = fmt(source.total_applied);
+    summaryEls.unallocated.textContent = fmt(source.unallocated_amount);
+    summaryEls.eligibleCount.textContent = fmt(source.eligible_debt_count);
+    summaryEls.allocatedCount.textContent = fmt(source.allocated_debt_count);
+  }
+
+  function renderExecutionSummary(data){
+    const action = data.action || {};
+    const receipt = data.receipt || {};
+    const execution = data.execution || {};
+    summaryEls.execActionPublicId.textContent = fmt(action.public_id);
+    summaryEls.execStatus.textContent = fmt(action.status);
+    summaryEls.execAffectedCount.textContent = fmt(action.allocation_count);
+    const ref = receipt.serial ? `${receipt.serial} (#${receipt.id || ''})` : (receipt.id ? `#${receipt.id}` : '-');
+    summaryEls.execReceiptRef.textContent = ref;
+    summaryEls.execTotalApplied.textContent = fmt(action.total_applied);
+    summaryEls.execReplayLabel.textContent = execution.label ? execution.label : '-';
+    replayTag.hidden = !execution.idempotent_replay;
+  }
+
+  function renderAllocations(rows){
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length){
+      allocRows.innerHTML = '<tr><td colspan="9" class="muted">No allocations loaded.</td></tr>';
+      return;
+    }
+    allocRows.innerHTML = list.map((row) => {
+      const source = String(row.debt_source || '').toLowerCase();
+      const css = source === 'central' ? 'row-central' : 'row-legacy';
+      return `<tr class="${css}">
+        <td>${fmt(row.debt_source)}</td>
+        <td>${fmt(row.debt_id)}</td>
+        <td>${fmt(row.public_id)}</td>
+        <td>${fmt(row.direction)}</td>
+        <td>${fmt(row.cause_type)}</td>
+        <td class="num">${fmt(row.before_remaining)}</td>
+        <td class="num">${fmt(row.applied)}</td>
+        <td class="num">${fmt(row.after_remaining)}</td>
+        <td>${row.would_close ? 'true' : 'false'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function applyDiagnostics(diagnostics){
+    const dedup = Array.isArray((diagnostics || {}).dedup_warnings) ? diagnostics.dedup_warnings : [];
+    const unresolved = Array.isArray((diagnostics || {}).unresolved_identities) ? diagnostics.unresolved_identities : [];
+    unresolvedBlocking = unresolved.length > 0;
+
+    diagWarningCount.textContent = `dedup_warnings: ${dedup.length}`;
+    diagUnresolvedCount.textContent = `unresolved_identities: ${unresolved.length}`;
+    renderJson(diagnosticsBox, diagnostics || {});
+
+    if (unresolvedBlocking) {
+      warningBlock.hidden = false;
+      warningBlock.classList.add('warn-danger');
+      warningBlock.textContent = 'Execution blocked: unresolved identities present. Run data cleanup or resolve source identity issues first.';
+    } else if (dedup.length > 0) {
+      warningBlock.hidden = false;
+      warningBlock.classList.remove('warn-danger');
+      warningBlock.textContent = 'Warning: dedup warnings detected. Review diagnostics before execution.';
+    } else {
+      warningBlock.hidden = true;
+      warningBlock.textContent = '';
+      warningBlock.classList.remove('warn-danger');
+    }
+  }
+
+  function payloadSignature(){
+    return [
+      actionInput.value,
+      currencyInput.value,
+      amountInput.value,
+      containerInput.value,
+    ].join('|');
+  }
+
+  function updateExecuteEligibility(){
+    const hasFreshPreview = previewData && previewFresh && (payloadSignature() === previewSignature);
+    if (!hasFreshPreview) {
+      executeBtn.disabled = true;
+      return;
+    }
+    executeBtn.disabled = unresolvedBlocking;
+  }
+
+  function markPreviewStale(reason){
+    if (!previewData) return;
+    previewFresh = false;
+    setPreviewState('Preview stale', 'stale');
+    setStatus(reason || 'Preview is stale. Run preview again before execution.', false);
+    updateExecuteEligibility();
+  }
+
+  function currentPayload(){
+    return {
+      action: actionInput.value,
+      currency: currencyInput.value,
+      amount: amountInput.value,
+      money_container_id: containerInput.value ? Number(containerInput.value) : null,
+      idempotency_key: idempotencyKeyInput.value,
+    };
+  }
+
+  async function postJson(url, payload){
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken'),
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({ ok: false, error: 'bad response' }));
+    return { response, data };
+  }
+
+  document.getElementById('regenKeyBtn').addEventListener('click', refreshIdempotencyKey);
+  [actionInput, currencyInput].forEach((el) => {
+    el.addEventListener('change', () => {
+      refreshIdempotencyKey();
+      markPreviewStale('Input changed. Preview is stale.');
+    });
+  });
+  amountInput.addEventListener('change', () => {
+    refreshIdempotencyKey();
+    markPreviewStale('Amount changed. Preview is stale.');
+  });
+  amountInput.addEventListener('input', () => {
+    markPreviewStale('Amount changed. Preview is stale.');
+  });
+  containerInput.addEventListener('change', () => {
+    markPreviewStale('Container changed. Preview is stale.');
+  });
+
+  document.getElementById('loadNetBtn').addEventListener('click', async () => {
+    setStatus('Loading net position...');
+    try {
+      const response = await fetch(netUrl, { credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({ ok: false, error: 'bad response' }));
+      renderJson(rawJsonBox, data);
+      applyDiagnostics(data.diagnostics || {});
+      if (data.ok) {
+        const currency = currencyInput.value;
+        const bucket = (((data.currencies || {})[currency]) || {});
+        renderBeforeAfter({
+          before: {
+            payable: bucket.payable,
+            receivable: bucket.receivable,
+            net: bucket.net,
+          },
+          after: {
+            payable: bucket.payable,
+            receivable: bucket.receivable,
+            net: bucket.net,
+          },
+        });
+        setStatus('Net position loaded.', true);
+      } else {
+        setStatus(data.error || 'Failed to load net position.', false);
+      }
+    } catch (err){
+      setStatus(String(err), false);
+    }
+  });
+
+  document.getElementById('previewBtn').addEventListener('click', async () => {
+    setStatus('Requesting allocation preview...');
+    clearExecutionSummary();
+    const payload = currentPayload();
+    try {
+      const withSummaryUrl = `${previewUrl}?include_position_summary=1`;
+      const { data } = await postJson(withSummaryUrl, payload);
+      renderJson(rawJsonBox, data);
+      applyDiagnostics(data.diagnostics || {});
+      renderAllocations(data.allocations || []);
+      if (data.ok){
+        previewData = data;
+        previewFresh = true;
+        previewSignature = payloadSignature();
+        setPreviewState('Preview fresh', 'fresh');
+        renderBeforeAfter(data.position_summary || {});
+        renderTotals(data);
+        setStatus('Preview loaded.', true);
+      } else {
+        previewData = null;
+        previewFresh = false;
+        previewSignature = '';
+        setPreviewState('No preview', '');
+        setStatus(data.error || 'Preview failed.', false);
+      }
+      updateExecuteEligibility();
+    } catch (err){
+      setStatus(String(err), false);
+      updateExecuteEligibility();
+    }
+  });
+
+  document.getElementById('executeBtn').addEventListener('click', async () => {
+    const fresh = previewData && previewFresh && (payloadSignature() === previewSignature);
+    if (!fresh){
+      setStatus('Run preview first.', false);
+      return;
+    }
+    if (unresolvedBlocking){
+      setStatus('Execution blocked: unresolved identities present; run diagnostics cleanup first.', false);
+      return;
+    }
+    const payload = currentPayload();
+    const selectedContainer = containerInput.options[containerInput.selectedIndex];
+    const confirmText = [
+      'Execute settlement now?',
+      `Provider: ${providerName} (#${providerId})`,
+      `Action: ${payload.action}`,
+      `Currency: ${payload.currency}`,
+      `Amount: ${payload.amount}`,
+      `Container: ${selectedContainer ? selectedContainer.text : ''}`,
+    ].join('\n');
+    if (!window.confirm(confirmText)){
+      setStatus('Execution cancelled.', false);
+      return;
+    }
+    setStatus('Executing settlement...');
+    if (previewData.preview_fingerprint){
+      payload.preview_fingerprint = previewData.preview_fingerprint;
+    }
+    try {
+      const { data } = await postJson(executeUrl, payload);
+      renderJson(rawJsonBox, data);
+      applyDiagnostics(data.diagnostics || {});
+      renderAllocations(data.allocations || []);
+      if (data.ok){
+        renderBeforeAfter(data.position_summary || {});
+        renderTotals({
+          requested_amount: data.action && data.action.requested_amount,
+          allocatable_amount: data.action && data.action.allocatable_amount,
+          total_applied: data.action && data.action.total_applied,
+          unallocated_amount: data.action && data.action.unallocated_amount,
+          eligible_debt_count: data.action && data.action.allocation_count,
+          allocated_debt_count: data.action && data.action.allocation_count,
+        });
+        renderExecutionSummary(data);
+        previewFresh = false;
+        setPreviewState('Preview consumed', 'stale');
+        updateExecuteEligibility();
+        setStatus('Execution succeeded.', true);
+      } else {
+        setStatus(data.error || 'Execution failed.', false);
+      }
+    } catch (err){
+      setStatus(String(err), false);
+    }
+  });
+
+  refreshIdempotencyKey();
+  updateExecuteEligibility();
+})();
+</script>
+{% endblock %}

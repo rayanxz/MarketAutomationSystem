@@ -9,16 +9,23 @@ urlpatterns = [
 
     path("view/<str:direction>/<int:entry_id>/", v.view_debt, name="debts_view_debt"),
     path("view/record/<str:debt_ref>/", v.view_central_debt, name="debts_view_central_debt"),
+    path("provider/<str:provider_ref>/account-settlement-test/", v.provider_account_settlement_test_page, name="debts_provider_account_settlement_test"),
 
     # APIs (lists)
     path("api/debts/", v.api_debts_list, name="debts_api_debts_list"),
     path("api/creditors/", v.api_creditors_list, name="debts_api_creditors_list"),
     path("api/records/", v.api_central_debts_list, name="debts_api_central_list"),
+    path("api/provider/<str:provider_ref>/net-position/", v.api_provider_net_position, name="debts_api_provider_net_position"),
+    path("api/provider/<str:provider_ref>/account-allocation-preview/", v.api_provider_account_allocation_preview, name="debts_api_provider_account_allocation_preview"),
+    path("api/provider/<str:provider_ref>/account-settlement-execute/", v.api_provider_account_settlement_execute, name="debts_api_provider_account_settlement_execute"),
     path("api/record/<str:debt_ref>/settle/", v.api_central_debt_settle, name="debts_api_central_settle"),
     path("api/other-party-suggest/", v.api_other_party_suggest, name="debts_api_other_party_suggest"),
     path("api/debts", v.api_debts_list),            # alias (no slash)
     path("api/creditors", v.api_creditors_list),    # alias (no slash)
     path("api/records", v.api_central_debts_list),  # alias (no slash)
+    path("api/provider/<str:provider_ref>/net-position", v.api_provider_net_position),  # alias (no slash)
+    path("api/provider/<str:provider_ref>/account-allocation-preview", v.api_provider_account_allocation_preview),  # alias (no slash)
+    path("api/provider/<str:provider_ref>/account-settlement-execute", v.api_provider_account_settlement_execute),  # alias (no slash)
     path("api/record/<str:debt_ref>/settle", v.api_central_debt_settle),  # alias (no slash)
 
     # APIs (manual debts create / pay / collect)
