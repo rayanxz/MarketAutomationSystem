@@ -28,6 +28,7 @@ from debts.models import (
 from debts.cause_refs import cause_ref_for_ui
 from debts.source_identity import source_identity_base
 from debts.provider_position import get_provider_net_position
+from debts.provider_position import collect_provider_open_obligations
 from debts.provider_account_allocator import simulate_provider_account_allocation
 from debts.provider_account_settlement_execution import execute_provider_account_settlement
 from debts.provider_account_settlement_execution import _allocation_fingerprint as settlement_preview_fingerprint
@@ -166,6 +167,21 @@ def _project_position_after_preview(
     }
 
 
+def _position_delta(*, before_bucket: dict[str, Decimal], after_bucket: dict[str, Decimal]) -> dict[str, Decimal]:
+    before_receivable = _dec_or_zero(before_bucket.get("receivable"))
+    before_payable = _dec_or_zero(before_bucket.get("payable"))
+    before_net = _dec_or_zero(before_bucket.get("net"))
+    after_receivable = _dec_or_zero(after_bucket.get("receivable"))
+    after_payable = _dec_or_zero(after_bucket.get("payable"))
+    after_net = _dec_or_zero(after_bucket.get("net"))
+    return {
+        "currency": str(after_bucket.get("currency") or before_bucket.get("currency") or "SYP").upper(),
+        "receivable": after_receivable - before_receivable,
+        "payable": after_payable - before_payable,
+        "net": after_net - before_net,
+    }
+
+
 def _central_settlement_row_payload(settlement) -> dict[str, object]:
     return {
         "created_at": settlement.created_at.isoformat() if settlement.created_at else None,
@@ -268,21 +284,127 @@ def provider_account_settlement_test_page(request: HttpRequest, provider_ref: st
 
     ref = str(provider_ref or "").strip()
     provider_id = _int_or_none(ref)
-    if provider_id is None or provider_id <= 0:
+    if provider_id is None:
         return HttpResponse(status=404)
+    provider = None
+    if provider_id > 0:
+        provider = Provider.objects.filter(id=provider_id).first()
+        if provider is None:
+            return HttpResponse(status=404)
 
-    provider = Provider.objects.filter(id=provider_id).first()
-    if provider is None:
-        return HttpResponse(status=404)
+    try:
+        provider_ac_url = reverse("billing_api_providers_ac")
+    except Exception:
+        provider_ac_url = "/manager/billing/api/providers/ac/"
+
+    try:
+        provider_net_position_url_template = reverse("debts_api_provider_net_position", kwargs={"provider_ref": 0})
+    except Exception:
+        provider_net_position_url_template = "/manager/debts/api/provider/0/net-position/"
+
+    try:
+        provider_allocation_preview_url_template = reverse(
+            "debts_api_provider_account_allocation_preview",
+            kwargs={"provider_ref": 0},
+        )
+    except Exception:
+        provider_allocation_preview_url_template = "/manager/debts/api/provider/0/account-allocation-preview/"
+
+    try:
+        provider_execute_url_template = reverse(
+            "debts_api_provider_account_settlement_execute",
+            kwargs={"provider_ref": 0},
+        )
+    except Exception:
+        provider_execute_url_template = "/manager/debts/api/provider/0/account-settlement-execute/"
+
+    provider_initial = {
+        "id": int(provider.id) if provider is not None else 0,
+        "name": (provider.name if provider is not None else ""),
+        "phone": (provider.phone if provider is not None else ""),
+    }
 
     return render(
         request,
         "debts/provider_account_settlement_test.html",
         {
             "provider": provider,
+            "provider_initial": provider_initial,
+            "provider_ac_url": provider_ac_url,
+            "provider_net_position_url_template": provider_net_position_url_template,
+            "provider_allocation_preview_url_template": provider_allocation_preview_url_template,
+            "provider_execute_url_template": provider_execute_url_template,
             "money_containers": _allowed_containers(request.user),
         },
     )
+
+
+def _obligation_summary_from_rows(*, obligations: list[dict]) -> dict[str, object]:
+    payable_count = 0
+    receivable_count = 0
+    totals = {
+        "SYP": {"payable": Decimal("0.00"), "receivable": Decimal("0.00")},
+        "USD": {"payable": Decimal("0.00"), "receivable": Decimal("0.00")},
+    }
+    for row in obligations:
+        direction = str(row.get("direction") or "")
+        rem_syp = _dec_or_zero(row.get("remaining_syp"))
+        rem_usd = _dec_or_zero(row.get("remaining_usd"))
+        has_any = rem_syp > Decimal("0.00") or rem_usd > Decimal("0.00")
+        if not has_any:
+            continue
+        if direction == DebtDirection.PAYABLE:
+            payable_count += 1
+            totals["SYP"]["payable"] += rem_syp
+            totals["USD"]["payable"] += rem_usd
+        elif direction == DebtDirection.RECEIVABLE:
+            receivable_count += 1
+            totals["SYP"]["receivable"] += rem_syp
+            totals["USD"]["receivable"] += rem_usd
+
+    return {
+        "open_obligation_count": payable_count + receivable_count,
+        "open_payable_count": payable_count,
+        "open_receivable_count": receivable_count,
+        "totals": totals,
+    }
+
+
+@require_GET
+@role_required_api(AccountProfile.Role.MANAGER)
+def api_provider_open_obligations(request: HttpRequest, provider_ref: str) -> JsonResponse:
+    ref = str(provider_ref or "").strip()
+    provider_id = _int_or_none(ref)
+    if provider_id is None or provider_id <= 0:
+        return _bad("invalid provider id", 400)
+    provider = (
+        Provider.objects
+        .only("id", "name", "phone", "is_active")
+        .filter(id=provider_id)
+        .first()
+    )
+    if provider is None:
+        return _bad("provider not found", 404)
+    try:
+        collected = collect_provider_open_obligations(provider_id=provider_id)
+    except Exception:
+        return _bad("server error", 500)
+    obligations = list(collected.get("obligations") or [])
+    diagnostics = dict(collected.get("diagnostics") or {})
+    payload = {
+        "ok": True,
+        "provider": {
+            "id": int(provider.id),
+            "name": provider.name or "",
+            "phone": provider.phone or "",
+            "is_active": bool(provider.is_active),
+        },
+        "provider_id": int(provider.id),
+        "obligations": obligations,
+        "obligations_summary": _obligation_summary_from_rows(obligations=obligations),
+        "diagnostics": diagnostics,
+    }
+    return JsonResponse(_json_decimal_safe(payload))
 
 
 # ---------- Helpers ----------
@@ -803,6 +925,7 @@ def api_provider_account_allocation_preview(request: HttpRequest, provider_ref: 
         preview["position_summary"] = {
             "before": before_bucket,
             "after": after_bucket,
+            "delta": _position_delta(before_bucket=before_bucket, after_bucket=after_bucket),
         }
         preview["preview_fingerprint"] = settlement_preview_fingerprint(preview)
 
@@ -910,6 +1033,7 @@ def api_provider_account_settlement_execute(request: HttpRequest, provider_ref: 
         "position_summary": {
             "before": before_bucket,
             "after": after_bucket,
+            "delta": _position_delta(before_bucket=before_bucket, after_bucket=after_bucket),
         },
         "execution": {
             "idempotent_replay": replay,

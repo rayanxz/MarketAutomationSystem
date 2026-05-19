@@ -85,9 +85,10 @@ class ProviderAccountSettlementTestPagePhase6BTests(TestCase):
         resp = self.client.get(self._path(str(self.provider.id)))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "INTERNAL TEST TOOL")
+        self.assertContains(resp, "Provider Account Explorer")
         self.assertContains(resp, self.provider.name)
-        self.assertContains(resp, "Preview Allocation")
-        self.assertContains(resp, "Execute Settlement")
+        self.assertContains(resp, "Preview allocation")
+        self.assertContains(resp, "Execute settlement")
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
     def test_page_includes_expected_api_urls_and_data_attributes(self):
@@ -95,13 +96,13 @@ class ProviderAccountSettlementTestPagePhase6BTests(TestCase):
         resp = self.client.get(self._path(str(self.provider.id)))
         self.assertEqual(resp.status_code, 200)
 
-        expected_net = f"/manager/debts/api/provider/{self.provider.id}/net-position/"
-        expected_preview = f"/manager/debts/api/provider/{self.provider.id}/account-allocation-preview/"
-        expected_execute = f"/manager/debts/api/provider/{self.provider.id}/account-settlement-execute/"
-        self.assertContains(resp, f'data-provider-id="{self.provider.id}"')
-        self.assertContains(resp, f'data-net-position-url="{expected_net}"')
-        self.assertContains(resp, f'data-allocation-preview-url="{expected_preview}"')
-        self.assertContains(resp, f'data-settlement-execute-url="{expected_execute}"')
+        self.assertContains(resp, 'data-provider-ac-url="/manager/billing/api/providers/ac/"')
+        self.assertContains(resp, 'data-open-obligations-url-template="/manager/debts/api/provider/0/open-obligations/"')
+        self.assertContains(resp, 'data-net-position-url-template="/manager/debts/api/provider/0/net-position/"')
+        self.assertContains(resp, 'data-allocation-preview-url-template="/manager/debts/api/provider/0/account-allocation-preview/"')
+        self.assertContains(resp, 'data-settlement-execute-url-template="/manager/debts/api/provider/0/account-settlement-execute/"')
+        self.assertContains(resp, f'data-initial-provider-id="{self.provider.id}"')
+        self.assertContains(resp, f'data-initial-provider-name="{self.provider.name}"')
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
     def test_does_not_expose_provider_list_execution_page(self):

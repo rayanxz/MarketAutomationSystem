@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/creditors/", v.api_creditors_list, name="debts_api_creditors_list"),
     path("api/records/", v.api_central_debts_list, name="debts_api_central_list"),
     path("api/provider/<str:provider_ref>/net-position/", v.api_provider_net_position, name="debts_api_provider_net_position"),
+    path("api/provider/<str:provider_ref>/open-obligations/", v.api_provider_open_obligations, name="debts_api_provider_open_obligations"),
     path("api/provider/<str:provider_ref>/account-allocation-preview/", v.api_provider_account_allocation_preview, name="debts_api_provider_account_allocation_preview"),
     path("api/provider/<str:provider_ref>/account-settlement-execute/", v.api_provider_account_settlement_execute, name="debts_api_provider_account_settlement_execute"),
     path("api/record/<str:debt_ref>/settle/", v.api_central_debt_settle, name="debts_api_central_settle"),
@@ -24,6 +25,7 @@ urlpatterns = [
     path("api/creditors", v.api_creditors_list),    # alias (no slash)
     path("api/records", v.api_central_debts_list),  # alias (no slash)
     path("api/provider/<str:provider_ref>/net-position", v.api_provider_net_position),  # alias (no slash)
+    path("api/provider/<str:provider_ref>/open-obligations", v.api_provider_open_obligations),  # alias (no slash)
     path("api/provider/<str:provider_ref>/account-allocation-preview", v.api_provider_account_allocation_preview),  # alias (no slash)
     path("api/provider/<str:provider_ref>/account-settlement-execute", v.api_provider_account_settlement_execute),  # alias (no slash)
     path("api/record/<str:debt_ref>/settle", v.api_central_debt_settle),  # alias (no slash)

@@ -1,302 +1,320 @@
 {% extends "manager/base_manager.html" %}
 
-{% block title %}اختبار تسوية حساب المورد{% endblock %}
+{% block title %}Provider Account Explorer (Internal){% endblock %}
 
 {% block extra_head %}
 <style>
-  .test-wrap{ direction:rtl; display:grid; gap:12px; }
-  .card{ background:#fff; border-radius:12px; box-shadow:var(--card-shadow); padding:12px; }
-  .warn{
-    border:1px solid #fecaca;
-    background:#fff1f2;
-    color:#7f1d1d;
-    border-radius:10px;
-    padding:10px 12px;
-    font-weight:700;
-  }
-  .warn-soft{
-    border:1px solid #fcd34d;
-    background:#fffbeb;
-    color:#92400e;
-    border-radius:10px;
-    padding:8px 10px;
-    font-weight:700;
-    margin-top:8px;
-  }
-  .warn-danger{
-    border-color:#fca5a5;
-    background:#fef2f2;
-    color:#991b1b;
-  }
-  .grid{
-    display:grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap:10px;
-    align-items:end;
-  }
-  .field{ display:grid; gap:6px; }
-  .muted{ color:#64748b; font-size:12px; }
-  .input, .select{
-    width:100%;
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    padding:10px 12px;
-    background:#fff;
-  }
-  .actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-  .btn{
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    background:#f8fafc;
-    padding:9px 12px;
-    cursor:pointer;
-  }
-  .btn.primary{
-    background:var(--brand);
-    border-color:var(--brand);
-    color:#fff;
-  }
-  .btn.danger{
-    background:#7f1d1d;
-    border-color:#7f1d1d;
-    color:#fff;
-  }
-  .btn:disabled{
-    opacity:.55;
-    cursor:not-allowed;
-  }
-  .status{ font-size:13px; font-weight:700; margin-top:8px; }
-  .status.ok{ color:#166534; }
-  .status.err{ color:#b91c1c; }
-  .state-tag{
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    border-radius:999px;
-    padding:4px 10px;
-    font-size:12px;
-    font-weight:700;
-    border:1px solid #cbd5e1;
-    background:#f8fafc;
-    color:#334155;
-  }
-  .state-tag.stale{
-    border-color:#fca5a5;
-    background:#fef2f2;
-    color:#991b1b;
-  }
-  .state-tag.fresh{
-    border-color:#86efac;
-    background:#f0fdf4;
-    color:#166534;
-  }
-  .summary-grid{
-    display:grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap:10px;
-  }
-  .summary-box{
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    padding:10px;
-    background:#f8fafc;
-  }
-  .summary-title{
-    margin:0 0 8px;
-    font-size:14px;
-    font-weight:800;
-    color:#0f172a;
-  }
-  .summary-row{
-    display:flex;
-    justify-content:space-between;
-    gap:8px;
-    border-bottom:1px dashed #dbe2ea;
-    padding:4px 0;
-    font-size:13px;
-  }
+  .explorer-wrap{ direction:rtl; display:grid; gap:14px; }
+  .x-card{ background:#fff; border:1px solid #e5e7eb; border-radius:14px; box-shadow:var(--card-shadow); padding:14px; }
+  .x-title{ margin:0 0 10px; font-size:18px; font-weight:800; color:#0f172a; }
+  .x-banner{ border:1px solid #fecaca; background:#fff1f2; color:#7f1d1d; border-radius:10px; padding:10px 12px; font-weight:800; }
+  .x-muted{ color:#64748b; font-size:12px; }
+  .x-grid{ display:grid; gap:10px; }
+  .x-grid.auto{ grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .x-grid.balance{ grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .x-field{ display:grid; gap:6px; }
+  .x-input,.x-select{ width:100%; border:1px solid #dbe2ea; border-radius:10px; padding:10px 12px; background:#fff; font-size:14px; }
+  .x-actions{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .x-btn{ border:1px solid #dbe2ea; border-radius:10px; background:#f8fafc; padding:9px 12px; cursor:pointer; font-weight:700; }
+  .x-btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
+  .x-btn.danger{ background:#7f1d1d; color:#fff; border-color:#7f1d1d; }
+  .x-btn:disabled{ opacity:.55; cursor:not-allowed; }
+  .x-status{ margin-top:8px; font-size:13px; font-weight:800; }
+  .x-status.ok{ color:#166534; }
+  .x-status.err{ color:#b91c1c; }
+  .provider-search-results{ display:grid; gap:6px; margin-top:8px; }
+  .provider-result-btn{ text-align:right; border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; padding:8px 10px; cursor:pointer; }
+  .provider-meta{ border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; padding:10px; display:grid; gap:6px; }
+  .provider-meta-row{ display:flex; justify-content:space-between; gap:10px; }
+  .provider-meta-row .label{ color:#475569; }
+  .provider-meta-row .value{ font-weight:700; color:#0f172a; direction:ltr; text-align:left; }
+  .provider-meta-row .value.rtl{ direction:rtl; text-align:right; }
+  .balance-card{ border:1px solid #dbe2ea; border-radius:12px; background:linear-gradient(180deg, #ffffff, #f8fafc); padding:12px; }
+  .balance-code{ font-size:20px; font-weight:900; color:#0f172a; letter-spacing:1px; }
+  .balance-row{ display:flex; justify-content:space-between; gap:12px; border-bottom:1px dashed #dbe2ea; padding:6px 0; }
+  .balance-row:last-child{ border-bottom:0; }
+  .balance-row .label{ color:#334155; font-weight:700; }
+  .balance-row .value{ font-size:22px; font-weight:900; direction:ltr; text-align:left; color:#0f172a; font-variant-numeric:tabular-nums; }
+  .value.positive{ color:#166534; }
+  .value.negative{ color:#991b1b; }
+  .value.zero{ color:#334155; }
+  .meaning-note{ margin-top:8px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; padding:8px 10px; font-size:13px; line-height:1.6; }
+  .summary-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:10px; }
+  .summary-box{ border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; padding:10px; }
+  .summary-title{ margin:0 0 6px; font-size:14px; font-weight:800; color:#0f172a; }
+  .summary-row{ display:flex; justify-content:space-between; gap:8px; border-bottom:1px dashed #dbe2ea; padding:4px 0; }
   .summary-row:last-child{ border-bottom:0; }
-  .summary-row .label{ color:#475569; }
-  .summary-row .value{ font-weight:700; color:#0f172a; direction:ltr; text-align:left; }
+  .summary-row .label{ color:#475569; font-size:13px; }
+  .summary-row .value{ color:#0f172a; font-weight:800; direction:ltr; text-align:left; font-variant-numeric:tabular-nums; }
   .summary-row .value.center{ direction:rtl; text-align:right; }
-  .table-wrap{ overflow:auto; border:1px solid #e5e7eb; border-radius:10px; }
-  table{ width:100%; border-collapse:collapse; min-width:980px; }
-  th, td{ padding:8px 10px; border-bottom:1px solid #eef2f7; white-space:nowrap; text-align:center; }
+  .badge{ display:inline-flex; align-items:center; border-radius:999px; border:1px solid #cbd5e1; padding:4px 10px; font-size:12px; font-weight:800; background:#f8fafc; color:#334155; }
+  .badge.fresh{ border-color:#86efac; background:#f0fdf4; color:#166534; }
+  .badge.stale{ border-color:#fca5a5; background:#fef2f2; color:#991b1b; }
+  .badge.warn{ border-color:#fcd34d; background:#fffbeb; color:#92400e; }
+  .diag-box{ border:1px solid #fca5a5; background:#fef2f2; color:#991b1b; border-radius:10px; padding:10px; font-weight:700; }
+  .diag-box.soft{ border-color:#fcd34d; background:#fffbeb; color:#92400e; }
+  .table-wrap{ overflow:auto; border:1px solid #e2e8f0; border-radius:10px; }
+  table{ width:100%; min-width:1060px; border-collapse:collapse; }
+  th, td{ padding:8px 10px; border-bottom:1px solid #eef2f7; text-align:center; white-space:nowrap; }
   th{ background:#f8fafc; }
-  td.num{ font-variant-numeric: tabular-nums; direction:ltr; text-align:right; }
-  tr.row-central td{ background:#eff6ff; }
-  tr.row-legacy td{ background:#f8fafc; }
-  .diag-grid{ display:grid; gap:8px; }
-  .diag-box{
-    border:1px solid #e5e7eb;
-    background:#f8fafc;
-    border-radius:10px;
-    padding:10px;
-  }
-  pre{
-    margin:0;
-    background:#0f172a;
-    color:#e2e8f0;
-    border-radius:8px;
-    padding:10px;
-    overflow:auto;
-    max-height:280px;
-    direction:ltr;
-    text-align:left;
-  }
+  td.num{ text-align:right; direction:ltr; font-variant-numeric:tabular-nums; }
+  tr.src-central td{ background:#eff6ff; }
+  tr.src-legacy td{ background:#f8fafc; }
+  pre{ margin:0; background:#0f172a; color:#e2e8f0; border-radius:8px; padding:10px; overflow:auto; max-height:260px; direction:ltr; text-align:left; }
+  .hidden{ display:none !important; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div
-  id="providerSettlementTestRoot"
-  class="test-wrap"
-  data-phase="6c"
-  data-provider-id="{{ provider.id }}"
-  data-provider-name="{{ provider.name|escape }}"
-  data-net-position-url="{% url 'debts_api_provider_net_position' provider.id %}"
-  data-allocation-preview-url="{% url 'debts_api_provider_account_allocation_preview' provider.id %}"
-  data-settlement-execute-url="{% url 'debts_api_provider_account_settlement_execute' provider.id %}"
+  id="providerExplorerRoot"
+  class="explorer-wrap"
+  data-provider-ac-url="{{ provider_ac_url }}"
+  data-open-obligations-url-template="{% url 'debts_api_provider_open_obligations' 0 %}"
+  data-net-position-url-template="{{ provider_net_position_url_template }}"
+  data-allocation-preview-url-template="{{ provider_allocation_preview_url_template }}"
+  data-settlement-execute-url-template="{{ provider_execute_url_template }}"
+  data-initial-provider-id="{{ provider_initial.id }}"
+  data-initial-provider-name="{{ provider_initial.name|escape }}"
+  data-initial-provider-phone="{{ provider_initial.phone|escape }}"
 >
-  <section class="card">
-    <div class="warn">INTERNAL TEST TOOL - Use for controlled manager testing only.</div>
-    <h2 style="margin:10px 0 0;">اختبار تسوية حساب المورد: {{ provider.name }} (ID: {{ provider.id }})</h2>
+  <section class="x-card">
+    <div class="x-banner">INTERNAL TEST TOOL - Provider Account Explorer (Observation/Verification only)</div>
+    <h2 class="x-title" style="margin-top:10px;">Provider Account Explorer</h2>
+    <div class="x-muted">Read-only exploration + controlled preview/execute through existing services.</div>
   </section>
 
-  <section class="card">
-    <div class="grid">
-      <label class="field">
-        <span class="muted">الإجراء</span>
-        <select id="actionInput" class="select">
-          <option value="pay_provider">pay_provider</option>
-          <option value="receive_from_provider">receive_from_provider</option>
-        </select>
+  <section class="x-card" id="providerSelectionSection">
+    <h3 class="x-title">A) Provider Selection</h3>
+    <div class="x-grid auto">
+      <label class="x-field">
+        <span class="x-muted">Search provider</span>
+        <input id="providerSearchInput" class="x-input" type="text" placeholder="Type provider name...">
       </label>
-      <label class="field">
-        <span class="muted">العملة</span>
-        <select id="currencyInput" class="select">
-          <option value="SYP">SYP</option>
-          <option value="USD">USD</option>
-        </select>
-      </label>
-      <label class="field">
-        <span class="muted">المبلغ</span>
-        <input id="amountInput" class="input" type="number" min="0" step="0.01" value="0.00">
-      </label>
-      <label class="field">
-        <span class="muted">الحافظة</span>
-        <select id="containerInput" class="select">
-          <option value="">اختر الحافظة</option>
-          {% for c in money_containers %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label class="field">
-        <span class="muted">idempotency_key (client-generated)</span>
-        <input id="idempotencyKeyInput" class="input" type="text">
-      </label>
+      <div class="x-field">
+        <span class="x-muted">Actions</span>
+        <div class="x-actions">
+          <button id="providerSearchBtn" class="x-btn" type="button">Search</button>
+          <button id="refreshProviderBtn" class="x-btn" type="button" disabled>Reload Provider Snapshot</button>
+        </div>
+      </div>
     </div>
-
-    <div class="actions">
-      <button id="regenKeyBtn" class="btn" type="button">Regenerate Key</button>
-      <button id="loadNetBtn" class="btn" type="button">Load Net Position</button>
-      <button id="previewBtn" class="btn primary" type="button">Preview Allocation</button>
-      <button id="executeBtn" class="btn danger" type="button" disabled>Execute Settlement</button>
-      <span id="previewStateTag" class="state-tag">No preview</span>
-      <span id="replayTag" class="state-tag" hidden>IDEMPOTENT REPLAY RESULT</span>
+    <div id="providerSearchResults" class="provider-search-results"></div>
+    <div class="provider-meta" id="selectedProviderMeta">
+      <div class="provider-meta-row"><span class="label">Provider</span><span id="selProviderName" class="value rtl">-</span></div>
+      <div class="provider-meta-row"><span class="label">Provider ID</span><span id="selProviderId" class="value">-</span></div>
+      <div class="provider-meta-row"><span class="label">Phone</span><span id="selProviderPhone" class="value">-</span></div>
     </div>
-    <div id="warningBlock" class="warn-soft" hidden></div>
-    <div id="statusLine" class="status"></div>
   </section>
 
-  <section class="card" id="beforeAfterSummaryCard">
-    <h3 style="margin-top:0;">Before vs After (Selected Currency)</h3>
+  <section class="x-card" id="netBalanceCard">
+    <h3 class="x-title">B) Total Provider Net Balance</h3>
+    <div class="x-grid balance">
+      <div class="balance-card">
+        <div class="balance-code">SYP</div>
+        <div class="balance-row"><span class="label">Payable</span><span id="netSypPayable" class="value">-</span></div>
+        <div class="balance-row"><span class="label">Receivable</span><span id="netSypReceivable" class="value">-</span></div>
+        <div class="balance-row"><span class="label">Net</span><span id="netSypNet" class="value">-</span></div>
+      </div>
+      <div class="balance-card">
+        <div class="balance-code">USD</div>
+        <div class="balance-row"><span class="label">Payable</span><span id="netUsdPayable" class="value">-</span></div>
+        <div class="balance-row"><span class="label">Receivable</span><span id="netUsdReceivable" class="value">-</span></div>
+        <div class="balance-row"><span class="label">Net</span><span id="netUsdNet" class="value">-</span></div>
+      </div>
+    </div>
+    <div class="meaning-note">
+      Positive net: provider owes store.<br>
+      Negative net: store owes provider.<br>
+      Zero net: balanced net only (open debts may still exist).
+    </div>
+  </section>
+
+  <section class="x-card" id="obligationsSection">
+    <h3 class="x-title">C) How Net Balance Was Derived</h3>
     <div class="summary-grid">
       <div class="summary-box">
-        <h4 class="summary-title">Before</h4>
-        <div class="summary-row"><span class="label">Payable</span><span class="value" id="sumBeforePayable">-</span></div>
-        <div class="summary-row"><span class="label">Receivable</span><span class="value" id="sumBeforeReceivable">-</span></div>
-        <div class="summary-row"><span class="label">Net</span><span class="value" id="sumBeforeNet">-</span></div>
+        <h4 class="summary-title">Open Debt Counts</h4>
+        <div class="summary-row"><span class="label">Open obligations</span><span id="sumOpenObligationCount" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Open payable count</span><span id="sumOpenPayableCount" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Open receivable count</span><span id="sumOpenReceivableCount" class="value center">-</span></div>
       </div>
       <div class="summary-box">
-        <h4 class="summary-title">After</h4>
-        <div class="summary-row"><span class="label">Payable</span><span class="value" id="sumAfterPayable">-</span></div>
-        <div class="summary-row"><span class="label">Receivable</span><span class="value" id="sumAfterReceivable">-</span></div>
-        <div class="summary-row"><span class="label">Net</span><span class="value" id="sumAfterNet">-</span></div>
+        <h4 class="summary-title">Open Totals (SYP)</h4>
+        <div class="summary-row"><span class="label">Payable</span><span id="sumPayableSyp" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Receivable</span><span id="sumReceivableSyp" class="value">-</span></div>
+      </div>
+      <div class="summary-box">
+        <h4 class="summary-title">Open Totals (USD)</h4>
+        <div class="summary-row"><span class="label">Payable</span><span id="sumPayableUsd" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Receivable</span><span id="sumReceivableUsd" class="value">-</span></div>
       </div>
     </div>
-  </section>
-
-  <section class="card" id="allocationTotalsCard">
-    <h3 style="margin-top:0;">Allocation Totals Summary</h3>
-    <div class="summary-grid">
-      <div class="summary-box">
-        <div class="summary-row"><span class="label">Requested Amount</span><span class="value" id="totRequested">-</span></div>
-        <div class="summary-row"><span class="label">Allocatable Amount</span><span class="value" id="totAllocatable">-</span></div>
-        <div class="summary-row"><span class="label">Total Applied</span><span class="value" id="totApplied">-</span></div>
-      </div>
-      <div class="summary-box">
-        <div class="summary-row"><span class="label">Unallocated Amount</span><span class="value" id="totUnallocated">-</span></div>
-        <div class="summary-row"><span class="label">Eligible Debt Count</span><span class="value center" id="totEligibleCount">-</span></div>
-        <div class="summary-row"><span class="label">Allocated Debt Count</span><span class="value center" id="totAllocatedCount">-</span></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="card" id="executionSummaryCard">
-    <h3 style="margin-top:0;">Execution Summary</h3>
-    <div class="summary-grid">
-      <div class="summary-box">
-        <div class="summary-row"><span class="label">Action Public ID</span><span class="value center" id="execActionPublicId">-</span></div>
-        <div class="summary-row"><span class="label">Execution Status</span><span class="value center" id="execStatus">-</span></div>
-        <div class="summary-row"><span class="label">Affected Debts Count</span><span class="value center" id="execAffectedCount">-</span></div>
-      </div>
-      <div class="summary-box">
-        <div class="summary-row"><span class="label">Receipt Reference</span><span class="value center" id="execReceiptRef">-</span></div>
-        <div class="summary-row"><span class="label">Total Applied</span><span class="value" id="execTotalApplied">-</span></div>
-        <div class="summary-row"><span class="label">Replay</span><span class="value center" id="execReplayLabel">-</span></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="card">
-    <h3 style="margin-top:0;">Allocations</h3>
-    <div class="table-wrap">
+    <div id="diagnosticsAlerts" class="x-grid" style="margin-top:10px;"></div>
+    <div class="table-wrap" style="margin-top:10px;">
       <table>
         <thead>
           <tr>
-            <th>source</th>
-            <th>debt_id</th>
-            <th>public_id</th>
-            <th>direction</th>
-            <th>cause_type</th>
-            <th>before</th>
-            <th>applied</th>
-            <th>after</th>
-            <th>would_close</th>
+            <th>#</th>
+            <th>Source Type</th>
+            <th>Direction</th>
+            <th>Cause</th>
+            <th>Public ID</th>
+            <th>Source Identity</th>
+            <th>Remaining SYP</th>
+            <th>Remaining USD</th>
+            <th>Created</th>
           </tr>
         </thead>
-        <tbody id="allocRows">
-          <tr><td colspan="9" class="muted">No allocations loaded.</td></tr>
+        <tbody id="obligationsTableBody">
+          <tr><td colspan="9" class="x-muted">No provider selected.</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
-  <section class="card" id="diagnosticsCard">
-    <h3 style="margin-top:0;">Diagnostics</h3>
-    <div class="diag-grid">
-      <div id="diagWarningCount" class="diag-box">dedup_warnings: 0</div>
-      <div id="diagUnresolvedCount" class="diag-box">unresolved_identities: 0</div>
-      <pre id="diagnosticsBox">{}</pre>
+  <section class="x-card" id="actionLabSection">
+    <h3 class="x-title">D) Account Action Lab</h3>
+    <div class="x-grid auto">
+      <label class="x-field">
+        <span class="x-muted">Action</span>
+        <select id="actionInput" class="x-select">
+          <option value="pay_provider">pay_provider</option>
+          <option value="receive_from_provider">receive_from_provider</option>
+        </select>
+      </label>
+      <label class="x-field">
+        <span class="x-muted">Currency</span>
+        <select id="currencyInput" class="x-select">
+          <option value="SYP">SYP</option>
+          <option value="USD">USD</option>
+        </select>
+      </label>
+      <label class="x-field">
+        <span class="x-muted">Amount</span>
+        <input id="amountInput" class="x-input" type="number" min="0" step="0.01" value="0.00">
+      </label>
+      <label class="x-field">
+        <span class="x-muted">Money Container</span>
+        <select id="containerInput" class="x-select">
+          <option value="">Choose container</option>
+          {% for c in money_containers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="x-field">
+        <span class="x-muted">idempotency_key</span>
+        <input id="idempotencyKeyInput" class="x-input" type="text">
+      </label>
+    </div>
+    <div class="x-actions" style="margin-top:10px;">
+      <button id="regenKeyBtn" class="x-btn" type="button">Regenerate Key</button>
+      <button id="previewBtn" class="x-btn primary" type="button" disabled>Preview allocation</button>
+      <button id="executeBtn" class="x-btn danger" type="button" disabled>Execute settlement</button>
+      <span id="previewStateBadge" class="badge">No preview</span>
+      <span id="replayBadge" class="badge warn hidden">IDEMPOTENT REPLAY RESULT</span>
+    </div>
+    <div id="actionStatusLine" class="x-status"></div>
+  </section>
+
+  <section class="x-card" id="previewSection">
+    <h3 class="x-title">E) Preview Visualization</h3>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <h4 class="summary-title">Preview Totals</h4>
+        <div class="summary-row"><span class="label">Requested amount</span><span id="previewRequestedAmount" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Allocatable amount</span><span id="previewAllocatableAmount" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Total applied</span><span id="previewTotalApplied" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Unallocated amount</span><span id="previewUnallocatedAmount" class="value">-</span></div>
+      </div>
+      <div class="summary-box">
+        <h4 class="summary-title">Preview Meta</h4>
+        <div class="summary-row"><span class="label">Eligible debt count</span><span id="previewEligibleCount" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Allocated debt count</span><span id="previewAllocatedCount" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Preview fingerprint</span><span id="previewFingerprint" class="value center">-</span></div>
+      </div>
+      <div class="summary-box">
+        <h4 class="summary-title">Selected Currency Before / After / Delta</h4>
+        <div class="summary-row"><span class="label">Before payable</span><span id="previewBeforePayable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Before receivable</span><span id="previewBeforeReceivable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Before net</span><span id="previewBeforeNet" class="value">-</span></div>
+        <div class="summary-row"><span class="label">After payable</span><span id="previewAfterPayable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">After receivable</span><span id="previewAfterReceivable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">After net</span><span id="previewAfterNet" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Delta payable</span><span id="previewDeltaPayable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Delta receivable</span><span id="previewDeltaReceivable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Delta net</span><span id="previewDeltaNet" class="value">-</span></div>
+      </div>
+    </div>
+    <div id="previewDiagnosticsBanner" style="margin-top:10px;"></div>
+    <div class="table-wrap" style="margin-top:10px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Seq</th>
+            <th>Target Debt</th>
+            <th>Cause</th>
+            <th>Before Remaining</th>
+            <th>Applied</th>
+            <th>After Remaining</th>
+            <th>Would Close?</th>
+          </tr>
+        </thead>
+        <tbody id="previewAllocTableBody">
+          <tr><td colspan="7" class="x-muted">No preview yet.</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 
-  <section class="card" id="rawJsonCard">
-    <details id="rawJsonDetails" open>
-      <summary>Raw JSON Response</summary>
-      <pre id="rawJsonBox">{}</pre>
+  <section class="x-card" id="executionSection">
+    <h3 class="x-title">F) Execution Results</h3>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <h4 class="summary-title">Execution IDs</h4>
+        <div class="summary-row"><span class="label">Action ID</span><span id="execActionId" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Action Public ID</span><span id="execActionPublicId" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Receipt ID</span><span id="execReceiptId" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Receipt Serial</span><span id="execReceiptSerial" class="value center">-</span></div>
+      </div>
+      <div class="summary-box">
+        <h4 class="summary-title">Execution Summary</h4>
+        <div class="summary-row"><span class="label">Status</span><span id="execStatus" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Total applied</span><span id="execTotalApplied" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Allocation count</span><span id="execAllocationCount" class="value center">-</span></div>
+        <div class="summary-row"><span class="label">Replay</span><span id="execReplayLabel" class="value center">-</span></div>
+      </div>
+      <div class="summary-box">
+        <h4 class="summary-title">Selected Currency Before / After / Delta</h4>
+        <div class="summary-row"><span class="label">Before payable</span><span id="execBeforePayable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Before receivable</span><span id="execBeforeReceivable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Before net</span><span id="execBeforeNet" class="value">-</span></div>
+        <div class="summary-row"><span class="label">After payable</span><span id="execAfterPayable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">After receivable</span><span id="execAfterReceivable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">After net</span><span id="execAfterNet" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Delta payable</span><span id="execDeltaPayable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Delta receivable</span><span id="execDeltaReceivable" class="value">-</span></div>
+        <div class="summary-row"><span class="label">Delta net</span><span id="execDeltaNet" class="value">-</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="x-card" id="remainingDebtsSection">
+    <h3 class="x-title">G) Remaining Debts After Action</h3>
+    <div class="x-muted">Obligations table above auto-refreshes after execution.</div>
+    <div id="remainingRefreshNote" class="x-status"></div>
+  </section>
+
+  <section class="x-card" id="rawDebugSection">
+    <h3 class="x-title">H) Raw JSON Debug</h3>
+    <details id="rawDebugDetails">
+      <summary>Expand raw payloads</summary>
+      <div class="x-grid" style="margin-top:8px;">
+        <div><div class="x-muted">net_position / obligations</div><pre id="rawNetPayload">{}</pre></div>
+        <div><div class="x-muted">preview payload</div><pre id="rawPreviewPayload">{}</pre></div>
+        <div><div class="x-muted">execution payload</div><pre id="rawExecutePayload">{}</pre></div>
+      </div>
     </details>
   </section>
 </div>
@@ -305,380 +323,449 @@
 {% block extra_scripts %}
 <script>
 (() => {
-  const root = document.getElementById('providerSettlementTestRoot');
+  const root = document.getElementById('providerExplorerRoot');
   if (!root) return;
 
-  const providerId = root.dataset.providerId;
-  const providerName = root.dataset.providerName || '';
-  const netUrl = root.dataset.netPositionUrl;
-  const previewUrl = root.dataset.allocationPreviewUrl;
-  const executeUrl = root.dataset.settlementExecuteUrl;
-
-  const actionInput = document.getElementById('actionInput');
-  const currencyInput = document.getElementById('currencyInput');
-  const amountInput = document.getElementById('amountInput');
-  const containerInput = document.getElementById('containerInput');
-  const idempotencyKeyInput = document.getElementById('idempotencyKeyInput');
-  const executeBtn = document.getElementById('executeBtn');
-  const previewStateTag = document.getElementById('previewStateTag');
-  const replayTag = document.getElementById('replayTag');
-  const warningBlock = document.getElementById('warningBlock');
-  const statusLine = document.getElementById('statusLine');
-  const allocRows = document.getElementById('allocRows');
-  const diagnosticsBox = document.getElementById('diagnosticsBox');
-  const rawJsonBox = document.getElementById('rawJsonBox');
-  const diagWarningCount = document.getElementById('diagWarningCount');
-  const diagUnresolvedCount = document.getElementById('diagUnresolvedCount');
-
-  const summaryEls = {
-    beforePayable: document.getElementById('sumBeforePayable'),
-    beforeReceivable: document.getElementById('sumBeforeReceivable'),
-    beforeNet: document.getElementById('sumBeforeNet'),
-    afterPayable: document.getElementById('sumAfterPayable'),
-    afterReceivable: document.getElementById('sumAfterReceivable'),
-    afterNet: document.getElementById('sumAfterNet'),
-    req: document.getElementById('totRequested'),
-    allocatable: document.getElementById('totAllocatable'),
-    applied: document.getElementById('totApplied'),
-    unallocated: document.getElementById('totUnallocated'),
-    eligibleCount: document.getElementById('totEligibleCount'),
-    allocatedCount: document.getElementById('totAllocatedCount'),
-    execActionPublicId: document.getElementById('execActionPublicId'),
-    execStatus: document.getElementById('execStatus'),
-    execAffectedCount: document.getElementById('execAffectedCount'),
-    execReceiptRef: document.getElementById('execReceiptRef'),
-    execTotalApplied: document.getElementById('execTotalApplied'),
-    execReplayLabel: document.getElementById('execReplayLabel'),
+  const urls = {
+    providerAc: root.dataset.providerAcUrl,
+    obligationsTmpl: root.dataset.openObligationsUrlTemplate,
+    netTmpl: root.dataset.netPositionUrlTemplate,
+    previewTmpl: root.dataset.allocationPreviewUrlTemplate,
+    executeTmpl: root.dataset.settlementExecuteUrlTemplate,
+  };
+  const initialProvider = {
+    id: Number(root.dataset.initialProviderId || 0),
+    name: root.dataset.initialProviderName || '',
+    phone: root.dataset.initialProviderPhone || '',
   };
 
-  let previewData = null;
-  let previewFresh = false;
-  let previewSignature = '';
-  let unresolvedBlocking = false;
+  const el = {
+    providerSearchInput: document.getElementById('providerSearchInput'),
+    providerSearchBtn: document.getElementById('providerSearchBtn'),
+    refreshProviderBtn: document.getElementById('refreshProviderBtn'),
+    providerSearchResults: document.getElementById('providerSearchResults'),
+    selProviderName: document.getElementById('selProviderName'),
+    selProviderId: document.getElementById('selProviderId'),
+    selProviderPhone: document.getElementById('selProviderPhone'),
+    netSypPayable: document.getElementById('netSypPayable'),
+    netSypReceivable: document.getElementById('netSypReceivable'),
+    netSypNet: document.getElementById('netSypNet'),
+    netUsdPayable: document.getElementById('netUsdPayable'),
+    netUsdReceivable: document.getElementById('netUsdReceivable'),
+    netUsdNet: document.getElementById('netUsdNet'),
+    sumOpenObligationCount: document.getElementById('sumOpenObligationCount'),
+    sumOpenPayableCount: document.getElementById('sumOpenPayableCount'),
+    sumOpenReceivableCount: document.getElementById('sumOpenReceivableCount'),
+    sumPayableSyp: document.getElementById('sumPayableSyp'),
+    sumReceivableSyp: document.getElementById('sumReceivableSyp'),
+    sumPayableUsd: document.getElementById('sumPayableUsd'),
+    sumReceivableUsd: document.getElementById('sumReceivableUsd'),
+    diagnosticsAlerts: document.getElementById('diagnosticsAlerts'),
+    obligationsTableBody: document.getElementById('obligationsTableBody'),
+    actionInput: document.getElementById('actionInput'),
+    currencyInput: document.getElementById('currencyInput'),
+    amountInput: document.getElementById('amountInput'),
+    containerInput: document.getElementById('containerInput'),
+    idempotencyKeyInput: document.getElementById('idempotencyKeyInput'),
+    regenKeyBtn: document.getElementById('regenKeyBtn'),
+    previewBtn: document.getElementById('previewBtn'),
+    executeBtn: document.getElementById('executeBtn'),
+    previewStateBadge: document.getElementById('previewStateBadge'),
+    replayBadge: document.getElementById('replayBadge'),
+    actionStatusLine: document.getElementById('actionStatusLine'),
+    previewRequestedAmount: document.getElementById('previewRequestedAmount'),
+    previewAllocatableAmount: document.getElementById('previewAllocatableAmount'),
+    previewTotalApplied: document.getElementById('previewTotalApplied'),
+    previewUnallocatedAmount: document.getElementById('previewUnallocatedAmount'),
+    previewEligibleCount: document.getElementById('previewEligibleCount'),
+    previewAllocatedCount: document.getElementById('previewAllocatedCount'),
+    previewFingerprint: document.getElementById('previewFingerprint'),
+    previewBeforePayable: document.getElementById('previewBeforePayable'),
+    previewBeforeReceivable: document.getElementById('previewBeforeReceivable'),
+    previewBeforeNet: document.getElementById('previewBeforeNet'),
+    previewAfterPayable: document.getElementById('previewAfterPayable'),
+    previewAfterReceivable: document.getElementById('previewAfterReceivable'),
+    previewAfterNet: document.getElementById('previewAfterNet'),
+    previewDeltaPayable: document.getElementById('previewDeltaPayable'),
+    previewDeltaReceivable: document.getElementById('previewDeltaReceivable'),
+    previewDeltaNet: document.getElementById('previewDeltaNet'),
+    previewDiagnosticsBanner: document.getElementById('previewDiagnosticsBanner'),
+    previewAllocTableBody: document.getElementById('previewAllocTableBody'),
+    execActionId: document.getElementById('execActionId'),
+    execActionPublicId: document.getElementById('execActionPublicId'),
+    execReceiptId: document.getElementById('execReceiptId'),
+    execReceiptSerial: document.getElementById('execReceiptSerial'),
+    execStatus: document.getElementById('execStatus'),
+    execTotalApplied: document.getElementById('execTotalApplied'),
+    execAllocationCount: document.getElementById('execAllocationCount'),
+    execReplayLabel: document.getElementById('execReplayLabel'),
+    execBeforePayable: document.getElementById('execBeforePayable'),
+    execBeforeReceivable: document.getElementById('execBeforeReceivable'),
+    execBeforeNet: document.getElementById('execBeforeNet'),
+    execAfterPayable: document.getElementById('execAfterPayable'),
+    execAfterReceivable: document.getElementById('execAfterReceivable'),
+    execAfterNet: document.getElementById('execAfterNet'),
+    execDeltaPayable: document.getElementById('execDeltaPayable'),
+    execDeltaReceivable: document.getElementById('execDeltaReceivable'),
+    execDeltaNet: document.getElementById('execDeltaNet'),
+    remainingRefreshNote: document.getElementById('remainingRefreshNote'),
+    rawNetPayload: document.getElementById('rawNetPayload'),
+    rawPreviewPayload: document.getElementById('rawPreviewPayload'),
+    rawExecutePayload: document.getElementById('rawExecutePayload'),
+  };
 
-  function setStatus(message, ok = true){
-    statusLine.textContent = message || '';
-    statusLine.classList.remove('ok', 'err');
-    statusLine.classList.add(ok ? 'ok' : 'err');
+  const state = {
+    selectedProvider: null,
+    previewData: null,
+    previewFresh: false,
+    previewSignature: '',
+    unresolvedBlocking: false,
+  };
+
+  function fmt(v){ if (v === undefined || v === null || v === '') return '-'; return String(v); }
+  function setStatus(msg, ok=true){
+    el.actionStatusLine.textContent = msg || '';
+    el.actionStatusLine.classList.remove('ok', 'err');
+    if (msg) el.actionStatusLine.classList.add(ok ? 'ok' : 'err');
   }
-
-  function fmt(value){
-    if (value === null || value === undefined || value === '') return '-';
-    return String(value);
+  function setPreviewBadge(label, cls=''){
+    el.previewStateBadge.textContent = label;
+    el.previewStateBadge.classList.remove('fresh', 'stale', 'warn');
+    if (cls) el.previewStateBadge.classList.add(cls);
   }
-
-  function setPreviewState(label, cls){
-    previewStateTag.textContent = label;
-    previewStateTag.classList.remove('fresh', 'stale');
-    if (cls) previewStateTag.classList.add(cls);
-  }
-
+  function setReplayBadge(visible){ el.replayBadge.classList.toggle('hidden', !visible); }
+  function jsonToPre(preEl, payload){ preEl.textContent = JSON.stringify(payload || {}, null, 2); }
   function getCookie(name){
     const cookie = `; ${document.cookie}`;
     const parts = cookie.split(`; ${name}=`);
     if (parts.length === 2) return parts.pop().split(';').shift();
     return '';
   }
-
-  function newKey(){
-    const base = `provider-${providerId}-${actionInput.value}-${currencyInput.value}`;
-    let token = '';
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      token = window.crypto.randomUUID();
-    } else {
-      token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
+  function buildUrl(template, providerId){
+    const s = String(template || '');
+    if (s.includes('/0/')) return s.replace('/0/', `/${providerId}/`);
+    return s.replace('/0', `/${providerId}`);
+  }
+  function signClass(raw){ const n = Number(raw); if (Number.isNaN(n)) return ''; if (n > 0) return 'positive'; if (n < 0) return 'negative'; return 'zero'; }
+  function writeSigned(target, raw){ target.textContent = fmt(raw); target.classList.remove('positive', 'negative', 'zero'); const cls = signClass(raw); if (cls) target.classList.add(cls); }
+  function canRunAction(){ return state.selectedProvider && Number(state.selectedProvider.id) > 0; }
+  function currentPayload(){
+    return {
+      action: el.actionInput.value,
+      currency: el.currencyInput.value,
+      amount: el.amountInput.value,
+      money_container_id: el.containerInput.value ? Number(el.containerInput.value) : null,
+      idempotency_key: el.idempotencyKeyInput.value,
+    };
+  }
+  function payloadSignature(){
+    return [
+      String(state.selectedProvider ? state.selectedProvider.id : 0),
+      el.actionInput.value,
+      el.currencyInput.value,
+      el.amountInput.value,
+      el.containerInput.value,
+    ].join('|');
+  }
+  function refreshActionButtons(){
+    const ready = canRunAction();
+    el.previewBtn.disabled = !ready;
+    const isFresh = state.previewData && state.previewFresh && (state.previewSignature === payloadSignature());
+    el.executeBtn.disabled = !ready || !isFresh || state.unresolvedBlocking;
+  }
+  function markPreviewStale(message){
+    if (!state.previewData) return;
+    state.previewFresh = false;
+    setPreviewBadge('Preview stale', 'stale');
+    setStatus(message || 'Preview stale. Run preview again before execution.', false);
+    refreshActionButtons();
+  }
+  function generateIdempotencyKey(){
+    const providerPart = state.selectedProvider ? String(state.selectedProvider.id) : 'unselected';
+    const base = `provider-${providerPart}-${el.actionInput.value}-${el.currencyInput.value}`;
+    const token = (window.crypto && typeof window.crypto.randomUUID === 'function')
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return `${base}-${token}`;
   }
-
-  function refreshIdempotencyKey(){
-    idempotencyKeyInput.value = newKey();
+  function regenerateIdempotencyKey(){ el.idempotencyKeyInput.value = generateIdempotencyKey(); }
+  function setSelectedProvider(provider){
+    state.selectedProvider = provider ? { id: Number(provider.id || 0), name: provider.name || '', phone: provider.phone || '' } : null;
+    el.selProviderName.textContent = state.selectedProvider ? state.selectedProvider.name : '-';
+    el.selProviderId.textContent = state.selectedProvider ? String(state.selectedProvider.id) : '-';
+    el.selProviderPhone.textContent = state.selectedProvider ? (state.selectedProvider.phone || '-') : '-';
+    el.refreshProviderBtn.disabled = !canRunAction();
+    regenerateIdempotencyKey();
+    state.previewData = null;
+    state.previewFresh = false;
+    state.previewSignature = '';
+    setPreviewBadge('No preview');
+    setReplayBadge(false);
+    refreshActionButtons();
   }
-
-  function renderJson(target, data){
-    target.textContent = JSON.stringify(data || {}, null, 2);
+  function clearPreviewAndExecutionVisuals(){
+    state.previewData = null;
+    state.previewFresh = false;
+    state.previewSignature = '';
+    setPreviewBadge('No preview');
+    setReplayBadge(false);
+    el.previewAllocTableBody.innerHTML = '<tr><td colspan=\"7\" class=\"x-muted\">No preview yet.</td></tr>';
+    el.previewDiagnosticsBanner.innerHTML = '<div class=\"x-muted\">No preview diagnostics warnings.</div>';
+    [
+      'previewRequestedAmount','previewAllocatableAmount','previewTotalApplied','previewUnallocatedAmount',
+      'previewEligibleCount','previewAllocatedCount','previewFingerprint',
+      'previewBeforePayable','previewBeforeReceivable','previewBeforeNet',
+      'previewAfterPayable','previewAfterReceivable','previewAfterNet',
+      'previewDeltaPayable','previewDeltaReceivable','previewDeltaNet',
+      'execActionId','execActionPublicId','execReceiptId','execReceiptSerial','execStatus','execTotalApplied','execAllocationCount','execReplayLabel',
+      'execBeforePayable','execBeforeReceivable','execBeforeNet','execAfterPayable','execAfterReceivable','execAfterNet','execDeltaPayable','execDeltaReceivable','execDeltaNet'
+    ].forEach((id) => { const target = document.getElementById(id); if (target) target.textContent = '-'; });
   }
-
-  function clearExecutionSummary(){
-    summaryEls.execActionPublicId.textContent = '-';
-    summaryEls.execStatus.textContent = '-';
-    summaryEls.execAffectedCount.textContent = '-';
-    summaryEls.execReceiptRef.textContent = '-';
-    summaryEls.execTotalApplied.textContent = '-';
-    summaryEls.execReplayLabel.textContent = '-';
-    replayTag.hidden = true;
+  function renderDiagnosticsAlerts(diagnostics){
+    const dedup = Array.isArray((diagnostics || {}).dedup_warnings) ? diagnostics.dedup_warnings : [];
+    const unresolved = Array.isArray((diagnostics || {}).unresolved_identities) ? diagnostics.unresolved_identities : [];
+    const blocks = [];
+    if (unresolved.length){ blocks.push(`<div class=\"diag-box\">Unresolved identities: ${unresolved.length} (execution blocked)</div>`); }
+    if (dedup.length){ blocks.push(`<div class=\"diag-box soft\">Dedup warnings: ${dedup.length}</div>`); }
+    if (!blocks.length){ blocks.push('<div class=\"x-muted\">No diagnostics warnings.</div>'); }
+    el.diagnosticsAlerts.innerHTML = blocks.join('');
+    state.unresolvedBlocking = unresolved.length > 0;
   }
-
-  function renderBeforeAfter(summary){
-    const before = (summary || {}).before || {};
-    const after = (summary || {}).after || {};
-    summaryEls.beforePayable.textContent = fmt(before.payable);
-    summaryEls.beforeReceivable.textContent = fmt(before.receivable);
-    summaryEls.beforeNet.textContent = fmt(before.net);
-    summaryEls.afterPayable.textContent = fmt(after.payable);
-    summaryEls.afterReceivable.textContent = fmt(after.receivable);
-    summaryEls.afterNet.textContent = fmt(after.net);
+  function renderNetCard(position){
+    const c = (position || {}).currencies || {};
+    const syp = c.SYP || {}, usd = c.USD || {};
+    writeSigned(el.netSypPayable, syp.payable);
+    writeSigned(el.netSypReceivable, syp.receivable);
+    writeSigned(el.netSypNet, syp.net);
+    writeSigned(el.netUsdPayable, usd.payable);
+    writeSigned(el.netUsdReceivable, usd.receivable);
+    writeSigned(el.netUsdNet, usd.net);
   }
-
-  function renderTotals(source){
-    summaryEls.req.textContent = fmt(source.requested_amount);
-    summaryEls.allocatable.textContent = fmt(source.allocatable_amount);
-    summaryEls.applied.textContent = fmt(source.total_applied);
-    summaryEls.unallocated.textContent = fmt(source.unallocated_amount);
-    summaryEls.eligibleCount.textContent = fmt(source.eligible_debt_count);
-    summaryEls.allocatedCount.textContent = fmt(source.allocated_debt_count);
+  function renderObligationSummary(summary){
+    const totals = (summary && summary.totals) || {};
+    const syp = totals.SYP || {}, usd = totals.USD || {};
+    el.sumOpenObligationCount.textContent = fmt(summary && summary.open_obligation_count);
+    el.sumOpenPayableCount.textContent = fmt(summary && summary.open_payable_count);
+    el.sumOpenReceivableCount.textContent = fmt(summary && summary.open_receivable_count);
+    el.sumPayableSyp.textContent = fmt(syp.payable);
+    el.sumReceivableSyp.textContent = fmt(syp.receivable);
+    el.sumPayableUsd.textContent = fmt(usd.payable);
+    el.sumReceivableUsd.textContent = fmt(usd.receivable);
   }
-
-  function renderExecutionSummary(data){
-    const action = data.action || {};
-    const receipt = data.receipt || {};
-    const execution = data.execution || {};
-    summaryEls.execActionPublicId.textContent = fmt(action.public_id);
-    summaryEls.execStatus.textContent = fmt(action.status);
-    summaryEls.execAffectedCount.textContent = fmt(action.allocation_count);
-    const ref = receipt.serial ? `${receipt.serial} (#${receipt.id || ''})` : (receipt.id ? `#${receipt.id}` : '-');
-    summaryEls.execReceiptRef.textContent = ref;
-    summaryEls.execTotalApplied.textContent = fmt(action.total_applied);
-    summaryEls.execReplayLabel.textContent = execution.label ? execution.label : '-';
-    replayTag.hidden = !execution.idempotent_replay;
-  }
-
-  function renderAllocations(rows){
-    const list = Array.isArray(rows) ? rows : [];
-    if (!list.length){
-      allocRows.innerHTML = '<tr><td colspan="9" class="muted">No allocations loaded.</td></tr>';
-      return;
-    }
-    allocRows.innerHTML = list.map((row) => {
-      const source = String(row.debt_source || '').toLowerCase();
-      const css = source === 'central' ? 'row-central' : 'row-legacy';
-      return `<tr class="${css}">
-        <td>${fmt(row.debt_source)}</td>
-        <td>${fmt(row.debt_id)}</td>
-        <td>${fmt(row.public_id)}</td>
+  function renderObligationsTable(obligations){
+    const rows = Array.isArray(obligations) ? obligations : [];
+    if (!rows.length){ el.obligationsTableBody.innerHTML = '<tr><td colspan=\"9\" class=\"x-muted\">No open obligations for this provider.</td></tr>'; return; }
+    el.obligationsTableBody.innerHTML = rows.map((row, idx) => {
+      const src = String(row.debt_source || '').toLowerCase();
+      const cls = src === 'central' ? 'src-central' : 'src-legacy';
+      const sourceType = src === 'central' ? 'Central' : 'Legacy';
+      return `<tr class=\"${cls}\">
+        <td>${idx + 1}</td>
+        <td>${sourceType}</td>
         <td>${fmt(row.direction)}</td>
+        <td>${fmt(row.cause_type)}</td>
+        <td>${fmt(row.public_id)}</td>
+        <td>${fmt(row.cause_id)}</td>
+        <td class=\"num\">${fmt(row.remaining_syp)}</td>
+        <td class=\"num\">${fmt(row.remaining_usd)}</td>
+        <td>${fmt(row.created_at)}</td>
+      </tr>`;
+    }).join('');
+  }
+  function renderPreviewSummary(preview){
+    el.previewRequestedAmount.textContent = fmt(preview.requested_amount);
+    el.previewAllocatableAmount.textContent = fmt(preview.allocatable_amount);
+    el.previewTotalApplied.textContent = fmt(preview.total_applied);
+    el.previewUnallocatedAmount.textContent = fmt(preview.unallocated_amount);
+    el.previewEligibleCount.textContent = fmt(preview.eligible_debt_count);
+    el.previewAllocatedCount.textContent = fmt(preview.allocated_debt_count);
+    el.previewFingerprint.textContent = fmt(preview.preview_fingerprint);
+    const sum = preview.position_summary || {};
+    const before = sum.before || {}, after = sum.after || {}, delta = sum.delta || {};
+    el.previewBeforePayable.textContent = fmt(before.payable);
+    el.previewBeforeReceivable.textContent = fmt(before.receivable);
+    el.previewBeforeNet.textContent = fmt(before.net);
+    el.previewAfterPayable.textContent = fmt(after.payable);
+    el.previewAfterReceivable.textContent = fmt(after.receivable);
+    el.previewAfterNet.textContent = fmt(after.net);
+    el.previewDeltaPayable.textContent = fmt(delta.payable);
+    el.previewDeltaReceivable.textContent = fmt(delta.receivable);
+    el.previewDeltaNet.textContent = fmt(delta.net);
+  }
+  function renderPreviewTable(rows){
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length){ el.previewAllocTableBody.innerHTML = '<tr><td colspan=\"7\" class=\"x-muted\">No allocation rows.</td></tr>'; return; }
+    el.previewAllocTableBody.innerHTML = list.map((row, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${fmt(row.public_id || row.debt_id)} (${fmt(row.debt_source)})</td>
         <td>${fmt(row.cause_type)}</td>
         <td class="num">${fmt(row.before_remaining)}</td>
         <td class="num">${fmt(row.applied)}</td>
         <td class="num">${fmt(row.after_remaining)}</td>
         <td>${row.would_close ? 'true' : 'false'}</td>
-      </tr>`;
-    }).join('');
+      </tr>
+    `).join('');
   }
-
-  function applyDiagnostics(diagnostics){
+  function renderPreviewDiagnosticsBanner(diagnostics){
     const dedup = Array.isArray((diagnostics || {}).dedup_warnings) ? diagnostics.dedup_warnings : [];
     const unresolved = Array.isArray((diagnostics || {}).unresolved_identities) ? diagnostics.unresolved_identities : [];
-    unresolvedBlocking = unresolved.length > 0;
-
-    diagWarningCount.textContent = `dedup_warnings: ${dedup.length}`;
-    diagUnresolvedCount.textContent = `unresolved_identities: ${unresolved.length}`;
-    renderJson(diagnosticsBox, diagnostics || {});
-
-    if (unresolvedBlocking) {
-      warningBlock.hidden = false;
-      warningBlock.classList.add('warn-danger');
-      warningBlock.textContent = 'Execution blocked: unresolved identities present. Run data cleanup or resolve source identity issues first.';
-    } else if (dedup.length > 0) {
-      warningBlock.hidden = false;
-      warningBlock.classList.remove('warn-danger');
-      warningBlock.textContent = 'Warning: dedup warnings detected. Review diagnostics before execution.';
-    } else {
-      warningBlock.hidden = true;
-      warningBlock.textContent = '';
-      warningBlock.classList.remove('warn-danger');
-    }
+    if (unresolved.length){ el.previewDiagnosticsBanner.innerHTML = `<div class=\"diag-box\">Execution blocked: unresolved identities (${unresolved.length})</div>`; return; }
+    if (dedup.length){ el.previewDiagnosticsBanner.innerHTML = `<div class=\"diag-box soft\">Dedup warnings present (${dedup.length})</div>`; return; }
+    el.previewDiagnosticsBanner.innerHTML = '<div class=\"x-muted\">No preview diagnostics warnings.</div>';
   }
-
-  function payloadSignature(){
-    return [
-      actionInput.value,
-      currencyInput.value,
-      amountInput.value,
-      containerInput.value,
-    ].join('|');
+  function renderExecutionSummary(data){
+    const action = data.action || {}, receipt = data.receipt || {}, execution = data.execution || {};
+    el.execActionId.textContent = fmt(action.id);
+    el.execActionPublicId.textContent = fmt(action.public_id);
+    el.execReceiptId.textContent = fmt(receipt.id);
+    el.execReceiptSerial.textContent = fmt(receipt.serial);
+    el.execStatus.textContent = fmt(action.status);
+    el.execTotalApplied.textContent = fmt(action.total_applied);
+    el.execAllocationCount.textContent = fmt(action.allocation_count);
+    el.execReplayLabel.textContent = execution.idempotent_replay ? 'IDEMPOTENT REPLAY RESULT' : '-';
+    setReplayBadge(Boolean(execution.idempotent_replay));
+    const sum = data.position_summary || {};
+    const before = sum.before || {}, after = sum.after || {}, delta = sum.delta || {};
+    el.execBeforePayable.textContent = fmt(before.payable);
+    el.execBeforeReceivable.textContent = fmt(before.receivable);
+    el.execBeforeNet.textContent = fmt(before.net);
+    el.execAfterPayable.textContent = fmt(after.payable);
+    el.execAfterReceivable.textContent = fmt(after.receivable);
+    el.execAfterNet.textContent = fmt(after.net);
+    el.execDeltaPayable.textContent = fmt(delta.payable);
+    el.execDeltaReceivable.textContent = fmt(delta.receivable);
+    el.execDeltaNet.textContent = fmt(delta.net);
   }
-
-  function updateExecuteEligibility(){
-    const hasFreshPreview = previewData && previewFresh && (payloadSignature() === previewSignature);
-    if (!hasFreshPreview) {
-      executeBtn.disabled = true;
-      return;
-    }
-    executeBtn.disabled = unresolvedBlocking;
+  async function getJson(url){
+    const response = await fetch(url, { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({ ok: false, error: 'bad response' }));
+    return { response, data };
   }
-
-  function markPreviewStale(reason){
-    if (!previewData) return;
-    previewFresh = false;
-    setPreviewState('Preview stale', 'stale');
-    setStatus(reason || 'Preview is stale. Run preview again before execution.', false);
-    updateExecuteEligibility();
-  }
-
-  function currentPayload(){
-    return {
-      action: actionInput.value,
-      currency: currencyInput.value,
-      amount: amountInput.value,
-      money_container_id: containerInput.value ? Number(containerInput.value) : null,
-      idempotency_key: idempotencyKeyInput.value,
-    };
-  }
-
   async function postJson(url, payload){
     const response = await fetch(url, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCookie('csrftoken'),
-      },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
       body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => ({ ok: false, error: 'bad response' }));
     return { response, data };
   }
+  async function loadProviderSnapshot(sourceLabel=''){
+    if (!canRunAction()) return;
+    const providerId = Number(state.selectedProvider.id);
+    const obligationsUrl = buildUrl(urls.obligationsTmpl, providerId);
+    const netUrl = buildUrl(urls.netTmpl, providerId);
+    setStatus('Loading provider snapshot...');
+    const [obRes, netRes] = await Promise.all([getJson(obligationsUrl), getJson(netUrl)]);
+    jsonToPre(el.rawNetPayload, { obligations: obRes.data, net: netRes.data });
+    if (!obRes.data.ok){ setStatus(obRes.data.error || 'Failed to load obligations.', false); return; }
+    if (!netRes.data.ok){ setStatus(netRes.data.error || 'Failed to load net position.', false); return; }
+    const providerMeta = obRes.data.provider || {};
+    state.selectedProvider = {
+      id: Number(providerMeta.id || providerId),
+      name: providerMeta.name || state.selectedProvider.name || '',
+      phone: providerMeta.phone || '',
+    };
+    el.selProviderName.textContent = state.selectedProvider.name || '-';
+    el.selProviderId.textContent = String(state.selectedProvider.id || '-');
+    el.selProviderPhone.textContent = state.selectedProvider.phone || '-';
+    renderNetCard(netRes.data);
+    renderObligationsTable(obRes.data.obligations || []);
+    renderObligationSummary(obRes.data.obligations_summary || {});
+    renderDiagnosticsAlerts(obRes.data.diagnostics || {});
+    el.remainingRefreshNote.textContent = sourceLabel ? `Refreshed after ${sourceLabel}.` : 'Snapshot loaded.';
+    el.remainingRefreshNote.classList.remove('err'); el.remainingRefreshNote.classList.add('ok');
+    refreshActionButtons();
+    setStatus('Provider snapshot loaded.', true);
+  }
+  async function searchProviders(){
+    const q = (el.providerSearchInput.value || '').trim();
+    if (!q){ el.providerSearchResults.innerHTML = '<div class="x-muted">Type a provider name to search.</div>'; return; }
+    el.providerSearchResults.innerHTML = '<div class="x-muted">Searching...</div>';
+    const { data } = await getJson(`${urls.providerAc}?q=${encodeURIComponent(q)}`);
+    if (!data.ok){ el.providerSearchResults.innerHTML = `<div class="diag-box">${fmt(data.error || 'Search failed')}</div>`; return; }
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length){ el.providerSearchResults.innerHTML = '<div class="x-muted">No providers found.</div>'; return; }
+    el.providerSearchResults.innerHTML = items.map((p) => `
+      <button class="provider-result-btn" type="button" data-provider-id="${p.id}" data-provider-name="${String(p.name || '').replace(/"/g, '&quot;')}">
+        ${fmt(p.name)} <span class="x-muted">(ID: ${p.id})</span>
+      </button>
+    `).join('');
+  }
 
-  document.getElementById('regenKeyBtn').addEventListener('click', refreshIdempotencyKey);
-  [actionInput, currencyInput].forEach((el) => {
-    el.addEventListener('change', () => {
-      refreshIdempotencyKey();
-      markPreviewStale('Input changed. Preview is stale.');
-    });
+  el.providerSearchBtn.addEventListener('click', searchProviders);
+  el.providerSearchInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); searchProviders(); } });
+  el.providerSearchResults.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-provider-id]'); if (!btn) return;
+    setSelectedProvider({ id: Number(btn.dataset.providerId || 0), name: btn.dataset.providerName || '', phone: '' });
+    clearPreviewAndExecutionVisuals();
+    await loadProviderSnapshot('provider selection');
   });
-  amountInput.addEventListener('change', () => {
-    refreshIdempotencyKey();
-    markPreviewStale('Amount changed. Preview is stale.');
-  });
-  amountInput.addEventListener('input', () => {
-    markPreviewStale('Amount changed. Preview is stale.');
-  });
-  containerInput.addEventListener('change', () => {
-    markPreviewStale('Container changed. Preview is stale.');
-  });
+  el.refreshProviderBtn.addEventListener('click', async () => { await loadProviderSnapshot('manual reload'); });
+  [el.actionInput, el.currencyInput].forEach((target) => target.addEventListener('change', () => { regenerateIdempotencyKey(); markPreviewStale('Input changed. Preview marked stale.'); }));
+  el.amountInput.addEventListener('input', () => markPreviewStale('Amount changed. Preview marked stale.'));
+  el.amountInput.addEventListener('change', () => { regenerateIdempotencyKey(); markPreviewStale('Amount changed. Preview marked stale.'); });
+  el.containerInput.addEventListener('change', () => markPreviewStale('Container changed. Preview marked stale.'));
+  el.regenKeyBtn.addEventListener('click', regenerateIdempotencyKey);
 
-  document.getElementById('loadNetBtn').addEventListener('click', async () => {
-    setStatus('Loading net position...');
-    try {
-      const response = await fetch(netUrl, { credentials: 'same-origin' });
-      const data = await response.json().catch(() => ({ ok: false, error: 'bad response' }));
-      renderJson(rawJsonBox, data);
-      applyDiagnostics(data.diagnostics || {});
-      if (data.ok) {
-        const currency = currencyInput.value;
-        const bucket = (((data.currencies || {})[currency]) || {});
-        renderBeforeAfter({
-          before: {
-            payable: bucket.payable,
-            receivable: bucket.receivable,
-            net: bucket.net,
-          },
-          after: {
-            payable: bucket.payable,
-            receivable: bucket.receivable,
-            net: bucket.net,
-          },
-        });
-        setStatus('Net position loaded.', true);
-      } else {
-        setStatus(data.error || 'Failed to load net position.', false);
-      }
-    } catch (err){
-      setStatus(String(err), false);
-    }
-  });
-
-  document.getElementById('previewBtn').addEventListener('click', async () => {
-    setStatus('Requesting allocation preview...');
-    clearExecutionSummary();
+  el.previewBtn.addEventListener('click', async () => {
+    if (!canRunAction()){ setStatus('Select provider first.', false); return; }
+    clearPreviewAndExecutionVisuals();
+    const providerId = Number(state.selectedProvider.id);
     const payload = currentPayload();
-    try {
-      const withSummaryUrl = `${previewUrl}?include_position_summary=1`;
-      const { data } = await postJson(withSummaryUrl, payload);
-      renderJson(rawJsonBox, data);
-      applyDiagnostics(data.diagnostics || {});
-      renderAllocations(data.allocations || []);
-      if (data.ok){
-        previewData = data;
-        previewFresh = true;
-        previewSignature = payloadSignature();
-        setPreviewState('Preview fresh', 'fresh');
-        renderBeforeAfter(data.position_summary || {});
-        renderTotals(data);
-        setStatus('Preview loaded.', true);
-      } else {
-        previewData = null;
-        previewFresh = false;
-        previewSignature = '';
-        setPreviewState('No preview', '');
-        setStatus(data.error || 'Preview failed.', false);
-      }
-      updateExecuteEligibility();
-    } catch (err){
-      setStatus(String(err), false);
-      updateExecuteEligibility();
-    }
+    setStatus('Loading preview...');
+    const { data } = await postJson(`${buildUrl(urls.previewTmpl, providerId)}?include_position_summary=1`, payload);
+    jsonToPre(el.rawPreviewPayload, data);
+    if (!data.ok){ setStatus(data.error || 'Preview failed.', false); refreshActionButtons(); return; }
+    renderPreviewSummary(data);
+    renderPreviewTable(data.allocations || []);
+    renderPreviewDiagnosticsBanner(data.diagnostics || {});
+    state.previewData = data;
+    state.previewFresh = true;
+    state.previewSignature = payloadSignature();
+    setPreviewBadge('Preview fresh', 'fresh');
+    const unresolved = Array.isArray((data.diagnostics || {}).unresolved_identities) ? data.diagnostics.unresolved_identities.length : 0;
+    state.unresolvedBlocking = unresolved > 0;
+    refreshActionButtons();
+    setStatus('Preview ready.', true);
   });
 
-  document.getElementById('executeBtn').addEventListener('click', async () => {
-    const fresh = previewData && previewFresh && (payloadSignature() === previewSignature);
-    if (!fresh){
-      setStatus('Run preview first.', false);
-      return;
-    }
-    if (unresolvedBlocking){
-      setStatus('Execution blocked: unresolved identities present; run diagnostics cleanup first.', false);
-      return;
-    }
+  el.executeBtn.addEventListener('click', async () => {
+    if (!canRunAction()){ setStatus('Select provider first.', false); return; }
+    const fresh = state.previewData && state.previewFresh && (state.previewSignature === payloadSignature());
+    if (!fresh){ setStatus('Run fresh preview first.', false); return; }
+    if (state.unresolvedBlocking){ setStatus('Execution blocked: unresolved identities detected.', false); return; }
     const payload = currentPayload();
-    const selectedContainer = containerInput.options[containerInput.selectedIndex];
+    if (state.previewData && state.previewData.preview_fingerprint){ payload.preview_fingerprint = state.previewData.preview_fingerprint; }
+    const selectedContainer = el.containerInput.options[el.containerInput.selectedIndex];
     const confirmText = [
-      'Execute settlement now?',
-      `Provider: ${providerName} (#${providerId})`,
+      'Execute settlement?',
+      `Provider: ${state.selectedProvider.name} (#${state.selectedProvider.id})`,
       `Action: ${payload.action}`,
       `Currency: ${payload.currency}`,
       `Amount: ${payload.amount}`,
-      `Container: ${selectedContainer ? selectedContainer.text : ''}`,
-    ].join('\n');
-    if (!window.confirm(confirmText)){
-      setStatus('Execution cancelled.', false);
-      return;
-    }
+      `Container: ${(selectedContainer && selectedContainer.text) || ''}`,
+    ].join('\\n');
+    if (!window.confirm(confirmText)){ setStatus('Execution cancelled.', false); return; }
     setStatus('Executing settlement...');
-    if (previewData.preview_fingerprint){
-      payload.preview_fingerprint = previewData.preview_fingerprint;
-    }
-    try {
-      const { data } = await postJson(executeUrl, payload);
-      renderJson(rawJsonBox, data);
-      applyDiagnostics(data.diagnostics || {});
-      renderAllocations(data.allocations || []);
-      if (data.ok){
-        renderBeforeAfter(data.position_summary || {});
-        renderTotals({
-          requested_amount: data.action && data.action.requested_amount,
-          allocatable_amount: data.action && data.action.allocatable_amount,
-          total_applied: data.action && data.action.total_applied,
-          unallocated_amount: data.action && data.action.unallocated_amount,
-          eligible_debt_count: data.action && data.action.allocation_count,
-          allocated_debt_count: data.action && data.action.allocation_count,
-        });
-        renderExecutionSummary(data);
-        previewFresh = false;
-        setPreviewState('Preview consumed', 'stale');
-        updateExecuteEligibility();
-        setStatus('Execution succeeded.', true);
-      } else {
-        setStatus(data.error || 'Execution failed.', false);
-      }
-    } catch (err){
-      setStatus(String(err), false);
-    }
+    const { data } = await postJson(buildUrl(urls.executeTmpl, Number(state.selectedProvider.id)), payload);
+    jsonToPre(el.rawExecutePayload, data);
+    if (!data.ok){ setStatus(data.error || 'Execution failed.', false); return; }
+    renderExecutionSummary(data);
+    renderPreviewTable(data.allocations || []);
+    state.previewFresh = false;
+    setPreviewBadge('Preview consumed', 'stale');
+    refreshActionButtons();
+    setStatus('Execution completed.', true);
+    await loadProviderSnapshot('execution');
   });
 
-  refreshIdempotencyKey();
-  updateExecuteEligibility();
+  setSelectedProvider(initialProvider && initialProvider.id > 0 ? initialProvider : null);
+  clearPreviewAndExecutionVisuals();
+  if (canRunAction()) { loadProviderSnapshot('initial load'); }
+  else { setStatus('Select a provider to start exploration.', false); }
 })();
 </script>
 {% endblock %}
