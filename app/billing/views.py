@@ -78,6 +78,7 @@ from debts.source_identity import source_identity_lookup_q, source_identity_nume
 from . import selectors as S
 from . import services as SV
 from .serializers import provider_row, bill_row, return_row
+from .provider_refs import resolve_provider_from_ref
 
 import logging
 logger = logging.getLogger(__name__)
@@ -85,8 +86,6 @@ logger = logging.getLogger(__name__)
 from datetime import date
 
 from typing import Any
-
-from django.conf import settings
 
 # ---------- Page views ----------
 
@@ -177,15 +176,7 @@ def add_bill(request: HttpRequest) -> HttpResponse:
 
 @role_required(AccountProfile.Role.MANAGER)
 def providers_list(request: HttpRequest) -> HttpResponse:
-    return render(
-        request,
-        "billing/providers_list.html",
-        {
-            "enable_provider_account_settlement_execution": bool(
-                getattr(settings, "ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION", False)
-            ),
-        },
-    )
+    return render(request, "billing/providers_list.html")
 
 
 
@@ -437,7 +428,18 @@ def api_providers_list(request: HttpRequest) -> JsonResponse:
         page_size = min(max(int(request.GET.get("page_size", "30")), 1), 100)
     except ValueError:
         page_size = 30
-    include_all = (request.GET.get("include_all") == "1")
+    basic_mode = (request.GET.get("basic") == "1")
+
+    if basic_mode:
+        items = S.providers_list_basic(q=q, cursor=cursor, page_size=page_size)
+        nxt = items[-1].id if items else None
+        return JsonResponse({"ok": True, "items": [provider_row(p) for p in items], "next_cursor": nxt})
+
+    include_all_raw = request.GET.get("include_all")
+    if include_all_raw in (None, ""):
+        include_all = True
+    else:
+        include_all = str(include_all_raw).strip() == "1"
 
     qs = S.providers_with_stats(q, include_all, cursor, page_size)
     items = list(qs)
@@ -467,13 +469,24 @@ def api_provider_create(request: HttpRequest) -> JsonResponse:
         notes=(payload.get("notes") or "").strip(),
     )
 
-    return JsonResponse({"ok": True, "provider": {"id": p.id, "name": p.name}})
+    return JsonResponse(
+        {
+            "ok": True,
+            "provider": {
+                "id": p.id,
+                "public_id": p.public_id,
+                "name": p.name,
+            },
+        }
+    )
 
 
 @require_POST
 @role_required(AccountProfile.Role.MANAGER)
-def api_provider_delete(request: HttpRequest, pid: int) -> JsonResponse:
-    p = get_object_or_404(Provider, pk=pid)
+def api_provider_delete(request: HttpRequest, provider_ref: str) -> JsonResponse:
+    p = resolve_provider_from_ref(ref=provider_ref, for_update=True, allow_numeric_fallback=True)
+    if p is None:
+        return _bad("provider not found", 404)
 
     # Block deletion if there are any OPEN debtor or creditor entries
     has_open_payables = DebtorEntry.objects.filter(provider=p, status=DebtorEntry.Status.OPEN).exists()

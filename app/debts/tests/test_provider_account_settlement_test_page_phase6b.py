@@ -93,7 +93,7 @@ class ProviderAccountSettlementTestPagePhase6BTests(TestCase):
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
     def test_page_includes_expected_api_urls_and_data_attributes(self):
         self.client.force_login(self.manager)
-        resp = self.client.get(self._path(str(self.provider.id)))
+        resp = self.client.get(self._path(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
 
         self.assertContains(resp, 'data-provider-ac-url="/manager/billing/api/providers/ac/"')
@@ -102,7 +102,14 @@ class ProviderAccountSettlementTestPagePhase6BTests(TestCase):
         self.assertContains(resp, 'data-allocation-preview-url-template="/manager/debts/api/provider/0/account-allocation-preview/"')
         self.assertContains(resp, 'data-settlement-execute-url-template="/manager/debts/api/provider/0/account-settlement-execute/"')
         self.assertContains(resp, f'data-initial-provider-id="{self.provider.id}"')
+        self.assertContains(resp, f'data-initial-provider-public-id="{self.provider.public_id}"')
         self.assertContains(resp, f'data-initial-provider-name="{self.provider.name}"')
+
+    @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
+    def test_page_route_accepts_provider_public_id(self):
+        self.client.force_login(self.manager)
+        resp = self.client.get(self._path(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
     def test_does_not_expose_provider_list_execution_page(self):

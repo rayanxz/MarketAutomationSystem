@@ -40,6 +40,7 @@ from . import selectors as S
 from .serializers import debtor_row, creditor_row, central_debt_row
 from debts import services as SV
 from billing.models import Provider
+from billing.provider_refs import resolve_provider_from_ref, is_valid_provider_public_ref
 from pos.models import CustomerProfile
 
 DEC0 = Decimal("0")
@@ -282,15 +283,13 @@ def provider_account_settlement_test_page(request: HttpRequest, provider_ref: st
     if not bool(getattr(settings, "ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION", False)):
         return HttpResponse("provider account settlement execution is disabled", status=403)
 
-    ref = str(provider_ref or "").strip()
-    provider_id = _int_or_none(ref)
-    if provider_id is None:
+    provider = resolve_provider_from_ref(
+        ref=provider_ref,
+        for_update=False,
+        allow_numeric_fallback=True,
+    )
+    if provider is None:
         return HttpResponse(status=404)
-    provider = None
-    if provider_id > 0:
-        provider = Provider.objects.filter(id=provider_id).first()
-        if provider is None:
-            return HttpResponse(status=404)
 
     try:
         provider_ac_url = reverse("billing_api_providers_ac")
@@ -320,6 +319,7 @@ def provider_account_settlement_test_page(request: HttpRequest, provider_ref: st
 
     provider_initial = {
         "id": int(provider.id) if provider is not None else 0,
+        "public_id": ((provider.public_id or "") if provider is not None else ""),
         "name": (provider.name if provider is not None else ""),
         "phone": (provider.phone if provider is not None else ""),
     }
@@ -374,19 +374,18 @@ def _obligation_summary_from_rows(*, obligations: list[dict]) -> dict[str, objec
 @role_required_api(AccountProfile.Role.MANAGER)
 def api_provider_open_obligations(request: HttpRequest, provider_ref: str) -> JsonResponse:
     ref = str(provider_ref or "").strip()
-    provider_id = _int_or_none(ref)
-    if provider_id is None or provider_id <= 0:
-        return _bad("invalid provider id", 400)
-    provider = (
-        Provider.objects
-        .only("id", "name", "phone", "is_active")
-        .filter(id=provider_id)
-        .first()
+    provider = resolve_provider_from_ref(
+        ref=ref,
+        for_update=False,
+        allow_numeric_fallback=True,
     )
     if provider is None:
-        return _bad("provider not found", 404)
+        numeric_ref = _int_or_none(ref)
+        if is_valid_provider_public_ref(token=ref) or (numeric_ref is not None and numeric_ref > 0):
+            return _bad("provider not found", 404)
+        return _bad("invalid provider id", 400)
     try:
-        collected = collect_provider_open_obligations(provider_id=provider_id)
+        collected = collect_provider_open_obligations(provider_id=int(provider.id))
     except Exception:
         return _bad("server error", 500)
     obligations = list(collected.get("obligations") or [])
@@ -395,6 +394,7 @@ def api_provider_open_obligations(request: HttpRequest, provider_ref: str) -> Js
         "ok": True,
         "provider": {
             "id": int(provider.id),
+            "public_id": provider.public_id or "",
             "name": provider.name or "",
             "phone": provider.phone or "",
             "is_active": bool(provider.is_active),
@@ -866,16 +866,19 @@ def api_other_party_suggest(request: HttpRequest) -> JsonResponse:
 @role_required_api(AccountProfile.Role.MANAGER)
 def api_provider_net_position(request: HttpRequest, provider_ref: str) -> JsonResponse:
     ref = str(provider_ref or "").strip()
-    provider_id = _int_or_none(ref)
-    if provider_id is None or provider_id <= 0:
+    provider = resolve_provider_from_ref(
+        ref=ref,
+        for_update=False,
+        allow_numeric_fallback=True,
+    )
+    if provider is None:
+        numeric_ref = _int_or_none(ref)
+        if is_valid_provider_public_ref(token=ref) or (numeric_ref is not None and numeric_ref > 0):
+            return _bad("provider not found", 404)
         return _bad("invalid provider id", 400)
 
-    provider_exists = Provider.objects.filter(id=provider_id).exists()
-    if not provider_exists:
-        return _bad("provider not found", 404)
-
     try:
-        projection = get_provider_net_position(provider_id=provider_id)
+        projection = get_provider_net_position(provider_id=int(provider.id))
     except Exception:
         return _bad("server error", 500)
 
@@ -887,9 +890,17 @@ def api_provider_net_position(request: HttpRequest, provider_ref: str) -> JsonRe
 @role_required_api(AccountProfile.Role.MANAGER)
 def api_provider_account_allocation_preview(request: HttpRequest, provider_ref: str) -> JsonResponse:
     ref = str(provider_ref or "").strip()
-    provider_id = _int_or_none(ref)
-    if provider_id is None or provider_id <= 0:
+    provider = resolve_provider_from_ref(
+        ref=ref,
+        for_update=False,
+        allow_numeric_fallback=True,
+    )
+    if provider is None:
+        numeric_ref = _int_or_none(ref)
+        if is_valid_provider_public_ref(token=ref) or (numeric_ref is not None and numeric_ref > 0):
+            return _bad("provider not found", 404)
         return _bad("invalid provider id", 400)
+    provider_id = int(provider.id)
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
@@ -940,9 +951,17 @@ def api_provider_account_settlement_execute(request: HttpRequest, provider_ref: 
         return _bad("provider account settlement execution is disabled", 403)
 
     ref = str(provider_ref or "").strip()
-    provider_id = _int_or_none(ref)
-    if provider_id is None or provider_id <= 0:
+    provider = resolve_provider_from_ref(
+        ref=ref,
+        for_update=False,
+        allow_numeric_fallback=True,
+    )
+    if provider is None:
+        numeric_ref = _int_or_none(ref)
+        if is_valid_provider_public_ref(token=ref) or (numeric_ref is not None and numeric_ref > 0):
+            return _bad("provider not found", 404)
         return _bad("invalid provider id", 400)
+    provider_id = int(provider.id)
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")

@@ -191,6 +191,22 @@ class ProviderAccountAllocatorApiPhase4BTests(TestCase):
         self.assertEqual(data["action"], "pay_provider")
         self.assertEqual(data["currency"], "SYP")
 
+    def test_preview_api_accepts_provider_public_id_ref(self):
+        self._create_central_debt(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id="phase4b-public-ref-pay",
+            remaining_syp="500.00",
+        )
+        resp = self._post(
+            self.provider.public_id,
+            {"action": "pay_provider", "currency": "SYP", "amount": "100.00"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["provider_id"], self.provider.id)
+
     def test_allocation_list_matches_simulator(self):
         self._create_central_debt(
             direction=DebtDirection.PAYABLE,

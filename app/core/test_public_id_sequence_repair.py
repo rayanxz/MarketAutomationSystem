@@ -9,6 +9,8 @@ from django.test import TestCase
 from billing.models import (
     BILL_PUBLIC_ID_PREFIX,
     BILL_PUBLIC_ID_SEQUENCE_KEY,
+    PROVIDER_PUBLIC_ID_PREFIX,
+    PROVIDER_PUBLIC_ID_SEQUENCE_KEY,
     PROVIDER_RETURN_PUBLIC_ID_PREFIX,
     PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
     Bill,
@@ -97,6 +99,7 @@ class RepairPublicIdSequencesCommandTests(TestCase):
         output = out.getvalue()
 
         bill_seq = PublicIdSequence.objects.get(key=BILL_PUBLIC_ID_SEQUENCE_KEY)
+        provider_seq = PublicIdSequence.objects.get(key=PROVIDER_PUBLIC_ID_SEQUENCE_KEY)
         ret_seq = PublicIdSequence.objects.get(key=PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY)
         sales_seq = PublicIdSequence.objects.get(key=SALES_BILL_PUBLIC_ID_SEQUENCE_KEY)
         debt_seq = DebtPublicIdSequence.objects.get(key=DEBT_PUBLIC_ID_SEQUENCE_KEY)
@@ -107,6 +110,14 @@ class RepairPublicIdSequencesCommandTests(TestCase):
                 model=Bill,
                 field_name="public_id",
                 prefix=BILL_PUBLIC_ID_PREFIX,
+            ),
+        )
+        self.assertEqual(
+            int(provider_seq.next_value),
+            expected_next_public_id_value(
+                model=Provider,
+                field_name="public_id",
+                prefix=PROVIDER_PUBLIC_ID_PREFIX,
             ),
         )
         self.assertEqual(

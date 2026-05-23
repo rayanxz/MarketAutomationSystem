@@ -212,6 +212,15 @@ class ProviderAccountSettlementExecuteApiPhase6ATests(TestCase):
         self.assertEqual(data["action"]["total_applied"], "100.00")
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
+    def test_execution_api_accepts_provider_public_id_ref(self):
+        self._create_central_debt(direction=DebtDirection.PAYABLE, remaining_syp="500.00")
+        resp = self._post(self.provider.public_id, self._valid_payload(amount="100.00"))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["action"]["provider_id"], self.provider.id)
+
+    @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
     def test_manager_auth_required(self):
         self.client.logout()
         resp = self._post(str(self.provider.id), self._valid_payload())

@@ -1,6 +1,6 @@
 {% extends "manager/base_manager.html" %}
 {% load static %}
-{% block title %}قائمة الموردين  {% endblock %}
+{% block title %}قائمة الموردين{% endblock %}
 
 {% block menu_secondary %}
   {% with name=request.resolver_match.url_name %}
@@ -11,52 +11,111 @@
     <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
     <a class="btn-sec{% if name == 'billing_providers' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
     <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
-
   </div>
   {% endwith %}
 {% endblock %}
 
-
 {% block content %}
 <style>
+  .viewport-center > .center-box{ max-width:1320px; }
+
   .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
-  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
-  .field{ min-width:200px; flex:1 1 200px; }
-  .input, .select { width:100%; padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px; }
-  .btn{ padding:10px 14px; border-radius:10px; border:1px solid #e5e7eb; background:#f8fafc; cursor:pointer; }
-  .btn.primary{ background:var(--brand); color:#fff; border-color:var(--brand); }
-  .btn.danger{ background:#ef4444; color:#fff; border-color:#ef4444; }
-  .btn.ghost{ background:transparent; }
+  .providers-panel{ max-width:1240px; margin-inline:auto; }
+
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
+  .field{ min-width:210px; flex:1 1 210px; }
+  .input { width:100%; height:42px; padding:10px 12px; border:1px solid #dbe3ee; border-radius:10px; background:#fff; }
+  .btn{
+    height:40px;
+    padding:0 12px;
+    border-radius:10px;
+    border:1px solid #d4dde8;
+    background:#f8fafc;
+    color:#1f2937;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+  }
+  .btn.primary{ background:rgba(53, 85, 125, 0.86); color:#fff; border-color:rgba(53, 85, 125, 0.9); }
+  .btn.soft{ background:#f8fafc; color:#4b5563; border-color:#cdd6e2; }
+  .btn[disabled]{ cursor:not-allowed; opacity:.62; }
   .muted{ color:#6b7280; font-size:12px; }
   .err{ color:#b10000; font-size:12px; }
-  .internal-row-link{
-    font-size:12px;
-    color:#334155;
-    border-color:#cbd5e1;
-    text-decoration:none;
+  .panel-title{ margin:0 0 10px; font-size:16px; color:#111827; }
+
+  .providers-create{ margin:0 0 14px; }
+  .providers-filters{ margin-bottom:10px; }
+
+  .table-wrap{ border:1px solid #e5e7eb; border-radius:12px; overflow:auto; background:#fff; }
+  .providers-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  .providers-table col.col-id{ width:110px; }
+  .providers-table col.col-name{ width:34%; }
+  .providers-table col.col-phone{ width:190px; }
+  .providers-table col.col-actions{ width:380px; }
+
+  .providers-table thead th{
+    position:sticky;
+    top:0;
     background:#f8fafc;
+    border-bottom:1px solid #e5e7eb;
+    font-weight:700;
+  }
+  .providers-table th,
+  .providers-table td{
+    padding:11px 10px;
+    border-bottom:1px solid #f1f5f9;
+    border-right:1px solid #e5e7eb;
+    text-align:center;
+    vertical-align:middle;
+    white-space:nowrap;
+  }
+  .providers-table th:last-child,
+  .providers-table td:last-child{ border-right:none; }
+
+  .name-cell .name-text{
+    display:block;
+    width:100%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .phone-cell{
+    direction:ltr;
+    unicode-bidi:plaintext;
+    letter-spacing:.2px;
   }
 
-  .table-wrap{ margin-top:12px; overflow:auto; border:1px solid #e5e7eb; border-radius:12px; }
-  table{ width:100%; border-collapse:collapse; }
-  thead th{ position:sticky; top:0; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
-  th, td{ padding:10px 12px; border-bottom:1px solid #f1f5f9; white-space:nowrap; text-align:right; }
-  .center{ text-align:center; }
-  .left{ text-align:left; }
+  .actions-cell{ text-align:center; }
+  .actions{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    flex-wrap:nowrap;
+  }
+  .actions .btn{ min-width:90px; }
 
-  /* Clean centered modal */
-  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:60; display:none; }
-  .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:70; }
-  .modal .box { background:#fff; padding:16px; border-radius:12px; width:min(460px,90vw); box-shadow:var(--card-shadow); }
-  .modal header { font-weight:700; margin-bottom:8px; }
-  .modal footer { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .pager{ display:flex; justify-content:center; gap:8px; margin-top:12px; }
+
+  @media (max-width: 1200px){
+    .viewport-center > .center-box{ max-width:100%; }
+    .providers-panel{ max-width:100%; }
+  }
+
+  @media (max-width: 980px){
+    .providers-table{ min-width:940px; }
+  }
 </style>
 
-<div class="card" dir="rtl">
+<div class="card providers-panel" dir="rtl">
   <h2 style="margin:0 0 12px;">قائمة الموردين</h2>
 
-  <!-- Create form -->
-  <div class="card" style="margin:0 0 12px;">
+  <div class="card providers-create">
+    <h3 id="create-provider-title" class="panel-title">إنشاء ملف مورد جديد</h3>
     <div class="row">
       <div class="field">
         <label class="muted">اسم المورد</label>
@@ -66,7 +125,7 @@
         <label class="muted">رقم الهاتف</label>
         <input id="pPhone" class="input" placeholder="مثال: 09xxxxxxxx">
       </div>
-      <div class="field" style="min-width:320px;">
+      <div class="field" style="min-width:300px;">
         <label class="muted">ملاحظات</label>
         <input id="pNotes" class="input" placeholder="معلومات إضافية (اختياري)">
       </div>
@@ -75,72 +134,48 @@
     </div>
   </div>
 
-  <!-- Filters -->
-  <div class="row">
-    <div class="field" style="max-width:260px;">
+  <div class="row providers-filters">
+    <div class="field" style="max-width:320px;">
       <label class="muted">بحث بالاسم</label>
       <input id="q" class="input" placeholder="ابحث...">
-    </div>
-    <div class="field" style="max-width:220px;">
-      <label class="muted">نطاق العرض</label>
-      <select id="fState" class="select">
-        <option value="">النشِط فقط </option>
-        <option value="all">إظهار الكل </option>
-      </select>
     </div>
     <button id="btnSearch" class="btn">بحث</button>
   </div>
 
-  <!-- Table -->
   <div class="table-wrap">
-    <table>
+    <table class="providers-table">
+      <colgroup>
+        <col class="col-id">
+        <col class="col-name">
+        <col class="col-phone">
+        <col class="col-actions">
+      </colgroup>
       <thead>
         <tr>
-          <th style="width:60px;">ID</th>
-          <th>الاسم</th>
-          <th style="width:160px;">الهاتف</th>
-          <th style="width:140px;" class="center">عدد الفواتير</th>
-          <th style="width:140px;" class="center">فواتير غير مدفوعة</th>
-          <th style="width:160px;">إجمالي الدين</th>
-          <th style="width:320px;" class="left"></th>
+          <th data-col="provider-id">رقم المورد</th>
+          <th data-col="provider-name">اسم المورد</th>
+          <th data-col="provider-phone">رقم الهاتف</th>
+          <th data-col="provider-actions">الإجراءات</th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
 
-  <div style="display:flex; justify-content:center; gap:8px; margin-top:12px;">
+  <div class="pager">
     <button id="loadMore" class="btn">عرض المزيد</button>
     <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
   </div>
   <div id="sentinel" style="height:1px;"></div>
 </div>
 
-<!-- Centered Delete modal -->
-<div class="modal-backdrop" id="pvdBackdrop"></div>
-<div class="modal" id="pvdDelModal" role="dialog" aria-modal="true" aria-hidden="true">
-  <div class="box" role="document">
-    <header>تأكيد حذف المورد</header>
-    <div class="body">هل تريد حذف المورد <b id="pvdDelLabel"></b>؟ إذا كانت لديه ديون غير مدفوعة فلن يتم الحذف.</div>
-    <footer>
-      <button class="btn" id="pvdCancelDel">إلغاء</button>
-      <button class="btn danger" id="pvdConfirmDel">حذف</button>
-    </footer>
-  </div>
-</div>
-
 <script>
 (() => {
   const API_LIST   = "{% url 'billing_api_providers_list' %}";
   const API_CREATE = "{% url 'billing_api_provider_create' %}";
-  const delUrl = (id) => "{% url 'billing_api_provider_delete' 999999 %}".replace("999999", String(id));
-  const ENABLE_SETTLEMENT_TEST = {{ enable_provider_account_settlement_execution|yesno:"true,false" }};
-  const SETTLEMENT_TEST_URL_BASE = "{% url 'debts_provider_account_settlement_test' 0 %}";
-  const SETTLEMENT_ROW_LINK_TMPL = {% if enable_provider_account_settlement_execution %}"<a class='btn ghost internal-row-link' href='__URL__' title='INTERNAL TEST · ACCOUNT SETTLEMENT'>اختبار التسوية</a>"{% else %}""{% endif %};
 
   const rows = document.getElementById('rows');
   const q    = document.getElementById('q');
-  const fSt  = document.getElementById('fState');
   const btnSearch = document.getElementById('btnSearch');
   const loadMore  = document.getElementById('loadMore');
   const endMsg    = document.getElementById('endMsg');
@@ -151,54 +186,33 @@
   const btnCreate = document.getElementById('btnCreate');
   const createErr = document.getElementById('createErr');
 
-  // Modal refs
-  const mBackdrop = document.getElementById('pvdBackdrop');
-  const mModal    = document.getElementById('pvdDelModal');
-  const mLabel    = document.getElementById('pvdDelLabel');
-  const mCancel   = document.getElementById('pvdCancelDel');
-  const mConfirm  = document.getElementById('pvdConfirmDel');
-  let pendingDel = { id:null, name:"" };
-
   let cursor = null, busy = false, done = false;
 
-  function nf(x){ const n=Number(x); return Number.isFinite(n)? formatMoney(n): x; }
-  function debtLabel(p){
-    const totals = p.debt_totals || {};
-    const syp = nf(totals.SYP || "0");
-    const usd = nf(totals.USD || "0");
-    return `SYP: ${syp} | USD: ${usd}`;
-  }
   function qs(obj){ const p=new URLSearchParams(obj); return p.toString(); }
 
   function params(reset=false) {
-    const obj = { page_size: 30 };
-    const qv = (q.value || "").trim(); if (qv) obj.q = qv;
-    if (fSt.value === "all") obj.include_all = "1"; // <-- NEW meaning
+    const obj = { page_size: 30, include_all: "1", basic: "1" };
+    const qv = (q.value || "").trim();
+    if (qv) obj.q = qv;
     if (!reset && cursor) obj.cursor = cursor;
     return obj;
   }
 
   function rowHtml(p){
-    const debt = debtLabel(p);
     const billsUrl = "{% url 'billing_list' %}" + "?q=" + encodeURIComponent(p.name);
-    let settlementLink = "";
-    if (ENABLE_SETTLEMENT_TEST) {
-      const settlementUrl = SETTLEMENT_TEST_URL_BASE.replace("/0/", `/${p.id}/`);
-      settlementLink = SETTLEMENT_ROW_LINK_TMPL.replace("__URL__", settlementUrl);
-    }
+    const providerRef = p.public_id || p.id;
     return `
-      <tr data-id="${p.id}" data-name="${p.name}">
-        <td>${p.id}</td>
-        <td>${p.name}</td>
-        <td>${p.phone || ""}</td>
-        <td class="center">${p.bills_count}</td>
-        <td class="center">${p.unpaid_bills_count}</td>
-        <td>${debt}</td>
-        <td class="left">
-          <a class="btn" href="${billsUrl}">عرض الفواتير</a>
-          <button class="btn" disabled title="قريباً">الديون</button>
-          ${settlementLink}
-          <button class="btn danger" data-del="${p.id}">حذف</button>
+      <tr data-id="${p.id}" data-public-id="${providerRef}" data-name="${p.name}">
+        <td>${providerRef}</td>
+        <td class="name-cell"><span class="name-text" title="${p.name}">${p.name}</span></td>
+        <td class="phone-cell">${p.phone || ""}</td>
+        <td class="actions-cell">
+          <div class="actions" data-actions-row="1">
+            <button class="btn" data-action="provider-info" disabled title="قريبًا">عرض معلومات المورد</button>
+            <a class="btn" data-action="provider-bills" href="${billsUrl}">عرض الفواتير</a>
+            <button class="btn" data-action="provider-debts" disabled title="قريبًا">عرض الديون</button>
+            <button class="btn soft" data-action="provider-hide" disabled title="قريبًا">إخفاء</button>
+          </div>
         </td>
       </tr>
     `;
@@ -206,43 +220,53 @@
 
   async function load(reset=false){
     if (busy || (done && !reset)) return;
-    busy = true; loadMore.disabled = true; endMsg.hidden = true;
+    busy = true;
+    loadMore.disabled = true;
+    endMsg.hidden = true;
 
-    if (reset){ rows.innerHTML=""; cursor=null; done=false; }
+    if (reset){
+      rows.innerHTML = "";
+      cursor = null;
+      done = false;
+    }
 
     try{
       const res = await fetch(`${API_LIST}?${qs(params(reset))}`, {headers:{'Accept':'application/json'}});
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error||'error');
+      if (!data.ok) throw new Error(data.error || 'error');
 
       const frag = document.createDocumentFragment();
       for (const p of data.items){
-        const tmp = document.createElement('tbody'); tmp.innerHTML = rowHtml(p);
+        const tmp = document.createElement('tbody');
+        tmp.innerHTML = rowHtml(p);
         frag.appendChild(tmp.firstElementChild);
       }
       rows.appendChild(frag);
 
       cursor = data.next_cursor;
       done = !cursor;
-      loadMore.style.display = done? 'none':'inline-block';
+      loadMore.style.display = done ? 'none' : 'inline-flex';
       if (done && rows.children.length) endMsg.hidden = false;
     } catch(e){
       alert('فشل التحميل');
     } finally {
-      busy = false; loadMore.disabled = false;
+      busy = false;
+      loadMore.disabled = false;
     }
   }
 
   btnSearch.addEventListener('click', () => load(true));
-  q.addEventListener('input', debounce(()=>load(true), 250));
-  fSt.addEventListener('change', ()=>load(true));
-  loadMore.addEventListener('click', ()=>load(false));
+  q.addEventListener('input', debounce(() => load(true), 250));
+  loadMore.addEventListener('click', () => load(false));
 
-  // Create provider
-  btnCreate.addEventListener('click', async ()=>{
+  btnCreate.addEventListener('click', async () => {
     createErr.hidden = true;
     const name = (pName.value || "").trim();
-    if (!name){ createErr.textContent="الاسم مطلوب"; createErr.hidden=false; return; }
+    if (!name){
+      createErr.textContent = "الاسم مطلوب";
+      createErr.hidden = false;
+      return;
+    }
     try{
       const res = await fetch(API_CREATE, {
         method:'POST',
@@ -250,54 +274,18 @@
         body: JSON.stringify({ name, phone: pPhone.value || "", notes: pNotes.value || "" })
       });
       const data = await res.json();
-      if (!data.ok){ createErr.textContent = data.error || "فشل الإنشاء"; createErr.hidden=false; return; }
-      pName.value=""; pPhone.value=""; pNotes.value="";
+      if (!data.ok){
+        createErr.textContent = data.error || "فشل الإنشاء";
+        createErr.hidden = false;
+        return;
+      }
+      pName.value = "";
+      pPhone.value = "";
+      pNotes.value = "";
       load(true);
     }catch{
-      createErr.textContent = "فشل الاتصال بالخادم"; createErr.hidden=false;
-    }
-  });
-
-  // Open centered delete modal
-  rows.addEventListener('click', (e)=>{
-    const btn = e.target.closest('[data-del]'); if (!btn) return;
-    const tr = btn.closest('tr');
-    pendingDel.id = parseInt(btn.getAttribute('data-del'), 10);
-    pendingDel.name = tr?.dataset?.name || '';
-    mLabel.textContent = pendingDel.name ? `(${pendingDel.name})` : `#${pendingDel.id}`;
-    mBackdrop.style.display = 'block';
-    mModal.style.display = 'flex';
-  });
-
-  // Close modal
-  function closeModal(){
-    mBackdrop.style.display = 'none';
-    mModal.style.display = 'none';
-    pendingDel = { id:null, name:"" };
-  }
-  mBackdrop.addEventListener('click', closeModal);
-  document.getElementById('pvdCancelDel').addEventListener('click', closeModal);
-
-  // Confirm delete
-  document.getElementById('pvdConfirmDel').addEventListener('click', async ()=>{
-    if (!pendingDel.id) return;
-    const btn = document.getElementById('pvdConfirmDel');
-    btn.disabled = true;
-    try{
-      const res = await fetch(delUrl(pendingDel.id), {
-        method:'POST',
-        headers:{'X-CSRFToken': getCsrf()}
-      });
-      const data = await res.json();
-      if (!data.ok){ alert(data.error || 'فشل الحذف'); return; }
-      // remove row instantly
-      const tr = rows.querySelector(`tr[data-id="${pendingDel.id}"]`);
-      if (tr) tr.remove();
-      closeModal();
-    }catch{
-      alert('فشل الاتصال بالخادم');
-    } finally {
-      btn.disabled = false;
+      createErr.textContent = "فشل الاتصال بالخادم";
+      createErr.hidden = false;
     }
   });
 
@@ -305,7 +293,14 @@
     const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : '';
   }
-  function debounce(fn, ms=180){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms);} }
+
+  function debounce(fn, ms=180){
+    let t;
+    return (...a) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...a), ms);
+    };
+  }
 
   load(true);
 })();

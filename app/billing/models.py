@@ -29,6 +29,8 @@ BILL_PUBLIC_ID_PREFIX = "PB-"
 BILL_PUBLIC_ID_SEQUENCE_KEY = "billing_bill_public_id"
 PROVIDER_RETURN_PUBLIC_ID_PREFIX = "PR-"
 PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY = "billing_provider_return_public_id"
+PROVIDER_PUBLIC_ID_PREFIX = "P-"
+PROVIDER_PUBLIC_ID_SEQUENCE_KEY = "billing_provider_public_id"
 
 
 def _bill_public_id_default() -> str:
@@ -44,6 +46,14 @@ def _provider_return_public_id_default() -> str:
         sequence_key=PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
         prefix=PROVIDER_RETURN_PUBLIC_ID_PREFIX,
         model=ProviderReturn,
+    )
+
+
+def _provider_public_id_default() -> str:
+    return allocate_next_public_id(
+        sequence_key=PROVIDER_PUBLIC_ID_SEQUENCE_KEY,
+        prefix=PROVIDER_PUBLIC_ID_PREFIX,
+        model=Provider,
     )
 
 
@@ -76,6 +86,7 @@ class ActiveProviderManager(models.Manager):
 
 
 class Provider(models.Model):
+    public_id  = models.CharField(max_length=24, unique=True, default=_provider_public_id_default, editable=False, db_index=True)
     name       = models.CharField(max_length=128, unique=False, db_index=True)
     phone      = models.CharField(max_length=64, blank=True)
     notes      = models.TextField(blank=True)

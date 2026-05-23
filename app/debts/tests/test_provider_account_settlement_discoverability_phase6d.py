@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -33,41 +33,30 @@ class ProviderAccountSettlementDiscoverabilityPhase6DTests(TestCase):
         self.provider = Provider.objects.create(name=f"Phase6D Provider {self._testMethodName}")
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=False)
-    def test_feature_flag_off_hides_internal_access_path(self):
+    def test_feature_flag_off_hides_launcher_and_blocks_direct_page(self):
         self.client.force_login(self.manager)
         resp = self.client.get("/manager/billing/providers/")
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "const ENABLE_SETTLEMENT_TEST = false;")
-        self.assertNotContains(resp, "اختبار التسوية")
+        self.assertNotContains(resp, "/account-settlement-test/")
+
+        resp = self.client.get(f"/manager/debts/provider/{self.provider.public_id}/account-settlement-test/")
+        self.assertEqual(resp.status_code, 403)
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
-    def test_manager_and_owner_see_internal_access_path(self):
+    def test_feature_flag_on_still_does_not_show_launcher_in_provider_list(self):
         self.client.force_login(self.manager)
         resp = self.client.get("/manager/billing/providers/")
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "const ENABLE_SETTLEMENT_TEST = true;")
-        self.assertContains(resp, "اختبار التسوية")
-        self.assertContains(resp, "INTERNAL TEST · ACCOUNT SETTLEMENT")
-
-        self.client.force_login(self.owner)
-        resp = self.client.get("/manager/billing/providers/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "const ENABLE_SETTLEMENT_TEST = true;")
-        self.assertContains(resp, "اختبار التسوية")
+        self.assertNotContains(resp, "ENABLE_SETTLEMENT_TEST")
+        self.assertNotContains(resp, "SETTLEMENT_TEST_URL_BASE")
+        self.assertNotContains(resp, "/account-settlement-test/")
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
-    def test_generated_url_template_is_correct_and_not_mass_exposed(self):
+    def test_manager_can_open_internal_test_page_directly(self):
         self.client.force_login(self.manager)
-        resp = self.client.get("/manager/billing/providers/")
+        resp = self.client.get(f"/manager/debts/provider/{self.provider.public_id}/account-settlement-test/")
         self.assertEqual(resp.status_code, 200)
-        expected_base = "/manager/debts/provider/0/account-settlement-test/"
-        self.assertContains(resp, f'const SETTLEMENT_TEST_URL_BASE = "{expected_base}";')
-        self.assertContains(resp, 'SETTLEMENT_TEST_URL_BASE.replace("/0/", `/${p.id}/`)')
-        self.assertContains(resp, 'internal-row-link')
-
-        html = resp.content.decode("utf-8")
-        self.assertEqual(html.count('id="providerSettlementInternalTool"'), 0)
-        self.assertEqual(html.count("/account-settlement-test/"), 1)
+        self.assertContains(resp, "INTERNAL TEST TOOL")
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
     def test_cashier_cannot_access_provider_page_or_internal_test_page(self):
@@ -75,16 +64,14 @@ class ProviderAccountSettlementDiscoverabilityPhase6DTests(TestCase):
         resp = self.client.get("/manager/billing/providers/")
         self.assertEqual(resp.status_code, 403)
 
-        resp = self.client.get(f"/manager/debts/provider/{self.provider.id}/account-settlement-test/")
+        resp = self.client.get(f"/manager/debts/provider/{self.provider.public_id}/account-settlement-test/")
         self.assertEqual(resp.status_code, 403)
 
     @override_settings(ENABLE_PROVIDER_ACCOUNT_SETTLEMENT_EXECUTION=True)
-    def test_manager_can_open_internal_test_page_via_generated_route(self):
-        self.client.force_login(self.manager)
+    def test_owner_access_behavior_matches_role_policy(self):
+        self.client.force_login(self.owner)
         resp = self.client.get("/manager/billing/providers/")
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'SETTLEMENT_TEST_URL_BASE.replace("/0/", `/${p.id}/`)')
 
-        resp = self.client.get(f"/manager/debts/provider/{self.provider.id}/account-settlement-test/")
+        resp = self.client.get(f"/manager/debts/provider/{self.provider.public_id}/account-settlement-test/")
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "INTERNAL TEST TOOL")

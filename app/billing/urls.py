@@ -20,7 +20,7 @@ urlpatterns = [
     path("api/providers/ac/", v.api_providers_ac, name="billing_api_providers_ac"),
     path("api/providers/", v.api_providers_list, name="billing_api_providers_list"),
     path("api/providers/create", v.api_provider_create, name="billing_api_provider_create"),
-    path("api/providers/<int:pid>/delete", v.api_provider_delete, name="billing_api_provider_delete"),
+    path("api/providers/<str:provider_ref>/delete", v.api_provider_delete, name="billing_api_provider_delete"),
 
     # Payments (payables)
     path("bills/<str:bill_id>/pay-full/", v.pay_debt_full, name="pay_debt_full"),

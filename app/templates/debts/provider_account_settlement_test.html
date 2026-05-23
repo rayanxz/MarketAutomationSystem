@@ -75,6 +75,7 @@
   data-allocation-preview-url-template="{{ provider_allocation_preview_url_template }}"
   data-settlement-execute-url-template="{{ provider_execute_url_template }}"
   data-initial-provider-id="{{ provider_initial.id }}"
+  data-initial-provider-public-id="{{ provider_initial.public_id|escape }}"
   data-initial-provider-name="{{ provider_initial.name|escape }}"
   data-initial-provider-phone="{{ provider_initial.phone|escape }}"
 >
@@ -102,7 +103,7 @@
     <div id="providerSearchResults" class="provider-search-results"></div>
     <div class="provider-meta" id="selectedProviderMeta">
       <div class="provider-meta-row"><span class="label">Provider</span><span id="selProviderName" class="value rtl">-</span></div>
-      <div class="provider-meta-row"><span class="label">Provider ID</span><span id="selProviderId" class="value">-</span></div>
+      <div class="provider-meta-row"><span class="label">Provider Public ID</span><span id="selProviderId" class="value">-</span></div>
       <div class="provider-meta-row"><span class="label">Phone</span><span id="selProviderPhone" class="value">-</span></div>
     </div>
   </section>
@@ -335,6 +336,7 @@
   };
   const initialProvider = {
     id: Number(root.dataset.initialProviderId || 0),
+    publicId: root.dataset.initialProviderPublicId || '',
     name: root.dataset.initialProviderName || '',
     phone: root.dataset.initialProviderPhone || '',
   };
@@ -441,14 +443,19 @@
     if (parts.length === 2) return parts.pop().split(';').shift();
     return '';
   }
-  function buildUrl(template, providerId){
+  function buildUrl(template, providerRef){
+    const ref = String(providerRef || '').trim();
     const s = String(template || '');
-    if (s.includes('/0/')) return s.replace('/0/', `/${providerId}/`);
-    return s.replace('/0', `/${providerId}`);
+    if (s.includes('/0/')) return s.replace('/0/', `/${ref}/`);
+    return s.replace('/0', `/${ref}`);
   }
   function signClass(raw){ const n = Number(raw); if (Number.isNaN(n)) return ''; if (n > 0) return 'positive'; if (n < 0) return 'negative'; return 'zero'; }
   function writeSigned(target, raw){ target.textContent = fmt(raw); target.classList.remove('positive', 'negative', 'zero'); const cls = signClass(raw); if (cls) target.classList.add(cls); }
-  function canRunAction(){ return state.selectedProvider && Number(state.selectedProvider.id) > 0; }
+  function selectedProviderRef(){
+    if (!state.selectedProvider) return '';
+    return String(state.selectedProvider.publicId || state.selectedProvider.id || '').trim();
+  }
+  function canRunAction(){ return !!selectedProviderRef(); }
   function currentPayload(){
     return {
       action: el.actionInput.value,
@@ -460,7 +467,7 @@
   }
   function payloadSignature(){
     return [
-      String(state.selectedProvider ? state.selectedProvider.id : 0),
+      selectedProviderRef(),
       el.actionInput.value,
       el.currencyInput.value,
       el.amountInput.value,
@@ -481,7 +488,7 @@
     refreshActionButtons();
   }
   function generateIdempotencyKey(){
-    const providerPart = state.selectedProvider ? String(state.selectedProvider.id) : 'unselected';
+    const providerPart = selectedProviderRef() || 'unselected';
     const base = `provider-${providerPart}-${el.actionInput.value}-${el.currencyInput.value}`;
     const token = (window.crypto && typeof window.crypto.randomUUID === 'function')
       ? window.crypto.randomUUID()
@@ -490,9 +497,16 @@
   }
   function regenerateIdempotencyKey(){ el.idempotencyKeyInput.value = generateIdempotencyKey(); }
   function setSelectedProvider(provider){
-    state.selectedProvider = provider ? { id: Number(provider.id || 0), name: provider.name || '', phone: provider.phone || '' } : null;
+    state.selectedProvider = provider
+      ? {
+          id: Number(provider.id || 0),
+          publicId: String(provider.public_id || provider.publicId || ''),
+          name: provider.name || '',
+          phone: provider.phone || '',
+        }
+      : null;
     el.selProviderName.textContent = state.selectedProvider ? state.selectedProvider.name : '-';
-    el.selProviderId.textContent = state.selectedProvider ? String(state.selectedProvider.id) : '-';
+    el.selProviderId.textContent = state.selectedProvider ? String(state.selectedProvider.publicId || state.selectedProvider.id) : '-';
     el.selProviderPhone.textContent = state.selectedProvider ? (state.selectedProvider.phone || '-') : '-';
     el.refreshProviderBtn.disabled = !canRunAction();
     regenerateIdempotencyKey();
@@ -654,9 +668,9 @@
   }
   async function loadProviderSnapshot(sourceLabel=''){
     if (!canRunAction()) return;
-    const providerId = Number(state.selectedProvider.id);
-    const obligationsUrl = buildUrl(urls.obligationsTmpl, providerId);
-    const netUrl = buildUrl(urls.netTmpl, providerId);
+    const providerRef = selectedProviderRef();
+    const obligationsUrl = buildUrl(urls.obligationsTmpl, providerRef);
+    const netUrl = buildUrl(urls.netTmpl, providerRef);
     setStatus('Loading provider snapshot...');
     const [obRes, netRes] = await Promise.all([getJson(obligationsUrl), getJson(netUrl)]);
     jsonToPre(el.rawNetPayload, { obligations: obRes.data, net: netRes.data });
@@ -664,12 +678,13 @@
     if (!netRes.data.ok){ setStatus(netRes.data.error || 'Failed to load net position.', false); return; }
     const providerMeta = obRes.data.provider || {};
     state.selectedProvider = {
-      id: Number(providerMeta.id || providerId),
+      id: Number(providerMeta.id || state.selectedProvider.id || 0),
+      publicId: String(providerMeta.public_id || state.selectedProvider.publicId || ''),
       name: providerMeta.name || state.selectedProvider.name || '',
       phone: providerMeta.phone || '',
     };
     el.selProviderName.textContent = state.selectedProvider.name || '-';
-    el.selProviderId.textContent = String(state.selectedProvider.id || '-');
+    el.selProviderId.textContent = String(state.selectedProvider.publicId || state.selectedProvider.id || '-');
     el.selProviderPhone.textContent = state.selectedProvider.phone || '-';
     renderNetCard(netRes.data);
     renderObligationsTable(obRes.data.obligations || []);
@@ -689,8 +704,8 @@
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length){ el.providerSearchResults.innerHTML = '<div class="x-muted">No providers found.</div>'; return; }
     el.providerSearchResults.innerHTML = items.map((p) => `
-      <button class="provider-result-btn" type="button" data-provider-id="${p.id}" data-provider-name="${String(p.name || '').replace(/"/g, '&quot;')}">
-        ${fmt(p.name)} <span class="x-muted">(ID: ${p.id})</span>
+      <button class="provider-result-btn" type="button" data-provider-id="${p.id}" data-provider-public-id="${String(p.public_id || '').replace(/"/g, '&quot;')}" data-provider-name="${String(p.name || '').replace(/"/g, '&quot;')}" data-provider-phone="${String(p.phone || '').replace(/"/g, '&quot;')}">
+        ${fmt(p.name)} <span class="x-muted">(ID: ${fmt(p.public_id || p.id)})</span>
       </button>
     `).join('');
   }
@@ -699,7 +714,12 @@
   el.providerSearchInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); searchProviders(); } });
   el.providerSearchResults.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-provider-id]'); if (!btn) return;
-    setSelectedProvider({ id: Number(btn.dataset.providerId || 0), name: btn.dataset.providerName || '', phone: '' });
+    setSelectedProvider({
+      id: Number(btn.dataset.providerId || 0),
+      public_id: btn.dataset.providerPublicId || '',
+      name: btn.dataset.providerName || '',
+      phone: btn.dataset.providerPhone || '',
+    });
     clearPreviewAndExecutionVisuals();
     await loadProviderSnapshot('provider selection');
   });
@@ -713,10 +733,10 @@
   el.previewBtn.addEventListener('click', async () => {
     if (!canRunAction()){ setStatus('Select provider first.', false); return; }
     clearPreviewAndExecutionVisuals();
-    const providerId = Number(state.selectedProvider.id);
+    const providerRef = selectedProviderRef();
     const payload = currentPayload();
     setStatus('Loading preview...');
-    const { data } = await postJson(`${buildUrl(urls.previewTmpl, providerId)}?include_position_summary=1`, payload);
+    const { data } = await postJson(`${buildUrl(urls.previewTmpl, providerRef)}?include_position_summary=1`, payload);
     jsonToPre(el.rawPreviewPayload, data);
     if (!data.ok){ setStatus(data.error || 'Preview failed.', false); refreshActionButtons(); return; }
     renderPreviewSummary(data);
@@ -742,7 +762,7 @@
     const selectedContainer = el.containerInput.options[el.containerInput.selectedIndex];
     const confirmText = [
       'Execute settlement?',
-      `Provider: ${state.selectedProvider.name} (#${state.selectedProvider.id})`,
+      `Provider: ${state.selectedProvider.name} (#${selectedProviderRef()})`,
       `Action: ${payload.action}`,
       `Currency: ${payload.currency}`,
       `Amount: ${payload.amount}`,
@@ -750,7 +770,7 @@
     ].join('\\n');
     if (!window.confirm(confirmText)){ setStatus('Execution cancelled.', false); return; }
     setStatus('Executing settlement...');
-    const { data } = await postJson(buildUrl(urls.executeTmpl, Number(state.selectedProvider.id)), payload);
+    const { data } = await postJson(buildUrl(urls.executeTmpl, selectedProviderRef()), payload);
     jsonToPre(el.rawExecutePayload, data);
     if (!data.ok){ setStatus(data.error || 'Execution failed.', false); return; }
     renderExecutionSummary(data);

@@ -12,6 +12,7 @@ def provider_row(p: Provider) -> Dict[str, Any]:
     total_usd = getattr(p, "total_debt_usd", Decimal("0")) or Decimal("0")
     return {
         "id": p.id,
+        "public_id": (getattr(p, "public_id", "") or ""),
         "name": p.name,
         "phone": p.phone or "",
         "is_active": bool(getattr(p, "is_active", True)),

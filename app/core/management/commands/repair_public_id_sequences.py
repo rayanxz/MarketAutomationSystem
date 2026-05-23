@@ -8,9 +8,12 @@ from django.db import IntegrityError, models, transaction
 from billing.models import (
     BILL_PUBLIC_ID_PREFIX,
     BILL_PUBLIC_ID_SEQUENCE_KEY,
+    PROVIDER_PUBLIC_ID_PREFIX,
+    PROVIDER_PUBLIC_ID_SEQUENCE_KEY,
     PROVIDER_RETURN_PUBLIC_ID_PREFIX,
     PROVIDER_RETURN_PUBLIC_ID_SEQUENCE_KEY,
     Bill,
+    Provider,
     ProviderReturn,
 )
 from core.models import PublicIdSequence
@@ -52,6 +55,13 @@ TARGETS: tuple[SequenceTarget, ...] = (
         sequence_key=BILL_PUBLIC_ID_SEQUENCE_KEY,
         document_model=Bill,
         prefix=BILL_PUBLIC_ID_PREFIX,
+    ),
+    SequenceTarget(
+        label="billing.Provider",
+        sequence_model=PublicIdSequence,
+        sequence_key=PROVIDER_PUBLIC_ID_SEQUENCE_KEY,
+        document_model=Provider,
+        prefix=PROVIDER_PUBLIC_ID_PREFIX,
     ),
     SequenceTarget(
         label="billing.ProviderReturn",

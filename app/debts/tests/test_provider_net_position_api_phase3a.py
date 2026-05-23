@@ -158,6 +158,28 @@ class ProviderNetPositionApiPhase3ATests(TestCase):
         self.assertEqual(data["currencies"]["SYP"]["open_receivable_count"], 1)
         self.assertEqual(data["currencies"]["SYP"]["open_payable_count"], 1)
 
+    def test_api_accepts_provider_public_id_ref(self):
+        self._create_central_debt(
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="phase3a-public-ref-payable",
+            remaining_syp="111.00",
+        )
+
+        resp = self.client.get(self._path(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["provider_id"], self.provider.id)
+        self.assertEqual(data["currencies"]["SYP"]["payable"], "111.00")
+
+    def test_api_keeps_numeric_provider_ref_compatibility(self):
+        resp = self.client.get(self._path(str(self.provider.id)))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["provider_id"], self.provider.id)
+
     def test_api_includes_diagnostics_passthrough(self):
         bill = Bill.objects.create(serial=901001, provider=self.provider)
         self._create_central_debt(

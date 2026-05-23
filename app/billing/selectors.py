@@ -55,16 +55,42 @@ def providers_qs_base():
     # active providers only, order newest first by id (for keyset)
     return Provider.objects.filter(is_active=True).order_by("-id")
 
+
+def _provider_search_q(query: str) -> Q:
+    token = str(query or "").strip()
+    if not token:
+        return Q()
+    q_obj = Q(name__icontains=token) | Q(phone__icontains=token) | Q(public_id__iexact=token)
+    if token.upper().startswith("P-"):
+        q_obj |= Q(public_id__istartswith=token)
+    try:
+        provider_id = int(token)
+        if provider_id > 0:
+            q_obj |= Q(id=provider_id)
+    except Exception:
+        pass
+    return q_obj
+
+
 def providers_search(q: str):
     qs = providers_qs_base()
     if q:
-        qs = qs.filter(name__icontains=q)
+        qs = qs.filter(_provider_search_q(q))
     return qs
+
+
+def providers_list_basic(q: str, cursor: Optional[int], page_size: int):
+    base = providers_qs_base()
+    if q:
+        base = base.filter(_provider_search_q(q))
+    if cursor:
+        base = base.filter(id__lt=cursor)
+    return list(base.only("id", "public_id", "name", "phone", "is_active")[:page_size])
 
 def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_size: int):
     base = providers_qs_base()
     if q:
-        base = base.filter(name__icontains=q)
+        base = base.filter(_provider_search_q(q))
     if cursor:
         base = base.filter(id__lt=cursor)
 
@@ -81,7 +107,7 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
             .annotate(
                 bills_count=Coalesce(Count("bills", distinct=True), Value(0)),
             )
-            .only("id", "name", "phone", "is_active")[:scan_size]
+            .only("id", "public_id", "name", "phone", "is_active")[:scan_size]
         )
         if not chunk:
             break
@@ -113,11 +139,11 @@ def providers_with_stats(q: str, include_all: bool, cursor: Optional[int], page_
 
 def providers_ac(q: str):
     if not q:
-        return Provider.objects.none().values("id", "name")
+        return Provider.objects.none().values("id", "public_id", "name", "phone")
     return (
-        Provider.objects.filter(is_active=True, name__icontains=q)
+        Provider.objects.filter(is_active=True).filter(_provider_search_q(q))
         .order_by(Lower("name"))
-        .values("id", "name")[:8]
+        .values("id", "public_id", "name", "phone")[:8]
     )
 
 # ---------- Bills (commercial docs) ----------
