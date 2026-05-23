@@ -20,7 +20,13 @@
   .viewport-center > .center-box{ max-width:1320px; }
 
   .card{ background:#fff; border-radius:12px; padding:12px; box-shadow:var(--card-shadow); }
-  .providers-panel{ max-width:1240px; margin-inline:auto; }
+  .providers-panel{
+    max-width:1240px;
+    margin-inline:auto;
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+  }
 
   .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:end; }
   .field{ min-width:210px; flex:1 1 210px; }
@@ -47,7 +53,15 @@
   .err{ color:#b10000; font-size:12px; }
   .panel-title{ margin:0 0 10px; font-size:16px; color:#111827; }
 
-  .providers-create{ margin:0 0 14px; }
+  .providers-create{
+    margin:0;
+    border:1px solid #e5e7eb;
+    background:#fcfdff;
+  }
+  .providers-list{
+    border:1px solid #e5e7eb;
+    background:#fff;
+  }
   .providers-filters{ margin-bottom:10px; }
 
   .table-wrap{ border:1px solid #e5e7eb; border-radius:12px; overflow:auto; background:#fff; }
@@ -75,6 +89,10 @@
   }
   .providers-table th:last-child,
   .providers-table td:last-child{ border-right:none; }
+  .providers-table th[data-col="provider-actions"],
+  .providers-table td.actions-cell{
+    border-inline-start:1px solid #e5e7eb;
+  }
 
   .name-cell .name-text{
     display:block;
@@ -111,7 +129,7 @@
   }
 </style>
 
-<div class="card providers-panel" dir="rtl">
+<div class="providers-panel" dir="rtl">
   <h2 style="margin:0 0 12px;">قائمة الموردين</h2>
 
   <div class="card providers-create">
@@ -134,39 +152,41 @@
     </div>
   </div>
 
-  <div class="row providers-filters">
-    <div class="field" style="max-width:320px;">
-      <label class="muted">بحث بالاسم</label>
-      <input id="q" class="input" placeholder="ابحث...">
+  <div class="card providers-list">
+    <div class="row providers-filters">
+      <div class="field" style="max-width:320px;">
+        <label class="muted">بحث بالاسم</label>
+        <input id="q" class="input" placeholder="ابحث...">
+      </div>
+      <button id="btnSearch" class="btn">بحث</button>
     </div>
-    <button id="btnSearch" class="btn">بحث</button>
-  </div>
 
-  <div class="table-wrap">
-    <table class="providers-table">
-      <colgroup>
-        <col class="col-id">
-        <col class="col-name">
-        <col class="col-phone">
-        <col class="col-actions">
-      </colgroup>
-      <thead>
-        <tr>
-          <th data-col="provider-id">رقم المورد</th>
-          <th data-col="provider-name">اسم المورد</th>
-          <th data-col="provider-phone">رقم الهاتف</th>
-          <th data-col="provider-actions">الإجراءات</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+    <div class="table-wrap">
+      <table class="providers-table">
+        <colgroup>
+          <col class="col-id">
+          <col class="col-name">
+          <col class="col-phone">
+          <col class="col-actions">
+        </colgroup>
+        <thead>
+          <tr>
+            <th data-col="provider-id">رقم المورد</th>
+            <th data-col="provider-name">اسم المورد</th>
+            <th data-col="provider-phone">رقم الهاتف</th>
+            <th data-col="provider-actions">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
 
-  <div class="pager">
-    <button id="loadMore" class="btn">عرض المزيد</button>
-    <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
+    <div class="pager">
+      <button id="loadMore" class="btn">عرض المزيد</button>
+      <span id="endMsg" class="muted" hidden>لا مزيد من النتائج</span>
+    </div>
+    <div id="sentinel" style="height:1px;"></div>
   </div>
-  <div id="sentinel" style="height:1px;"></div>
 </div>
 
 <script>

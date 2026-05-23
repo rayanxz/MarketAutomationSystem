@@ -75,11 +75,23 @@ class ProvidersListUiCleanupPhase1Tests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
         self.assertContains(resp, "providers-panel")
+        self.assertContains(resp, "providers-create")
+        self.assertContains(resp, "providers-list")
+        self.assertContains(resp, 'id="q"')
+        self.assertContains(resp, 'id="btnSearch"')
         self.assertContains(resp, "providers-table")
         self.assertContains(resp, 'data-col="provider-id"')
         self.assertContains(resp, 'data-col="provider-name"')
         self.assertContains(resp, 'data-col="provider-phone"')
         self.assertContains(resp, 'data-col="provider-actions"')
+
+    def test_actions_column_has_visual_separator_rule(self):
+        resp = self.client.get(reverse("billing_providers"))
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertContains(resp, '.providers-table th[data-col="provider-actions"]')
+        self.assertContains(resp, ".providers-table td.actions-cell")
+        self.assertContains(resp, "border-inline-start:1px solid #e5e7eb;")
 
     def test_removed_columns_and_dropdown_and_delete_controls(self):
         resp = self.client.get(reverse("billing_providers"))
