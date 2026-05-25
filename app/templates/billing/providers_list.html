@@ -197,6 +197,7 @@
 (() => {
   const API_LIST   = "{% url 'billing_api_providers_list' %}";
   const API_CREATE = "{% url 'billing_api_provider_create' %}";
+  const DETAILS_URL_BASE = "{% url 'billing_provider_details' provider_ref='__PROVIDER_REF__' %}";
 
   const rows = document.getElementById('rows');
   const q    = document.getElementById('q');
@@ -225,6 +226,7 @@
   function rowHtml(p){
     const billsUrl = "{% url 'billing_list' %}" + "?q=" + encodeURIComponent(p.name);
     const providerRef = p.public_id || p.id;
+    const infoUrl = DETAILS_URL_BASE.replace('__PROVIDER_REF__', encodeURIComponent(providerRef));
     return `
       <tr data-id="${p.id}" data-public-id="${providerRef}" data-name="${p.name}">
         <td>${providerRef}</td>
@@ -232,7 +234,7 @@
         <td class="phone-cell">${p.phone || ""}</td>
         <td class="actions-cell">
           <div class="actions" data-actions-row="1">
-            <button class="btn" data-action="provider-info" disabled title="قريبًا">عرض معلومات المورد</button>
+            <a class="btn" data-action="provider-info" href="${infoUrl}">عرض معلومات المورد</a>
             <a class="btn" data-action="provider-bills" href="${billsUrl}">عرض الفواتير</a>
             <button class="btn" data-action="provider-debts" disabled title="قريبًا">عرض الديون</button>
             <button class="btn soft" data-action="provider-hide" disabled title="قريبًا">إخفاء</button>

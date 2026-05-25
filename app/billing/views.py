@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from django.db import IntegrityError
 
 from django.conf import settings
 from django.http import JsonResponse, HttpRequest, HttpResponse
@@ -58,6 +59,7 @@ from catalog.models import Product
 
 from billing.models import (
     Provider,
+    ProviderPhone,
     Bill,
     ProviderReturn,
     BILL_PUBLIC_ID_PREFIX,
@@ -178,6 +180,127 @@ def add_bill(request: HttpRequest) -> HttpResponse:
 def providers_list(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/providers_list.html")
 
+
+
+@role_required(AccountProfile.Role.MANAGER)
+def provider_details(request: HttpRequest, provider_ref: str) -> HttpResponse:
+    provider = resolve_provider_from_ref(
+        ref=provider_ref,
+        allow_numeric_fallback=True,
+    )
+    if provider is None or not provider.is_active:
+        return HttpResponse(status=404)
+
+    details_url = reverse("billing_provider_details", kwargs={"provider_ref": provider.public_id})
+
+    if request.method == "POST":
+        action = (request.POST.get("action") or "update_notes").strip().lower()
+        from billing.services_provider import (
+            update_provider_notes,
+            add_provider_phone,
+            edit_provider_phone,
+            delete_provider_phone,
+        )
+
+        if action == "update_notes":
+            updated_notes = (request.POST.get("notes") or "").strip()
+            if updated_notes != (provider.notes or ""):
+                update_provider_notes(
+                    actor=request.user,
+                    provider=provider,
+                    notes=updated_notes,
+                )
+            return redirect(f"{details_url}?notes_saved=1")
+
+        if action == "add_phone":
+            phone_number = (request.POST.get("phone_number") or "").strip()
+            if not phone_number:
+                return redirect(f"{details_url}?phone_error=empty")
+            try:
+                add_provider_phone(
+                    actor=request.user,
+                    provider=provider,
+                    phone_number=phone_number,
+                )
+            except IntegrityError:
+                return redirect(f"{details_url}?phone_error=duplicate")
+            return redirect(f"{details_url}?phone_saved=added")
+
+        if action == "edit_phone":
+            phone_number = (request.POST.get("phone_number") or "").strip()
+            if not phone_number:
+                return redirect(f"{details_url}?phone_error=empty")
+            try:
+                phone_id = int((request.POST.get("phone_id") or "").strip())
+            except Exception:
+                phone_id = 0
+            phone_row = ProviderPhone.objects.filter(provider=provider, id=phone_id).first()
+            if phone_row is None:
+                return redirect(f"{details_url}?phone_error=not_found")
+            try:
+                edit_provider_phone(
+                    actor=request.user,
+                    provider=provider,
+                    phone_row=phone_row,
+                    phone_number=phone_number,
+                )
+            except IntegrityError:
+                return redirect(f"{details_url}?phone_error=duplicate")
+            return redirect(f"{details_url}?phone_saved=edited")
+
+        if action == "delete_phone":
+            try:
+                phone_id = int((request.POST.get("phone_id") or "").strip())
+            except Exception:
+                phone_id = 0
+            phone_row = ProviderPhone.objects.filter(provider=provider, id=phone_id).first()
+            if phone_row is None:
+                return redirect(f"{details_url}?phone_error=not_found")
+            delete_provider_phone(
+                actor=request.user,
+                provider=provider,
+                phone_row=phone_row,
+            )
+            return redirect(f"{details_url}?phone_saved=deleted")
+
+        return redirect(details_url)
+
+    details = S.get_provider_profile_details(provider_id=provider.id, top_items_limit=10)
+    notes_saved = (request.GET.get("notes_saved") or "").strip() == "1"
+    phone_saved = (request.GET.get("phone_saved") or "").strip().lower()
+    phone_error = (request.GET.get("phone_error") or "").strip().lower()
+
+    phone_saved_message = ""
+    if phone_saved == "added":
+        phone_saved_message = "تمت إضافة رقم الهاتف بنجاح"
+    elif phone_saved == "edited":
+        phone_saved_message = "تم تعديل رقم الهاتف بنجاح"
+    elif phone_saved == "deleted":
+        phone_saved_message = "تم حذف رقم الهاتف بنجاح"
+
+    phone_error_message = ""
+    if phone_error == "empty":
+        phone_error_message = "رقم الهاتف مطلوب"
+    elif phone_error == "duplicate":
+        phone_error_message = "رقم الهاتف موجود مسبقاً"
+    elif phone_error == "not_found":
+        phone_error_message = "رقم الهاتف غير موجود"
+
+    provider_phone_numbers = list(
+        provider.phone_numbers.only("id", "phone_number", "created_at").order_by("-created_at", "-id")
+    )
+    return render(
+        request,
+        "billing/provider_details.html",
+        {
+            "provider": provider,
+            "details": details,
+            "notes_saved": notes_saved,
+            "provider_phone_numbers": provider_phone_numbers,
+            "phone_saved_message": phone_saved_message,
+            "phone_error_message": phone_error_message,
+        },
+    )
 
 
 @role_required(AccountProfile.Role.MANAGER)

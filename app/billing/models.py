@@ -112,6 +112,32 @@ class Provider(models.Model):
         return self.name
 
 
+class ProviderPhone(models.Model):
+    provider = models.ForeignKey(
+        Provider,
+        on_delete=models.CASCADE,
+        related_name="phone_numbers",
+    )
+    phone_number = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "phone_number"],
+                name="uq_provider_phone_unique_per_provider",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["provider", "-created_at", "-id"], name="idx_provider_phone_latest"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider_id}:{self.phone_number}"
+
+
 
 # =========================
 # Commercial document: Bill

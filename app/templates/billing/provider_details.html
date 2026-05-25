@@ -1,0 +1,894 @@
+{% extends "manager/base_manager.html" %}
+{% load static %}
+{% block title %}تفاصيل ملف المورد{% endblock %}
+
+{% block menu_secondary %}
+  {% with name=request.resolver_match.url_name %}
+  <div class="tabs-row">
+    <a class="btn-sec{% if name == 'billing_add' %} active{% endif %}" href="{% url 'billing_add' %}">إضافة فاتورة</a>
+    <a class="btn-sec{% if name == 'billing_list' %} active{% endif %}" href="{% url 'billing_list' %}">قائمة الفواتير</a>
+    <a class="btn-sec{% if name == 'debts_page' or name == 'debts_view_central_debt' or name == 'debts_view_debt' %} active{% endif %}" href="{% url 'debts_page' %}">قائمة الديون</a>
+    <a class="btn-sec{% if name == 'debts_add' %} active{% endif %}" href="{% url 'debts_add' %}">إضافة دين</a>
+    <a class="btn-sec{% if name == 'billing_providers' or name == 'billing_provider_details' %} active{% endif %}" href="{% url 'billing_providers' %}">قائمة الموردين</a>
+    <a class="btn-sec{% if name == 'billing_returns_list' %} active{% endif %}" href="{% url 'billing_returns_list' %}">قائمة مرتجعات الموردين</a>
+  </div>
+  {% endwith %}
+{% endblock %}
+
+{% block content %}
+<style>
+  .provider-details-page{
+    max-width:1240px;
+    margin-inline:auto;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+
+  .card{
+    background:#fff;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+    box-shadow:var(--card-shadow);
+    padding:14px;
+  }
+
+  .btn{
+    height:40px;
+    padding:0 12px;
+    border-radius:10px;
+    border:1px solid #d4dde8;
+    background:#f8fafc;
+    color:#1f2937;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+  }
+  .btn.primary{
+    background:rgba(53, 85, 125, 0.9);
+    color:#fff;
+    border-color:rgba(53, 85, 125, 0.95);
+  }
+  .btn.small{
+    height:34px;
+    min-width:70px;
+    border-radius:8px;
+    font-size:12px;
+    padding:0 10px;
+  }
+  .btn.warn{
+    background:#fff7ed;
+    border-color:#fdba74;
+    color:#9a3412;
+  }
+  .btn[disabled]{ cursor:not-allowed; opacity:.62; }
+
+  .header-card{
+    background:linear-gradient(180deg, #fbfdff 0%, #f7fbff 100%);
+    display:grid;
+    grid-template-columns:1.7fr auto;
+    gap:10px;
+    align-items:center;
+  }
+  .header-title{
+    margin:0 0 6px;
+    color:#0f172a;
+    font-size:24px;
+  }
+  .header-sub{
+    color:#64748b;
+    font-size:13px;
+    margin:0;
+  }
+  .header-id{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border:1px solid #dbeafe;
+    background:#eff6ff;
+    color:#1d4ed8;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+  }
+
+  .top-section-grid{
+    display:grid;
+    grid-template-columns:1fr 1.2fr 1fr;
+    grid-template-areas:"general phones notes";
+    gap:12px;
+    align-items:stretch;
+  }
+  .top-box{
+    min-height:280px;
+    display:flex;
+    flex-direction:column;
+  }
+  .general-card{ grid-area:general; }
+  .phones-card{ grid-area:phones; }
+  .notes-card{ grid-area:notes; }
+
+  .identity-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+  }
+  .info-box{
+    background:#f8fafc;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:10px;
+  }
+  .info-label{
+    color:#6b7280;
+    font-size:12px;
+    margin-bottom:4px;
+  }
+  .info-value{
+    color:#0f172a;
+    font-weight:700;
+    word-break:break-word;
+  }
+
+  .section-title{
+    margin:0 0 10px;
+    color:#0f172a;
+    font-size:17px;
+  }
+  .phone-box-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .phone-box-title{
+    margin:0;
+  }
+
+  .phones-wrap{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    max-height:196px;
+    min-height:116px;
+    overflow:auto;
+    padding-inline-end:2px;
+    margin-bottom:10px;
+  }
+  .phone-row{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:8px;
+    background:#fff;
+  }
+  .phone-view{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:8px;
+    align-items:center;
+  }
+  .phone-value{
+    color:#0f172a;
+    font-size:14px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .phone-actions{
+    display:flex;
+    gap:6px;
+    align-items:center;
+  }
+  .phone-delete-form{
+    margin:0;
+  }
+  .icon-btn{
+    width:32px;
+    height:32px;
+    border-radius:8px;
+    border:1px solid #dbe3ee;
+    background:#fff;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    font-size:16px;
+    line-height:1;
+  }
+  .icon-btn.edit{
+    color:#166534;
+    border-color:#86efac;
+    background:#f0fdf4;
+  }
+  .icon-btn.delete{
+    color:#b91c1c;
+    border-color:#fecaca;
+    background:#fef2f2;
+  }
+  .phone-edit-form{
+    display:flex;
+    gap:6px;
+    align-items:center;
+  }
+  .phone-edit-form[hidden]{ display:none; }
+  .input-inline{
+    height:34px;
+    border:1px solid #dbe3ee;
+    border-radius:8px;
+    padding:0 10px;
+    width:100%;
+    background:#fff;
+    font-size:13px;
+  }
+  .inline-btn{
+    height:32px;
+    border-radius:8px;
+    border:1px solid #dbe3ee;
+    background:#f8fafc;
+    padding:0 10px;
+    font-size:12px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .inline-btn.save{
+    color:#166534;
+    border-color:#86efac;
+    background:#f0fdf4;
+  }
+  .inline-btn.cancel{
+    color:#475569;
+    border-color:#cbd5e1;
+    background:#f8fafc;
+  }
+  .phone-row-add[hidden]{ display:none; }
+
+  .phone-add-btn{
+    min-width:92px;
+  }
+
+  .empty{
+    color:#6b7280;
+    font-size:13px;
+    border:1px dashed #d1d5db;
+    border-radius:10px;
+    padding:10px;
+    text-align:center;
+    background:#fbfcfe;
+  }
+
+  .ok-msg{
+    margin-top:8px;
+    color:#116530;
+    background:#ecfdf3;
+    border:1px solid #b7e4c7;
+    border-radius:9px;
+    padding:8px 10px;
+    font-size:13px;
+  }
+  .err-msg{
+    margin-top:8px;
+    color:#991b1b;
+    background:#fef2f2;
+    border:1px solid #fecaca;
+    border-radius:9px;
+    padding:8px 10px;
+    font-size:13px;
+  }
+
+  .notes-card{ overflow:hidden; }
+  .notes-title{ margin:0 0 8px; color:#0f172a; font-size:16px; }
+  .notes-textarea{
+    width:100%;
+    min-height:130px;
+    height:100%;
+    max-height:176px;
+    overflow:auto;
+    resize:none;
+    border:1px solid #dbe3ee;
+    border-radius:10px;
+    padding:10px 12px;
+    font-family:inherit;
+    font-size:14px;
+    color:#111827;
+    background:#fff;
+    flex:1;
+  }
+  .notes-actions{
+    margin-top:10px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .hint{ color:#6b7280; font-size:12px; }
+
+  .stats-grid{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(150px, 1fr));
+    gap:10px;
+  }
+  .stat-card{
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:10px;
+  }
+  .stat-label{
+    color:#6b7280;
+    font-size:12px;
+    margin-bottom:5px;
+  }
+  .stat-value{
+    color:#0f172a;
+    font-size:21px;
+    font-weight:700;
+  }
+
+  .activity-head{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
+    margin-bottom:8px;
+  }
+  .activity-select{
+    height:38px;
+    border:1px solid #dbe3ee;
+    border-radius:9px;
+    padding:0 10px;
+    min-width:240px;
+    background:#fff;
+    color:#111827;
+    font-size:13px;
+  }
+  .activity-panel{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:10px;
+    background:#fff;
+  }
+  .activity-panel[hidden]{ display:none; }
+  .line{
+    color:#374151;
+    font-size:13px;
+    margin:3px 0;
+  }
+
+  .top-controls{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-bottom:8px;
+    flex-wrap:wrap;
+  }
+  .top-select{
+    height:36px;
+    border:1px solid #dbe3ee;
+    border-radius:8px;
+    padding:0 8px;
+    min-width:130px;
+    background:#fff;
+    font-size:13px;
+  }
+  .top-table-wrap{
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    overflow:auto;
+    max-height:260px;
+  }
+  .top-table{
+    width:100%;
+    border-collapse:collapse;
+  }
+  .top-table th,
+  .top-table td{
+    padding:9px 10px;
+    border-bottom:1px solid #f1f5f9;
+    text-align:center;
+    white-space:nowrap;
+  }
+  .top-table th{
+    background:#f8fafc;
+    color:#334155;
+    font-size:12px;
+  }
+  .top-table td.name{
+    text-align:right;
+    font-weight:600;
+  }
+
+  .net-summary{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:10px;
+    align-items:end;
+  }
+  .net-table{
+    width:100%;
+    border-collapse:collapse;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .net-table th,
+  .net-table td{
+    padding:9px 10px;
+    border-bottom:1px solid #f1f5f9;
+    text-align:center;
+  }
+  .net-table th{
+    background:#f8fafc;
+    color:#334155;
+    font-size:12px;
+  }
+  .net-badge{
+    display:inline-flex;
+    padding:5px 10px;
+    border-radius:999px;
+    border:1px solid #dbeafe;
+    background:#eff6ff;
+    color:#1d4ed8;
+    font-size:12px;
+    font-weight:700;
+  }
+  .muted{ color:#6b7280; font-size:12px; }
+
+  @media (max-width: 1100px){
+    .top-section-grid{
+      grid-template-columns:1fr;
+      grid-template-areas:
+        "general"
+        "phones"
+        "notes";
+    }
+    .top-box{ min-height:auto; }
+    .notes-textarea{
+      min-height:140px;
+      max-height:220px;
+    }
+    .stats-grid{ grid-template-columns:repeat(2, minmax(140px, 1fr)); }
+    .net-summary{ grid-template-columns:1fr; }
+  }
+</style>
+
+<div class="provider-details-page" dir="rtl">
+  <div class="card header-card">
+    <div>
+      <h2 class="header-title">ملف المورد</h2>
+      <p class="header-sub">عرض معلومات المورد وإحصاءاته بشكل ملخص وواضح</p>
+      <div id="provider-header-public-id" class="header-id">رقم المورد العام: {{ provider.public_id }}</div>
+    </div>
+    <a class="btn" href="{% url 'billing_providers' %}">رجوع إلى قائمة الموردين</a>
+  </div>
+
+  <div id="top-section-grid" class="top-section-grid">
+    <div id="top-section-general-info" class="card top-box general-card">
+      <h3 class="section-title">المعلومات العامة</h3>
+      <div class="identity-grid">
+        <div class="info-box">
+          <div class="info-label">رقم المورد</div>
+          <div id="provider-public-id" class="info-value">{{ provider.public_id }}</div>
+        </div>
+        <div class="info-box">
+          <div class="info-label">اسم المورد</div>
+          <div id="provider-name" class="info-value">{{ provider.name }}</div>
+        </div>
+        <div class="info-box">
+          <div class="info-label">تاريخ إنشاء ملف المورد</div>
+          <div id="provider-created-at" class="info-value">{{ provider.created_at|date:"Y-m-d H:i" }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="top-section-phone-numbers" class="card top-box phones-card">
+      <div id="phone-box-header" class="phone-box-header">
+        <h3 class="section-title phone-box-title">أرقام الهاتف</h3>
+        <button id="btn-show-add-phone" type="button" class="btn primary small phone-add-btn">إضافة رقم</button>
+      </div>
+
+      {% if phone_saved_message %}
+        <div class="ok-msg">{{ phone_saved_message }}</div>
+      {% endif %}
+      {% if phone_error_message %}
+        <div class="err-msg">{{ phone_error_message }}</div>
+      {% endif %}
+
+      <div id="provider-phones-wrap" class="phones-wrap">
+        {% if provider_phone_numbers %}
+          {% for phone_row in provider_phone_numbers %}
+            <div class="phone-row" data-phone-row="existing" data-phone-id="{{ phone_row.id }}">
+              <div class="phone-view" data-phone-view>
+                <span class="phone-value">{{ phone_row.phone_number }}</span>
+                <div class="phone-actions">
+                  <button
+                    type="button"
+                    class="icon-btn edit"
+                    data-phone-edit-btn
+                    title="تعديل"
+                    aria-label="تعديل رقم الهاتف"
+                  >✎</button>
+                  <form method="post" class="phone-delete-form" data-phone-delete-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete_phone">
+                    <input type="hidden" name="phone_id" value="{{ phone_row.id }}">
+                    <button
+                      type="submit"
+                      class="icon-btn delete"
+                      data-phone-delete-btn
+                      title="حذف"
+                      aria-label="حذف رقم الهاتف"
+                    >✕</button>
+                  </form>
+                </div>
+              </div>
+              <form method="post" class="phone-edit-form" data-phone-edit-form hidden>
+                {% csrf_token %}
+                <input type="hidden" name="action" value="edit_phone">
+                <input type="hidden" name="phone_id" value="{{ phone_row.id }}">
+                <input
+                  class="input-inline"
+                  type="text"
+                  name="phone_number"
+                  value="{{ phone_row.phone_number }}"
+                  aria-label="تعديل رقم الهاتف"
+                  required
+                >
+                <button class="inline-btn save" type="submit">حفظ</button>
+                <button class="inline-btn cancel" type="button" data-phone-cancel-btn>إلغاء</button>
+              </form>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        <div id="phones-empty-state" class="empty" {% if provider_phone_numbers %}hidden{% endif %}>لا توجد بيانات كافية</div>
+
+        <div id="phone-add-row" class="phone-row phone-row-add" hidden>
+          <form method="post" class="phone-edit-form" id="phone-add-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_phone">
+            <input
+              class="input-inline"
+              type="text"
+              name="phone_number"
+              id="phone-add-input"
+              placeholder="رقم الهاتف"
+              aria-label="إدخال رقم الهاتف"
+              required
+            >
+            <button class="inline-btn save" type="submit">حفظ</button>
+            <button class="inline-btn cancel" type="button" id="phone-add-cancel-btn">إلغاء</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+
+    <form method="post" id="top-section-notes" class="card top-box notes-card">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="update_notes">
+      <h3 class="notes-title">الملاحظات</h3>
+      <textarea id="provider-notes" name="notes" class="notes-textarea" placeholder="أدخل ملاحظات المورد هنا...">{{ provider.notes }}</textarea>
+      <div class="notes-actions">
+        <span class="hint">يتم تحديث حقل الملاحظات فقط من هذه الصفحة.</span>
+        <button id="save-notes-btn" type="submit" class="btn primary">حفظ الملاحظات</button>
+      </div>
+      {% if notes_saved %}
+        <div class="ok-msg">تم حفظ الملاحظات بنجاح</div>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">عدد فواتير الشراء</div>
+      <div id="stat-bills-count" class="stat-value">{{ details.purchase_bills_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">عدد فواتير الإرجاع</div>
+      <div id="stat-returns-count" class="stat-value">{{ details.provider_returns_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">آخر دفعة</div>
+      <div class="stat-value">{% if details.latest_payment %}متوفر{% else %}—{% endif %}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">آخر تحصيل</div>
+      <div class="stat-value">{% if details.latest_collection %}متوفر{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="card" id="latest-activity-card">
+    <h3 class="section-title">آخر النشاطات</h3>
+    <div class="activity-head">
+      <label for="latest-activity-select" class="muted">اختر النشاط المطلوب</label>
+      <select id="latest-activity-select" class="activity-select">
+        <option value="latest-purchase">آخر فاتورة شراء</option>
+        <option value="latest-return">آخر إرجاع</option>
+        <option value="latest-debt">آخر عملية دين</option>
+        <option value="latest-payment">آخر دفعة</option>
+        <option value="latest-collection">آخر تحصيل</option>
+      </select>
+    </div>
+
+    <div class="activity-panel" data-activity-panel="latest-purchase">
+      {% if details.latest_purchase %}
+        <div id="latest-purchase-public-id" class="line">رقم الفاتورة: {{ details.latest_purchase.public_id }}</div>
+        <div class="line">التاريخ: {{ details.latest_purchase.created_at|date:"Y-m-d H:i" }}</div>
+        <div class="line">الإجمالي بالليرة: {{ details.latest_purchase.total_syp|floatformat:2 }}</div>
+        <div class="line">الإجمالي بالدولار: {{ details.latest_purchase.total_usd|floatformat:2 }}</div>
+        <div class="line">الحالة: {{ details.latest_purchase.status_label }}</div>
+      {% else %}
+        <div class="empty">لا توجد بيانات كافية</div>
+      {% endif %}
+    </div>
+
+    <div class="activity-panel" data-activity-panel="latest-return" hidden>
+      {% if details.latest_return %}
+        <div id="latest-return-public-id" class="line">رقم الإرجاع: {{ details.latest_return.public_id }}</div>
+        <div class="line">التاريخ: {{ details.latest_return.created_at|date:"Y-m-d H:i" }}</div>
+        <div class="line">الإجمالي بالليرة: {{ details.latest_return.total_syp|floatformat:2 }}</div>
+        <div class="line">الإجمالي بالدولار: {{ details.latest_return.total_usd|floatformat:2 }}</div>
+        <div class="line">الحالة: {{ details.latest_return.status_label }}</div>
+      {% else %}
+        <div class="empty">لا توجد بيانات كافية</div>
+      {% endif %}
+    </div>
+
+    <div class="activity-panel" data-activity-panel="latest-debt" hidden>
+      {% if details.latest_debt %}
+        <div class="line">رقم العملية: {{ details.latest_debt.public_id }}</div>
+        <div class="line">النوع: {{ details.latest_debt.direction_label }}</div>
+        <div class="line">السبب: {{ details.latest_debt.cause_label }}</div>
+        <div class="line">التاريخ: {{ details.latest_debt.created_at|date:"Y-m-d H:i" }}</div>
+        <div class="line">متبقي بالليرة: {{ details.latest_debt.remaining_syp|floatformat:2 }}</div>
+        <div class="line">متبقي بالدولار: {{ details.latest_debt.remaining_usd|floatformat:2 }}</div>
+      {% else %}
+        <div class="empty">لا توجد بيانات كافية</div>
+      {% endif %}
+    </div>
+
+    <div class="activity-panel" data-activity-panel="latest-payment" hidden>
+      {% if details.latest_payment %}
+        <div class="line">المصدر: {{ details.latest_payment.source_label }}</div>
+        <div class="line">التاريخ: {{ details.latest_payment.created_at|date:"Y-m-d H:i" }}</div>
+        {% if details.latest_payment.public_id %}
+          <div class="line">مرجع الدين: {{ details.latest_payment.public_id }}</div>
+        {% endif %}
+        <div class="line">المبلغ بالليرة: {{ details.latest_payment.amount_syp|floatformat:2 }}</div>
+        <div class="line">المبلغ بالدولار: {{ details.latest_payment.amount_usd|floatformat:2 }}</div>
+      {% else %}
+        <div class="empty">لا توجد بيانات كافية</div>
+      {% endif %}
+    </div>
+
+    <div class="activity-panel" data-activity-panel="latest-collection" hidden>
+      {% if details.latest_collection %}
+        <div class="line">المصدر: {{ details.latest_collection.source_label }}</div>
+        <div class="line">التاريخ: {{ details.latest_collection.created_at|date:"Y-m-d H:i" }}</div>
+        {% if details.latest_collection.public_id %}
+          <div class="line">مرجع الدين: {{ details.latest_collection.public_id }}</div>
+        {% endif %}
+        <div class="line">المبلغ بالليرة: {{ details.latest_collection.amount_syp|floatformat:2 }}</div>
+        <div class="line">المبلغ بالدولار: {{ details.latest_collection.amount_usd|floatformat:2 }}</div>
+      {% else %}
+        <div class="empty">لا توجد بيانات كافية</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card" id="top-items-card">
+    <h3 class="section-title">الأصناف الأكثر شراءً من هذا المورد</h3>
+    <div class="top-controls">
+      <span class="muted" id="top-items-metric">{{ details.top_items_metric_label }}</span>
+      <label for="top-items-limit" class="muted">عدد العناصر المعروضة</label>
+      <select id="top-items-limit" class="top-select">
+        <option value="3" selected>3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+        <option value="10">10</option>
+      </select>
+    </div>
+
+    {% if details.top_items %}
+      <div class="top-table-wrap">
+        <table class="top-table">
+          <thead>
+            <tr>
+              <th>الترتيب</th>
+              <th>الصنف</th>
+              <th>إجمالي الكمية</th>
+              <th>عدد مرات الشراء</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in details.top_items %}
+              <tr data-top-item-row="1" data-rank="{{ forloop.counter }}">
+                <td>{{ forloop.counter }}</td>
+                <td class="name">{{ item.product_name }}</td>
+                <td>{{ item.total_qty|floatformat:3 }}</td>
+                <td>{{ item.lines_count }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">لا توجد بيانات كافية</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 class="section-title">ملخص صافي الحساب الحالي للمورد</h3>
+    <div class="net-summary">
+      <div>
+        <div class="net-badge" id="net-overall-label">{{ details.net_summary.overall_label }}</div>
+        <table class="net-table" style="margin-top:8px;">
+          <thead>
+            <tr>
+              <th>العملة</th>
+              <th>مستحق للمورد</th>
+              <th>مستحق على المورد</th>
+              <th>الصافي</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ل.س (SYP)</td>
+              <td id="net-syp-payable">{{ details.net_summary.syp.payable|floatformat:2 }}</td>
+              <td id="net-syp-receivable">{{ details.net_summary.syp.receivable|floatformat:2 }}</td>
+              <td id="net-syp-net">{{ details.net_summary.syp.net|floatformat:2 }}</td>
+            </tr>
+            <tr>
+              <td>دولار (USD)</td>
+              <td id="net-usd-payable">{{ details.net_summary.usd.payable|floatformat:2 }}</td>
+              <td id="net-usd-receivable">{{ details.net_summary.usd.receivable|floatformat:2 }}</td>
+              <td id="net-usd-net">{{ details.net_summary.usd.net|floatformat:2 }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="muted" style="margin-top:8px;">
+          {% if details.net_summary.has_open_obligations %}
+            توجد ذمم مفتوحة حتى مع توازن الصافي.
+          {% else %}
+            لا توجد ذمم مفتوحة حالياً.
+          {% endif %}
+        </div>
+      </div>
+      <button id="btn-net-details" type="button" class="btn primary" disabled>عرض تفاصيل صافي الحساب</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const activitySelect = document.getElementById("latest-activity-select");
+  const activityPanels = Array.from(document.querySelectorAll("[data-activity-panel]"));
+  function renderActivitySelection() {
+    const selectedValue = activitySelect ? activitySelect.value : "";
+    for (const panel of activityPanels) {
+      panel.hidden = panel.getAttribute("data-activity-panel") !== selectedValue;
+    }
+  }
+  if (activitySelect) {
+    activitySelect.addEventListener("change", renderActivitySelection);
+    renderActivitySelection();
+  }
+
+  const phonesWrap = document.getElementById("provider-phones-wrap");
+  const phonesEmptyState = document.getElementById("phones-empty-state");
+  const addPhoneBtn = document.getElementById("btn-show-add-phone");
+  const addPhoneRow = document.getElementById("phone-add-row");
+  const addPhoneInput = document.getElementById("phone-add-input");
+  const addPhoneCancelBtn = document.getElementById("phone-add-cancel-btn");
+
+  function hasExistingPhoneRows() {
+    if (!phonesWrap) return false;
+    return phonesWrap.querySelectorAll('[data-phone-row="existing"]').length > 0;
+  }
+
+  function refreshEmptyState() {
+    if (!phonesEmptyState) return;
+    const shouldHide = hasExistingPhoneRows() || (addPhoneRow && !addPhoneRow.hidden);
+    phonesEmptyState.hidden = shouldHide;
+  }
+
+  function setPhoneRowMode(row, mode) {
+    if (!row) return;
+    const view = row.querySelector("[data-phone-view]");
+    const editForm = row.querySelector("[data-phone-edit-form]");
+    const isEdit = mode === "edit";
+    if (view) view.hidden = isEdit;
+    if (editForm) editForm.hidden = !isEdit;
+    if (isEdit && editForm) {
+      const input = editForm.querySelector('input[name="phone_number"]');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+  }
+
+  const editButtons = Array.from(document.querySelectorAll("[data-phone-edit-btn]"));
+  editButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest("[data-phone-row]");
+      setPhoneRowMode(row, "edit");
+    });
+  });
+
+  const cancelButtons = Array.from(document.querySelectorAll("[data-phone-cancel-btn]"));
+  cancelButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest("[data-phone-row]");
+      setPhoneRowMode(row, "view");
+    });
+  });
+
+  const deleteForms = Array.from(document.querySelectorAll("[data-phone-delete-form]"));
+  deleteForms.forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const ok = window.confirm("هل تريد حذف رقم الهاتف؟");
+      if (!ok) {
+        event.preventDefault();
+      }
+    });
+  });
+
+  if (addPhoneBtn && addPhoneRow && phonesWrap) {
+    addPhoneBtn.addEventListener("click", () => {
+      addPhoneRow.hidden = false;
+      phonesWrap.appendChild(addPhoneRow);
+      addPhoneBtn.hidden = true;
+      if (addPhoneInput) {
+        addPhoneInput.value = "";
+        addPhoneInput.focus();
+      }
+      refreshEmptyState();
+    });
+  }
+
+  if (addPhoneCancelBtn && addPhoneBtn && addPhoneRow) {
+    addPhoneCancelBtn.addEventListener("click", () => {
+      addPhoneRow.hidden = true;
+      addPhoneBtn.hidden = false;
+      if (addPhoneInput) {
+        addPhoneInput.value = "";
+      }
+      refreshEmptyState();
+    });
+  }
+
+  refreshEmptyState();
+
+  const topItemsLimit = document.getElementById("top-items-limit");
+  const topRows = Array.from(document.querySelectorAll("[data-top-item-row]"));
+  function applyTopItemsLimit() {
+    if (!topItemsLimit) return;
+    let limit = parseInt(topItemsLimit.value || "3", 10);
+    if (!Number.isFinite(limit)) limit = 3;
+    if (limit < 3) limit = 3;
+    if (limit > 10) limit = 10;
+
+    topRows.forEach((row) => {
+      const rank = parseInt(row.getAttribute("data-rank") || "0", 10);
+      row.hidden = rank > limit;
+    });
+  }
+  if (topItemsLimit) {
+    topItemsLimit.addEventListener("change", applyTopItemsLimit);
+    applyTopItemsLimit();
+  }
+})();
+</script>
+{% endblock %}

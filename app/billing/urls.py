@@ -8,6 +8,7 @@ urlpatterns = [
     path("add/", v.add_bill, name="billing_add"),
     path("list/", v.bills_list, name="billing_list"),
     path("providers/", v.providers_list, name="billing_providers"),
+    path("provider/<str:provider_ref>/details/", v.provider_details, name="billing_provider_details"),
 
     # APIs (bills)
     path("api/bill/save/", v.api_bill_save, name="billing_api_bill_save"),

@@ -60,9 +60,23 @@ class ProvidersListUiCleanupPhase1Tests(TestCase):
         self.assertContains(resp, "عرض الديون")
         self.assertContains(resp, "إخفاء")
 
-        self.assertContains(resp, 'data-action="provider-info" disabled')
+        self.assertNotContains(resp, 'data-action="provider-info" disabled')
         self.assertContains(resp, 'data-action="provider-debts" disabled')
         self.assertContains(resp, 'data-action="provider-hide" disabled')
+
+    def test_show_provider_info_action_links_to_profile_details_page(self):
+        resp = self.client.get(reverse("billing_providers"))
+        self.assertEqual(resp.status_code, 200)
+        details_base = reverse("billing_provider_details", kwargs={"provider_ref": "__PROVIDER_REF__"})
+
+        self.assertContains(
+            resp,
+            f'const DETAILS_URL_BASE = "{details_base}";',
+            html=False,
+        )
+        self.assertContains(resp, "const providerRef = p.public_id || p.id;")
+        self.assertContains(resp, "const infoUrl = DETAILS_URL_BASE.replace('__PROVIDER_REF__', encodeURIComponent(providerRef));")
+        self.assertContains(resp, 'data-action="provider-info" href="${infoUrl}"')
 
     def test_show_bills_action_still_uses_billing_list_route(self):
         resp = self.client.get(reverse("billing_providers"))
