@@ -111,6 +111,8 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertContains(resp, "0933000001")
         self.assertContains(resp, "0933000002")
         self.assertContains(resp, 'id="provider-phones-wrap"')
+        self.assertContains(resp, 'class="phones-wrap"')
+        self.assertContains(resp, "max-height:196px;")
 
     def test_phone_list_supports_compact_controls_markup(self):
         phone_row = ProviderPhone.objects.create(provider=self.provider, phone_number="0933111111")
@@ -120,11 +122,78 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'data-phone-row="existing"')
-        self.assertContains(resp, "data-phone-edit-btn")
-        self.assertContains(resp, "data-phone-delete-btn")
-        self.assertContains(resp, "data-phone-cancel-btn")
+        self.assertContains(resp, "data-phone-input")
+        self.assertContains(resp, "data-phone-default-btn")
+        self.assertContains(resp, "data-phone-edit-icon")
+        self.assertContains(resp, "data-phone-delete-icon")
+        self.assertContains(resp, "data-phone-action-cancel-btn")
+        self.assertContains(resp, "data-phone-edit-cancel-btn")
         self.assertContains(resp, 'id="phone-add-row"')
         self.assertContains(resp, 'id="phone-add-input"')
+
+    def test_default_phone_row_shows_only_edit_button(self):
+        ProviderPhone.objects.create(provider=self.provider, phone_number="0933555000")
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "data-phone-default-btn")
+        self.assertContains(resp, ">تعديل</button>", html=False)
+        self.assertContains(resp, "data-phone-action-group")
+        self.assertContains(resp, "data-phone-edit-group")
+        self.assertContains(resp, "data-phone-input")
+        self.assertContains(resp, "readonly")
+
+    def test_action_mode_controls_are_hidden_until_edit_button_is_pressed(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "data-phone-action-group")
+        self.assertContains(resp, "data-phone-edit-group")
+        self.assertContains(resp, 'setRowMode(row, "default");')
+        self.assertContains(resp, 'setRowMode(row, "action");')
+        self.assertContains(resp, "activeMode = \"action\";")
+
+    def test_edit_icon_makes_same_field_editable_in_place(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "input: row.querySelector(\"[data-phone-input]\")")
+        self.assertContains(resp, "nodes.input.readOnly = mode !== \"edit\";")
+        self.assertContains(resp, "setRowMode(row, \"edit\");")
+        self.assertNotContains(resp, "data-phone-edit-form")
+
+    def test_delete_icon_opens_confirmation_modal(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="phone-delete-modal"')
+        self.assertContains(resp, 'id="phone-delete-confirm-btn"')
+        self.assertContains(resp, 'id="phone-delete-cancel-btn"')
+        self.assertContains(resp, "لا يمكن التراجع عن حذف رقم الهاتف بعد المتابعة.")
+        self.assertContains(resp, "openDeleteModal(nodes.deleteForm);")
+
+    def test_action_mode_cancel_returns_row_to_default(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "data-phone-action-cancel-btn")
+        self.assertContains(resp, 'setRowMode(row, "default");')
+        self.assertContains(resp, "activeMode = \"idle\";")
+
+    def test_add_phone_is_blocked_while_row_is_active(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "addPhoneBtn.disabled = isLocked;")
+        self.assertContains(resp, 'if (activeMode !== "idle") return;')
+        self.assertNotContains(resp, "أكمل الإجراء الحالي أولاً")
+
+    def test_phone_success_message_has_auto_hide_behavior(self):
+        resp = self.client.get(f"{self._details_url(self.provider.public_id)}?phone_saved=added")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="phone-success-message"')
+        self.assertContains(resp, "window.setTimeout(() => {")
+        self.assertContains(resp, "phoneSuccessMessage.remove();")
+        self.assertContains(resp, "}, 2000);")
+
+    def test_phone_warning_text_is_removed(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "أكمل الإجراء الحالي أولاً")
 
     def test_add_phone_button_text_is_expected(self):
         resp = self.client.get(self._details_url(self.provider.public_id))

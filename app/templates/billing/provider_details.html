@@ -1,4 +1,4 @@
-{% extends "manager/base_manager.html" %}
+﻿{% extends "manager/base_manager.html" %}
 {% load static %}
 {% block title %}تفاصيل ملف المورد{% endblock %}
 
@@ -159,7 +159,6 @@
     min-height:116px;
     overflow:auto;
     padding-inline-end:2px;
-    margin-bottom:10px;
   }
   .phone-row{
     border:1px solid #e5e7eb;
@@ -167,13 +166,19 @@
     padding:8px;
     background:#fff;
   }
-  .phone-view{
+  .phone-row-form{
     display:grid;
     grid-template-columns:1fr auto;
     gap:8px;
     align-items:center;
   }
-  .phone-value{
+  .phone-input{
+    height:34px;
+    border:1px solid #dbe3ee;
+    border-radius:8px;
+    padding:0 10px;
+    width:100%;
+    background:#f8fafc;
     color:#0f172a;
     font-size:14px;
     font-weight:600;
@@ -181,11 +186,30 @@
     overflow:hidden;
     text-overflow:ellipsis;
   }
-  .phone-actions{
+  .phone-input:read-only{
+    background:#f8fafc;
+    color:#334155;
+    cursor:default;
+  }
+  .phone-input:not(:read-only){
+    background:#fff;
+    border-color:#86efac;
+  }
+  .phone-row-controls{
+    display:flex;
+    gap:6px;
+    align-items:center;
+    justify-content:flex-end;
+    min-width:188px;
+  }
+  .phone-action-group,
+  .phone-edit-group{
     display:flex;
     gap:6px;
     align-items:center;
   }
+  .phone-action-group[hidden],
+  .phone-edit-group[hidden]{ display:none; }
   .phone-delete-form{
     margin:0;
   }
@@ -212,12 +236,12 @@
     border-color:#fecaca;
     background:#fef2f2;
   }
-  .phone-edit-form{
+  .phone-add-form{
     display:flex;
     gap:6px;
     align-items:center;
   }
-  .phone-edit-form[hidden]{ display:none; }
+  .phone-add-form[hidden]{ display:none; }
   .input-inline{
     height:34px;
     border:1px solid #dbe3ee;
@@ -237,6 +261,11 @@
     cursor:pointer;
     white-space:nowrap;
   }
+  .inline-btn.default{
+    color:#334155;
+    border-color:#cbd5e1;
+    background:#f8fafc;
+  }
   .inline-btn.save{
     color:#166534;
     border-color:#86efac;
@@ -247,10 +276,54 @@
     border-color:#cbd5e1;
     background:#f8fafc;
   }
+  .inline-btn.warn{
+    color:#b91c1c;
+    border-color:#fecaca;
+    background:#fef2f2;
+  }
   .phone-row-add[hidden]{ display:none; }
 
   .phone-add-btn{
     min-width:92px;
+  }
+
+  .modal-backdrop{
+    position:fixed;
+    inset:0;
+    background:rgba(15, 23, 42, 0.48);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:80;
+    padding:16px;
+  }
+  .modal-backdrop[hidden]{ display:none; }
+  .modal-card{
+    width:min(420px, 100%);
+    background:#fff;
+    border:1px solid #e2e8f0;
+    border-radius:12px;
+    box-shadow:0 22px 60px rgba(15,23,42,0.24);
+    padding:14px;
+    text-align:center;
+  }
+  .modal-title{
+    margin:0;
+    color:#0f172a;
+    font-size:18px;
+  }
+  .modal-text{
+    margin:8px 0 0;
+    color:#334155;
+    font-size:13px;
+    line-height:1.6;
+  }
+  .modal-actions{
+    margin-top:14px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
   }
 
   .empty{
@@ -494,7 +567,7 @@
       </div>
 
       {% if phone_saved_message %}
-        <div class="ok-msg">{{ phone_saved_message }}</div>
+        <div id="phone-success-message" class="ok-msg">{{ phone_saved_message }}</div>
       {% endif %}
       {% if phone_error_message %}
         <div class="err-msg">{{ phone_error_message }}</div>
@@ -504,44 +577,48 @@
         {% if provider_phone_numbers %}
           {% for phone_row in provider_phone_numbers %}
             <div class="phone-row" data-phone-row="existing" data-phone-id="{{ phone_row.id }}">
-              <div class="phone-view" data-phone-view>
-                <span class="phone-value">{{ phone_row.phone_number }}</span>
-                <div class="phone-actions">
-                  <button
-                    type="button"
-                    class="icon-btn edit"
-                    data-phone-edit-btn
-                    title="تعديل"
-                    aria-label="تعديل رقم الهاتف"
-                  >✎</button>
-                  <form method="post" class="phone-delete-form" data-phone-delete-form>
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="delete_phone">
-                    <input type="hidden" name="phone_id" value="{{ phone_row.id }}">
-                    <button
-                      type="submit"
-                      class="icon-btn delete"
-                      data-phone-delete-btn
-                      title="حذف"
-                      aria-label="حذف رقم الهاتف"
-                    >✕</button>
-                  </form>
-                </div>
-              </div>
-              <form method="post" class="phone-edit-form" data-phone-edit-form hidden>
+              <form method="post" class="phone-row-form" data-phone-row-form>
                 {% csrf_token %}
                 <input type="hidden" name="action" value="edit_phone">
                 <input type="hidden" name="phone_id" value="{{ phone_row.id }}">
                 <input
-                  class="input-inline"
+                  class="phone-input"
                   type="text"
                   name="phone_number"
                   value="{{ phone_row.phone_number }}"
-                  aria-label="تعديل رقم الهاتف"
-                  required
+                  data-phone-input
+                  aria-label="رقم الهاتف"
+                  readonly
                 >
-                <button class="inline-btn save" type="submit">حفظ</button>
-                <button class="inline-btn cancel" type="button" data-phone-cancel-btn>إلغاء</button>
+                <div class="phone-row-controls">
+                  <button type="button" class="inline-btn default" data-phone-default-btn>تعديل</button>
+                  <div class="phone-action-group" data-phone-action-group hidden>
+                    <button
+                      type="button"
+                      class="icon-btn edit"
+                      data-phone-edit-icon
+                      title="تعديل"
+                      aria-label="تفعيل تعديل الرقم"
+                    >✎</button>
+                    <button
+                      type="button"
+                      class="icon-btn delete"
+                      data-phone-delete-icon
+                      title="حذف"
+                      aria-label="حذف رقم الهاتف"
+                    >✕</button>
+                    <button type="button" class="inline-btn cancel" data-phone-action-cancel-btn>إلغاء</button>
+                  </div>
+                  <div class="phone-edit-group" data-phone-edit-group hidden>
+                    <button type="submit" class="inline-btn save" data-phone-save-btn>حفظ</button>
+                    <button type="button" class="inline-btn cancel" data-phone-edit-cancel-btn>إلغاء</button>
+                  </div>
+                </div>
+              </form>
+              <form method="post" class="phone-delete-form" data-phone-delete-form hidden>
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete_phone">
+                <input type="hidden" name="phone_id" value="{{ phone_row.id }}">
               </form>
             </div>
           {% endfor %}
@@ -550,7 +627,7 @@
         <div id="phones-empty-state" class="empty" {% if provider_phone_numbers %}hidden{% endif %}>لا توجد بيانات كافية</div>
 
         <div id="phone-add-row" class="phone-row phone-row-add" hidden>
-          <form method="post" class="phone-edit-form" id="phone-add-form">
+          <form method="post" class="phone-add-form" id="phone-add-form">
             {% csrf_token %}
             <input type="hidden" name="action" value="add_phone">
             <input
@@ -567,9 +644,7 @@
           </form>
         </div>
       </div>
-
     </div>
-
     <form method="post" id="top-section-notes" class="card top-box notes-card">
       {% csrf_token %}
       <input type="hidden" name="action" value="update_notes">
@@ -583,6 +658,17 @@
         <div class="ok-msg">تم حفظ الملاحظات بنجاح</div>
       {% endif %}
     </form>
+  </div>
+
+  <div id="phone-delete-modal" class="modal-backdrop" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="phone-delete-modal-title">
+      <h4 id="phone-delete-modal-title" class="modal-title">تأكيد حذف رقم الهاتف</h4>
+      <p class="modal-text">لا يمكن التراجع عن حذف رقم الهاتف بعد المتابعة.</p>
+      <div class="modal-actions">
+        <button id="phone-delete-confirm-btn" type="button" class="inline-btn warn">متابعة</button>
+        <button id="phone-delete-cancel-btn" type="button" class="inline-btn cancel">إلغاء</button>
+      </div>
+    </div>
   </div>
 
   <div class="stats-grid">
@@ -790,7 +876,42 @@
   const addPhoneBtn = document.getElementById("btn-show-add-phone");
   const addPhoneRow = document.getElementById("phone-add-row");
   const addPhoneInput = document.getElementById("phone-add-input");
+  const addPhoneForm = document.getElementById("phone-add-form");
   const addPhoneCancelBtn = document.getElementById("phone-add-cancel-btn");
+  const phoneSuccessMessage = document.getElementById("phone-success-message");
+
+  const deleteModal = document.getElementById("phone-delete-modal");
+  const deleteConfirmBtn = document.getElementById("phone-delete-confirm-btn");
+  const deleteCancelBtn = document.getElementById("phone-delete-cancel-btn");
+
+  const phoneRows = Array.from(document.querySelectorAll('[data-phone-row="existing"]'));
+
+  let activeRow = null;
+  let activeMode = "idle";
+  let pendingDeleteForm = null;
+
+  if (phoneSuccessMessage) {
+    window.setTimeout(() => {
+      phoneSuccessMessage.remove();
+    }, 2000);
+  }
+
+  function rowNodes(row) {
+    if (!row) return null;
+    return {
+      form: row.querySelector("[data-phone-row-form]"),
+      input: row.querySelector("[data-phone-input]"),
+      defaultBtn: row.querySelector("[data-phone-default-btn]"),
+      actionGroup: row.querySelector("[data-phone-action-group]"),
+      editGroup: row.querySelector("[data-phone-edit-group]"),
+      editIcon: row.querySelector("[data-phone-edit-icon]"),
+      deleteIcon: row.querySelector("[data-phone-delete-icon]"),
+      actionCancel: row.querySelector("[data-phone-action-cancel-btn]"),
+      saveBtn: row.querySelector("[data-phone-save-btn]"),
+      editCancel: row.querySelector("[data-phone-edit-cancel-btn]"),
+      deleteForm: row.querySelector("[data-phone-delete-form]"),
+    };
+  }
 
   function hasExistingPhoneRows() {
     if (!phonesWrap) return false;
@@ -799,57 +920,170 @@
 
   function refreshEmptyState() {
     if (!phonesEmptyState) return;
-    const shouldHide = hasExistingPhoneRows() || (addPhoneRow && !addPhoneRow.hidden);
-    phonesEmptyState.hidden = shouldHide;
+    const hasAddOpen = addPhoneRow && !addPhoneRow.hidden;
+    phonesEmptyState.hidden = hasExistingPhoneRows() || hasAddOpen;
   }
 
-  function setPhoneRowMode(row, mode) {
-    if (!row) return;
-    const view = row.querySelector("[data-phone-view]");
-    const editForm = row.querySelector("[data-phone-edit-form]");
-    const isEdit = mode === "edit";
-    if (view) view.hidden = isEdit;
-    if (editForm) editForm.hidden = !isEdit;
-    if (isEdit && editForm) {
-      const input = editForm.querySelector('input[name="phone_number"]');
-      if (input) {
-        input.focus();
-        input.select();
+  function closeDeleteModal() {
+    if (!deleteModal) return;
+    deleteModal.hidden = true;
+    pendingDeleteForm = null;
+  }
+
+  function resetActiveRowToDefault() {
+    if (!activeRow) {
+      activeMode = "idle";
+      applyLockState();
+      return;
+    }
+    const nodes = rowNodes(activeRow);
+    if (nodes && nodes.input) {
+      nodes.input.value = nodes.input.dataset.originalValue || nodes.input.value;
+    }
+    setRowMode(activeRow, "default");
+    activeRow = null;
+    activeMode = "idle";
+    applyLockState();
+  }
+
+  function openDeleteModal(form) {
+    if (!deleteModal) return;
+    pendingDeleteForm = form;
+    deleteModal.hidden = false;
+  }
+
+  function setRowMode(row, mode) {
+    const nodes = rowNodes(row);
+    if (!nodes) return;
+
+    if (nodes.input) {
+      if (!nodes.input.dataset.originalValue) {
+        nodes.input.dataset.originalValue = nodes.input.value;
       }
+      nodes.input.readOnly = mode !== "edit";
+    }
+    if (nodes.defaultBtn) nodes.defaultBtn.hidden = mode !== "default";
+    if (nodes.actionGroup) nodes.actionGroup.hidden = mode !== "action";
+    if (nodes.editGroup) nodes.editGroup.hidden = mode !== "edit";
+
+    if (mode === "edit" && nodes.input) {
+      nodes.input.focus();
+      nodes.input.select();
     }
   }
 
-  const editButtons = Array.from(document.querySelectorAll("[data-phone-edit-btn]"));
-  editButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const row = btn.closest("[data-phone-row]");
-      setPhoneRowMode(row, "edit");
+  function applyLockState() {
+    const isLocked = activeMode !== "idle";
+
+    phoneRows.forEach((row) => {
+      const nodes = rowNodes(row);
+      if (!nodes) return;
+      const isActiveRow = row === activeRow;
+      const disableRow = isLocked && !isActiveRow;
+      [
+        nodes.defaultBtn,
+        nodes.editIcon,
+        nodes.deleteIcon,
+        nodes.actionCancel,
+        nodes.saveBtn,
+        nodes.editCancel,
+      ].forEach((button) => {
+        if (!button) return;
+        button.disabled = disableRow;
+      });
     });
+
+    if (addPhoneBtn) {
+      addPhoneBtn.disabled = isLocked;
+    }
+  }
+
+  phoneRows.forEach((row) => {
+    const nodes = rowNodes(row);
+    if (!nodes) return;
+
+    setRowMode(row, "default");
+
+    if (nodes.defaultBtn) {
+      nodes.defaultBtn.addEventListener("click", () => {
+        if (activeMode !== "idle") return;
+        activeRow = row;
+        activeMode = "action";
+        setRowMode(row, "action");
+        applyLockState();
+      });
+    }
+
+    if (nodes.actionCancel) {
+      nodes.actionCancel.addEventListener("click", () => {
+        if (activeRow !== row) return;
+        resetActiveRowToDefault();
+      });
+    }
+
+    if (nodes.editIcon) {
+      nodes.editIcon.addEventListener("click", () => {
+        if (activeRow !== row || activeMode !== "action") return;
+        activeMode = "edit";
+        setRowMode(row, "edit");
+        applyLockState();
+      });
+    }
+
+    if (nodes.editCancel) {
+      nodes.editCancel.addEventListener("click", () => {
+        if (activeRow !== row || activeMode !== "edit") return;
+        resetActiveRowToDefault();
+      });
+    }
+
+    if (nodes.deleteIcon) {
+      nodes.deleteIcon.addEventListener("click", () => {
+        if (activeRow !== row || activeMode !== "action") return;
+        openDeleteModal(nodes.deleteForm);
+      });
+    }
+
+    if (nodes.form) {
+      nodes.form.addEventListener("submit", (event) => {
+        if (activeRow !== row || activeMode !== "edit") {
+          event.preventDefault();
+        }
+      });
+    }
   });
 
-  const cancelButtons = Array.from(document.querySelectorAll("[data-phone-cancel-btn]"));
-  cancelButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const row = btn.closest("[data-phone-row]");
-      setPhoneRowMode(row, "view");
+  if (deleteConfirmBtn) {
+    deleteConfirmBtn.addEventListener("click", () => {
+      if (!pendingDeleteForm) return;
+      pendingDeleteForm.submit();
     });
-  });
+  }
 
-  const deleteForms = Array.from(document.querySelectorAll("[data-phone-delete-form]"));
-  deleteForms.forEach((form) => {
-    form.addEventListener("submit", (event) => {
-      const ok = window.confirm("هل تريد حذف رقم الهاتف؟");
-      if (!ok) {
-        event.preventDefault();
+  if (deleteCancelBtn) {
+    deleteCancelBtn.addEventListener("click", () => {
+      closeDeleteModal();
+      resetActiveRowToDefault();
+    });
+  }
+
+  if (deleteModal) {
+    deleteModal.addEventListener("click", (event) => {
+      if (event.target === deleteModal) {
+        closeDeleteModal();
+        resetActiveRowToDefault();
       }
     });
-  });
+  }
 
   if (addPhoneBtn && addPhoneRow && phonesWrap) {
     addPhoneBtn.addEventListener("click", () => {
+      if (activeMode !== "idle") return;
+      activeMode = "add";
+      activeRow = null;
+      applyLockState();
       addPhoneRow.hidden = false;
       phonesWrap.appendChild(addPhoneRow);
-      addPhoneBtn.hidden = true;
       if (addPhoneInput) {
         addPhoneInput.value = "";
         addPhoneInput.focus();
@@ -858,19 +1092,29 @@
     });
   }
 
-  if (addPhoneCancelBtn && addPhoneBtn && addPhoneRow) {
+  if (addPhoneCancelBtn && addPhoneRow) {
     addPhoneCancelBtn.addEventListener("click", () => {
       addPhoneRow.hidden = true;
-      addPhoneBtn.hidden = false;
       if (addPhoneInput) {
         addPhoneInput.value = "";
       }
+      activeMode = "idle";
+      activeRow = null;
+      applyLockState();
       refreshEmptyState();
     });
   }
 
-  refreshEmptyState();
+  if (addPhoneForm) {
+    addPhoneForm.addEventListener("submit", (event) => {
+      if (activeMode !== "add") {
+        event.preventDefault();
+      }
+    });
+  }
 
+  refreshEmptyState();
+  applyLockState();
   const topItemsLimit = document.getElementById("top-items-limit");
   const topRows = Array.from(document.querySelectorAll("[data-top-item-row]"));
   function applyTopItemsLimit() {
@@ -892,3 +1136,5 @@
 })();
 </script>
 {% endblock %}
+
+
