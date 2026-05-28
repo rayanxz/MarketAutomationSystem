@@ -273,21 +273,45 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(row["phone"], "0977000002")
         self.assertNotEqual(row["phone"], "0977000001")
 
-    def test_latest_activity_dropdown_exists_with_arabic_options(self):
+    def test_latest_activity_component_exists_with_arabic_labels(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="latest-activity-select"')
+        self.assertContains(resp, 'id="latest-activity-component"')
+        self.assertContains(resp, "سجل النشاط الأخير")
         self.assertContains(resp, "آخر فاتورة شراء")
         self.assertContains(resp, "آخر إرجاع")
         self.assertContains(resp, "آخر عملية دين")
         self.assertContains(resp, "آخر دفعة")
         self.assertContains(resp, "آخر تحصيل")
 
+    def test_lower_section_renders_with_required_summary_parts(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="provider-lower-overview"')
+        self.assertContains(resp, 'id="provider-activity-summary-strip"')
+        self.assertContains(resp, "فواتير الشراء")
+        self.assertContains(resp, "فواتير الإرجاع")
+        self.assertContains(resp, 'id="stat-bills-count"')
+        self.assertContains(resp, 'id="stat-returns-count"')
+        self.assertContains(resp, 'id="summary-latest-activity"')
+        self.assertContains(resp, 'id="summary-account-state"')
+        self.assertContains(resp, "آخر تعامل")
+        self.assertContains(resp, "حالة الحساب")
+
+    def test_latest_activity_has_single_display_area(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertEqual(html.count('id="latest-activity-display"'), 1)
+        self.assertEqual(html.count("data-latest-template="), 5)
+        self.assertGreaterEqual(html.count("data-activity-trigger="), 5)
+
     def test_latest_activity_selector_is_client_side_without_reload(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'activitySelect.addEventListener("change", renderActivitySelection);')
-        self.assertContains(resp, "panel.hidden = panel.getAttribute(\"data-activity-panel\") !== selectedValue;")
+        self.assertContains(resp, 'button.addEventListener("click", () => {')
+        self.assertContains(resp, "latestActivityDisplay.appendChild(selectedTemplate.content.cloneNode(true));")
+        self.assertContains(resp, 'button.classList.toggle("active", isActive);')
         self.assertNotContains(resp, "window.location")
 
     def test_top_items_default_3_max_10_and_desc_order(self):
@@ -300,13 +324,33 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
 
         self.assertContains(resp, '<option value="3" selected>3</option>', html=False)
         self.assertContains(resp, '<option value="10">10</option>', html=False)
+        self.assertContains(resp, "if (limit < 3) limit = 3;")
+        self.assertContains(resp, "if (limit > 10) limit = 10;")
 
         rows_count = resp.content.decode("utf-8").count('data-top-item-row="1"')
         self.assertEqual(rows_count, 10)
+        self.assertContains(resp, 'data-rank="4" hidden')
+        self.assertContains(resp, 'data-rank="3"')
 
         html = resp.content.decode("utf-8")
         self.assertLess(html.find("صنف-12"), html.find("صنف-11"))
         self.assertLess(html.find("صنف-11"), html.find("صنف-10"))
+
+    def test_most_purchased_products_section_exists(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="top-items-card"')
+        self.assertContains(resp, "الأصناف الأكثر شراءً")
+
+    def test_top_items_horizontal_bar_visualization_exists(self):
+        product = self._create_product(idx=1, name="صنف-أ")
+        self._create_bill_item(product=product, qty=Decimal("5"))
+
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "item-bar-track")
+        self.assertContains(resp, "item-bar-fill")
+        self.assertContains(resp, "data-top-item-bar")
 
     def test_notes_update_still_works(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
@@ -355,6 +399,39 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertContains(resp, 'id="net-syp-receivable"')
         self.assertContains(resp, 'id="net-usd-payable"')
         self.assertContains(resp, 'id="net-usd-receivable"')
+        self.assertContains(resp, 'id="net-summary-card"')
+
+    def test_balanced_net_with_open_obligations_warning_is_visible(self):
+        mocked_projection = {
+            "provider_id": self.provider.id,
+            "currencies": {
+                "SYP": {
+                    "receivable": Decimal("100.00"),
+                    "payable": Decimal("100.00"),
+                    "net": Decimal("0.00"),
+                    "open_receivable_count": 1,
+                    "open_payable_count": 1,
+                },
+                "USD": {
+                    "receivable": Decimal("0.00"),
+                    "payable": Decimal("0.00"),
+                    "net": Decimal("0.00"),
+                    "open_receivable_count": 0,
+                    "open_payable_count": 0,
+                },
+            },
+            "diagnostics": {
+                "dedup_warnings": [],
+                "unresolved_identities": [],
+            },
+        }
+
+        with patch("billing.selectors.get_provider_net_position", return_value=mocked_projection):
+            resp = self.client.get(self._details_url(self.provider.public_id))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="net-open-warning"')
+        self.assertContains(resp, "صافي الحساب متوازن لكن توجد ديون مفتوحة")
 
     def test_no_settlement_actions_and_disabled_net_details_button(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
@@ -369,10 +446,13 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "المعلومات العامة")
         self.assertContains(resp, "أرقام الهاتف")
-        self.assertContains(resp, "آخر النشاطات")
+        self.assertContains(resp, "سجل النشاط الأخير")
+        self.assertContains(resp, "ملخص صافي الحساب")
+        self.assertContains(resp, "الأصناف الأكثر شراءً")
         self.assertContains(resp, "عرض تفاصيل صافي الحساب")
         self.assertNotContains(resp, "Provider Profile")
         self.assertNotContains(resp, "Show Net Balance")
+        self.assertNotContains(resp, "Latest Activity")
 
 
 class ProviderPhoneMigrationBackfillTests(TransactionTestCase):

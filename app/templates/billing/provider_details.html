@@ -382,124 +382,145 @@
   }
   .hint{ color:#6b7280; font-size:12px; }
 
-  .stats-grid{
+  .lower-overview{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .overview-strip{
     display:grid;
     grid-template-columns:repeat(4, minmax(150px, 1fr));
     gap:10px;
   }
-  .stat-card{
-    background:#fff;
-    border:1px solid #e5e7eb;
-    border-radius:10px;
+  .overview-item{
+    border:1px solid #e2e8f0;
+    border-radius:12px;
+    background:#fbfdff;
     padding:10px;
+    min-height:76px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    gap:6px;
   }
-  .stat-label{
+  .overview-item-label{
+    color:#64748b;
+    font-size:12px;
+  }
+  .overview-item-value{
+    color:#0f172a;
+    font-size:18px;
+    font-weight:700;
+    line-height:1.3;
+  }
+  .overview-item-sub{
     color:#6b7280;
     font-size:12px;
-    margin-bottom:5px;
+    line-height:1.25;
   }
-  .stat-value{
+
+  .main-overview-grid{
+    display:grid;
+    grid-template-columns:1.2fr 1fr;
+    gap:12px;
+    align-items:stretch;
+  }
+
+  .activity-shell{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .activity-layout{
+    display:grid;
+    grid-template-columns:minmax(180px, 240px) 1fr;
+    gap:10px;
+    align-items:stretch;
+    min-height:300px;
+  }
+  .activity-timeline{
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    padding:8px;
+    background:#fcfdff;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .activity-point-btn{
+    width:100%;
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#fff;
+    text-align:right;
+    padding:8px 10px;
+    cursor:pointer;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    color:#334155;
+    font-family:inherit;
+  }
+  .activity-point-btn:hover{
+    border-color:#cbd5e1;
+    background:#f8fafc;
+  }
+  .activity-point-btn.active{
+    border-color:#bcd1ea;
+    background:#eef4fb;
     color:#0f172a;
-    font-size:21px;
+  }
+  .activity-point-title{
+    font-size:13px;
     font-weight:700;
   }
-
-  .activity-head{
-    display:flex;
-    gap:8px;
-    align-items:center;
-    flex-wrap:wrap;
-    margin-bottom:8px;
-  }
-  .activity-select{
-    height:38px;
-    border:1px solid #dbe3ee;
-    border-radius:9px;
-    padding:0 10px;
-    min-width:240px;
-    background:#fff;
-    color:#111827;
-    font-size:13px;
-  }
-  .activity-panel{
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    padding:10px;
-    background:#fff;
-  }
-  .activity-panel[hidden]{ display:none; }
-  .line{
-    color:#374151;
-    font-size:13px;
-    margin:3px 0;
-  }
-
-  .top-controls{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    margin-bottom:8px;
-    flex-wrap:wrap;
-  }
-  .top-select{
-    height:36px;
-    border:1px solid #dbe3ee;
-    border-radius:8px;
-    padding:0 8px;
-    min-width:130px;
-    background:#fff;
-    font-size:13px;
-  }
-  .top-table-wrap{
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    overflow:auto;
-    max-height:260px;
-  }
-  .top-table{
-    width:100%;
-    border-collapse:collapse;
-  }
-  .top-table th,
-  .top-table td{
-    padding:9px 10px;
-    border-bottom:1px solid #f1f5f9;
-    text-align:center;
-    white-space:nowrap;
-  }
-  .top-table th{
-    background:#f8fafc;
-    color:#334155;
+  .activity-point-meta{
     font-size:12px;
+    color:#64748b;
   }
-  .top-table td.name{
-    text-align:right;
-    font-weight:600;
+  .activity-display{
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    padding:12px;
+    background:#fff;
+    min-height:100%;
   }
-
-  .net-summary{
+  .activity-detail-grid{
     display:grid;
-    grid-template-columns:1fr auto;
-    gap:10px;
-    align-items:end;
+    grid-template-columns:repeat(2, minmax(180px, 1fr));
+    gap:8px 12px;
   }
-  .net-table{
-    width:100%;
-    border-collapse:collapse;
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    overflow:hidden;
-  }
-  .net-table th,
-  .net-table td{
-    padding:9px 10px;
-    border-bottom:1px solid #f1f5f9;
-    text-align:center;
-  }
-  .net-table th{
-    background:#f8fafc;
+  .activity-line{
+    margin:0;
     color:#334155;
-    font-size:12px;
+    font-size:13px;
+    line-height:1.4;
+  }
+  .activity-line strong{
+    color:#0f172a;
+    margin-inline-start:4px;
+  }
+
+  .account-items-shell{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .account-block{
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    background:#fcfdff;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .account-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    flex-wrap:wrap;
   }
   .net-badge{
     display:inline-flex;
@@ -510,6 +531,147 @@
     color:#1d4ed8;
     font-size:12px;
     font-weight:700;
+  }
+  .net-currency-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+  }
+  .net-currency-card{
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#fff;
+    padding:9px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .net-currency-title{
+    color:#0f172a;
+    font-size:13px;
+    font-weight:700;
+  }
+  .net-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    font-size:13px;
+    color:#334155;
+  }
+  .net-row strong{
+    direction:ltr;
+    color:#0f172a;
+  }
+  .net-state{
+    display:inline-flex;
+    align-items:center;
+    align-self:flex-start;
+    border:1px solid #cbd5e1;
+    border-radius:999px;
+    padding:3px 9px;
+    background:#f8fafc;
+    color:#1e293b;
+    font-size:12px;
+    font-weight:700;
+  }
+  .net-warning{
+    margin:0;
+    border:1px solid #fbbf24;
+    background:#fff9db;
+    color:#92400e;
+    border-radius:10px;
+    padding:8px 10px;
+    font-size:12px;
+  }
+
+  .items-block{
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    background:#fff;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .items-head{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .top-select{
+    height:34px;
+    border:1px solid #dbe3ee;
+    border-radius:8px;
+    padding:0 8px;
+    min-width:118px;
+    background:#fff;
+    font-size:13px;
+  }
+  .items-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    max-height:280px;
+    overflow:auto;
+    padding-inline-end:2px;
+  }
+  .item-row{
+    border:1px solid #edf2f7;
+    border-radius:10px;
+    padding:8px;
+    display:grid;
+    grid-template-columns:auto 1fr minmax(110px, 1fr) auto;
+    gap:8px;
+    align-items:center;
+    background:#fbfdff;
+  }
+  .item-rank{
+    min-width:28px;
+    height:28px;
+    border-radius:50%;
+    border:1px solid #dbe3ee;
+    background:#fff;
+    color:#0f172a;
+    font-size:12px;
+    font-weight:700;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .item-name{
+    color:#0f172a;
+    font-size:13px;
+    font-weight:700;
+    line-height:1.3;
+  }
+  .item-qty{
+    color:#475569;
+    font-size:12px;
+    margin-top:1px;
+  }
+  .item-bar-track{
+    width:100%;
+    height:8px;
+    border-radius:999px;
+    background:#e2e8f0;
+    overflow:hidden;
+  }
+  .item-bar-fill{
+    display:block;
+    height:100%;
+    border-radius:999px;
+    background:linear-gradient(90deg, #34699a 0%, #6caad7 100%);
+    min-width:2px;
+  }
+  .item-percent{
+    color:#64748b;
+    font-size:12px;
+    min-width:45px;
+    text-align:left;
+    direction:ltr;
   }
   .muted{ color:#6b7280; font-size:12px; }
 
@@ -526,8 +688,25 @@
       min-height:140px;
       max-height:220px;
     }
-    .stats-grid{ grid-template-columns:repeat(2, minmax(140px, 1fr)); }
-    .net-summary{ grid-template-columns:1fr; }
+    .overview-strip{ grid-template-columns:repeat(2, minmax(140px, 1fr)); }
+    .main-overview-grid{ grid-template-columns:1fr; }
+    .activity-layout{ grid-template-columns:1fr; min-height:auto; }
+  }
+  @media (max-width: 720px){
+    .overview-strip{ grid-template-columns:1fr; }
+    .activity-detail-grid{ grid-template-columns:1fr; }
+    .item-row{
+      grid-template-columns:auto 1fr;
+      grid-template-areas:
+        "rank info"
+        "bar bar"
+        "pct qty";
+    }
+    .item-row .item-rank{ grid-area:rank; }
+    .item-row .item-main{ grid-area:info; }
+    .item-row .item-bar-track{ grid-area:bar; }
+    .item-row .item-percent{ grid-area:pct; text-align:right; direction:rtl; }
+    .item-row .item-qty{ grid-area:qty; text-align:left; direction:ltr; margin-top:0; }
   }
 </style>
 
@@ -671,205 +850,263 @@
     </div>
   </div>
 
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-label">عدد فواتير الشراء</div>
-      <div id="stat-bills-count" class="stat-value">{{ details.purchase_bills_count }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">عدد فواتير الإرجاع</div>
-      <div id="stat-returns-count" class="stat-value">{{ details.provider_returns_count }}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">آخر دفعة</div>
-      <div class="stat-value">{% if details.latest_payment %}متوفر{% else %}—{% endif %}</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">آخر تحصيل</div>
-      <div class="stat-value">{% if details.latest_collection %}متوفر{% else %}—{% endif %}</div>
-    </div>
-  </div>
-
-  <div class="card" id="latest-activity-card">
-    <h3 class="section-title">آخر النشاطات</h3>
-    <div class="activity-head">
-      <label for="latest-activity-select" class="muted">اختر النشاط المطلوب</label>
-      <select id="latest-activity-select" class="activity-select">
-        <option value="latest-purchase">آخر فاتورة شراء</option>
-        <option value="latest-return">آخر إرجاع</option>
-        <option value="latest-debt">آخر عملية دين</option>
-        <option value="latest-payment">آخر دفعة</option>
-        <option value="latest-collection">آخر تحصيل</option>
-      </select>
-    </div>
-
-    <div class="activity-panel" data-activity-panel="latest-purchase">
-      {% if details.latest_purchase %}
-        <div id="latest-purchase-public-id" class="line">رقم الفاتورة: {{ details.latest_purchase.public_id }}</div>
-        <div class="line">التاريخ: {{ details.latest_purchase.created_at|date:"Y-m-d H:i" }}</div>
-        <div class="line">الإجمالي بالليرة: {{ details.latest_purchase.total_syp|floatformat:2 }}</div>
-        <div class="line">الإجمالي بالدولار: {{ details.latest_purchase.total_usd|floatformat:2 }}</div>
-        <div class="line">الحالة: {{ details.latest_purchase.status_label }}</div>
-      {% else %}
-        <div class="empty">لا توجد بيانات كافية</div>
-      {% endif %}
-    </div>
-
-    <div class="activity-panel" data-activity-panel="latest-return" hidden>
-      {% if details.latest_return %}
-        <div id="latest-return-public-id" class="line">رقم الإرجاع: {{ details.latest_return.public_id }}</div>
-        <div class="line">التاريخ: {{ details.latest_return.created_at|date:"Y-m-d H:i" }}</div>
-        <div class="line">الإجمالي بالليرة: {{ details.latest_return.total_syp|floatformat:2 }}</div>
-        <div class="line">الإجمالي بالدولار: {{ details.latest_return.total_usd|floatformat:2 }}</div>
-        <div class="line">الحالة: {{ details.latest_return.status_label }}</div>
-      {% else %}
-        <div class="empty">لا توجد بيانات كافية</div>
-      {% endif %}
-    </div>
-
-    <div class="activity-panel" data-activity-panel="latest-debt" hidden>
-      {% if details.latest_debt %}
-        <div class="line">رقم العملية: {{ details.latest_debt.public_id }}</div>
-        <div class="line">النوع: {{ details.latest_debt.direction_label }}</div>
-        <div class="line">السبب: {{ details.latest_debt.cause_label }}</div>
-        <div class="line">التاريخ: {{ details.latest_debt.created_at|date:"Y-m-d H:i" }}</div>
-        <div class="line">متبقي بالليرة: {{ details.latest_debt.remaining_syp|floatformat:2 }}</div>
-        <div class="line">متبقي بالدولار: {{ details.latest_debt.remaining_usd|floatformat:2 }}</div>
-      {% else %}
-        <div class="empty">لا توجد بيانات كافية</div>
-      {% endif %}
-    </div>
-
-    <div class="activity-panel" data-activity-panel="latest-payment" hidden>
-      {% if details.latest_payment %}
-        <div class="line">المصدر: {{ details.latest_payment.source_label }}</div>
-        <div class="line">التاريخ: {{ details.latest_payment.created_at|date:"Y-m-d H:i" }}</div>
-        {% if details.latest_payment.public_id %}
-          <div class="line">مرجع الدين: {{ details.latest_payment.public_id }}</div>
-        {% endif %}
-        <div class="line">المبلغ بالليرة: {{ details.latest_payment.amount_syp|floatformat:2 }}</div>
-        <div class="line">المبلغ بالدولار: {{ details.latest_payment.amount_usd|floatformat:2 }}</div>
-      {% else %}
-        <div class="empty">لا توجد بيانات كافية</div>
-      {% endif %}
-    </div>
-
-    <div class="activity-panel" data-activity-panel="latest-collection" hidden>
-      {% if details.latest_collection %}
-        <div class="line">المصدر: {{ details.latest_collection.source_label }}</div>
-        <div class="line">التاريخ: {{ details.latest_collection.created_at|date:"Y-m-d H:i" }}</div>
-        {% if details.latest_collection.public_id %}
-          <div class="line">مرجع الدين: {{ details.latest_collection.public_id }}</div>
-        {% endif %}
-        <div class="line">المبلغ بالليرة: {{ details.latest_collection.amount_syp|floatformat:2 }}</div>
-        <div class="line">المبلغ بالدولار: {{ details.latest_collection.amount_usd|floatformat:2 }}</div>
-      {% else %}
-        <div class="empty">لا توجد بيانات كافية</div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="card" id="top-items-card">
-    <h3 class="section-title">الأصناف الأكثر شراءً من هذا المورد</h3>
-    <div class="top-controls">
-      <span class="muted" id="top-items-metric">{{ details.top_items_metric_label }}</span>
-      <label for="top-items-limit" class="muted">عدد العناصر المعروضة</label>
-      <select id="top-items-limit" class="top-select">
-        <option value="3" selected>3</option>
-        <option value="4">4</option>
-        <option value="5">5</option>
-        <option value="6">6</option>
-        <option value="7">7</option>
-        <option value="8">8</option>
-        <option value="9">9</option>
-        <option value="10">10</option>
-      </select>
-    </div>
-
-    {% if details.top_items %}
-      <div class="top-table-wrap">
-        <table class="top-table">
-          <thead>
-            <tr>
-              <th>الترتيب</th>
-              <th>الصنف</th>
-              <th>إجمالي الكمية</th>
-              <th>عدد مرات الشراء</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in details.top_items %}
-              <tr data-top-item-row="1" data-rank="{{ forloop.counter }}">
-                <td>{{ forloop.counter }}</td>
-                <td class="name">{{ item.product_name }}</td>
-                <td>{{ item.total_qty|floatformat:3 }}</td>
-                <td>{{ item.lines_count }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <div id="provider-lower-overview" class="lower-overview">
+    <div id="provider-activity-summary-strip" class="overview-strip">
+      <div class="overview-item">
+        <div class="overview-item-label">فواتير الشراء</div>
+        <div id="stat-bills-count" class="overview-item-value">{{ details.purchase_bills_count }}</div>
       </div>
-    {% else %}
-      <div class="empty">لا توجد بيانات كافية</div>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h3 class="section-title">ملخص صافي الحساب الحالي للمورد</h3>
-    <div class="net-summary">
-      <div>
-        <div class="net-badge" id="net-overall-label">{{ details.net_summary.overall_label }}</div>
-        <table class="net-table" style="margin-top:8px;">
-          <thead>
-            <tr>
-              <th>العملة</th>
-              <th>مستحق للمورد</th>
-              <th>مستحق على المورد</th>
-              <th>الصافي</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>ل.س (SYP)</td>
-              <td id="net-syp-payable">{{ details.net_summary.syp.payable|floatformat:2 }}</td>
-              <td id="net-syp-receivable">{{ details.net_summary.syp.receivable|floatformat:2 }}</td>
-              <td id="net-syp-net">{{ details.net_summary.syp.net|floatformat:2 }}</td>
-            </tr>
-            <tr>
-              <td>دولار (USD)</td>
-              <td id="net-usd-payable">{{ details.net_summary.usd.payable|floatformat:2 }}</td>
-              <td id="net-usd-receivable">{{ details.net_summary.usd.receivable|floatformat:2 }}</td>
-              <td id="net-usd-net">{{ details.net_summary.usd.net|floatformat:2 }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="muted" style="margin-top:8px;">
-          {% if details.net_summary.has_open_obligations %}
-            توجد ذمم مفتوحة حتى مع توازن الصافي.
+      <div class="overview-item">
+        <div class="overview-item-label">فواتير الإرجاع</div>
+        <div id="stat-returns-count" class="overview-item-value">{{ details.provider_returns_count }}</div>
+      </div>
+      <div class="overview-item">
+        <div class="overview-item-label">آخر تعامل</div>
+        <div id="summary-latest-activity" class="overview-item-value">
+          {% if details.activity_summary.latest_activity_at %}
+            {{ details.activity_summary.latest_activity_label }}
           {% else %}
-            لا توجد ذمم مفتوحة حالياً.
+            لا توجد بيانات كافية
+          {% endif %}
+        </div>
+        <div class="overview-item-sub">
+          {% if details.activity_summary.latest_activity_at %}
+            {{ details.activity_summary.latest_activity_at|date:"Y-m-d H:i" }}
+          {% else %}
+            —
           {% endif %}
         </div>
       </div>
-      <button id="btn-net-details" type="button" class="btn primary" disabled>عرض تفاصيل صافي الحساب</button>
+      <div class="overview-item">
+        <div class="overview-item-label">حالة الحساب</div>
+        <div id="summary-account-state" class="overview-item-value">{{ details.activity_summary.account_state_label|default:"لا توجد بيانات كافية" }}</div>
+        <div class="overview-item-sub">{{ details.net_summary.overall_label|default:"لا توجد بيانات كافية" }}</div>
+      </div>
+    </div>
+
+    <div id="provider-main-overview" class="main-overview-grid">
+      <div id="latest-activity-component" class="card activity-shell">
+        <h3 class="section-title">سجل النشاط الأخير</h3>
+
+        <div class="activity-layout">
+          <div class="activity-timeline" role="tablist" aria-label="أنواع آخر النشاطات">
+            <button type="button" class="activity-point-btn" data-activity-trigger="latest-purchase" aria-selected="false">
+              <span class="activity-point-title">آخر فاتورة شراء</span>
+              <span class="activity-point-meta">{% if details.latest_purchase %}{{ details.latest_purchase.created_at|date:"Y-m-d H:i" }}{% else %}لا توجد بيانات كافية{% endif %}</span>
+            </button>
+            <button type="button" class="activity-point-btn" data-activity-trigger="latest-return" aria-selected="false">
+              <span class="activity-point-title">آخر إرجاع</span>
+              <span class="activity-point-meta">{% if details.latest_return %}{{ details.latest_return.created_at|date:"Y-m-d H:i" }}{% else %}لا توجد بيانات كافية{% endif %}</span>
+            </button>
+            <button type="button" class="activity-point-btn" data-activity-trigger="latest-debt" aria-selected="false">
+              <span class="activity-point-title">آخر عملية دين</span>
+              <span class="activity-point-meta">{% if details.latest_debt %}{{ details.latest_debt.created_at|date:"Y-m-d H:i" }}{% else %}لا توجد بيانات كافية{% endif %}</span>
+            </button>
+            <button type="button" class="activity-point-btn" data-activity-trigger="latest-payment" aria-selected="false">
+              <span class="activity-point-title">آخر دفعة</span>
+              <span class="activity-point-meta">{% if details.latest_payment %}{{ details.latest_payment.created_at|date:"Y-m-d H:i" }}{% else %}لا توجد بيانات كافية{% endif %}</span>
+            </button>
+            <button type="button" class="activity-point-btn" data-activity-trigger="latest-collection" aria-selected="false">
+              <span class="activity-point-title">آخر تحصيل</span>
+              <span class="activity-point-meta">{% if details.latest_collection %}{{ details.latest_collection.created_at|date:"Y-m-d H:i" }}{% else %}لا توجد بيانات كافية{% endif %}</span>
+            </button>
+          </div>
+
+          <div id="latest-activity-display" class="activity-display"></div>
+        </div>
+
+        <template id="latest-template-purchase" data-latest-template="latest-purchase">
+          {% if details.latest_purchase %}
+            <div class="activity-detail-grid">
+              <p id="latest-purchase-public-id" class="activity-line"><strong>رقم الفاتورة:</strong>{{ details.latest_purchase.public_id }}</p>
+              <p class="activity-line"><strong>التاريخ:</strong>{{ details.latest_purchase.created_at|date:"Y-m-d H:i" }}</p>
+              <p class="activity-line"><strong>الإجمالي بالليرة:</strong>{{ details.latest_purchase.total_syp|floatformat:2 }}</p>
+              <p class="activity-line"><strong>الإجمالي بالدولار:</strong>{{ details.latest_purchase.total_usd|floatformat:2 }}</p>
+              <p class="activity-line"><strong>الحالة:</strong>{{ details.latest_purchase.status_label }}</p>
+            </div>
+          {% else %}
+            <div class="empty">لا توجد بيانات كافية</div>
+          {% endif %}
+        </template>
+
+        <template id="latest-template-return" data-latest-template="latest-return">
+          {% if details.latest_return %}
+            <div class="activity-detail-grid">
+              <p id="latest-return-public-id" class="activity-line"><strong>رقم الإرجاع:</strong>{{ details.latest_return.public_id }}</p>
+              <p class="activity-line"><strong>التاريخ:</strong>{{ details.latest_return.created_at|date:"Y-m-d H:i" }}</p>
+              <p class="activity-line"><strong>الإجمالي بالليرة:</strong>{{ details.latest_return.total_syp|floatformat:2 }}</p>
+              <p class="activity-line"><strong>الإجمالي بالدولار:</strong>{{ details.latest_return.total_usd|floatformat:2 }}</p>
+              <p class="activity-line"><strong>الحالة:</strong>{{ details.latest_return.status_label }}</p>
+            </div>
+          {% else %}
+            <div class="empty">لا توجد بيانات كافية</div>
+          {% endif %}
+        </template>
+
+        <template id="latest-template-debt" data-latest-template="latest-debt">
+          {% if details.latest_debt %}
+            <div class="activity-detail-grid">
+              <p class="activity-line"><strong>رقم العملية:</strong>{{ details.latest_debt.public_id }}</p>
+              <p class="activity-line"><strong>التاريخ:</strong>{{ details.latest_debt.created_at|date:"Y-m-d H:i" }}</p>
+              <p class="activity-line"><strong>النوع:</strong>{{ details.latest_debt.direction_label }}</p>
+              <p class="activity-line"><strong>السبب:</strong>{{ details.latest_debt.cause_label }}</p>
+              <p class="activity-line"><strong>المتبقي بالليرة:</strong>{{ details.latest_debt.remaining_syp|floatformat:2 }}</p>
+              <p class="activity-line"><strong>المتبقي بالدولار:</strong>{{ details.latest_debt.remaining_usd|floatformat:2 }}</p>
+            </div>
+          {% else %}
+            <div class="empty">لا توجد بيانات كافية</div>
+          {% endif %}
+        </template>
+
+        <template id="latest-template-payment" data-latest-template="latest-payment">
+          {% if details.latest_payment %}
+            <div class="activity-detail-grid">
+              <p class="activity-line"><strong>المصدر:</strong>{{ details.latest_payment.source_label }}</p>
+              <p class="activity-line"><strong>التاريخ:</strong>{{ details.latest_payment.created_at|date:"Y-m-d H:i" }}</p>
+              {% if details.latest_payment.public_id %}
+                <p class="activity-line"><strong>مرجع الدين:</strong>{{ details.latest_payment.public_id }}</p>
+              {% endif %}
+              <p class="activity-line"><strong>المبلغ بالليرة:</strong>{{ details.latest_payment.amount_syp|floatformat:2 }}</p>
+              <p class="activity-line"><strong>المبلغ بالدولار:</strong>{{ details.latest_payment.amount_usd|floatformat:2 }}</p>
+            </div>
+          {% else %}
+            <div class="empty">لا توجد بيانات كافية</div>
+          {% endif %}
+        </template>
+
+        <template id="latest-template-collection" data-latest-template="latest-collection">
+          {% if details.latest_collection %}
+            <div class="activity-detail-grid">
+              <p class="activity-line"><strong>المصدر:</strong>{{ details.latest_collection.source_label }}</p>
+              <p class="activity-line"><strong>التاريخ:</strong>{{ details.latest_collection.created_at|date:"Y-m-d H:i" }}</p>
+              {% if details.latest_collection.public_id %}
+                <p class="activity-line"><strong>مرجع الدين:</strong>{{ details.latest_collection.public_id }}</p>
+              {% endif %}
+              <p class="activity-line"><strong>المبلغ بالليرة:</strong>{{ details.latest_collection.amount_syp|floatformat:2 }}</p>
+              <p class="activity-line"><strong>المبلغ بالدولار:</strong>{{ details.latest_collection.amount_usd|floatformat:2 }}</p>
+            </div>
+          {% else %}
+            <div class="empty">لا توجد بيانات كافية</div>
+          {% endif %}
+        </template>
+      </div>
+
+      <div id="account-items-component" class="card account-items-shell">
+        <div id="net-summary-card" class="account-block">
+          <div class="account-head">
+            <h3 class="section-title">ملخص صافي الحساب</h3>
+            <div class="net-badge" id="net-overall-label">{{ details.net_summary.overall_label }}</div>
+          </div>
+
+          <div class="net-currency-grid">
+            <div class="net-currency-card" id="net-syp-card">
+            <div class="net-currency-title">الليرة السورية</div>
+              <div class="net-row"><span>مستحق للمورد</span><strong id="net-syp-payable">{{ details.net_summary.syp.payable|floatformat:2 }}</strong></div>
+              <div class="net-row"><span>مستحق على المورد</span><strong id="net-syp-receivable">{{ details.net_summary.syp.receivable|floatformat:2 }}</strong></div>
+              <div class="net-row"><span>الصافي</span><strong id="net-syp-net">{{ details.net_summary.syp.net|floatformat:2 }}</strong></div>
+              <div class="net-state">{{ details.net_summary.syp.status_label }}</div>
+            </div>
+
+            <div class="net-currency-card" id="net-usd-card">
+            <div class="net-currency-title">الدولار الأمريكي</div>
+              <div class="net-row"><span>مستحق للمورد</span><strong id="net-usd-payable">{{ details.net_summary.usd.payable|floatformat:2 }}</strong></div>
+              <div class="net-row"><span>مستحق على المورد</span><strong id="net-usd-receivable">{{ details.net_summary.usd.receivable|floatformat:2 }}</strong></div>
+              <div class="net-row"><span>الصافي</span><strong id="net-usd-net">{{ details.net_summary.usd.net|floatformat:2 }}</strong></div>
+              <div class="net-state">{{ details.net_summary.usd.status_label }}</div>
+            </div>
+          </div>
+
+          {% if details.net_summary.balanced_with_open_obligations %}
+            <p id="net-open-warning" class="net-warning">صافي الحساب متوازن لكن توجد ديون مفتوحة</p>
+          {% endif %}
+
+          <button id="btn-net-details" type="button" class="btn primary" disabled>عرض تفاصيل صافي الحساب</button>
+        </div>
+
+        <div id="top-items-card" class="items-block">
+          <div class="items-head">
+            <div>
+              <h3 class="section-title">الأصناف الأكثر شراءً</h3>
+              <div class="muted" id="top-items-metric">{{ details.top_items_metric_label }}</div>
+            </div>
+            <div>
+              <label for="top-items-limit" class="muted">عدد العناصر المعروضة</label>
+              <select id="top-items-limit" class="top-select">
+                <option value="3" selected>3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+          </div>
+
+          {% if details.top_items %}
+            <div class="items-list">
+              {% for item in details.top_items %}
+                <div class="item-row" data-top-item-row="1" data-rank="{{ forloop.counter }}" {% if forloop.counter > details.top_items_default_limit %}hidden{% endif %}>
+                  <span class="item-rank">{{ forloop.counter }}</span>
+                  <div class="item-main">
+                    <div class="item-name">{{ item.product_name }}</div>
+                    <div class="item-qty">{{ item.total_qty|floatformat:3 }}</div>
+                  </div>
+                  <div class="item-bar-track">
+                    <span class="item-bar-fill" data-top-item-bar style="width:{{ item.percent_of_top|floatformat:2 }}%;"></span>
+                  </div>
+                  <span class="item-percent">{{ item.percent_of_top|floatformat:1 }}%</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty">لا توجد بيانات كافية</div>
+          {% endif %}
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
 (() => {
-  const activitySelect = document.getElementById("latest-activity-select");
-  const activityPanels = Array.from(document.querySelectorAll("[data-activity-panel]"));
-  function renderActivitySelection() {
-    const selectedValue = activitySelect ? activitySelect.value : "";
-    for (const panel of activityPanels) {
-      panel.hidden = panel.getAttribute("data-activity-panel") !== selectedValue;
+  const latestActivityDisplay = document.getElementById("latest-activity-display");
+  const activityTriggers = Array.from(document.querySelectorAll("[data-activity-trigger]"));
+  const latestTemplateByKey = {
+    "latest-purchase": document.getElementById("latest-template-purchase"),
+    "latest-return": document.getElementById("latest-template-return"),
+    "latest-debt": document.getElementById("latest-template-debt"),
+    "latest-payment": document.getElementById("latest-template-payment"),
+    "latest-collection": document.getElementById("latest-template-collection"),
+  };
+  function renderActivitySelection(selectedKey) {
+    if (!latestActivityDisplay) return;
+    const targetKey = selectedKey || "latest-purchase";
+    const selectedTemplate = latestTemplateByKey[targetKey] || latestTemplateByKey["latest-purchase"];
+    latestActivityDisplay.innerHTML = "";
+    if (selectedTemplate) {
+      latestActivityDisplay.appendChild(selectedTemplate.content.cloneNode(true));
+    } else {
+      latestActivityDisplay.innerHTML = '<div class="empty">لا توجد بيانات كافية</div>';
     }
+
+    activityTriggers.forEach((button) => {
+      const isActive = button.getAttribute("data-activity-trigger") === targetKey;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
   }
-  if (activitySelect) {
-    activitySelect.addEventListener("change", renderActivitySelection);
-    renderActivitySelection();
-  }
+  activityTriggers.forEach((button) => {
+    button.addEventListener("click", () => {
+      renderActivitySelection(button.getAttribute("data-activity-trigger") || "");
+    });
+  });
+  renderActivitySelection(
+    activityTriggers.length > 0
+      ? (activityTriggers[0].getAttribute("data-activity-trigger") || "latest-purchase")
+      : "latest-purchase"
+  );
 
   const phonesWrap = document.getElementById("provider-phones-wrap");
   const phonesEmptyState = document.getElementById("phones-empty-state");
@@ -1123,6 +1360,7 @@
     if (!Number.isFinite(limit)) limit = 3;
     if (limit < 3) limit = 3;
     if (limit > 10) limit = 10;
+    topItemsLimit.value = String(limit);
 
     topRows.forEach((row) => {
       const rank = parseInt(row.getAttribute("data-rank") || "0", 10);

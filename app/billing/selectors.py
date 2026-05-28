@@ -269,6 +269,45 @@ def _build_overall_net_label(*, syp_net: Decimal, usd_net: Decimal, has_open_obl
     return "يوجد ذمم متبادلة بين المتجر والمورد"
 
 
+def _build_account_state_label(*, total_payable: Decimal, total_receivable: Decimal) -> str:
+    if total_payable > DEC0 and total_receivable > DEC0:
+        return "توجد ديون باتجاهين"
+    if total_payable > DEC0:
+        return "المتجر مدين للمورد"
+    if total_receivable > DEC0:
+        return "المورد مدين للمتجر"
+    return "متوازن"
+
+
+def _build_currency_net_label(*, net: Decimal) -> str:
+    if net > DEC0:
+        return "المورد مدين للمتجر"
+    if net < DEC0:
+        return "المتجر مدين للمورد"
+    return "متوازن"
+
+
+def _pick_latest_profile_activity(*activities: dict[str, Any] | None) -> dict[str, Any] | None:
+    valid = [
+        activity
+        for activity in activities
+        if activity is not None and activity.get("created_at") is not None
+    ]
+    if not valid:
+        return None
+
+    valid.sort(
+        key=lambda activity: (
+            activity.get("created_at"),
+            int(activity.get("sort_order") or 0),
+        ),
+        reverse=True,
+    )
+    winner = dict(valid[0])
+    winner.pop("sort_order", None)
+    return winner
+
+
 def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10) -> dict[str, Any]:
     try:
         requested_limit = int(top_items_limit)
@@ -393,6 +432,12 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
                 "lines_count": int(row.get("lines_count") or 0),
             }
         )
+    max_top_item_qty = max((item["total_qty"] for item in top_items), default=DEC0)
+    for item in top_items:
+        if max_top_item_qty > DEC0:
+            item["percent_of_top"] = (item["total_qty"] / max_top_item_qty) * Decimal("100")
+        else:
+            item["percent_of_top"] = DEC0
 
     net_position = get_provider_net_position(provider_id=provider_id)
     currencies = net_position.get("currencies", {}) or {}
@@ -417,6 +462,12 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
         + usd_open_receivable_count
         + usd_open_payable_count
     ) > 0
+    total_payable = syp_payable + usd_payable
+    total_receivable = syp_receivable + usd_receivable
+    account_state_label = _build_account_state_label(
+        total_payable=total_payable,
+        total_receivable=total_receivable,
+    )
 
     latest_purchase_summary = None
     if latest_purchase is not None:
@@ -453,9 +504,81 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
             "remaining_usd": _as_decimal(getattr(latest_debt, "remaining_usd", DEC0)),
         }
 
+    latest_activity = _pick_latest_profile_activity(
+        (
+            {
+                "key": "latest-purchase",
+                "label": "آخر فاتورة شراء",
+                "created_at": latest_purchase_summary["created_at"],
+                "public_id": latest_purchase_summary.get("public_id") or "",
+                "sort_order": 1,
+            }
+            if latest_purchase_summary is not None
+            else None
+        ),
+        (
+            {
+                "key": "latest-return",
+                "label": "آخر إرجاع",
+                "created_at": latest_return_summary["created_at"],
+                "public_id": latest_return_summary.get("public_id") or "",
+                "sort_order": 2,
+            }
+            if latest_return_summary is not None
+            else None
+        ),
+        (
+            {
+                "key": "latest-debt",
+                "label": "آخر عملية دين",
+                "created_at": latest_debt_summary["created_at"],
+                "public_id": latest_debt_summary.get("public_id") or "",
+                "sort_order": 3,
+            }
+            if latest_debt_summary is not None
+            else None
+        ),
+        (
+            {
+                "key": "latest-payment",
+                "label": "آخر دفعة",
+                "created_at": latest_payment.get("created_at"),
+                "public_id": latest_payment.get("public_id") or "",
+                "sort_order": 4,
+            }
+            if latest_payment is not None
+            else None
+        ),
+        (
+            {
+                "key": "latest-collection",
+                "label": "آخر تحصيل",
+                "created_at": latest_collection.get("created_at"),
+                "public_id": latest_collection.get("public_id") or "",
+                "sort_order": 5,
+            }
+            if latest_collection is not None
+            else None
+        ),
+    )
+
     return {
         "purchase_bills_count": purchase_bills_count,
         "provider_returns_count": provider_returns_count,
+        "activity_summary": {
+            "latest_activity": latest_activity,
+            "latest_activity_label": (
+                latest_activity.get("label")
+                if latest_activity is not None
+                else "لا توجد بيانات كافية"
+            ),
+            "latest_activity_at": (
+                latest_activity.get("created_at")
+                if latest_activity is not None
+                else None
+            ),
+            "account_state_label": account_state_label,
+        },
         "latest_purchase": latest_purchase_summary,
         "latest_return": latest_return_summary,
         "latest_debt": latest_debt_summary,
@@ -472,6 +595,8 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
                 "net": syp_net,
                 "open_payable_count": syp_open_payable_count,
                 "open_receivable_count": syp_open_receivable_count,
+                "status_label": _build_currency_net_label(net=syp_net),
+                "has_open_obligations": (syp_open_payable_count + syp_open_receivable_count) > 0,
             },
             "usd": {
                 "payable": usd_payable,
@@ -479,8 +604,11 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
                 "net": usd_net,
                 "open_payable_count": usd_open_payable_count,
                 "open_receivable_count": usd_open_receivable_count,
+                "status_label": _build_currency_net_label(net=usd_net),
+                "has_open_obligations": (usd_open_payable_count + usd_open_receivable_count) > 0,
             },
             "has_open_obligations": has_open_obligations,
+            "balanced_with_open_obligations": (syp_net == DEC0 and usd_net == DEC0 and has_open_obligations),
             "overall_label": _build_overall_net_label(
                 syp_net=syp_net,
                 usd_net=usd_net,
