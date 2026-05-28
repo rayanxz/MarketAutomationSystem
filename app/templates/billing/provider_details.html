@@ -443,10 +443,42 @@
     flex-direction:column;
     gap:6px;
   }
+  .analysis-group-toggle{
+    width:100%;
+    border:0;
+    background:transparent;
+    padding:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    cursor:pointer;
+  }
+  .analysis-group-chevron{
+    color:#64748b;
+    font-size:16px;
+    line-height:1;
+    transition:transform .18s ease;
+  }
+  .analysis-group.is-expanded .analysis-group-chevron{
+    transform:rotate(180deg);
+  }
   .analysis-group-title{
     color:#475569;
     font-size:12px;
     font-weight:700;
+    text-align:right;
+  }
+  .analysis-group-options{
+    display:none;
+    flex-direction:column;
+    gap:6px;
+  }
+  .analysis-group.is-expanded .analysis-group-options{
+    display:flex;
+  }
+  .analysis-group-options[hidden]{
+    display:none !important;
   }
   .analysis-option-btn{
     width:100%;
@@ -1022,16 +1054,27 @@
           <h4 class="analysis-section-title">اختيار النشاط</h4>
           <div id="analysis-chooser-list" class="analysis-chooser-list">
             {% for group in details.analysis_panel.chooser_groups %}
-              <div class="analysis-group" data-analysis-group="{{ group.key }}">
-                <div class="analysis-group-title">{{ group.label }}</div>
-                {% for option in group.options %}
-                  <button
-                    type="button"
-                    class="analysis-option-btn"
-                    data-analysis-option="{{ option.key }}"
-                    aria-pressed="false"
-                  >{{ option.label }}</button>
-                {% endfor %}
+              <div class="analysis-group is-collapsed" data-analysis-group="{{ group.key }}" data-expanded="false">
+                <button
+                  type="button"
+                  class="analysis-group-toggle"
+                  data-analysis-group-toggle="{{ group.key }}"
+                  aria-expanded="false"
+                  aria-controls="analysis-group-options-{{ group.key }}"
+                >
+                  <span class="analysis-group-title">{{ group.label }}</span>
+                  <span class="analysis-group-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div class="analysis-group-options" id="analysis-group-options-{{ group.key }}" hidden>
+                  {% for option in group.options %}
+                    <button
+                      type="button"
+                      class="analysis-option-btn"
+                      data-analysis-option="{{ option.key }}"
+                      aria-pressed="false"
+                    >{{ option.label }}</button>
+                  {% endfor %}
+                </div>
               </div>
             {% endfor %}
           </div>
@@ -1043,7 +1086,7 @@
             <div class="analysis-loading" id="analysis-details-loading" hidden>
               <span class="loading-ring" aria-hidden="true"></span>
             </div>
-            <div class="analysis-empty">لا توجد بيانات كافية</div>
+            <div class="analysis-empty" data-analysis-idle="details">اختر بنداً من القائمة لعرض التفاصيل</div>
           </div>
         </section>
 
@@ -1053,7 +1096,7 @@
             <div class="analysis-loading" id="analysis-visual-loading" hidden>
               <span class="loading-ring" aria-hidden="true"></span>
             </div>
-            <div class="analysis-empty">لا توجد بيانات كافية</div>
+            <div class="analysis-empty" data-analysis-idle="visual">اختر بنداً من القائمة لعرض الرسم أو التحليل</div>
           </div>
         </section>
       </div>
@@ -1106,13 +1149,16 @@
     }
   }
   const analysisActivities = (analysisPanel && analysisPanel.activities) || {};
-  const analysisDefaultKey = (analysisPanel && analysisPanel.selected_default) || "";
 
+  const analysisChooserList = document.getElementById("analysis-chooser-list");
+  const analysisGroups = Array.from(document.querySelectorAll("[data-analysis-group]"));
   const analysisOptions = Array.from(document.querySelectorAll("[data-analysis-option]"));
   const detailsBox = document.getElementById("analysis-details-box");
   const visualBox = document.getElementById("analysis-visual-box");
   const detailsLoading = document.getElementById("analysis-details-loading");
   const visualLoading = document.getElementById("analysis-visual-loading");
+  const DETAILS_IDLE_MESSAGE = "اختر بنداً من القائمة لعرض التفاصيل";
+  const VISUAL_IDLE_MESSAGE = "اختر بنداً من القائمة لعرض الرسم أو التحليل";
 
   function num(val) {
     const v = Number(val);
@@ -1145,10 +1191,20 @@
     loadingNode.hidden = !show;
   }
 
+  function renderDetailsIdle() {
+    if (!detailsBox) return;
+    detailsBox.innerHTML = `<div class="analysis-empty">${DETAILS_IDLE_MESSAGE}</div>`;
+  }
+
+  function renderVisualIdle() {
+    if (!visualBox) return;
+    visualBox.innerHTML = `<div class="analysis-empty">${VISUAL_IDLE_MESSAGE}</div>`;
+  }
+
   function renderDetails(activity) {
     if (!detailsBox) return;
     if (!activity || !activity.details_kind) {
-      detailsBox.innerHTML = '<div class="analysis-empty">لا توجد بيانات كافية</div>';
+      renderDetailsIdle();
       return;
     }
     const details = activity.details || null;
@@ -1351,7 +1407,7 @@
   function renderVisual(activity) {
     if (!visualBox) return;
     if (!activity || !activity.visual_kind) {
-      visualBox.innerHTML = '<div class="analysis-empty">لا توجد بيانات كافية</div>';
+      renderVisualIdle();
       return;
     }
     if (activity.visual_kind === "none") {
@@ -1401,8 +1457,40 @@
     });
   }
 
+  function setGroupExpanded(groupNode, expanded) {
+    if (!groupNode) return;
+    const toggleNode = groupNode.querySelector("[data-analysis-group-toggle]");
+    const optionsNode = groupNode.querySelector(".analysis-group-options");
+    groupNode.classList.toggle("is-expanded", expanded);
+    groupNode.classList.toggle("is-collapsed", !expanded);
+    groupNode.setAttribute("data-expanded", expanded ? "true" : "false");
+    if (toggleNode) {
+      toggleNode.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+    if (optionsNode) {
+      optionsNode.hidden = !expanded;
+    }
+  }
+
+  function collapseAllGroups(expandKey = "") {
+    analysisGroups.forEach((groupNode) => {
+      const groupKey = groupNode.getAttribute("data-analysis-group") || "";
+      const isExpanded = !!expandKey && groupKey === expandKey;
+      setGroupExpanded(groupNode, isExpanded);
+    });
+  }
+
+  function setIdleState() {
+    updateActiveOption("");
+    renderDetailsIdle();
+    renderVisualIdle();
+  }
+
   function renderActivity(key) {
-    if (!key) return;
+    if (!key) {
+      setIdleState();
+      return;
+    }
     const activity = analysisActivities[key] || null;
     updateActiveOption(key);
     showLoading(detailsLoading, true);
@@ -1418,14 +1506,36 @@
   analysisOptions.forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.getAttribute("data-analysis-option") || "";
+      const groupNode = btn.closest("[data-analysis-group]");
+      const groupKey = groupNode ? (groupNode.getAttribute("data-analysis-group") || "") : "";
+      if (groupKey) {
+        collapseAllGroups(groupKey);
+      }
       renderActivity(key);
     });
   });
 
-  if (analysisOptions.length > 0) {
-    const initialKey = analysisDefaultKey || analysisOptions[0].getAttribute("data-analysis-option") || "";
-    renderActivity(initialKey);
+  if (analysisChooserList) {
+    analysisChooserList.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const toggleNode = target.closest("[data-analysis-group-toggle]");
+      if (!toggleNode || !analysisChooserList.contains(toggleNode)) return;
+      event.preventDefault();
+      const groupKey = toggleNode.getAttribute("data-analysis-group-toggle") || "";
+      const groupNode = toggleNode.closest("[data-analysis-group]");
+      if (!groupNode) return;
+      const alreadyExpanded = groupNode.getAttribute("data-expanded") === "true";
+      if (alreadyExpanded) {
+        collapseAllGroups("");
+        return;
+      }
+      collapseAllGroups(groupKey);
+    });
   }
+
+  collapseAllGroups("");
+  setIdleState();
 
   const phonesWrap = document.getElementById("provider-phones-wrap");
   const phonesEmptyState = document.getElementById("phones-empty-state");

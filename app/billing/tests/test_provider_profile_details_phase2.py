@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -189,6 +190,9 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertContains(resp, 'data-analysis-group="totals"')
         self.assertContains(resp, 'data-analysis-group="latest"')
         self.assertContains(resp, 'data-analysis-group="extras"')
+        self.assertContains(resp, 'data-analysis-group-toggle="totals"')
+        self.assertContains(resp, 'data-analysis-group-toggle="latest"')
+        self.assertContains(resp, 'data-analysis-group-toggle="extras"')
         self.assertContains(resp, 'data-analysis-option="total-purchase-bills"')
         self.assertContains(resp, 'data-analysis-option="total-provider-returns"')
         self.assertContains(resp, 'data-analysis-option="total-open-debts"')
@@ -200,6 +204,18 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertContains(resp, 'data-analysis-option="top-products"')
         self.assertContains(resp, 'data-analysis-option="visit-frequency"')
 
+    def test_activity_groups_collapsed_by_default_and_no_option_selected(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertGreaterEqual(html.count('data-expanded="false"'), 3)
+        self.assertGreaterEqual(html.count('aria-expanded="false"'), 3)
+        self.assertNotIn("analysis-option-btn active", html)
+        self.assertNotContains(resp, 'aria-pressed="true"')
+        self.assertContains(resp, 'id="analysis-group-options-totals" hidden')
+        self.assertContains(resp, 'id="analysis-group-options-latest" hidden')
+        self.assertContains(resp, 'id="analysis-group-options-extras" hidden')
+
     def test_details_and_visual_boxes_exist(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
@@ -207,6 +223,31 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertContains(resp, 'id="analysis-visual-box"')
         self.assertContains(resp, 'id="analysis-details-loading"')
         self.assertContains(resp, 'id="analysis-visual-loading"')
+        self.assertContains(resp, "اختر بنداً من القائمة لعرض التفاصيل")
+        self.assertContains(resp, "اختر بنداً من القائمة لعرض الرسم أو التحليل")
+
+    def test_accordion_single_expand_behavior_is_wired_in_js(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "function collapseAllGroups(expandKey = \"\")")
+        self.assertContains(resp, "setGroupExpanded(groupNode, isExpanded);")
+        self.assertContains(resp, "const alreadyExpanded = groupNode.getAttribute(\"data-expanded\") === \"true\";")
+        self.assertContains(resp, "collapseAllGroups(groupKey);")
+        self.assertContains(resp, "collapseAllGroups(\"\");")
+        self.assertContains(resp, "analysisChooserList.addEventListener(\"click\", (event) => {")
+
+    def test_accordion_header_layout_places_arrow_opposite_label(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "justify-content:space-between;")
+        self.assertContains(resp, 'class="analysis-group-chevron"')
+        html = resp.content.decode("utf-8")
+        self.assertRegex(
+            html,
+            re.compile(
+                r'class="analysis-group-toggle"[\s\S]*?class="analysis-group-title"[\s\S]*?class="analysis-group-chevron"'
+            ),
+        )
 
     def test_totals_include_provider_vs_others_percentages(self):
         p1 = self._create_product(idx=1, name="منتج-1")
