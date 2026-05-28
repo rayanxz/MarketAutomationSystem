@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -8,11 +9,28 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import AccountProfile
-from billing.models import Bill, BillItem, Provider, ProviderPhone
+from billing.models import (
+    Bill,
+    BillItem,
+    Provider,
+    ProviderPhone,
+    ProviderReturn,
+    ProviderReturnItem,
+)
 from billing.services_provider import add_provider_phone
 from catalog.models import Product, ProductCollection, ProductSet, UnitType
+from debts.models import (
+    DebtCauseType,
+    DebtDirection,
+    DebtRecord,
+    DebtSettlement,
+    DebtStatus,
+    OtherPartyType,
+)
+from financials.models import MoneyContainer
 
 
 class ProviderProfileDetailsPhase2Tests(TestCase):
@@ -32,6 +50,11 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
             phone="0999000111",
             notes="ملاحظة مبدئية",
         )
+        self.other_provider = Provider.objects.create(
+            name="مورد آخر",
+            phone="0999777444",
+            notes="",
+        )
 
     def _details_url(self, provider_ref: str) -> str:
         return reverse("billing_provider_details", kwargs={"provider_ref": provider_ref})
@@ -46,21 +69,89 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
             unit_secondary="",
         )
 
-    def _create_bill_item(self, *, product: Product, qty: Decimal) -> None:
+    def _create_bill_with_items(
+        self,
+        *,
+        provider: Provider,
+        items: list[tuple[Product, Decimal]],
+        total_syp: Decimal = Decimal("0.00"),
+        total_usd: Decimal = Decimal("0.00"),
+    ) -> Bill:
         bill = Bill.objects.create(
-            provider=self.provider,
+            provider=provider,
             total=Decimal("0.00"),
-            total_syp=Decimal("0.00"),
-            total_usd=Decimal("0.00"),
+            total_syp=total_syp,
+            total_usd=total_usd,
         )
-        BillItem.objects.create(
-            bill=bill,
-            product=product,
-            qty_primary=qty,
-            cost=Decimal("1.00"),
-            price=Decimal("1.00"),
-            line_total=qty,
-            currency="SYP",
+        for product, qty in items:
+            BillItem.objects.create(
+                bill=bill,
+                product=product,
+                qty_primary=qty,
+                cost=Decimal("1.00"),
+                price=Decimal("1.00"),
+                line_total=qty,
+                currency="SYP",
+            )
+        return bill
+
+    def _create_return_with_items(
+        self,
+        *,
+        provider: Provider,
+        items: list[tuple[Product, Decimal]],
+        total_syp: Decimal = Decimal("0.00"),
+        total_usd: Decimal = Decimal("0.00"),
+    ) -> ProviderReturn:
+        ret = ProviderReturn.objects.create(
+            provider=provider,
+            total=Decimal("0.00"),
+            total_syp=total_syp,
+            total_usd=total_usd,
+        )
+        for product, qty in items:
+            ProviderReturnItem.objects.create(
+                ret=ret,
+                product=product,
+                qty_primary=qty,
+                cost=Decimal("1.00"),
+                line_total=qty,
+                currency="SYP",
+            )
+        return ret
+
+    def _create_debt(
+        self,
+        *,
+        provider: Provider,
+        direction: str,
+        cause_type: str,
+        cause_id: str,
+        total_syp: Decimal = Decimal("0.00"),
+        total_usd: Decimal = Decimal("0.00"),
+        remaining_syp: Decimal = Decimal("0.00"),
+        remaining_usd: Decimal = Decimal("0.00"),
+        status: str = DebtStatus.OPEN,
+    ) -> DebtRecord:
+        return DebtRecord.objects.create(
+            direction=direction,
+            cause_type=cause_type,
+            cause_id=cause_id,
+            other_party_type=OtherPartyType.PROVIDER,
+            provider=provider,
+            total_syp=total_syp,
+            total_usd=total_usd,
+            remaining_syp=remaining_syp,
+            remaining_usd=remaining_usd,
+            status=status,
+            note="سبب الاختبار",
+        )
+
+    def _create_container(self, *, name: str = "حاوية اختبار") -> MoneyContainer:
+        return MoneyContainer.objects.create(
+            name=name,
+            container_type=MoneyContainer.ContainerType.DRAWER,
+            created_by=self.manager,
         )
 
     def test_provider_details_page_loads_by_public_id(self):
@@ -68,302 +159,227 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "ملف المورد")
 
-    def test_general_info_section_shows_public_id_and_name(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="top-section-general-info"')
-        self.assertContains(resp, 'id="provider-public-id"')
-        self.assertContains(resp, self.provider.public_id)
-        self.assertContains(resp, 'id="provider-name"')
-        self.assertContains(resp, self.provider.name)
-        self.assertContains(resp, 'id="provider-created-at"')
-        self.assertContains(resp, "تاريخ إنشاء ملف المورد")
-        self.assertNotContains(resp, "آخر رقم هاتف")
-        self.assertNotContains(resp, "عدد أرقام الهاتف")
-
-    def test_phone_count_text_not_displayed(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, 'id="provider-phone-count"')
-        self.assertNotContains(resp, "عدد أرقام الهاتف")
-
-    def test_top_section_has_three_boxes(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="top-section-grid"')
-        self.assertContains(resp, 'id="top-section-general-info"')
-        self.assertContains(resp, 'id="top-section-phone-numbers"')
-        self.assertContains(resp, 'id="top-section-notes"')
-        self.assertContains(resp, 'grid-template-areas:"general phones notes";')
-
-        html = resp.content.decode("utf-8")
-        self.assertLess(html.find('id="top-section-general-info"'), html.find('id="top-section-phone-numbers"'))
-        self.assertLess(html.find('id="top-section-phone-numbers"'), html.find('id="top-section-notes"'))
-
-    def test_multiple_phone_numbers_are_displayed(self):
-        ProviderPhone.objects.create(provider=self.provider, phone_number="0933000001")
-        ProviderPhone.objects.create(provider=self.provider, phone_number="0933000002")
-        self.provider.phone = "0933000002"
-        self.provider.save(update_fields=["phone"])
-
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "0933000001")
-        self.assertContains(resp, "0933000002")
-        self.assertContains(resp, 'id="provider-phones-wrap"')
-        self.assertContains(resp, 'class="phones-wrap"')
-        self.assertContains(resp, "max-height:196px;")
-
-    def test_phone_list_supports_compact_controls_markup(self):
-        phone_row = ProviderPhone.objects.create(provider=self.provider, phone_number="0933111111")
-        self.provider.phone = phone_row.phone_number
-        self.provider.save(update_fields=["phone"])
-
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'data-phone-row="existing"')
-        self.assertContains(resp, "data-phone-input")
-        self.assertContains(resp, "data-phone-default-btn")
-        self.assertContains(resp, "data-phone-edit-icon")
-        self.assertContains(resp, "data-phone-delete-icon")
-        self.assertContains(resp, "data-phone-action-cancel-btn")
-        self.assertContains(resp, "data-phone-edit-cancel-btn")
-        self.assertContains(resp, 'id="phone-add-row"')
-        self.assertContains(resp, 'id="phone-add-input"')
-
-    def test_default_phone_row_shows_only_edit_button(self):
-        ProviderPhone.objects.create(provider=self.provider, phone_number="0933555000")
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "data-phone-default-btn")
-        self.assertContains(resp, ">تعديل</button>", html=False)
-        self.assertContains(resp, "data-phone-action-group")
-        self.assertContains(resp, "data-phone-edit-group")
-        self.assertContains(resp, "data-phone-input")
-        self.assertContains(resp, "readonly")
-
-    def test_action_mode_controls_are_hidden_until_edit_button_is_pressed(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "data-phone-action-group")
-        self.assertContains(resp, "data-phone-edit-group")
-        self.assertContains(resp, 'setRowMode(row, "default");')
-        self.assertContains(resp, 'setRowMode(row, "action");')
-        self.assertContains(resp, "activeMode = \"action\";")
-
-    def test_edit_icon_makes_same_field_editable_in_place(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "input: row.querySelector(\"[data-phone-input]\")")
-        self.assertContains(resp, "nodes.input.readOnly = mode !== \"edit\";")
-        self.assertContains(resp, "setRowMode(row, \"edit\");")
-        self.assertNotContains(resp, "data-phone-edit-form")
-
-    def test_delete_icon_opens_confirmation_modal(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="phone-delete-modal"')
-        self.assertContains(resp, 'id="phone-delete-confirm-btn"')
-        self.assertContains(resp, 'id="phone-delete-cancel-btn"')
-        self.assertContains(resp, "لا يمكن التراجع عن حذف رقم الهاتف بعد المتابعة.")
-        self.assertContains(resp, "openDeleteModal(nodes.deleteForm);")
-
-    def test_action_mode_cancel_returns_row_to_default(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "data-phone-action-cancel-btn")
-        self.assertContains(resp, 'setRowMode(row, "default");')
-        self.assertContains(resp, "activeMode = \"idle\";")
-
-    def test_add_phone_is_blocked_while_row_is_active(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "addPhoneBtn.disabled = isLocked;")
-        self.assertContains(resp, 'if (activeMode !== "idle") return;')
-        self.assertNotContains(resp, "أكمل الإجراء الحالي أولاً")
-
-    def test_phone_success_message_has_auto_hide_behavior(self):
-        resp = self.client.get(f"{self._details_url(self.provider.public_id)}?phone_saved=added")
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="phone-success-message"')
-        self.assertContains(resp, "window.setTimeout(() => {")
-        self.assertContains(resp, "phoneSuccessMessage.remove();")
-        self.assertContains(resp, "}, 2000);")
-
-    def test_phone_warning_text_is_removed(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, "أكمل الإجراء الحالي أولاً")
-
-    def test_add_phone_button_text_is_expected(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="phone-box-header"')
-        self.assertContains(resp, 'id="btn-show-add-phone"')
-        self.assertContains(resp, "إضافة رقم")
-
-        html = resp.content.decode("utf-8")
-        header_pos = html.find('id="phone-box-header"')
-        btn_pos = html.find('id="btn-show-add-phone"')
-        list_pos = html.find('id="provider-phones-wrap"')
-        self.assertNotEqual(header_pos, -1)
-        self.assertNotEqual(btn_pos, -1)
-        self.assertNotEqual(list_pos, -1)
-        self.assertLess(header_pos, btn_pos)
-        self.assertLess(btn_pos, list_pos)
-
-    def test_add_phone_number_works(self):
-        resp = self.client.post(
+    def test_top_section_phone_and_notes_behavior_still_works(self):
+        add_phone_resp = self.client.post(
             self._details_url(self.provider.public_id),
             {"action": "add_phone", "phone_number": "0944000001"},
         )
-        self.assertEqual(resp.status_code, 302)
-
+        self.assertEqual(add_phone_resp.status_code, 302)
         self.assertTrue(ProviderPhone.objects.filter(provider=self.provider, phone_number="0944000001").exists())
+
+        notes_payload = {"action": "update_notes", "notes": "ملاحظة جديدة للمورد"}
+        notes_resp = self.client.post(self._details_url(self.provider.public_id), notes_payload)
+        self.assertEqual(notes_resp.status_code, 302)
         self.provider.refresh_from_db()
-        self.assertEqual(self.provider.phone, "0944000001")
+        self.assertEqual(self.provider.notes, notes_payload["notes"])
 
-    def test_edit_phone_number_works(self):
-        phone_row = ProviderPhone.objects.create(provider=self.provider, phone_number="0955000001")
-        self.provider.phone = "0955000001"
-        self.provider.save(update_fields=["phone"])
-
-        resp = self.client.post(
-            self._details_url(self.provider.public_id),
-            {"action": "edit_phone", "phone_id": str(phone_row.id), "phone_number": "0955000009"},
-        )
-        self.assertEqual(resp.status_code, 302)
-
-        phone_row.refresh_from_db()
-        self.assertEqual(phone_row.phone_number, "0955000009")
-        self.provider.refresh_from_db()
-        self.assertEqual(self.provider.phone, "0955000009")
-
-    def test_delete_phone_number_works(self):
-        older = ProviderPhone.objects.create(provider=self.provider, phone_number="0966000001")
-        latest = ProviderPhone.objects.create(provider=self.provider, phone_number="0966000002")
-        self.provider.phone = latest.phone_number
-        self.provider.save(update_fields=["phone"])
-
-        resp = self.client.post(
-            self._details_url(self.provider.public_id),
-            {"action": "delete_phone", "phone_id": str(latest.id)},
-        )
-        self.assertEqual(resp.status_code, 302)
-
-        self.assertFalse(ProviderPhone.objects.filter(id=latest.id).exists())
-        self.provider.refresh_from_db()
-        self.assertEqual(self.provider.phone, older.phone_number)
-
-    def test_providers_list_shows_latest_added_phone_only(self):
-        self.provider.phone = ""
-        self.provider.save(update_fields=["phone"])
-
-        add_provider_phone(actor=self.manager, provider=self.provider, phone_number="0977000001")
-        add_provider_phone(actor=self.manager, provider=self.provider, phone_number="0977000002")
-
-        resp = self.client.get(
-            reverse("billing_api_providers_list"),
-            {"basic": "1", "include_all": "1", "page_size": "30"},
-        )
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertTrue(body.get("ok"), body)
-        row = next(item for item in body["items"] if int(item["id"]) == self.provider.id)
-        self.assertEqual(row["phone"], "0977000002")
-        self.assertNotEqual(row["phone"], "0977000001")
-
-    def test_latest_activity_component_exists_with_arabic_labels(self):
+    def test_lower_page_has_two_main_panels_in_order(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="latest-activity-component"')
-        self.assertContains(resp, "سجل النشاط الأخير")
-        self.assertContains(resp, "آخر فاتورة شراء")
-        self.assertContains(resp, "آخر إرجاع")
-        self.assertContains(resp, "آخر عملية دين")
-        self.assertContains(resp, "آخر دفعة")
-        self.assertContains(resp, "آخر تحصيل")
+        self.assertContains(resp, "تحليل تعاملات المورد")
+        self.assertContains(resp, "ملخص صافي حساب المورد")
+        self.assertContains(resp, 'id="provider-analysis-panel"')
+        self.assertContains(resp, 'id="provider-net-summary-panel"')
+        html = resp.content.decode("utf-8")
+        self.assertLess(html.find("تحليل تعاملات المورد"), html.find("ملخص صافي حساب المورد"))
 
-    def test_lower_section_renders_with_required_summary_parts(self):
+    def test_activity_chooser_groups_and_all_options_exist(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="provider-lower-overview"')
-        self.assertContains(resp, 'id="provider-activity-summary-strip"')
-        self.assertContains(resp, "فواتير الشراء")
-        self.assertContains(resp, "فواتير الإرجاع")
-        self.assertContains(resp, 'id="stat-bills-count"')
-        self.assertContains(resp, 'id="stat-returns-count"')
-        self.assertContains(resp, 'id="summary-latest-activity"')
-        self.assertContains(resp, 'id="summary-account-state"')
-        self.assertContains(resp, "آخر تعامل")
-        self.assertContains(resp, "حالة الحساب")
+        self.assertContains(resp, 'data-analysis-group="totals"')
+        self.assertContains(resp, 'data-analysis-group="latest"')
+        self.assertContains(resp, 'data-analysis-group="extras"')
+        self.assertContains(resp, 'data-analysis-option="total-purchase-bills"')
+        self.assertContains(resp, 'data-analysis-option="total-provider-returns"')
+        self.assertContains(resp, 'data-analysis-option="total-open-debts"')
+        self.assertContains(resp, 'data-analysis-option="latest-purchase"')
+        self.assertContains(resp, 'data-analysis-option="latest-return"')
+        self.assertContains(resp, 'data-analysis-option="latest-debt"')
+        self.assertContains(resp, 'data-analysis-option="latest-payment"')
+        self.assertContains(resp, 'data-analysis-option="latest-collection"')
+        self.assertContains(resp, 'data-analysis-option="top-products"')
+        self.assertContains(resp, 'data-analysis-option="visit-frequency"')
 
-    def test_latest_activity_has_single_display_area(self):
+    def test_details_and_visual_boxes_exist(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="analysis-details-box"')
+        self.assertContains(resp, 'id="analysis-visual-box"')
+        self.assertContains(resp, 'id="analysis-details-loading"')
+        self.assertContains(resp, 'id="analysis-visual-loading"')
+
+    def test_totals_include_provider_vs_others_percentages(self):
+        p1 = self._create_product(idx=1, name="منتج-1")
+        p2 = self._create_product(idx=2, name="منتج-2")
+        self._create_bill_with_items(provider=self.provider, items=[(p1, Decimal("3"))])
+        self._create_bill_with_items(provider=self.other_provider, items=[(p2, Decimal("2"))])
+
+        self._create_return_with_items(provider=self.provider, items=[(p1, Decimal("1"))])
+        self._create_return_with_items(provider=self.other_provider, items=[(p2, Decimal("1"))])
+
+        self._create_debt(
+            provider=self.provider,
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="prov-open-1",
+            total_syp=Decimal("50"),
+            remaining_syp=Decimal("50"),
+            status=DebtStatus.OPEN,
+        )
+        self._create_debt(
+            provider=self.other_provider,
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.MANUAL,
+            cause_id="prov-open-2",
+            total_syp=Decimal("80"),
+            remaining_syp=Decimal("80"),
+            status=DebtStatus.OPEN,
+        )
+
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        details = resp.context["details"]
+        totals = details["totals_share"]
+
+        self.assertIn("provider_percent", totals["purchase_bills"])
+        self.assertIn("others_percent", totals["purchase_bills"])
+        self.assertIn("provider_percent", totals["provider_returns"])
+        self.assertIn("others_percent", totals["provider_returns"])
+        self.assertIn("provider_percent", totals["open_debts"])
+        self.assertIn("others_percent", totals["open_debts"])
+
+    def test_latest_activities_have_details_payload_and_no_chart_visual(self):
+        product = self._create_product(idx=10, name="منتج-أ")
+        bill = self._create_bill_with_items(
+            provider=self.provider,
+            items=[(product, Decimal("5"))],
+            total_syp=Decimal("120"),
+            total_usd=Decimal("0"),
+        )
+        ret = self._create_return_with_items(
+            provider=self.provider,
+            items=[(product, Decimal("2"))],
+            total_syp=Decimal("30"),
+            total_usd=Decimal("0"),
+        )
+        debt = self._create_debt(
+            provider=self.provider,
+            direction=DebtDirection.PAYABLE,
+            cause_type=DebtCauseType.PURCHASE_BILL,
+            cause_id=bill.public_id,
+            total_syp=Decimal("120"),
+            remaining_syp=Decimal("70"),
+            status=DebtStatus.OPEN,
+        )
+        container = self._create_container()
+        DebtSettlement.objects.create(
+            debt=debt,
+            payment_syp=Decimal("20"),
+            payment_usd=Decimal("0"),
+            applied_syp=Decimal("20"),
+            applied_usd=Decimal("0"),
+            money_container=container,
+        )
+        receivable_debt = self._create_debt(
+            provider=self.provider,
+            direction=DebtDirection.RECEIVABLE,
+            cause_type=DebtCauseType.PROVIDER_RETURN,
+            cause_id=ret.public_id,
+            total_syp=Decimal("30"),
+            remaining_syp=Decimal("10"),
+            status=DebtStatus.OPEN,
+        )
+        DebtSettlement.objects.create(
+            debt=receivable_debt,
+            payment_syp=Decimal("10"),
+            payment_usd=Decimal("0"),
+            applied_syp=Decimal("10"),
+            applied_usd=Decimal("0"),
+            money_container=container,
+        )
+
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        details = resp.context["details"]
+        activities = details["analysis_panel"]["activities"]
+
+        for key in ["latest-purchase", "latest-return", "latest-debt", "latest-payment", "latest-collection"]:
+            self.assertEqual(activities[key]["visual_kind"], "none")
+            self.assertIsNotNone(activities[key]["details"])
+
+        self.assertContains(resp, "لا يوجد رسم بياني لهذا العنصر")
+
+    def test_top_products_activity_returns_top_5_and_others_segment(self):
+        products = []
+        for idx in range(1, 7):
+            products.append(self._create_product(idx=100 + idx, name=f"صنف-{idx:02d}"))
+
+        bill = Bill.objects.create(provider=self.provider, total=Decimal("0"), total_syp=Decimal("0"), total_usd=Decimal("0"))
+        quantities = [Decimal("12"), Decimal("11"), Decimal("10"), Decimal("9"), Decimal("8"), Decimal("7")]
+        for product, qty in zip(products, quantities):
+            BillItem.objects.create(
+                bill=bill,
+                product=product,
+                qty_primary=qty,
+                cost=Decimal("1.00"),
+                price=Decimal("1.00"),
+                line_total=qty,
+                currency="SYP",
+            )
+
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        activities = resp.context["details"]["analysis_panel"]["activities"]
+        top_products = activities["top-products"]["details"]["items"]
+        self.assertEqual(len(top_products), 5)
+        self.assertGreater(float(top_products[0]["total_qty"]), float(top_products[-1]["total_qty"]))
+
+        segments = activities["top-products"]["visual"]["segments"]
+        self.assertEqual(len(segments), 6)
+        others_segment = segments[-1]
+        self.assertEqual(others_segment["color"], "#9ca3af")
+
+    def test_visit_frequency_contains_days_times_and_toggle_controls(self):
+        product = self._create_product(idx=220, name="صنف-الزيارات")
+        bill = self._create_bill_with_items(provider=self.provider, items=[(product, Decimal("1"))])
+        Bill.objects.filter(id=bill.id).update(created_at=timezone.make_aware(datetime(2026, 5, 26, 9, 30)))
+
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        details = resp.context["details"]
+        visits = details["analysis_panel"]["activities"]["visit-frequency"]
+        self.assertEqual(visits["visual_kind"], "bars-toggle")
+        self.assertTrue(visits["visual"]["days"])
+        self.assertTrue(visits["visual"]["times"])
+        self.assertIn("الأيام", resp.content.decode("utf-8"))
+        self.assertIn("الأوقات", resp.content.decode("utf-8"))
+
+    def test_net_balance_panel_is_below_analysis_and_button_disabled(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
         html = resp.content.decode("utf-8")
-        self.assertEqual(html.count('id="latest-activity-display"'), 1)
-        self.assertEqual(html.count("data-latest-template="), 5)
-        self.assertGreaterEqual(html.count("data-activity-trigger="), 5)
+        self.assertLess(html.find('id="provider-analysis-panel"'), html.find('id="provider-net-summary-panel"'))
+        self.assertContains(resp, 'id="btn-net-details" type="button" class="btn primary" disabled')
 
-    def test_latest_activity_selector_is_client_side_without_reload(self):
+    def test_no_settlement_pay_receive_actions_exist(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'button.addEventListener("click", () => {')
-        self.assertContains(resp, "latestActivityDisplay.appendChild(selectedTemplate.content.cloneNode(true));")
-        self.assertContains(resp, 'button.classList.toggle("active", isActive);')
-        self.assertNotContains(resp, "window.location")
+        self.assertNotContains(resp, "pay_provider")
+        self.assertNotContains(resp, "receive_from_provider")
+        self.assertNotContains(resp, "/account-settlement")
 
-    def test_top_items_default_3_max_10_and_desc_order(self):
-        for idx in range(1, 13):
-            product = self._create_product(idx=idx, name=f"صنف-{idx:02d}")
-            self._create_bill_item(product=product, qty=Decimal(str(idx)))
-
+    def test_arabic_ui_text_only(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-
-        self.assertContains(resp, '<option value="3" selected>3</option>', html=False)
-        self.assertContains(resp, '<option value="10">10</option>', html=False)
-        self.assertContains(resp, "if (limit < 3) limit = 3;")
-        self.assertContains(resp, "if (limit > 10) limit = 10;")
-
-        rows_count = resp.content.decode("utf-8").count('data-top-item-row="1"')
-        self.assertEqual(rows_count, 10)
-        self.assertContains(resp, 'data-rank="4" hidden')
-        self.assertContains(resp, 'data-rank="3"')
-
-        html = resp.content.decode("utf-8")
-        self.assertLess(html.find("صنف-12"), html.find("صنف-11"))
-        self.assertLess(html.find("صنف-11"), html.find("صنف-10"))
-
-    def test_most_purchased_products_section_exists(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="top-items-card"')
-        self.assertContains(resp, "الأصناف الأكثر شراءً")
-
-    def test_top_items_horizontal_bar_visualization_exists(self):
-        product = self._create_product(idx=1, name="صنف-أ")
-        self._create_bill_item(product=product, qty=Decimal("5"))
-
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "item-bar-track")
-        self.assertContains(resp, "item-bar-fill")
-        self.assertContains(resp, "data-top-item-bar")
-
-    def test_notes_update_still_works(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="provider-notes"')
-        self.assertContains(resp, 'id="save-notes-btn"')
-
-        payload = {"action": "update_notes", "notes": "ملاحظة جديدة للمورد"}
-        resp = self.client.post(self._details_url(self.provider.public_id), payload)
-        self.assertEqual(resp.status_code, 302)
-
-        self.provider.refresh_from_db()
-        self.assertEqual(self.provider.notes, payload["notes"])
+        self.assertContains(resp, "المعلومات العامة")
+        self.assertContains(resp, "أرقام الهاتف")
+        self.assertContains(resp, "الملاحظات")
+        self.assertContains(resp, "تحليل تعاملات المورد")
+        self.assertContains(resp, "ملخص صافي حساب المورد")
+        self.assertContains(resp, "عرض تفاصيل صافي الحساب")
+        self.assertNotContains(resp, "Provider Profile")
+        self.assertNotContains(resp, "Show Net Balance")
+        self.assertNotContains(resp, "Latest Activity")
 
     def test_net_balance_summary_uses_provider_projection(self):
         mocked_projection = {
@@ -399,60 +415,24 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertContains(resp, 'id="net-syp-receivable"')
         self.assertContains(resp, 'id="net-usd-payable"')
         self.assertContains(resp, 'id="net-usd-receivable"')
-        self.assertContains(resp, 'id="net-summary-card"')
 
-    def test_balanced_net_with_open_obligations_warning_is_visible(self):
-        mocked_projection = {
-            "provider_id": self.provider.id,
-            "currencies": {
-                "SYP": {
-                    "receivable": Decimal("100.00"),
-                    "payable": Decimal("100.00"),
-                    "net": Decimal("0.00"),
-                    "open_receivable_count": 1,
-                    "open_payable_count": 1,
-                },
-                "USD": {
-                    "receivable": Decimal("0.00"),
-                    "payable": Decimal("0.00"),
-                    "net": Decimal("0.00"),
-                    "open_receivable_count": 0,
-                    "open_payable_count": 0,
-                },
-            },
-            "diagnostics": {
-                "dedup_warnings": [],
-                "unresolved_identities": [],
-            },
-        }
+    def test_providers_list_shows_latest_added_phone_only(self):
+        self.provider.phone = ""
+        self.provider.save(update_fields=["phone"])
 
-        with patch("billing.selectors.get_provider_net_position", return_value=mocked_projection):
-            resp = self.client.get(self._details_url(self.provider.public_id))
+        add_provider_phone(actor=self.manager, provider=self.provider, phone_number="0977000001")
+        add_provider_phone(actor=self.manager, provider=self.provider, phone_number="0977000002")
 
+        resp = self.client.get(
+            reverse("billing_api_providers_list"),
+            {"basic": "1", "include_all": "1", "page_size": "30"},
+        )
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="net-open-warning"')
-        self.assertContains(resp, "صافي الحساب متوازن لكن توجد ديون مفتوحة")
-
-    def test_no_settlement_actions_and_disabled_net_details_button(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="btn-net-details" type="button" class="btn primary" disabled')
-        self.assertNotContains(resp, "pay_provider")
-        self.assertNotContains(resp, "receive_from_provider")
-        self.assertNotContains(resp, "/account-settlement")
-
-    def test_arabic_ui_text_only(self):
-        resp = self.client.get(self._details_url(self.provider.public_id))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "المعلومات العامة")
-        self.assertContains(resp, "أرقام الهاتف")
-        self.assertContains(resp, "سجل النشاط الأخير")
-        self.assertContains(resp, "ملخص صافي الحساب")
-        self.assertContains(resp, "الأصناف الأكثر شراءً")
-        self.assertContains(resp, "عرض تفاصيل صافي الحساب")
-        self.assertNotContains(resp, "Provider Profile")
-        self.assertNotContains(resp, "Show Net Balance")
-        self.assertNotContains(resp, "Latest Activity")
+        body = resp.json()
+        self.assertTrue(body.get("ok"), body)
+        row = next(item for item in body["items"] if int(item["id"]) == self.provider.id)
+        self.assertEqual(row["phone"], "0977000002")
+        self.assertNotEqual(row["phone"], "0977000001")
 
 
 class ProviderPhoneMigrationBackfillTests(TransactionTestCase):

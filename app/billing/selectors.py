@@ -1,5 +1,6 @@
 # app/billing/selectors.py
 from __future__ import annotations
+from collections import Counter
 from typing import Optional, Any
 from decimal import Decimal
 
@@ -7,11 +8,14 @@ from django.db.models import (
     Q, Value, Count, Sum
 )
 from django.db.models.functions import Coalesce, Lower
+from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 
 from billing.models import Provider, Bill, ProviderReturn, BillItem
 from debts.models import (
     DebtDirection,
     DebtCauseType,
+    DebtStatus,
     DebtRecord,
     DebtSettlement,
     DebtorPayment,
@@ -308,6 +312,71 @@ def _pick_latest_profile_activity(*activities: dict[str, Any] | None) -> dict[st
     return winner
 
 
+def _safe_reverse(route_name: str, *, kwargs: dict[str, Any] | None = None) -> str:
+    try:
+        return reverse(route_name, kwargs=kwargs or {})
+    except NoReverseMatch:
+        return ""
+
+
+def _fmt_dt(value) -> str:
+    if value is None:
+        return ""
+    try:
+        value = timezone.localtime(value)
+    except Exception:
+        pass
+    try:
+        return value.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
+
+
+def _percent_share(*, part: int, total: int) -> Decimal:
+    if total <= 0:
+        return DEC0
+    try:
+        return ((Decimal(part) * Decimal("100.00")) / Decimal(total)).quantize(Decimal("0.01"))
+    except Exception:
+        return DEC0
+
+
+def _build_totals_share(*, provider_count: int, total_count: int) -> dict[str, Any]:
+    provider_percent = _percent_share(part=provider_count, total=total_count)
+    others_percent = DEC0
+    if total_count > 0:
+        others_percent = Decimal("100.00") - provider_percent
+        if others_percent < DEC0:
+            others_percent = DEC0
+    return {
+        "provider_count": int(provider_count),
+        "total_count": int(total_count),
+        "provider_percent": provider_percent,
+        "others_percent": others_percent,
+    }
+
+
+def _debt_status_label(status: str) -> str:
+    code = (status or "").strip().lower()
+    if code == DebtStatus.OPEN:
+        return "مفتوح"
+    if code == DebtStatus.CLOSED:
+        return "مغلق"
+    return "لا توجد بيانات كافية"
+
+
+def _pick_latest_model_event(*, first, second, first_kind: str, second_kind: str) -> tuple[str, Any] | tuple[None, None]:
+    rows: list[tuple[str, Any, int]] = []
+    if first is not None and getattr(first, "created_at", None) is not None:
+        rows.append((first_kind, first, int(getattr(first, "id", 0) or 0)))
+    if second is not None and getattr(second, "created_at", None) is not None:
+        rows.append((second_kind, second, int(getattr(second, "id", 0) or 0)))
+    if not rows:
+        return None, None
+    rows.sort(key=lambda row: (getattr(row[1], "created_at", None), row[2]), reverse=True)
+    return rows[0][0], rows[0][1]
+
+
 def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10) -> dict[str, Any]:
     try:
         requested_limit = int(top_items_limit)
@@ -562,9 +631,482 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
         ),
     )
 
+    totals_share = {
+        "purchase_bills": _build_totals_share(
+            provider_count=purchase_bills_count,
+            total_count=int(Bill.objects.count()),
+        ),
+        "provider_returns": _build_totals_share(
+            provider_count=provider_returns_count,
+            total_count=int(ProviderReturn.objects.count()),
+        ),
+        "open_debts": _build_totals_share(
+            provider_count=int(
+                DebtRecord.objects
+                .filter(provider_id=provider_id, status=DebtStatus.OPEN)
+                .count()
+            ),
+            total_count=int(
+                DebtRecord.objects
+                .filter(provider__isnull=False, status=DebtStatus.OPEN)
+                .count()
+            ),
+        ),
+    }
+
+    latest_purchase_details = None
+    if latest_purchase is not None:
+        purchase_items_qs = (
+            BillItem.objects
+            .filter(bill_id=latest_purchase.id)
+            .select_related("product")
+            .order_by("-id")
+        )
+        preview_items: list[dict[str, Any]] = []
+        for row in purchase_items_qs[:3]:
+            product_name = (
+                str(getattr(row, "product_name_at_txn", "") or "")
+                or str(getattr(getattr(row, "product", None), "name", "") or "")
+                or "—"
+            )
+            product_name = product_name.strip() or "—"
+            preview_items.append(
+                {
+                    "product_name": product_name,
+                    "qty_primary": _as_decimal(getattr(row, "qty_primary", DEC0)),
+                    "product_view_url": _safe_reverse("manager_product_edit", kwargs={"pk": int(row.product_id)})
+                    if getattr(row, "product_id", None)
+                    else "",
+                }
+            )
+        latest_purchase_details = {
+            "public_id": str(latest_purchase.public_id or ""),
+            "created_at": _fmt_dt(latest_purchase.created_at),
+            "items_count": int(purchase_items_qs.count()),
+            "total_syp": _as_decimal(getattr(latest_purchase, "total_syp", DEC0)),
+            "total_usd": _as_decimal(getattr(latest_purchase, "total_usd", DEC0)),
+            "status_current_label": _bill_status_label(str(latest_purchase.status or "")),
+            "payment_method_label": (
+                latest_purchase.get_creation_payment_method_display() or ""
+                if getattr(latest_purchase, "creation_payment_method", None)
+                else ""
+            ),
+            "status_at_creation_label": (
+                latest_purchase.get_creation_payment_status_display() or ""
+                if getattr(latest_purchase, "creation_payment_status", None)
+                else ""
+            ),
+            "products_preview": preview_items,
+            "view_url": _safe_reverse("billing_bill_view", kwargs={"bill_id": latest_purchase.public_id}),
+        }
+
+    latest_return_details = None
+    if latest_return is not None:
+        latest_return_details = {
+            "public_id": str(latest_return.public_id or ""),
+            "created_at": _fmt_dt(latest_return.created_at),
+            "items_count": int(latest_return.items.count()),
+            "total_syp": _as_decimal(getattr(latest_return, "total_syp", DEC0)),
+            "total_usd": _as_decimal(getattr(latest_return, "total_usd", DEC0)),
+            "status_label": _return_status_label(str(latest_return.status or "")),
+            "view_url": _safe_reverse("billing_return_view", kwargs={"ret_id": latest_return.public_id}),
+        }
+
+    latest_debt_details = None
+    if latest_debt is not None:
+        latest_debt_details = {
+            "public_id": str(latest_debt.public_id or ""),
+            "created_at": _fmt_dt(latest_debt.created_at),
+            "direction_label": _debt_direction_label(str(latest_debt.direction or "")),
+            "cause_label": _debt_cause_label(str(latest_debt.cause_type or "")),
+            "total_syp": _as_decimal(getattr(latest_debt, "total_syp", DEC0)),
+            "total_usd": _as_decimal(getattr(latest_debt, "total_usd", DEC0)),
+            "status_label": _debt_status_label(str(getattr(latest_debt, "status", "") or "")),
+            "reason_note": str(getattr(latest_debt, "note", "") or "").strip(),
+            "view_url": _safe_reverse("debts_view_central_debt", kwargs={"debt_ref": latest_debt.public_id}),
+        }
+
+    latest_payment_details = None
+    payment_central = (
+        DebtSettlement.objects
+        .filter(debt__provider_id=provider_id, debt__direction=DebtDirection.PAYABLE)
+        .select_related("debt", "money_container")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    payment_legacy = (
+        DebtorPayment.objects
+        .filter(entry__provider_id=provider_id)
+        .select_related("entry", "money_container")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    payment_kind, payment_row = _pick_latest_model_event(
+        first=payment_central,
+        second=payment_legacy,
+        first_kind="central",
+        second_kind="legacy",
+    )
+    if payment_row is not None:
+        if payment_kind == "central":
+            amount_syp = _as_decimal(getattr(payment_row, "applied_syp", DEC0))
+            amount_usd = _as_decimal(getattr(payment_row, "applied_usd", DEC0))
+            linked_ref = str(getattr(getattr(payment_row, "debt", None), "public_id", "") or "")
+            money_container_name = str(getattr(getattr(payment_row, "money_container", None), "name", "") or "")
+            view_url = _safe_reverse("debts_view_central_debt", kwargs={"debt_ref": linked_ref}) if linked_ref else ""
+            source_label = "تسوية دين مركزي"
+        else:
+            amount = _as_decimal(getattr(payment_row, "amount", DEC0))
+            currency_code = str(getattr(payment_row, "currency_code", "SYP") or "SYP").upper()
+            amount_syp = amount if currency_code == "SYP" else DEC0
+            amount_usd = amount if currency_code == "USD" else DEC0
+            linked_ref = str(getattr(getattr(payment_row, "entry", None), "source_id", "") or "")
+            money_container_name = str(getattr(getattr(payment_row, "money_container", None), "name", "") or "")
+            entry_id = int(getattr(getattr(payment_row, "entry", None), "id", 0) or 0)
+            view_url = _safe_reverse("debts_view_debt", kwargs={"direction": "debtor", "entry_id": entry_id}) if entry_id else ""
+            source_label = "دفعة دين قديم"
+
+        currency_label = "متعدد العملات"
+        amount_value = amount_syp
+        if amount_syp > DEC0 and amount_usd <= DEC0:
+            currency_label = "SYP"
+            amount_value = amount_syp
+        elif amount_usd > DEC0 and amount_syp <= DEC0:
+            currency_label = "USD"
+            amount_value = amount_usd
+
+        latest_payment_details = {
+            "created_at": _fmt_dt(getattr(payment_row, "created_at", None)),
+            "currency_label": currency_label,
+            "amount_value": amount_value,
+            "amount_syp": amount_syp,
+            "amount_usd": amount_usd,
+            "source_label": source_label,
+            "money_container_name": money_container_name,
+            "linked_reference": linked_ref,
+            "view_url": view_url,
+        }
+
+    latest_collection_details = None
+    collection_central = (
+        DebtSettlement.objects
+        .filter(debt__provider_id=provider_id, debt__direction=DebtDirection.RECEIVABLE)
+        .select_related("debt", "money_container")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    collection_legacy = (
+        CreditorReceipt.objects
+        .filter(entry__provider_id=provider_id)
+        .select_related("entry", "money_container")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    collection_kind, collection_row = _pick_latest_model_event(
+        first=collection_central,
+        second=collection_legacy,
+        first_kind="central",
+        second_kind="legacy",
+    )
+    if collection_row is not None:
+        if collection_kind == "central":
+            amount_syp = _as_decimal(getattr(collection_row, "applied_syp", DEC0))
+            amount_usd = _as_decimal(getattr(collection_row, "applied_usd", DEC0))
+            linked_ref = str(getattr(getattr(collection_row, "debt", None), "public_id", "") or "")
+            money_container_name = str(getattr(getattr(collection_row, "money_container", None), "name", "") or "")
+            view_url = _safe_reverse("debts_view_central_debt", kwargs={"debt_ref": linked_ref}) if linked_ref else ""
+            source_label = "تسوية دين مركزي"
+        else:
+            amount = _as_decimal(getattr(collection_row, "amount", DEC0))
+            currency_code = str(getattr(collection_row, "currency_code", "SYP") or "SYP").upper()
+            amount_syp = amount if currency_code == "SYP" else DEC0
+            amount_usd = amount if currency_code == "USD" else DEC0
+            linked_ref = str(getattr(getattr(collection_row, "entry", None), "source_id", "") or "")
+            money_container_name = str(getattr(getattr(collection_row, "money_container", None), "name", "") or "")
+            entry_id = int(getattr(getattr(collection_row, "entry", None), "id", 0) or 0)
+            view_url = _safe_reverse("debts_view_debt", kwargs={"direction": "creditor", "entry_id": entry_id}) if entry_id else ""
+            source_label = "تحصيل دين قديم"
+
+        currency_label = "متعدد العملات"
+        amount_value = amount_syp
+        if amount_syp > DEC0 and amount_usd <= DEC0:
+            currency_label = "SYP"
+            amount_value = amount_syp
+        elif amount_usd > DEC0 and amount_syp <= DEC0:
+            currency_label = "USD"
+            amount_value = amount_usd
+
+        latest_collection_details = {
+            "created_at": _fmt_dt(getattr(collection_row, "created_at", None)),
+            "currency_label": currency_label,
+            "amount_value": amount_value,
+            "amount_syp": amount_syp,
+            "amount_usd": amount_usd,
+            "source_label": source_label,
+            "money_container_name": money_container_name,
+            "linked_reference": linked_ref,
+            "view_url": view_url,
+        }
+
+    top_products_rows = list(
+        BillItem.objects
+        .filter(bill__provider_id=provider_id)
+        .values("product_id", "product_name_at_txn", "product__name")
+        .annotate(total_qty=Sum("qty_primary"), lines_count=Count("id"))
+        .order_by("-total_qty", "-lines_count", "product_id")
+    )
+    top_products_items: list[dict[str, Any]] = []
+    top_products_segments: list[dict[str, Any]] = []
+    top_products_palette = ["#0f766e", "#2563eb", "#ea580c", "#16a34a", "#1d4ed8"]
+    total_products_qty = sum((_as_decimal(row.get("total_qty")) for row in top_products_rows), DEC0)
+    top5_qty = DEC0
+    for idx, row in enumerate(top_products_rows[:5]):
+        qty = _as_decimal(row.get("total_qty"))
+        top5_qty += qty
+        product_id = int(row.get("product_id") or 0)
+        product_name = str(row.get("product_name_at_txn") or row.get("product__name") or "—").strip() or "—"
+        top_products_items.append(
+            {
+                "product_name": product_name,
+                "product_code": (f"#{product_id}" if product_id > 0 else "—"),
+                "total_qty": qty,
+                "view_url": _safe_reverse("manager_product_edit", kwargs={"pk": product_id}) if product_id > 0 else "",
+            }
+        )
+        product_percent = DEC0
+        if total_products_qty > DEC0:
+            product_percent = ((qty * Decimal("100.00")) / total_products_qty).quantize(Decimal("0.01"))
+        top_products_segments.append(
+            {
+                "label": product_name,
+                "percent": product_percent,
+                "color": top_products_palette[idx % len(top_products_palette)],
+            }
+        )
+    if total_products_qty > DEC0 and (total_products_qty - top5_qty) > DEC0:
+        others_percent = (((total_products_qty - top5_qty) * Decimal("100.00")) / total_products_qty).quantize(Decimal("0.01"))
+        top_products_segments.append(
+            {
+                "label": "أصناف أخرى",
+                "percent": others_percent,
+                "color": "#9ca3af",
+            }
+        )
+
+    weekday_labels = {
+        0: "الاثنين",
+        1: "الثلاثاء",
+        2: "الأربعاء",
+        3: "الخميس",
+        4: "الجمعة",
+        5: "السبت",
+        6: "الأحد",
+    }
+    time_buckets = [
+        ("ليلًا (00-05)", range(0, 6)),
+        ("صباحًا (06-09)", range(6, 10)),
+        ("قبل الظهر (10-13)", range(10, 14)),
+        ("بعد الظهر (14-17)", range(14, 18)),
+        ("مساءً (18-21)", range(18, 22)),
+        ("آخر الليل (22-23)", range(22, 24)),
+    ]
+    visit_sources = [
+        ("فواتير الشراء", list(purchase_qs.values_list("created_at", flat=True))),
+        ("فواتير الإرجاع", list(returns_qs.values_list("created_at", flat=True))),
+        (
+            "سجلات الديون",
+            list(DebtRecord.objects.filter(provider_id=provider_id).values_list("created_at", flat=True)),
+        ),
+        (
+            "تسويات الديون",
+            list(DebtSettlement.objects.filter(debt__provider_id=provider_id).values_list("created_at", flat=True)),
+        ),
+    ]
+    visit_timestamps: list[Any] = []
+    visit_sources_used: list[str] = []
+    for label, rows in visit_sources:
+        valid_rows = [x for x in rows if x is not None]
+        if valid_rows:
+            visit_sources_used.append(label)
+            visit_timestamps.extend(valid_rows)
+
+    day_counter: Counter[int] = Counter()
+    time_counter: Counter[str] = Counter()
+    for value in visit_timestamps:
+        try:
+            value = timezone.localtime(value)
+        except Exception:
+            pass
+        day_counter[int(value.weekday())] += 1
+        hour = int(value.hour)
+        for bucket_label, hour_range in time_buckets:
+            if hour in hour_range:
+                time_counter[bucket_label] += 1
+                break
+
+    visit_days_rows = [{"label": weekday_labels[idx], "count": int(day_counter.get(idx, 0))} for idx in range(7)]
+    visit_times_rows = [{"label": bucket_label, "count": int(time_counter.get(bucket_label, 0))} for bucket_label, _ in time_buckets]
+
+    top_weekday = "لا توجد بيانات كافية"
+    if day_counter:
+        day_index = max(day_counter.items(), key=lambda item: (item[1], -item[0]))[0]
+        top_weekday = weekday_labels.get(day_index, "لا توجد بيانات كافية")
+    top_time = "لا توجد بيانات كافية"
+    if time_counter:
+        top_time = max(time_counter.items(), key=lambda item: item[1])[0]
+
+    analysis_panel = {
+        "selected_default": "total-purchase-bills",
+        "chooser_groups": [
+            {
+                "key": "totals",
+                "label": "الإجماليات",
+                "options": [
+                    {"key": "total-purchase-bills", "label": "عدد فواتير الشراء"},
+                    {"key": "total-provider-returns", "label": "عدد فواتير الإرجاع"},
+                    {"key": "total-open-debts", "label": "عدد الديون"},
+                ],
+            },
+            {
+                "key": "latest",
+                "label": "آخر العمليات",
+                "options": [
+                    {"key": "latest-purchase", "label": "آخر فاتورة شراء"},
+                    {"key": "latest-return", "label": "آخر إرجاع"},
+                    {"key": "latest-debt", "label": "آخر دين"},
+                    {"key": "latest-payment", "label": "آخر دفعة"},
+                    {"key": "latest-collection", "label": "آخر تحصيل"},
+                ],
+            },
+            {
+                "key": "extras",
+                "label": "إضافات",
+                "options": [
+                    {"key": "top-products", "label": "الأصناف الأكثر شراءً"},
+                    {"key": "visit-frequency", "label": "تكرار زيارات المورد"},
+                ],
+            },
+        ],
+        "activities": {
+            "total-purchase-bills": {
+                "details_kind": "totals",
+                "visual_kind": "donut-two",
+                "details": {**totals_share["purchase_bills"], "metric_note": ""},
+                "visual": {
+                    "segments": [
+                        {
+                            "label": "هذا المورد",
+                            "percent": totals_share["purchase_bills"]["provider_percent"],
+                            "color": "#0f766e",
+                        },
+                        {
+                            "label": "باقي الموردين",
+                            "percent": totals_share["purchase_bills"]["others_percent"],
+                            "color": "#9ca3af",
+                        },
+                    ],
+                },
+            },
+            "total-provider-returns": {
+                "details_kind": "totals",
+                "visual_kind": "donut-two",
+                "details": {**totals_share["provider_returns"], "metric_note": ""},
+                "visual": {
+                    "segments": [
+                        {
+                            "label": "هذا المورد",
+                            "percent": totals_share["provider_returns"]["provider_percent"],
+                            "color": "#2563eb",
+                        },
+                        {
+                            "label": "باقي الموردين",
+                            "percent": totals_share["provider_returns"]["others_percent"],
+                            "color": "#9ca3af",
+                        },
+                    ],
+                },
+            },
+            "total-open-debts": {
+                "details_kind": "totals",
+                "visual_kind": "donut-two",
+                "details": {
+                    **totals_share["open_debts"],
+                    "metric_note": "تم احتساب الديون المفتوحة فقط لضمان اتساق المؤشر.",
+                },
+                "visual": {
+                    "segments": [
+                        {
+                            "label": "هذا المورد",
+                            "percent": totals_share["open_debts"]["provider_percent"],
+                            "color": "#ea580c",
+                        },
+                        {
+                            "label": "باقي الموردين",
+                            "percent": totals_share["open_debts"]["others_percent"],
+                            "color": "#9ca3af",
+                        },
+                    ],
+                },
+            },
+            "latest-purchase": {
+                "details_kind": "latest-purchase",
+                "visual_kind": "none",
+                "details": latest_purchase_details,
+                "visual": {},
+            },
+            "latest-return": {
+                "details_kind": "latest-return",
+                "visual_kind": "none",
+                "details": latest_return_details,
+                "visual": {},
+            },
+            "latest-debt": {
+                "details_kind": "latest-debt",
+                "visual_kind": "none",
+                "details": latest_debt_details,
+                "visual": {},
+            },
+            "latest-payment": {
+                "details_kind": "latest-payment",
+                "visual_kind": "none",
+                "details": latest_payment_details,
+                "visual": {},
+            },
+            "latest-collection": {
+                "details_kind": "latest-collection",
+                "visual_kind": "none",
+                "details": latest_collection_details,
+                "visual": {},
+            },
+            "top-products": {
+                "details_kind": "top-products",
+                "visual_kind": "donut-multi",
+                "details": {"items": top_products_items},
+                "visual": {"segments": top_products_segments},
+            },
+            "visit-frequency": {
+                "details_kind": "visit-frequency",
+                "visual_kind": "bars-toggle",
+                "details": {
+                    "top_weekday": top_weekday,
+                    "top_time": top_time,
+                    "operations_count": len(visit_timestamps),
+                    "note": "القيم تقريبية حسب العمليات المسجلة",
+                    "sources": visit_sources_used,
+                },
+                "visual": {
+                    "days": visit_days_rows,
+                    "times": visit_times_rows,
+                },
+            },
+        },
+    }
+
     return {
         "purchase_bills_count": purchase_bills_count,
         "provider_returns_count": provider_returns_count,
+        "totals_share": totals_share,
+        "analysis_panel": analysis_panel,
         "activity_summary": {
             "latest_activity": latest_activity,
             "latest_activity_label": (
