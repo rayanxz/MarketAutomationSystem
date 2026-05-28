@@ -210,6 +210,8 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         html = resp.content.decode("utf-8")
         self.assertGreaterEqual(html.count('data-expanded="false"'), 3)
         self.assertGreaterEqual(html.count('aria-expanded="false"'), 3)
+        self.assertGreaterEqual(html.count("analysis-group is-collapsed"), 3)
+        self.assertNotIn("analysis-group is-expanded", html)
         self.assertNotIn("analysis-option-btn active", html)
         self.assertNotContains(resp, 'aria-pressed="true"')
         self.assertContains(resp, 'id="analysis-group-options-totals" hidden')
@@ -248,6 +250,13 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
                 r'class="analysis-group-toggle"[\s\S]*?class="analysis-group-title"[\s\S]*?class="analysis-group-chevron"'
             ),
         )
+
+    def test_expanded_group_header_highlight_and_option_active_style_are_separate(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, ".analysis-group.is-expanded .analysis-group-toggle")
+        self.assertContains(resp, ".analysis-group.is-expanded .analysis-group-title")
+        self.assertContains(resp, ".analysis-option-btn.active")
 
     def test_totals_include_provider_vs_others_percentages(self):
         p1 = self._create_product(idx=1, name="منتج-1")
