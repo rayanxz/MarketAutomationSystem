@@ -696,7 +696,6 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
                 if getattr(latest_purchase, "creation_payment_status", None)
                 else ""
             ),
-            "products_preview": preview_items,
             "view_url": _safe_reverse("billing_bill_view", kwargs={"bill_id": latest_purchase.public_id}),
         }
 
@@ -709,6 +708,8 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
             "total_syp": _as_decimal(getattr(latest_return, "total_syp", DEC0)),
             "total_usd": _as_decimal(getattr(latest_return, "total_usd", DEC0)),
             "status_label": _return_status_label(str(latest_return.status or "")),
+            "payment_method_label": "",
+            "status_at_creation_label": _bill_status_label(str(getattr(latest_return, "initial_status", "") or "")),
             "view_url": _safe_reverse("billing_return_view", kwargs={"ret_id": latest_return.public_id}),
         }
 

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
@@ -297,7 +297,6 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertIn("others_percent", totals["provider_returns"])
         self.assertIn("provider_percent", totals["open_debts"])
         self.assertIn("others_percent", totals["open_debts"])
-
     def test_latest_activities_have_details_payload_and_no_chart_visual(self):
         product = self._create_product(idx=10, name="منتج-أ")
         bill = self._create_bill_with_items(
@@ -356,6 +355,24 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         for key in ["latest-purchase", "latest-return", "latest-debt", "latest-payment", "latest-collection"]:
             self.assertEqual(activities[key]["visual_kind"], "none")
             self.assertIsNotNone(activities[key]["details"])
+
+        self.assertNotIn("products_preview", activities["latest-purchase"]["details"])
+        self.assertNotIn("products_preview", activities["latest-return"]["details"])
+        self.assertContains(resp, "هوية العملية")
+        self.assertContains(resp, "الملخص")
+        self.assertContains(resp, "الإجماليات")
+        self.assertContains(resp, "رقم الفاتورة")
+        self.assertContains(resp, "رقم الإرجاع")
+        self.assertContains(resp, "التاريخ")
+        self.assertContains(resp, "عدد المنتجات")
+        self.assertContains(resp, "الحالة الحالية")
+        self.assertContains(resp, "إجمالي SYP")
+        self.assertContains(resp, "إجمالي USD")
+        self.assertContains(resp, "عرض العملية")
+        self.assertNotContains(resp, "الدفع عند الإنشاء")
+        self.assertNotContains(resp, "حالة الدفع عند الإنشاء")
+        self.assertNotContains(resp, "نوع الدفع")
+        self.assertNotContains(resp, 'analysis-detail-group-title">الدفع عند الإنشاء')
 
         self.assertContains(resp, "لا يوجد رسم بياني لهذا العنصر")
 
@@ -515,3 +532,4 @@ class ProviderPhoneMigrationBackfillTests(TransactionTestCase):
         self.assertTrue(
             NewProviderPhone.objects.filter(provider_id=new_provider.id, phone_number="0988000001").exists()
         )
+

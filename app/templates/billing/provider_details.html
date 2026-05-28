@@ -588,6 +588,29 @@
     color:#64748b;
     font-size:12px;
   }
+  .analysis-detail-groups{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .analysis-detail-group{
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#fff;
+    padding:8px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .analysis-detail-group-title{
+    color:#334155;
+    font-size:12px;
+    font-weight:800;
+  }
+  .analysis-detail-group-action{
+    display:flex;
+    justify-content:flex-start;
+  }
   .analysis-separator{
     height:1px;
     background:#e2e8f0;
@@ -1253,45 +1276,57 @@
     }
 
     if (activity.details_kind === "latest-purchase") {
-      const rows = (details.products_preview || []).map((row) => `
-        <div class="analysis-list-row">
-          <div class="analysis-list-main">
-            <div class="analysis-list-title">${escapeHtml(row.product_name)}</div>
-            <div class="analysis-list-sub">الكمية: ${fmtQty(row.qty_primary)}</div>
-          </div>
-          ${row.product_view_url ? `<a class="inline-link" href="${escapeHtml(row.product_view_url)}">عرض المنتج</a>` : ""}
-        </div>
-      `).join("");
       detailsBox.innerHTML = `
-        <div class="analysis-cards-grid">
-          <div class="analysis-mini-card"><div class="analysis-mini-label">رقم الفاتورة</div><div class="analysis-mini-value">${escapeHtml(details.public_id || "—")}</div></div>
-          <div class="analysis-mini-card"><div class="analysis-mini-label">التاريخ</div><div class="analysis-mini-value">${escapeHtml(details.created_at || "—")}</div></div>
-          <div class="analysis-mini-card"><div class="analysis-mini-label">عدد المنتجات</div><div class="analysis-mini-value">${escapeHtml(details.items_count || 0)}</div></div>
-          <div class="analysis-mini-card"><div class="analysis-mini-label">الحالة الحالية</div><div class="analysis-mini-value">${escapeHtml(details.status_current_label || "—")}</div></div>
+        <div class="analysis-detail-groups">
+          <div class="analysis-detail-group">
+            <div class="analysis-detail-group-title">هوية العملية</div>
+            <div class="analysis-cards-grid">
+              <div class="analysis-mini-card"><div class="analysis-mini-label">رقم الفاتورة</div><div class="analysis-mini-value">${escapeHtml(details.public_id || "—")}</div></div>
+              <div class="analysis-mini-card"><div class="analysis-mini-label">التاريخ</div><div class="analysis-mini-value">${escapeHtml(details.created_at || "—")}</div></div>
+            </div>
+            ${details.view_url ? `<div class="analysis-detail-group-action"><a class="inline-link" href="${escapeHtml(details.view_url)}">عرض العملية</a></div>` : ""}
+          </div>
+          <div class="analysis-detail-group">
+            <div class="analysis-detail-group-title">الملخص</div>
+            <div class="analysis-cards-grid">
+              <div class="analysis-mini-card"><div class="analysis-mini-label">عدد المنتجات</div><div class="analysis-mini-value">${escapeHtml(details.items_count || 0)}</div></div>
+              <div class="analysis-mini-card"><div class="analysis-mini-label">الحالة الحالية</div><div class="analysis-mini-value">${escapeHtml(details.status_current_label || "—")}</div></div>
+            </div>
+          </div>
+          <div class="analysis-detail-group">
+            <div class="analysis-detail-group-title">الإجماليات</div>
+            <div class="analysis-row"><span class="label">إجمالي SYP</span><span class="value">${fmtMoney(details.total_syp)}</span></div>
+            <div class="analysis-row"><span class="label">إجمالي USD</span><span class="value">${fmtMoney(details.total_usd)}</span></div>
+          </div>
         </div>
-        <div class="analysis-separator"></div>
-        <div class="analysis-row"><span class="label">إجمالي SYP</span><span class="value">${fmtMoney(details.total_syp)}</span></div>
-        <div class="analysis-row"><span class="label">إجمالي USD</span><span class="value">${fmtMoney(details.total_usd)}</span></div>
-        <div class="analysis-row"><span class="label">نوع الدفع</span><span class="value rtl">${escapeHtml(details.payment_method_label || "لا توجد بيانات كافية")}</span></div>
-        <div class="analysis-row"><span class="label">حالة الدفع عند الإنشاء</span><span class="value rtl">${escapeHtml(details.status_at_creation_label || "لا توجد بيانات كافية")}</span></div>
-        ${rows ? `<div class="analysis-separator"></div><div class="analysis-list">${rows}</div>` : ""}
-        ${details.view_url ? `<div class="analysis-separator"></div><a class="inline-link" href="${escapeHtml(details.view_url)}">عرض العملية</a>` : ""}
       `;
       return;
     }
 
     if (activity.details_kind === "latest-return") {
       detailsBox.innerHTML = `
-        <div class="analysis-cards-grid">
-          <div class="analysis-mini-card"><div class="analysis-mini-label">رقم الإرجاع</div><div class="analysis-mini-value">${escapeHtml(details.public_id || "—")}</div></div>
-          <div class="analysis-mini-card"><div class="analysis-mini-label">التاريخ</div><div class="analysis-mini-value">${escapeHtml(details.created_at || "—")}</div></div>
-          <div class="analysis-mini-card"><div class="analysis-mini-label">عدد المنتجات</div><div class="analysis-mini-value">${escapeHtml(details.items_count || 0)}</div></div>
-          <div class="analysis-mini-card"><div class="analysis-mini-label">الحالة</div><div class="analysis-mini-value">${escapeHtml(details.status_label || "—")}</div></div>
+        <div class="analysis-detail-groups">
+          <div class="analysis-detail-group">
+            <div class="analysis-detail-group-title">هوية العملية</div>
+            <div class="analysis-cards-grid">
+              <div class="analysis-mini-card"><div class="analysis-mini-label">رقم الإرجاع</div><div class="analysis-mini-value">${escapeHtml(details.public_id || "—")}</div></div>
+              <div class="analysis-mini-card"><div class="analysis-mini-label">التاريخ</div><div class="analysis-mini-value">${escapeHtml(details.created_at || "—")}</div></div>
+            </div>
+            ${details.view_url ? `<div class="analysis-detail-group-action"><a class="inline-link" href="${escapeHtml(details.view_url)}">عرض العملية</a></div>` : ""}
+          </div>
+          <div class="analysis-detail-group">
+            <div class="analysis-detail-group-title">الملخص</div>
+            <div class="analysis-cards-grid">
+              <div class="analysis-mini-card"><div class="analysis-mini-label">عدد المنتجات</div><div class="analysis-mini-value">${escapeHtml(details.items_count || 0)}</div></div>
+              <div class="analysis-mini-card"><div class="analysis-mini-label">الحالة الحالية</div><div class="analysis-mini-value">${escapeHtml(details.status_label || "—")}</div></div>
+            </div>
+          </div>
+          <div class="analysis-detail-group">
+            <div class="analysis-detail-group-title">الإجماليات</div>
+            <div class="analysis-row"><span class="label">إجمالي SYP</span><span class="value">${fmtMoney(details.total_syp)}</span></div>
+            <div class="analysis-row"><span class="label">إجمالي USD</span><span class="value">${fmtMoney(details.total_usd)}</span></div>
+          </div>
         </div>
-        <div class="analysis-separator"></div>
-        <div class="analysis-row"><span class="label">إجمالي SYP</span><span class="value">${fmtMoney(details.total_syp)}</span></div>
-        <div class="analysis-row"><span class="label">إجمالي USD</span><span class="value">${fmtMoney(details.total_usd)}</span></div>
-        ${details.view_url ? `<div class="analysis-separator"></div><a class="inline-link" href="${escapeHtml(details.view_url)}">عرض العملية</a>` : ""}
       `;
       return;
     }
