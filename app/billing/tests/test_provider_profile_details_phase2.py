@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 import re
 from unittest.mock import patch
 
@@ -59,6 +60,14 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
 
     def _details_url(self, provider_ref: str) -> str:
         return reverse("billing_provider_details", kwargs={"provider_ref": provider_ref})
+
+    @staticmethod
+    def _provider_details_css() -> str:
+        return Path("app/static/billing/css/provider_details.css").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _provider_details_js() -> str:
+        return Path("app/static/billing/js/provider_details.js").read_text(encoding="utf-8")
 
     def _create_product(self, *, idx: int, name: str) -> Product:
         collection = ProductCollection.objects.create(name=f"زمرة {idx}")
@@ -231,18 +240,22 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
     def test_accordion_single_expand_behavior_is_wired_in_js(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "function collapseAllGroups(expandKey = \"\")")
-        self.assertContains(resp, "setGroupExpanded(groupNode, isExpanded);")
-        self.assertContains(resp, "const alreadyExpanded = groupNode.getAttribute(\"data-expanded\") === \"true\";")
-        self.assertContains(resp, "collapseAllGroups(groupKey);")
-        self.assertContains(resp, "collapseAllGroups(\"\");")
-        self.assertContains(resp, "analysisChooserList.addEventListener(\"click\", (event) => {")
+        self.assertContains(resp, "/static/billing/js/provider_details.js")
+        js = self._provider_details_js()
+        self.assertIn("function collapseAllGroups(expandKey = \"\")", js)
+        self.assertIn("setGroupExpanded(groupNode, isExpanded);", js)
+        self.assertIn("const alreadyExpanded = groupNode.getAttribute(\"data-expanded\") === \"true\";", js)
+        self.assertIn("collapseAllGroups(groupKey);", js)
+        self.assertIn("collapseAllGroups(\"\");", js)
+        self.assertIn("analysisChooserList.addEventListener(\"click\", (event) => {", js)
 
     def test_accordion_header_layout_places_arrow_opposite_label(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "justify-content:space-between;")
+        self.assertContains(resp, "/static/billing/css/provider_details.css")
         self.assertContains(resp, 'class="analysis-group-chevron"')
+        css = self._provider_details_css()
+        self.assertIn("justify-content:space-between;", css)
         html = resp.content.decode("utf-8")
         self.assertRegex(
             html,
@@ -254,9 +267,10 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
     def test_expanded_group_header_highlight_and_option_active_style_are_separate(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, ".analysis-group.is-expanded .analysis-group-toggle")
-        self.assertContains(resp, ".analysis-group.is-expanded .analysis-group-title")
-        self.assertContains(resp, ".analysis-option-btn.active")
+        css = self._provider_details_css()
+        self.assertIn(".analysis-group.is-expanded .analysis-group-toggle", css)
+        self.assertIn(".analysis-group.is-expanded .analysis-group-title", css)
+        self.assertIn(".analysis-option-btn.active", css)
 
     def test_totals_include_provider_vs_others_percentages(self):
         p1 = self._create_product(idx=1, name="منتج-1")
@@ -358,23 +372,23 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
 
         self.assertNotIn("products_preview", activities["latest-purchase"]["details"])
         self.assertNotIn("products_preview", activities["latest-return"]["details"])
-        self.assertContains(resp, "هوية العملية")
-        self.assertContains(resp, "الملخص")
-        self.assertContains(resp, "الإجماليات")
-        self.assertContains(resp, "رقم الفاتورة")
-        self.assertContains(resp, "رقم الإرجاع")
-        self.assertContains(resp, "التاريخ")
-        self.assertContains(resp, "عدد المنتجات")
-        self.assertContains(resp, "الحالة الحالية")
-        self.assertContains(resp, "إجمالي SYP")
-        self.assertContains(resp, "إجمالي USD")
-        self.assertContains(resp, "عرض العملية")
-        self.assertNotContains(resp, "الدفع عند الإنشاء")
-        self.assertNotContains(resp, "حالة الدفع عند الإنشاء")
-        self.assertNotContains(resp, "نوع الدفع")
-        self.assertNotContains(resp, 'analysis-detail-group-title">الدفع عند الإنشاء')
-
-        self.assertContains(resp, "لا يوجد رسم بياني لهذا العنصر")
+        js = self._provider_details_js()
+        self.assertIn("هوية العملية", js)
+        self.assertIn("الملخص", js)
+        self.assertIn("الإجماليات", js)
+        self.assertIn("رقم الفاتورة", js)
+        self.assertIn("رقم الإرجاع", js)
+        self.assertIn("التاريخ", js)
+        self.assertIn("عدد المنتجات", js)
+        self.assertIn("الحالة الحالية", js)
+        self.assertIn("إجمالي SYP", js)
+        self.assertIn("إجمالي USD", js)
+        self.assertIn("عرض العملية", js)
+        self.assertNotIn("الدفع عند الإنشاء", js)
+        self.assertNotIn("حالة الدفع عند الإنشاء", js)
+        self.assertNotIn("نوع الدفع", js)
+        self.assertNotIn('analysis-detail-group-title">الدفع عند الإنشاء', js)
+        self.assertIn("لا يوجد رسم بياني لهذا العنصر", js)
 
     def test_top_products_activity_returns_top_5_and_others_segment(self):
         products = []
@@ -418,8 +432,9 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(visits["visual_kind"], "bars-toggle")
         self.assertTrue(visits["visual"]["days"])
         self.assertTrue(visits["visual"]["times"])
-        self.assertIn("الأيام", resp.content.decode("utf-8"))
-        self.assertIn("الأوقات", resp.content.decode("utf-8"))
+        js = self._provider_details_js()
+        self.assertIn("الأيام", js)
+        self.assertIn("الأوقات", js)
 
     def test_net_balance_panel_is_below_analysis_and_button_disabled(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
