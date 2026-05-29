@@ -26,7 +26,6 @@
     <div>
       <h2 class="header-title">ملف المورد</h2>
       <p class="header-sub">عرض معلومات المورد وإحصاءاته بشكل ملخص وواضح</p>
-      <div id="provider-header-public-id" class="header-id">رقم المورد العام: {{ provider.public_id }}</div>
     </div>
     <a class="btn" href="{% url 'billing_providers' %}">رجوع إلى قائمة الموردين</a>
   </div>
@@ -35,7 +34,7 @@
     <div id="top-section-general-info" class="card top-box general-card">
       <h3 class="section-title">المعلومات العامة</h3>
       <div class="identity-grid">
-        <div class="info-box">
+        <div class="info-box info-box--provider-id">
           <div class="info-label">رقم المورد</div>
           <div id="provider-public-id" class="info-value">{{ provider.public_id }}</div>
         </div>
@@ -145,7 +144,7 @@
         <button id="save-notes-btn" type="submit" class="btn primary">حفظ الملاحظات</button>
       </div>
       {% if notes_saved %}
-        <div class="ok-msg">تم حفظ الملاحظات بنجاح</div>
+        <div id="notes-success-message" class="ok-msg">تم حفظ الملاحظات بنجاح</div>
       {% endif %}
     </form>
   </div>
@@ -165,7 +164,6 @@
     <div id="provider-analysis-panel" class="card analysis-panel">
       <div class="panel-head">
         <h3 class="section-title">تحليل تعاملات المورد</h3>
-        <p class="panel-subtitle">اختر النشاط من القائمة لمراجعة التفاصيل والتمثيل المرئي.</p>
       </div>
 
       <div id="provider-analysis-layout" class="analysis-layout">

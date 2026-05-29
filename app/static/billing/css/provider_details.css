@@ -105,6 +105,10 @@
     border-radius:10px;
     padding:10px;
   }
+  .info-box--provider-id{
+    background:#eff6ff;
+    border-color:#bfdbfe;
+  }
   .info-label{
     color:#6b7280;
     font-size:12px;

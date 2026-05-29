@@ -417,6 +417,7 @@
   const addPhoneForm = document.getElementById("phone-add-form");
   const addPhoneCancelBtn = document.getElementById("phone-add-cancel-btn");
   const phoneSuccessMessage = document.getElementById("phone-success-message");
+  const notesSuccessMessage = document.getElementById("notes-success-message");
 
   const deleteModal = document.getElementById("phone-delete-modal");
   const deleteConfirmBtn = document.getElementById("phone-delete-confirm-btn");
@@ -431,6 +432,11 @@
   if (phoneSuccessMessage) {
     window.setTimeout(() => {
       phoneSuccessMessage.remove();
+    }, 2000);
+  }
+  if (notesSuccessMessage) {
+    window.setTimeout(() => {
+      notesSuccessMessage.remove();
     }, 2000);
   }
 

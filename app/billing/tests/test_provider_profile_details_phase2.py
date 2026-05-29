@@ -169,6 +169,36 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "ملف المورد")
 
+    def test_provider_id_is_not_in_header_and_is_highlighted_in_general_info(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertNotContains(resp, 'id="provider-header-public-id"')
+
+        html = resp.content.decode("utf-8")
+
+        header_start = html.find('<div class="card header-card">')
+        top_grid_start = html.find('<div id="top-section-grid"')
+        self.assertGreaterEqual(header_start, 0)
+        self.assertGreaterEqual(top_grid_start, 0)
+        header_html = html[header_start:top_grid_start]
+        self.assertNotIn(self.provider.public_id, header_html)
+
+        general_info_start = html.find('<div id="top-section-general-info"')
+        phone_section_start = html.find('<div id="top-section-phone-numbers"')
+        self.assertGreaterEqual(general_info_start, 0)
+        self.assertGreaterEqual(phone_section_start, 0)
+        general_html = html[general_info_start:phone_section_start]
+
+        self.assertIn('class="info-box info-box--provider-id"', general_html)
+        self.assertIn("رقم المورد", general_html)
+        self.assertIn(f'id="provider-public-id" class="info-value">{self.provider.public_id}</div>', general_html)
+
+        css = self._provider_details_css()
+        self.assertIn(".info-box--provider-id", css)
+        self.assertIn("background:#eff6ff;", css)
+        self.assertIn("border-color:#bfdbfe;", css)
+
     def test_top_section_phone_and_notes_behavior_still_works(self):
         add_phone_resp = self.client.post(
             self._details_url(self.provider.public_id),
@@ -182,6 +212,25 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(notes_resp.status_code, 302)
         self.provider.refresh_from_db()
         self.assertEqual(self.provider.notes, notes_payload["notes"])
+
+    def test_notes_success_message_has_auto_hide_marker_and_timer(self):
+        notes_payload = {"action": "update_notes", "notes": "ملاحظة للحفظ مع إخفاء تلقائي"}
+        resp = self.client.post(self._details_url(self.provider.public_id), notes_payload, follow=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="notes-success-message"')
+        self.assertContains(resp, "تم حفظ الملاحظات بنجاح")
+
+        js = self._provider_details_js()
+        self.assertIn('const notesSuccessMessage = document.getElementById("notes-success-message");', js)
+        self.assertIn("if (notesSuccessMessage) {", js)
+        self.assertIn("notesSuccessMessage.remove();", js)
+        self.assertIn("}, 2000);", js)
+
+    def test_analysis_panel_instruction_text_is_removed_and_panel_still_renders(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "اختر النشاط من القائمة لمراجعة التفاصيل والتمثيل المرئي")
+        self.assertContains(resp, 'id="provider-analysis-panel"')
 
     def test_lower_page_has_two_main_panels_in_order(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
