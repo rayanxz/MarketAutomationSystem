@@ -50,6 +50,76 @@ def _ui_2dp(x: Decimal | None) -> Decimal:
         return DEC0
     return d.quantize(DEC2, rounding=ROUND_HALF_UP)
 
+
+def _net_tone(net: Decimal | None) -> str:
+    value = _ui_2dp(net)
+    if value > DEC0:
+        return "positive"
+    if value < DEC0:
+        return "negative"
+    return "neutral"
+
+
+def _net_arrow(net: Decimal | None) -> str:
+    tone = _net_tone(net)
+    if tone == "positive":
+        return "↑"
+    if tone == "negative":
+        return "↓"
+    return "•"
+
+
+def _net_status_label(net: Decimal | None) -> str:
+    value = _ui_2dp(net)
+    if value > DEC0:
+        return "المورد مدين للمتجر"
+    if value < DEC0:
+        return "المتجر مدين للمورد"
+    return "متوازن"
+
+
+def _build_provider_net_preview(*, details: dict[str, Any]) -> dict[str, Any]:
+    note = "القيمة تقريبية حسب سعر الصرف الحالي ولا تعني تنفيذ تسوية تلقائية"
+    preview = {
+        "fx_available": False,
+        "fx_syp_per_usd": None,
+        "note": note,
+        "unavailable_label": "لا يوجد سعر صرف متاح",
+        "syp": None,
+        "usd": None,
+    }
+
+    net_summary = details.get("net_summary", {}) or {}
+    syp_net = _ui_2dp((net_summary.get("syp", {}) or {}).get("net"))
+    usd_net = _ui_2dp((net_summary.get("usd", {}) or {}).get("net"))
+
+    try:
+        fx_value = _ui_2dp(FinSV.get_current_fx_syp_per_usd())
+    except Exception:
+        fx_value = DEC0
+
+    if fx_value <= DEC0:
+        return preview
+
+    preview_syp = _ui_2dp(syp_net + (usd_net * fx_value))
+    preview_usd = _ui_2dp(usd_net + (syp_net / fx_value))
+
+    preview["fx_available"] = True
+    preview["fx_syp_per_usd"] = fx_value
+    preview["syp"] = {
+        "amount": preview_syp,
+        "tone": _net_tone(preview_syp),
+        "arrow": _net_arrow(preview_syp),
+        "status_label": _net_status_label(preview_syp),
+    }
+    preview["usd"] = {
+        "amount": preview_usd,
+        "tone": _net_tone(preview_usd),
+        "arrow": _net_arrow(preview_usd),
+        "status_label": _net_status_label(preview_usd),
+    }
+    return preview
+
 from django.db.models import Sum , Q
 from stock.models import StockFifoLayer
 
@@ -289,6 +359,7 @@ def provider_details(request: HttpRequest, provider_ref: str) -> HttpResponse:
     provider_phone_numbers = list(
         provider.phone_numbers.only("id", "phone_number", "created_at").order_by("-created_at", "-id")
     )
+    net_preview = _build_provider_net_preview(details=details)
     return render(
         request,
         "billing/provider_details.html",
@@ -299,6 +370,7 @@ def provider_details(request: HttpRequest, provider_ref: str) -> HttpResponse:
             "provider_phone_numbers": provider_phone_numbers,
             "phone_saved_message": phone_saved_message,
             "phone_error_message": phone_error_message,
+            "net_preview": net_preview,
         },
     )
 

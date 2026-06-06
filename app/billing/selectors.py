@@ -273,6 +273,18 @@ def _build_overall_net_label(*, syp_net: Decimal, usd_net: Decimal, has_open_obl
     return "يوجد ذمم متبادلة بين المتجر والمورد"
 
 
+def _build_overall_net_tone(*, syp_net: Decimal, usd_net: Decimal, has_open_obligations: bool) -> str:
+    has_positive = (syp_net > DEC0) or (usd_net > DEC0)
+    has_negative = (syp_net < DEC0) or (usd_net < DEC0)
+    if has_positive and not has_negative:
+        return "positive"
+    if has_negative and not has_positive:
+        return "negative"
+    if (not has_positive) and (not has_negative):
+        return "neutral"
+    return "mixed"
+
+
 def _build_account_state_label(*, total_payable: Decimal, total_receivable: Decimal) -> str:
     if total_payable > DEC0 and total_receivable > DEC0:
         return "توجد ديون باتجاهين"
@@ -289,6 +301,22 @@ def _build_currency_net_label(*, net: Decimal) -> str:
     if net < DEC0:
         return "المتجر مدين للمورد"
     return "متوازن"
+
+
+def _build_currency_net_tone(*, net: Decimal) -> str:
+    if net > DEC0:
+        return "positive"
+    if net < DEC0:
+        return "negative"
+    return "neutral"
+
+
+def _build_currency_net_arrow(*, net: Decimal) -> str:
+    if net > DEC0:
+        return "↑"
+    if net < DEC0:
+        return "↓"
+    return "•"
 
 
 def _pick_latest_profile_activity(*activities: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1139,6 +1167,8 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
                 "open_payable_count": syp_open_payable_count,
                 "open_receivable_count": syp_open_receivable_count,
                 "status_label": _build_currency_net_label(net=syp_net),
+                "tone": _build_currency_net_tone(net=syp_net),
+                "arrow": _build_currency_net_arrow(net=syp_net),
                 "has_open_obligations": (syp_open_payable_count + syp_open_receivable_count) > 0,
             },
             "usd": {
@@ -1148,11 +1178,18 @@ def get_provider_profile_details(*, provider_id: int, top_items_limit: int = 10)
                 "open_payable_count": usd_open_payable_count,
                 "open_receivable_count": usd_open_receivable_count,
                 "status_label": _build_currency_net_label(net=usd_net),
+                "tone": _build_currency_net_tone(net=usd_net),
+                "arrow": _build_currency_net_arrow(net=usd_net),
                 "has_open_obligations": (usd_open_payable_count + usd_open_receivable_count) > 0,
             },
             "has_open_obligations": has_open_obligations,
             "balanced_with_open_obligations": (syp_net == DEC0 and usd_net == DEC0 and has_open_obligations),
             "overall_label": _build_overall_net_label(
+                syp_net=syp_net,
+                usd_net=usd_net,
+                has_open_obligations=has_open_obligations,
+            ),
+            "overall_tone": _build_overall_net_tone(
                 syp_net=syp_net,
                 usd_net=usd_net,
                 has_open_obligations=has_open_obligations,

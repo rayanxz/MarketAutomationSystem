@@ -32,6 +32,7 @@ from debts.models import (
     DebtStatus,
     OtherPartyType,
 )
+from financials import services as FinSV
 from financials.models import MoneyContainer
 
 
@@ -490,7 +491,8 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertEqual(resp.status_code, 200)
         html = resp.content.decode("utf-8")
         self.assertLess(html.find('id="provider-analysis-panel"'), html.find('id="provider-net-summary-panel"'))
-        self.assertContains(resp, 'id="btn-net-details" type="button" class="btn primary" disabled')
+        self.assertContains(resp, 'id="btn-net-details"')
+        self.assertContains(resp, 'disabled')
 
     def test_no_settlement_pay_receive_actions_exist(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
@@ -498,6 +500,10 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
         self.assertNotContains(resp, "pay_provider")
         self.assertNotContains(resp, "receive_from_provider")
         self.assertNotContains(resp, "/account-settlement")
+        self.assertNotContains(resp, ">دفع<", html=True)
+        self.assertNotContains(resp, ">تحصيل<", html=True)
+        self.assertNotContains(resp, ">تسوية<", html=True)
+        self.assertNotContains(resp, ">تنفيذ<", html=True)
 
     def test_arabic_ui_text_only(self):
         resp = self.client.get(self._details_url(self.provider.public_id))
@@ -542,10 +548,147 @@ class ProviderProfileDetailsPhase2Tests(TestCase):
 
         self.assertEqual(resp.status_code, 200)
         projection_mock.assert_called_once_with(provider_id=self.provider.id)
-        self.assertContains(resp, 'id="net-syp-payable"')
-        self.assertContains(resp, 'id="net-syp-receivable"')
-        self.assertContains(resp, 'id="net-usd-payable"')
-        self.assertContains(resp, 'id="net-usd-receivable"')
+        self.assertContains(resp, 'id="net-syp-net"')
+        self.assertContains(resp, 'id="net-usd-net"')
+        self.assertEqual(resp.context["details"]["net_summary"]["syp"]["net"], Decimal("50.00"))
+        self.assertEqual(resp.context["details"]["net_summary"]["usd"]["net"], Decimal("8.00"))
+
+    def test_net_summary_has_three_visual_groups(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="net-general-title"')
+        self.assertContains(resp, 'id="net-preview-title"')
+        self.assertContains(resp, 'id="net-details-title"')
+        self.assertContains(resp, "الملخص العام")
+        self.assertContains(resp, "خيارات التسوية")
+        self.assertContains(resp, "عرض تفاصيل صافي الحساب")
+
+    def test_net_summary_shows_syp_and_usd_net_values(self):
+        mocked_projection = {
+            "provider_id": self.provider.id,
+            "currencies": {
+                "SYP": {
+                    "receivable": Decimal("90.00"),
+                    "payable": Decimal("40.00"),
+                    "net": Decimal("50.00"),
+                    "open_receivable_count": 2,
+                    "open_payable_count": 1,
+                },
+                "USD": {
+                    "receivable": Decimal("1.00"),
+                    "payable": Decimal("5.00"),
+                    "net": Decimal("-4.00"),
+                    "open_receivable_count": 1,
+                    "open_payable_count": 2,
+                },
+            },
+            "diagnostics": {
+                "dedup_warnings": [],
+                "unresolved_identities": [],
+            },
+        }
+
+        with patch("billing.selectors.get_provider_net_position", return_value=mocked_projection):
+            resp = self.client.get(self._details_url(self.provider.public_id))
+
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertRegex(html, r'id="net-syp-net">50[,.]00</strong>')
+        self.assertRegex(html, r'id="net-usd-net">-4[,.]00</strong>')
+
+    def test_sign_meaning_labels_and_arrow_markers_render_in_arabic(self):
+        mocked_projection = {
+            "provider_id": self.provider.id,
+            "currencies": {
+                "SYP": {
+                    "receivable": Decimal("10.00"),
+                    "payable": Decimal("0.00"),
+                    "net": Decimal("10.00"),
+                    "open_receivable_count": 1,
+                    "open_payable_count": 0,
+                },
+                "USD": {
+                    "receivable": Decimal("0.00"),
+                    "payable": Decimal("7.00"),
+                    "net": Decimal("-7.00"),
+                    "open_receivable_count": 0,
+                    "open_payable_count": 1,
+                },
+            },
+            "diagnostics": {
+                "dedup_warnings": [],
+                "unresolved_identities": [],
+            },
+        }
+
+        with patch("billing.selectors.get_provider_net_position", return_value=mocked_projection):
+            resp = self.client.get(self._details_url(self.provider.public_id))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "المورد مدين للمتجر")
+        self.assertContains(resp, "المتجر مدين للمورد")
+        self.assertContains(resp, 'id="net-syp-arrow"')
+        self.assertContains(resp, 'id="net-usd-arrow"')
+        self.assertContains(resp, 'net-balance-arrow--positive')
+        self.assertContains(resp, 'net-balance-arrow--negative')
+        html = resp.content.decode("utf-8")
+        self.assertIn("↑", html)
+        self.assertIn("↓", html)
+
+    def test_settlement_preview_is_informational_only_and_shows_fx_note(self):
+        FinSV.set_current_fx(actor=self.manager, rate_syp_per_usd=Decimal("15000"))
+
+        mocked_projection = {
+            "provider_id": self.provider.id,
+            "currencies": {
+                "SYP": {
+                    "receivable": Decimal("100.00"),
+                    "payable": Decimal("0.00"),
+                    "net": Decimal("100.00"),
+                    "open_receivable_count": 1,
+                    "open_payable_count": 0,
+                },
+                "USD": {
+                    "receivable": Decimal("2.00"),
+                    "payable": Decimal("0.00"),
+                    "net": Decimal("2.00"),
+                    "open_receivable_count": 1,
+                    "open_payable_count": 0,
+                },
+            },
+            "diagnostics": {
+                "dedup_warnings": [],
+                "unresolved_identities": [],
+            },
+        }
+
+        with patch("billing.selectors.get_provider_net_position", return_value=mocked_projection):
+            resp = self.client.get(self._details_url(self.provider.public_id))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "عرض معلوماتي فقط")
+        self.assertContains(resp, "القيمة تقريبية حسب سعر الصرف الحالي ولا تعني تنفيذ تسوية تلقائية")
+        self.assertContains(resp, 'id="net-preview-syp-value"')
+        self.assertContains(resp, 'id="net-preview-usd-value"')
+        self.assertContains(resp, 'id="net-preview-fx-rate"')
+        self.assertContains(resp, "سعر الصرف الحالي")
+        self.assertContains(resp, "الليرة السورية")
+        self.assertContains(resp, "الدولار الأمريكي")
+
+    def test_preview_shows_missing_fx_message_when_rate_is_unavailable(self):
+        with patch("billing.views.FinSV.get_current_fx_syp_per_usd", side_effect=ValueError("missing fx")):
+            resp = self.client.get(self._details_url(self.provider.public_id))
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "لا يوجد سعر صرف متاح")
+        self.assertNotContains(resp, 'id="net-preview-fx-rate"')
+
+    def test_details_button_stays_disabled_with_helper_text(self):
+        resp = self.client.get(self._details_url(self.provider.public_id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="btn-net-details"')
+        self.assertContains(resp, 'disabled')
+        self.assertContains(resp, "سيتم فتح صفحة تفاصيل صافي الحساب لاحقاً")
 
     def test_providers_list_shows_latest_added_phone_only(self):
         self.provider.phone = ""

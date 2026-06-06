@@ -222,32 +222,97 @@
     <div id="provider-net-summary-panel" class="card account-block">
       <div class="account-head">
         <h3 class="section-title">ملخص صافي حساب المورد</h3>
-        <div class="net-badge" id="net-overall-label">{{ details.net_summary.overall_label }}</div>
+        <div class="net-badge net-badge--{{ details.net_summary.overall_tone }}" id="net-overall-label">{{ details.net_summary.overall_label }}</div>
       </div>
 
-      <div class="net-currency-grid">
-        <div class="net-currency-card" id="net-syp-card">
-          <div class="net-currency-title">الليرة السورية</div>
-          <div class="net-row"><span>مستحق للمورد</span><strong id="net-syp-payable">{{ details.net_summary.syp.payable|floatformat:2 }}</strong></div>
-          <div class="net-row"><span>مستحق على المورد</span><strong id="net-syp-receivable">{{ details.net_summary.syp.receivable|floatformat:2 }}</strong></div>
-          <div class="net-row"><span>الصافي</span><strong id="net-syp-net">{{ details.net_summary.syp.net|floatformat:2 }}</strong></div>
-          <div class="net-state">{{ details.net_summary.syp.status_label }}</div>
-        </div>
+      <div class="net-summary-layout">
+        <section class="net-group net-group--general" aria-labelledby="net-general-title">
+          <div class="net-group-head">
+            <h4 id="net-general-title" class="net-group-title">الملخص العام</h4>
+          </div>
+          <div class="net-state-block">
+            <span class="net-state-label">حالة الحساب</span>
+            <div class="net-state-chip net-state-chip--{{ details.net_summary.overall_tone }}" id="net-overall-state">{{ details.net_summary.overall_label }}</div>
+          </div>
+          <div class="net-balance-list">
+            <article class="net-balance-item net-balance-item--{{ details.net_summary.syp.tone }}" id="net-syp-card">
+              <div class="net-balance-copy">
+                <div class="net-balance-title">صافي الليرة السورية</div>
+                <div class="net-balance-status" id="net-syp-status">{{ details.net_summary.syp.status_label }}</div>
+              </div>
+              <div class="net-balance-value-wrap">
+                <span class="net-balance-arrow net-balance-arrow--{{ details.net_summary.syp.tone }}" id="net-syp-arrow" aria-hidden="true">{{ details.net_summary.syp.arrow }}</span>
+                <strong class="net-balance-value" id="net-syp-net">{{ details.net_summary.syp.net|floatformat:2 }}</strong>
+              </div>
+            </article>
 
-        <div class="net-currency-card" id="net-usd-card">
-          <div class="net-currency-title">الدولار الأمريكي</div>
-          <div class="net-row"><span>مستحق للمورد</span><strong id="net-usd-payable">{{ details.net_summary.usd.payable|floatformat:2 }}</strong></div>
-          <div class="net-row"><span>مستحق على المورد</span><strong id="net-usd-receivable">{{ details.net_summary.usd.receivable|floatformat:2 }}</strong></div>
-          <div class="net-row"><span>الصافي</span><strong id="net-usd-net">{{ details.net_summary.usd.net|floatformat:2 }}</strong></div>
-          <div class="net-state">{{ details.net_summary.usd.status_label }}</div>
-        </div>
+            <article class="net-balance-item net-balance-item--{{ details.net_summary.usd.tone }}" id="net-usd-card">
+              <div class="net-balance-copy">
+                <div class="net-balance-title">صافي الدولار الأمريكي</div>
+                <div class="net-balance-status" id="net-usd-status">{{ details.net_summary.usd.status_label }}</div>
+              </div>
+              <div class="net-balance-value-wrap">
+                <span class="net-balance-arrow net-balance-arrow--{{ details.net_summary.usd.tone }}" id="net-usd-arrow" aria-hidden="true">{{ details.net_summary.usd.arrow }}</span>
+                <strong class="net-balance-value" id="net-usd-net">{{ details.net_summary.usd.net|floatformat:2 }}</strong>
+              </div>
+            </article>
+          </div>
+          {% if details.net_summary.balanced_with_open_obligations %}
+            <p id="net-open-warning" class="net-warning">صافي الحساب متوازن لكن توجد ديون مفتوحة</p>
+          {% endif %}
+        </section>
+
+        <section class="net-group net-group--preview" aria-labelledby="net-preview-title">
+          <div class="net-group-head">
+            <h4 id="net-preview-title" class="net-group-title">خيارات التسوية</h4>
+            <span class="net-group-badge">عرض معلوماتي فقط</span>
+          </div>
+          <div class="net-preview-box">
+            <input class="net-preview-radio" type="radio" name="net-preview-currency" id="net-preview-currency-syp" checked>
+            <input class="net-preview-radio" type="radio" name="net-preview-currency" id="net-preview-currency-usd">
+
+            <div class="net-preview-toggle" role="tablist" aria-label="اختيار عملة العرض">
+              <label class="net-preview-toggle-option" for="net-preview-currency-syp">الليرة السورية</label>
+              <label class="net-preview-toggle-option" for="net-preview-currency-usd">الدولار الأمريكي</label>
+            </div>
+
+            {% if net_preview.fx_available %}
+              <div class="net-preview-panels">
+                <div class="net-preview-panel net-preview-panel--syp">
+                  <div class="net-preview-caption">إجمالي تقريبي بالليرة السورية</div>
+                  <div class="net-preview-value-wrap net-preview-value-wrap--{{ net_preview.syp.tone }}">
+                    <span class="net-balance-arrow net-balance-arrow--{{ net_preview.syp.tone }}" id="net-preview-syp-arrow" aria-hidden="true">{{ net_preview.syp.arrow }}</span>
+                    <strong class="net-preview-value" id="net-preview-syp-value">{{ net_preview.syp.amount|floatformat:2 }}</strong>
+                  </div>
+                  <div class="net-preview-status" id="net-preview-syp-status">{{ net_preview.syp.status_label }}</div>
+                </div>
+
+                <div class="net-preview-panel net-preview-panel--usd">
+                  <div class="net-preview-caption">إجمالي تقريبي بالدولار الأمريكي</div>
+                  <div class="net-preview-value-wrap net-preview-value-wrap--{{ net_preview.usd.tone }}">
+                    <span class="net-balance-arrow net-balance-arrow--{{ net_preview.usd.tone }}" id="net-preview-usd-arrow" aria-hidden="true">{{ net_preview.usd.arrow }}</span>
+                    <strong class="net-preview-value" id="net-preview-usd-value">{{ net_preview.usd.amount|floatformat:2 }}</strong>
+                  </div>
+                  <div class="net-preview-status" id="net-preview-usd-status">{{ net_preview.usd.status_label }}</div>
+                </div>
+              </div>
+              <div class="net-preview-fx" id="net-preview-fx-rate">سعر الصرف الحالي: 1 دولار أمريكي = {{ net_preview.fx_syp_per_usd|floatformat:2 }} ليرة سورية</div>
+            {% else %}
+              <div class="net-preview-unavailable" id="net-preview-fx-missing">{{ net_preview.unavailable_label }}</div>
+            {% endif %}
+
+            <p class="net-preview-note" id="net-preview-note">{{ net_preview.note }}</p>
+          </div>
+        </section>
+
+        <section class="net-group net-group--details" aria-labelledby="net-details-title">
+          <div class="net-group-head">
+            <h4 id="net-details-title" class="net-group-title">عرض تفاصيل صافي الحساب</h4>
+          </div>
+          <p class="net-details-helper">سيتم فتح صفحة تفاصيل صافي الحساب لاحقاً</p>
+          <button id="btn-net-details" type="button" class="btn primary net-details-btn" disabled>عرض تفاصيل صافي الحساب</button>
+        </section>
       </div>
-
-      {% if details.net_summary.balanced_with_open_obligations %}
-        <p id="net-open-warning" class="net-warning">صافي الحساب متوازن لكن توجد ديون مفتوحة</p>
-      {% endif %}
-
-      <button id="btn-net-details" type="button" class="btn primary" disabled>عرض تفاصيل صافي الحساب</button>
     </div>
   </div>
 
